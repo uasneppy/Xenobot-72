@@ -282,7 +282,9 @@ func (s warnSource) deletionKind() string {
 // warnThisUser warns userID in the update's chat and posts the warning (or, at the limit, the
 // limit message). The warning goes through the event message engine (postEvent): a group's stored warn
 // message replaces the default, keeping the bot's Remove warn row last (D-05), Silent posts nothing,
-// and with nothing stored the default is today's request byte for byte. source picks the deletion kind,
+// and with nothing stored the default is today's request byte for byte. The limit message is the warn
+// limit event when the limit action took effect; a stored mode the code applies nothing for keeps
+// today's reply (warnPostLimit). source picks the deletion kind,
 // the actor ({admin}: the issuer of /warn, /dwarn and /swarn, "an admin" for an automatic warn) and
 // whether an automatic rule raised it.
 func (moduleStruct) warnThisUser(b *gotgbot.Bot, ctx *ext.Context, userId int64, reason, warnType string, source warnSource) (err error) {
@@ -331,9 +333,13 @@ func (moduleStruct) warnThisUser(b *gotgbot.Bot, ctx *ext.Context, userId int64,
 		return res.LimitErr
 	}
 
-	if res.LimitReached {
+	switch {
+	case res.LimitApplied:
+		err = postEvent(warnSite(b, ctx, tr, source), warnLimitEventReply(tr, msg.MessageId, u, reason, res))
+	case res.LimitReached:
+		// A stored mode the code applies nothing for (tban, tmute, empty) is not an event: today's reply.
 		err = warnPostLimit(b, chat, msg, tr, u, res, source)
-	} else {
+	default:
 		err = postEvent(warnSite(b, ctx, tr, source), warnEventReply(b, chat, msg.MessageId, tr, u, reason, res))
 	}
 	if err != nil {
@@ -397,6 +403,24 @@ func warnEventReply(b *gotgbot.Bot, chat *gotgbot.Chat, replyTo int64, tr *i18n.
 		Opts:         opts,
 		KeepRows:     [][]gotgbot.InlineKeyboardButton{{removeWarn}},
 		KeepRowsLast: true,
+	}
+}
+
+// warnLimitEventReply is the warn limit event of a limit action that took effect: the default built by
+// warnLimitDefaultReply (the limit action's text with the count, the limit and the stored reasons, an
+// empty keyboard) with the reply to the triggering message, and the values a custom text fills: the
+// reason of the warn that reached the limit, the count, the limit and the translated word of the limit
+// action. KeepRows stays nil: the default has no bot row, so a custom message has none either (D-15).
+func warnLimitEventReply(tr *i18n.Translator, replyTo int64, u gotgbot.User, reason string, res warnApplyResult) eventReply {
+	in := eventDefaultInput{Target: u, Count: res.Count, Limit: res.Limit, Action: res.Mode, Reasons: res.Reasons}
+	text, opts := warnLimitDefaultReply(tr, in)
+	opts.ReplyParameters = &gotgbot.ReplyParameters{MessageId: replyTo, AllowSendingWithoutReply: true}
+	return eventReply{
+		Event:   eventmsg.EventWarnLimit,
+		Target:  u,
+		Values:  eventValues{Reason: reason, Count: res.Count, Limit: res.Limit, Action: eventActionWord(tr, res.Mode)},
+		Default: text,
+		Opts:    opts,
 	}
 }
 

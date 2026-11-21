@@ -3610,8 +3610,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   row, Remove warn and the Rules button while the group's rules are set, plus the reply to the triggering message; the
   values reason, count and limit; `KeepRows` the Remove warn row alone with `KeepRowsLast`, so a custom warn keeps Remove
   warn last and drops the default's Rules button unless its text has `{rules}`, D-05, D-15) and posts through `postEvent`.
-  A Silent warn stores the warn and posts nothing (no Remove warn button, admins use `/rmwarn`). The warn limit keeps
-  today's send (`warnPostLimit`) until plan 23-04. `{action}` is a translated word in the group's language,
+  A Silent warn stores the warn and posts nothing (no Remove warn button, admins use `/rmwarn`). The warn limit (plan
+  23-04, the `warnlimit` event) goes through the same `warnSite` only when the limit action took effect
+  (`res.LimitApplied`): `warnLimitEventReply` builds the default with `warnLimitDefaultReply` (the mode word, the count,
+  the limit and the stored reasons, an empty keyboard) plus the reply to the triggering message, the values the reason of
+  the warn that reached the limit, the count, the limit and `eventActionWord(tr, res.Mode)`, and no kept row (the default
+  has none, so a custom message has no bot row, D-15); the warns are reset before it posts, and a Silent warn limit posts
+  and queues nothing while the limit action and the reset still happen. A stored mode the code applies nothing for
+  (`tban`, `tmute`, empty: `LimitReached` without `LimitApplied`) is not an event and keeps today's send exactly
+  (`warnPostLimit`, D-10), and a refused limit action posts nothing as before. `{action}` is a translated word in the group's language,
   `eventActionWord(tr, action)` (`event_message_auto.go`): `eventmsg_action_warn`, `_mute`, `_kick` and `_ban`, short
   participles that read after the member's name or after a label, and the empty string for any other action (an inert
   mode); the warn fills it with the warn word. The flood's `{reason}` will be `floodEventReason(tr)`
@@ -3626,7 +3633,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   name and `Reason` spliced unescaped, `formatting.Shtml()`). The last three have no production caller until the Messages
   page (plan 23-03) and the sites switch (plans 23-04 and 23-05). `warnThisUser` logs a send error and returns it as before
   (`TestLegacyPunishmentNoticeRequests` pins every warn byte for a group with nothing stored, `TestEventMessageWarn` the
-  custom warn).
+  custom warn, `TestEventMessageWarnLimit` in `event_message_auto_sites_test.go` the custom warn limit, the automatic one,
+  the inert mode and Silent).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
