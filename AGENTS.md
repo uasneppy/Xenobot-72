@@ -5298,7 +5298,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settings_edit_*_test.go` and `settings_input*_test.go`; the typed reply is the sixth door of `TestSettingsGateAllDoors`.
   `TestSettingsEditScreensFitEveryLocale` (`settings_edit_screens_test.go`, whose `settingsEditScreens` builds every
   non-page editor screen and is also what `TestSettingsStaffPrivacy` renders) holds them to 3800 UTF-16 units and 64-byte
-  buttons with a 64-rune title. `RealLocale` installs the real locale files through `i18n.OverrideManagerLanguagesForTest`, because the test binary
+  buttons with a 64-rune title. It draws the editor page in every state under the longest notice and every notice once over
+  the fullest state, because a notice is spliced in whole and changes neither the body nor the keyboard, so the longest
+  pair is the worst case; `TestSettingsStaffPrivacy` draws its own editor sweep the same way. `RealLocale` installs the real locale files through `i18n.OverrideManagerLanguagesForTest`, because the test binary
   has no locale manager of its own. `OverrideManagerForTest` and `OverrideManagerLanguagesForTest` keep one manager per distinct
   set of YAML texts (a SHA-256 of the codes and texts) and install it again on a repeat, and `withStaffLocale` builds its
   marker locale once per binary, because parsing the locale files costs about a second under `-race` and `fuku/modules`

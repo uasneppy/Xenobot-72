@@ -48,8 +48,9 @@ func settingsEditRefusalReasons(tr *i18n.Translator) map[string]string {
 // settingsEditScreens renders every non-page screen of the message editor for view, through the
 // functions the code sends them with: the waiting prompt of every part (replaced or not), each
 // refusal reply of the typed-reply door with its Cancel button, the saved page with every note, the
-// wait-ended reply of every part, the editor page under every notice an action can put on it, and the
-// plain replies and alerts. The keys are descriptive and unique.
+// wait-ended reply of every part, the editor page under every notice an action can put on it (every
+// state under the longest notice, every notice over the fullest state), and the plain replies and
+// alerts. The keys are descriptive and unique.
 func settingsEditScreens(tr *i18n.Translator, view settingsView) map[string]settingsScreen {
 	screens := map[string]settingsScreen{}
 	plain := func(name, text string) { screens[name] = settingsScreen{Text: text} }
@@ -67,25 +68,40 @@ func settingsEditScreens(tr *i18n.Translator, view settingsView) map[string]sett
 	}
 
 	for _, def := range settingsEditPages {
-		for stateName, st := range settingsEditCallbackStates(def) {
-			// The page under each notice an action or the door puts on it.
-			for _, key := range []string{
-				"settings_edit_cancelled", "settings_edit_group_note", "settings_edit_nothing_to_remove",
-				"common_settings_save_failed", "settings_edit_below_unavailable", "settings_edit_removed_media", "settings_edit_removed_buttons",
-				"settings_edit_removed_text_default", "settings_edit_removed_text_rules",
-			} {
-				notice := settingsNoticeWarn(settingsText(tr, key))
-				screens[fmt.Sprintf("page %s %s %s", def.Key, stateName, key)] = renderSettingsEditor(view, def, st, opts(notice))
-			}
-			// The saved page, with and without the caption and album notes.
-			for _, part := range def.Parts {
-				for _, caption := range []bool{false, true} {
-					for _, album := range []bool{false, true} {
-						notice := settingsInputSavedNotice(tr, part.Code, caption, album)
-						name := fmt.Sprintf("saved %s %s %s caption=%v album=%v", def.Key, part.Code, stateName, caption, album)
-						screens[name] = renderSettingsEditor(view, def, st, opts(notice))
-					}
+		// The notices an action or the door puts on the page, and the saved page's notes with and
+		// without the caption and album lines, keyed by the screen name they are drawn under.
+		notices := map[string]string{}
+		for _, key := range []string{
+			"settings_edit_cancelled", "settings_edit_group_note", "settings_edit_nothing_to_remove",
+			"common_settings_save_failed", "settings_edit_below_unavailable", "settings_edit_removed_media", "settings_edit_removed_buttons",
+			"settings_edit_removed_text_default", "settings_edit_removed_text_rules",
+		} {
+			notices["page %s %s "+key] = settingsNoticeWarn(settingsText(tr, key))
+		}
+		for _, part := range def.Parts {
+			for _, caption := range []bool{false, true} {
+				for _, album := range []bool{false, true} {
+					name := fmt.Sprintf("saved %%s %s %%s caption=%v album=%v", part.Code, caption, album)
+					notices[name] = settingsInputSavedNotice(tr, part.Code, caption, album)
 				}
+			}
+		}
+		// A notice is spliced into the page whole (settingsCompose) and changes neither the body nor
+		// the keyboard, so a page's length is its state's plus its notice's: every state is drawn under
+		// the longest notice, and every notice once over the fullest state.
+		longest := ""
+		for name, notice := range notices {
+			if longest == "" || panelUTF16Len(notice) > panelUTF16Len(notices[longest]) ||
+				(panelUTF16Len(notice) == panelUTF16Len(notices[longest]) && name < longest) {
+				longest = name
+			}
+		}
+		for stateName, st := range settingsEditCallbackStates(def) {
+			for name, notice := range notices {
+				if name != longest && stateName != "all set" {
+					continue
+				}
+				screens[fmt.Sprintf(name, def.Key, stateName)] = renderSettingsEditor(view, def, st, opts(notice))
 			}
 		}
 		for _, part := range def.Parts {
