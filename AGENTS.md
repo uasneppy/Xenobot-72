@@ -5657,6 +5657,24 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   Details token forbidden in a line; `TestSettingsStaffPrivacy` renders the private texts through `settingsPrivacyPhase22Screens` and runs
   `settingsPrivacyPhase22Run` (a private menu of an administrator who is not the creator through both options, the event screen, the private
   copy screen, a typed private text, the switch and a Full preview).
+  `TestPMCopiesEndToEnd` (`pm_copies_e2e_test.go`, plan 22-09, about 7 s) is the phase's end-to-end proof through the real dispatcher with
+  only Telegram faked, one environment per subtest on the toolkit `pmCopiesE2E` (`newPMCopiesE2E(t, real)`: Phase 21's `messagesE2E` with
+  `withFastPMCopyPacer`, `eventPMCleanup` and every job awaited; `openPM`, `openHub`, `switchPM`, `tapOption`, `setPMPart`, `startDeepLink`,
+  `privateSends`, `detailsEdits`, `logLines`, `linkLogChannel`, and `messagesE2EClient.allow`, which lets a refused member's sends through
+  again once they started the bot). Every page step is a press of a button the bot drew and every part a typed private message.
+  Subtests: `owner sets a private copy` (the typed text and the switch from the page, the hub's one private copy mark, `/ban spam <b>`
+  posts the golden reply and then one private message with the filled, escaped text and no keyboard), `previews` (Full preview of the
+  private copy reaches the owner alone, named as the member, with the sample reason), `default text` (`/tmute 30m` with nothing stored
+  sends the default private text in the group's language, Spanish here, with the end in the group's zone), `not started` (a 403 member,
+  Details and Log on from the hub: the group reply gains the Details button after the Unban row, one `#PM_COPY` line names the member, the
+  member's real `/start pmcopy_<token>` shows the stored copy and another member's gets only `eventmsg_pm_details_none`), `refused custom`
+  (a refused photo copy is replaced by the default private text once), `group silent` (a silent group event still sends the copy, and a
+  blocked copy then adds no button and stores no record), `silent variants` (`/sban`, `/skick` send no copy), `rights` (without
+  `can_change_info` the private copy screen and its Full preview work, while Set, Remove, the switch and both options are the
+  `settings_no_change_info` alert with nothing stored, and a demoted sender's typed text stores nothing), `staff group action` (a staff
+  `/ban` fan-out to a linked group whose ban copy is on bans and sends the target nothing), `two replicas` (the switch turned off on one
+  replica stops the next copy on the other) and `no redis` (the switch and the option work, a manual copy is sent, a blocked copy adds no
+  Details button). The `owner sets` and `default text` subtests use the real locales; the others the marker locale.
 
 ## Commits
 
