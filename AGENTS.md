@@ -2889,9 +2889,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `eventmsg.ValidEvent` and `eventmsg.ValidDest` (`fuku/db/eventmsg/events.go`: today the seven manual events `ban`,
   `tban`, `kick`, `mute`, `tmute`, `unban`, `unmute`, then the five automatic events of Phase 23, `warn`
   (`EventWarn`), `warnlimit` (`EventWarnLimit`), `flood` (`EventFlood`), `blacklist` (`EventBlacklist`) and `fwdblock`
-  (`EventForwardBlock`), in that order in `Events`, and the destinations `group` and `pm`, the private copy sent to the
-  punished person, Phase 22) and never by a CHECK, so Phase 23 added its five with no migration and Phases 24 and 25 add
-  theirs the same way; an unknown one is `ErrUnknownEvent` or `ErrUnknownDest` before any write. It is read through `cache.GetFromCacheOrLoad` as one
+  (`EventForwardBlock`), in that order in `Events`, then Phase 24's screening notices, `captcha` (`EventCaptcha`, the notice
+  of a failed captcha), and the destinations `group` and `pm`, the private copy sent to the
+  punished person, Phase 22) and never by a CHECK, so Phases 23 and 24 added theirs with no migration and Phase 25 adds
+  its own the same way; an unknown one is `ErrUnknownEvent` or `ErrUnknownDest` before any write. It is read through `cache.GetFromCacheOrLoad` as one
   `eventmsg.Messages` per chat (a map keyed `event|dest`, `Lookup(event, dest)`, plus the chat's `Options`, read from
   `chat_event_message_options` below) under `event_messages:<chat>` (`eventmsg.Get`; `eventmsg.GetFresh` is the same two
   queries without the cache, for the settings page), a read creates nothing and a failed read of either table is returned,
@@ -3662,6 +3663,29 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   a refused custom message, `TestEventMessageBlacklist` a custom ban, a sender chat's ban, the warn action as the warn
   event and nothing stored, `TestEventMessageForwardBlock` a stored text with every placeholder that names neither a
   sentinel source nor a sentinel Staff Group, and one real forward through the watcher).
+  Since Phase 24 (plan 24-02, D-24) `eventSite` has optional hooks whose zero value is every earlier site's behaviour:
+  `SendCustom func(media.GreetingMessage) (*gotgbot.Message, error)` sends a composed custom message (nil:
+  `media.SendGreetingMessage` to the site's chat) and `Schedule func(*gotgbot.Message)` takes what the group step posted,
+  default or custom alike, even a nil message (nil: `scheduleBotMessage(sent, site.Kind)`); `postEventGroup` and
+  `sendDefaultPost` call them through `site.sendCustom` and `site.schedule`. `postEventSent(site, r) (eventGroupPost, error)` is
+  the whole post (the read, the group step, the private copy offer) and returns what the group step posted; `postEvent` wraps it
+  and returns only the error. The failed captcha (EVT-04, the `captcha` event) is the first screening site:
+  `handleCaptchaTimeout` keeps every step up to the failure action (the claim, the challenge delete, the live `getChatMember`,
+  now read as the member's names and username with `{Id, FirstName: "User"}` on an error, the action and its settle) and then
+  calls only `postCaptchaFailureNotice(bot, chatID, tr, target, action, stored)` (`event_message_auto.go`; `captcha.go`
+  names no engine identifier and no deletion producer). Its site is a supergroup chat whose title is the stored `chats` row
+  (`chats.GetChatSettings`, no Telegram call), no actor ("an admin"), no reply and no topic, no kind, `Automatic`, the
+  default through `helpers.SendMessageWithErrorHandling` with `captchaFailureDefaultReply`'s options (the HTML parse mode
+  alone) and `Schedule` `captchaFailureNoticeDelete`, the in-process `time.AfterFunc` delete after
+  `captchaFailureNoticeLife` (30 s, a variable for tests) with its panic recovery, so the notice, custom or default, never
+  enters the deletion queue (DEL-07). `captchaFailureDefaultReply` returns `buildCaptchaFailureMessage`'s text (the mention
+  of the first name, `User` when empty, and the held count) byte for byte; the values are `{action}` the failure action's
+  word, `{count}` the held messages and, for a mute, `{until}` the end of the 24 hour mute. The timer, the cleanup tick,
+  restart recovery and the web check's `Fail` and `Expire` all reach `handleCaptchaTimeout`, so one site covers the timeout
+  and a failed web check, and their claimed and applied results are unchanged (`TestEventMessageCaptcha` in
+  `event_message_screening_test.go`: the timer with a custom text and two held messages, its self-delete and no queue row with
+  every bot kind at 60 s, a failed web check with a custom text, nothing stored, a refused custom message replaced by the
+  golden default, Silent).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
@@ -3887,7 +3911,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   take as well: an approved member, or a group that turned the captcha off, is released and unmuted (no removal is
   reported, the answer is the neutral `invalid`), and everyone else gets the group's failure action through
   `handleCaptchaTimeout` (kick is one member-removing `unbanChatMember`, ban a `banChatMember`, mute the 24 h mute), the
-  challenge message is deleted, the failure notice is posted and the answer is `failed` with the action. Every other
+  challenge message is deleted, the failure notice is posted (since Phase 24 through the event engine,
+  `postCaptchaFailureNotice`, so a group's custom captcha message applies to a failed web check too; the engine's one read
+  is bounded by `eventMessageReadTimeout` and cached, and the answer, the claim and the action are unchanged) and the
+  answer is `failed` with the action. Every other
   answer is a retry and kicks nobody: a transport error, timeout, redirect (never followed, whatever transport the client has), 5xx, a body that does not parse or is over
   64 KiB, `internal-error`, `bad-request`, `missing-input-response`, an unknown or empty code list, a secret error
   (`missing-input-secret`, `invalid-input-secret`) and a hostname or action that does not match. The secret errors and the
@@ -5888,7 +5915,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`bot:punish_auto`, 600 s), plus aispam's delete verdict, which deletes the message and posts nothing in the group, in Ukrainian with
   the real locales. The requirement member, the hold and the chat are replaced by `<user>`, `<hold>` and `<chat>`. Its toolkit
   (`newScreenGoldenSite`, `newScreenGoldenMreqEnv`, `screenGoldenReqMember`, `screenGoldenTokens`, `screenGoldenCaptcha`,
-  `screenGoldenWantAction`) is reused by name and the file is never edited.
+  `screenGoldenWantAction`) is reused by name and the file is never edited. `TestEventMessageCaptcha`
+  (`event_message_screening_test.go`, toolkit `eventMsgCaptchaSite`: the screening site with captcha on and every bot kind at
+  60 s) holds the captcha site: a custom text through the timer and through a failed web check, the 30 second self-delete
+  shortened through `captchaFailureNoticeLife`, nothing stored, a refused custom message and Silent.
 
 ## Commits
 

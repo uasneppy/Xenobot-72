@@ -16,10 +16,10 @@ import (
 // TestPMCopyCallers holds PMSG-05 structurally (D-04, D-33): a lockdown's joiner bans, "Ban N recent
 // joiners" and every Staff Group action must never send a private copy, so no raid-scale or staff path
 // may reach the private copy engine. It parses every non-test file of the package and compares the
-// files that use offerEventPM, registerEventPM and postEvent (any reference but the declaration itself)
-// with the allow-lists below, and it fails when a file whose base name starts with staff, lockdown or raid
-// names offerEventPM, registerEventPM, offerReplyPM, replyEvent, postEvent or any identifier starting with
-// pmCopy.
+// files that use offerEventPM, registerEventPM, postEvent and postEventSent (any reference but the
+// declaration itself) with the allow-lists below, and it fails when a file whose base name starts with staff,
+// lockdown or raid names offerEventPM, registerEventPM, offerReplyPM, replyEvent, postEvent, postEventSent or
+// any identifier starting with pmCopy.
 // Each allow-list entry carries the reason the file may use the engine, and an entry no longer found
 // fails, so the lists stay exact. A later phase that gives its events a private copy adds its caller
 // here with a reason, never a staff, lockdown or raid file.
@@ -38,10 +38,16 @@ func TestPMCopyCallers(t *testing.T) {
 			"blacklists.go":    "the blacklist watcher posts its notice (blacklistNotice) after the mute, kick or ban",
 			"forwardblock_notice.go": "the forward blocklist's notice of the linked group, after its mute, kick or ban; " +
 				"the watcher reaches the engine only through this non-staff file and warns.go (D-30)",
+			"event_message_auto.go": "postCaptchaFailureNotice posts the captcha failure's notice after the failure action, " +
+				"for captcha.go, which stays free of the engine",
+		},
+		"postEventSent": {
+			"event_message.go": "postEvent wraps it; a site that needs what the group step posted calls it after the punishment",
 		},
 	}
 	forbiddenNames := map[string]bool{
 		"offerEventPM": true, "registerEventPM": true, "offerReplyPM": true, "replyEvent": true, "postEvent": true,
+		"postEventSent": true,
 	}
 	forbiddenPrefixes := []string{"staff", "lockdown", "raid"}
 
@@ -50,7 +56,7 @@ func TestPMCopyCallers(t *testing.T) {
 		t.Fatalf("glob: %v", err)
 	}
 	fset := token.NewFileSet()
-	users := map[string]map[string]bool{"offerEventPM": {}, "registerEventPM": {}, "postEvent": {}}
+	users := map[string]map[string]bool{"offerEventPM": {}, "registerEventPM": {}, "postEvent": {}, "postEventSent": {}}
 	scanned := 0
 	for _, path := range paths {
 		base := filepath.Base(path)

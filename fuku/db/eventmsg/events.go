@@ -44,6 +44,9 @@ const (
 	// EventForwardBlock is the notice posted after a forward from a blocked source got its sender
 	// muted, kicked or banned. It never names the source or the Staff Group.
 	EventForwardBlock = "fwdblock"
+	// EventCaptcha is the notice posted after a member failed the captcha (the time ran out, or the
+	// web check proved a failed solve) and the group's failure action (kick, ban or mute) took effect.
+	EventCaptcha = "captcha"
 )
 
 // The destinations a message can be stored for.
@@ -56,8 +59,8 @@ const (
 )
 
 // Events lists every event a message can be stored for, in the order the settings page shows
-// them: the manual punishments, then the automatic actions (Phase 23). Phases 24 and 25 append
-// more automatic, lockdown and requirement events.
+// them: the manual punishments, then the automatic actions (Phase 23), then the screening notices
+// (Phase 24). Phase 25 appends the lockdown events.
 var Events = []string{
 	EventBan,
 	EventTimedBan,
@@ -71,6 +74,7 @@ var Events = []string{
 	EventFlood,
 	EventBlacklist,
 	EventForwardBlock,
+	EventCaptcha,
 }
 
 // Dests lists every destination a message can be stored for.

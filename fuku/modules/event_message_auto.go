@@ -4,12 +4,17 @@ import (
 	"fmt"
 	"html"
 	"strings"
+	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
+	"github.com/uasneppy/fuku_robot/fuku/db/chats"
 	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
+	"github.com/uasneppy/fuku_robot/fuku/utils/error_handling"
 	"github.com/uasneppy/fuku_robot/fuku/utils/formatting"
+	"github.com/uasneppy/fuku_robot/fuku/utils/helpers"
 )
 
 // The Automatic family's events (Phase 23): the warn, the warn limit, the flood notice, the blacklist
@@ -118,6 +123,7 @@ var (
 	_ eventDefaultReply = warnLimitDefaultReply
 	_ eventDefaultReply = floodDefaultReply
 	_ eventDefaultReply = blacklistNoticeDefaultReply
+	_ eventDefaultReply = captchaFailureDefaultReply
 )
 
 // eventActionWords maps an action's mode word to the locale key of its translated word.
@@ -195,4 +201,69 @@ func listNoticeReply(tr *i18n.Translator, event string, target gotgbot.User, act
 		Default: text,
 		Opts:    opts,
 	}
+}
+
+// The screening notices (Phase 24). The captcha failure notice is posted by handleCaptchaTimeout, which
+// the timer, the cleanup tick, restart recovery and the web check's Fail and Expire all reach, so one
+// site covers the timeout and the failed web check alike. captcha.go calls only postCaptchaFailureNotice
+// and names neither the engine nor a deletion producer.
+
+// captchaFailureNoticeLife is how long the captcha failure notice stays before it deletes itself, in
+// process. The notice never enters the deletion queue (DEL-07). It is a variable so a test can shorten it.
+var captchaFailureNoticeLife = 30 * time.Second
+
+// captchaFailureDefaultReply is the default captcha failure notice: buildCaptchaFailureMessage's text for
+// in.Action (kick, ban or mute) with the mention of the member's first name ("User" when it is empty) and,
+// when in.Count messages were held while the captcha was pending, their count. The options are only the
+// HTML parse mode, so the request carries no link preview, keyboard or reply field. It returns today's
+// request byte for byte.
+func captchaFailureDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	name := in.Target.FirstName
+	if name == "" {
+		name = "User"
+	}
+	return buildCaptchaFailureMessage(tr, in.Action, in.Target.Id, name, int64(in.Count)),
+		&gotgbot.SendMessageOpts{ParseMode: formatting.HTML}
+}
+
+// captchaFailureNoticeDelete is the captcha site's schedule: the notice that was posted (custom or
+// default) deletes itself after captchaFailureNoticeLife, as before Phase 24, and is never queued. A send
+// that posted nothing schedules nothing.
+func captchaFailureNoticeDelete(bot *gotgbot.Bot, chatID int64) func(*gotgbot.Message) {
+	return func(sent *gotgbot.Message) {
+		if sent == nil {
+			return
+		}
+		time.AfterFunc(captchaFailureNoticeLife, func() {
+			defer error_handling.RecoverFromPanic("captchaFailureMsgDelete", "captcha")
+			_ = helpers.DeleteMessageWithErrorHandling(bot, chatID, sent.MessageId)
+		})
+	}
+}
+
+// postCaptchaFailureNotice posts the notice of a failed captcha once the failure action took effect: the
+// group's custom captcha message, or the default (captchaFailureDefaultReply) when none is stored. It goes
+// to the group as a new message with no reply and no topic, names no acting admin ({admin} reads "an
+// admin"), fills {action} with the failure action's word, {count} with the messages held while the captcha
+// was pending and, for a mute, {until} with the end of the 24 hour mute. The chat's title comes from the
+// stored chats row, with no Telegram call. The default is sent with helpers.SendMessageWithErrorHandling,
+// today's call, and either message deletes itself after captchaFailureNoticeLife.
+func postCaptchaFailureNotice(bot *gotgbot.Bot, chatID int64, tr *i18n.Translator, target gotgbot.User, action string, stored int64) error {
+	chat := &gotgbot.Chat{Id: chatID, Type: "supergroup", Title: chats.GetChatSettings(chatID).ChatName}
+	text, opts := captchaFailureDefaultReply(tr, eventDefaultInput{Target: target, Action: action, Count: int(stored)})
+	values := eventValues{Action: eventActionWord(tr, action), Count: int(stored)}
+	if action == "mute" {
+		values.Until = time.Now().Add(captchaFailureMuteSpan)
+	}
+	site := eventSite{
+		Bot:       bot,
+		Chat:      chat,
+		Tr:        tr,
+		Automatic: true,
+		SendDefault: func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			return helpers.SendMessageWithErrorHandling(bot, chatID, text, opts)
+		},
+		Schedule: captchaFailureNoticeDelete(bot, chatID),
+	}
+	return postEvent(site, eventReply{Event: eventmsg.EventCaptcha, Target: target, Values: values, Default: text, Opts: opts})
 }

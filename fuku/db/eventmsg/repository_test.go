@@ -215,7 +215,7 @@ func TestEventMessages(t *testing.T) {
 	})
 
 	t.Run("the event and destination tables", func(t *testing.T) {
-		want := []string{"ban", "tban", "kick", "mute", "tmute", "unban", "unmute", "warn", "warnlimit", "flood", "blacklist", "fwdblock"}
+		want := []string{"ban", "tban", "kick", "mute", "tmute", "unban", "unmute", "warn", "warnlimit", "flood", "blacklist", "fwdblock", "captcha"}
 		if len(Events) != len(want) {
 			t.Fatalf("Events = %v, want %v", Events, want)
 		}
@@ -224,7 +224,7 @@ func TestEventMessages(t *testing.T) {
 				t.Errorf("event %d: Events has %q, ValidEvent(%q) = %v", i, Events[i], event, ValidEvent(event))
 			}
 		}
-		for _, event := range []string{"", "Ban", "warning", "Warn", "ban ", "dban", "sban"} {
+		for _, event := range []string{"", "Ban", "warning", "Warn", "ban ", "dban", "sban", "Captcha", "captchas"} {
 			if ValidEvent(event) {
 				t.Errorf("ValidEvent(%q) = true", event)
 			}

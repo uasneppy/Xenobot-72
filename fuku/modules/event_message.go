@@ -103,6 +103,12 @@ type eventReply struct {
 // "an admin"), the message the reply answers (0 for none) and the topic it goes to (0 for none), the
 // deletion kind it is queued under, whether an automatic rule raised it, and the site's own default
 // send, which is exactly the call the site made before it had custom messages.
+//
+// The hooks below are optional (Phase 24) and their zero value is the behaviour every earlier site has:
+// SendCustom sends a composed custom message (nil: media.SendGreetingMessage to the site's chat), and
+// Schedule takes care of what the group step posted, default or custom alike (nil: queue it under Kind
+// with scheduleBotMessage). A site with a deletion of its own (the captcha notice deletes itself after
+// 30 s and never enters the queue) sets Schedule.
 type eventSite struct {
 	Bot         *gotgbot.Bot
 	Chat        *gotgbot.Chat
@@ -113,6 +119,27 @@ type eventSite struct {
 	Kind        string
 	Automatic   bool
 	SendDefault func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error)
+	SendCustom  func(msg media.GreetingMessage) (*gotgbot.Message, error)
+	Schedule    func(sent *gotgbot.Message)
+}
+
+// sendCustom sends a composed custom message through the site's SendCustom, or with
+// media.SendGreetingMessage to the site's chat when the site has none.
+func (site eventSite) sendCustom(msg media.GreetingMessage) (*gotgbot.Message, error) {
+	if site.SendCustom != nil {
+		return site.SendCustom(msg)
+	}
+	return media.SendGreetingMessage(site.Bot, site.Chat.Id, msg)
+}
+
+// schedule hands what the group step posted (nil when the send posted nothing) to the site's
+// Schedule, or queues it under the site's kind when the site has none.
+func (site eventSite) schedule(sent *gotgbot.Message) {
+	if site.Schedule != nil {
+		site.Schedule(sent)
+		return
+	}
+	scheduleBotMessage(sent, site.Kind)
 }
 
 // eventTokenNames are the event placeholders. {count}, {action}, {limit} and {window} belong to the
@@ -309,23 +336,30 @@ func (c *moderationCtx) site() eventSite {
 	return site
 }
 
-// postEvent posts one event's reply for any send site and then offers its private copy. The
-// punishment has already been applied (D-03). It reads the group's stored messages once (bounded by
-// eventMessageReadTimeout): a read error is one Warn, the default and no private copy (the switch is
-// unknown, and unknown never sends). Otherwise the group step runs (postEventGroup), and then, whatever
-// it did, the private copy is offered (offerReplyPM), which never blocks. The error is the group step's.
+// postEvent posts one event's reply for any send site and then offers its private copy, through
+// postEventSent, and returns the group step's error.
 func postEvent(site eventSite, r eventReply) error {
+	_, err := postEventSent(site, r)
+	return err
+}
+
+// postEventSent posts one event's reply for any send site and then offers its private copy, and
+// returns what the group step posted. The punishment has already been applied (D-03). It reads the
+// group's stored messages once (bounded by eventMessageReadTimeout): a read error is one Warn, the
+// default and no private copy (the switch is unknown, and unknown never sends). Otherwise the group
+// step runs (postEventGroup), and then, whatever it did, the private copy is offered (offerReplyPM),
+// which never blocks. The error is the group step's.
+func postEventSent(site eventSite, r eventReply) (eventGroupPost, error) {
 	readCtx, cancel := context.WithTimeout(context.Background(), eventMessageReadTimeout)
 	msgs, err := eventMessagesLookup(readCtx, site.Chat.Id)
 	cancel()
 	if err != nil {
 		log.Warnf("[EventMessage] the messages of chat %d could not be read for %s, the default was sent", site.Chat.Id, r.Event)
-		_, err = sendDefaultPost(site, r)
-		return err
+		return sendDefaultPost(site, r)
 	}
 	post, err := postEventGroup(site, r, msgs)
 	offerReplyPM(site, r, msgs, post)
-	return err
+	return post, err
 }
 
 // eventGroupPost is what the group step of a reply posted: the message (nil when nothing was posted) and the
@@ -340,7 +374,8 @@ type eventGroupPost struct {
 // nothing was posted) with the keyboard rows the message was sent with. No row, or a row with no
 // content and Silent off, is the default through the site's own send; Silent posts and schedules
 // nothing; otherwise the custom message is sent where the site's default goes (site.ReplyTo,
-// site.ThreadID) and queued under site.Kind, the default's kind (D-15). A custom message Telegram
+// site.ThreadID) through the site's custom send, and handed to the site's schedule (by default queued
+// under site.Kind, the default's kind, D-15). A custom message Telegram
 // definitely refuses (eventMessageRefused) is replaced by the default, sent once; any other send error
 // is returned, as the default's send error always was.
 func postEventGroup(site eventSite, r eventReply, msgs *eventmsg.Messages) (eventGroupPost, error) {
@@ -356,7 +391,7 @@ func postEventGroup(site eventSite, r eventReply, msgs *eventmsg.Messages) (even
 	msg := composeEventMessage(site.Bot, site.Chat, site.Tr, r, row, site.Actor)
 	msg.ReplyMsgID = site.ReplyTo
 	msg.ThreadID = site.ThreadID
-	sent, err := media.SendGreetingMessage(site.Bot, site.Chat.Id, msg)
+	sent, err := site.sendCustom(msg)
 	if err != nil {
 		if eventMessageRefused(err) {
 			log.Warnf("[EventMessage] the custom %s message of chat %d was refused, the default was sent", r.Event, site.Chat.Id)
@@ -364,7 +399,7 @@ func postEventGroup(site eventSite, r eventReply, msgs *eventmsg.Messages) (even
 		}
 		return eventGroupPost{}, err
 	}
-	scheduleBotMessage(sent, site.Kind)
+	site.schedule(sent)
 	post := eventGroupPost{Msg: sent}
 	if msg.Keyboard != nil {
 		post.Rows = msg.Keyboard.InlineKeyboard
@@ -373,13 +408,14 @@ func postEventGroup(site eventSite, r eventReply, msgs *eventmsg.Messages) (even
 }
 
 // sendDefaultPost sends the default reply through the site's own send (today's call, byte for byte),
-// queues it under site.Kind and returns it with the bot's own rows it carries.
+// hands it to the site's schedule (by default queued under site.Kind) and returns it with the bot's
+// own rows it carries.
 func sendDefaultPost(site eventSite, r eventReply) (eventGroupPost, error) {
 	sent, err := site.SendDefault(r.Default, r.Opts)
 	if err != nil {
 		return eventGroupPost{}, err
 	}
-	scheduleBotMessage(sent, site.Kind)
+	site.schedule(sent)
 	return eventGroupPost{Msg: sent, Rows: eventBotRows(r.Opts)}, nil
 }
 

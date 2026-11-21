@@ -1542,17 +1542,10 @@ func handleCaptchaTimeout(bot *gotgbot.Bot, chatID, userID int64, attemptID uint
 		_ = helpers.DeleteMessageWithErrorHandling(bot, chatID, messageID)
 	}
 
-	member, err := bot.GetChatMember(chatID, userID, nil)
-	var userName string
-	if err == nil {
+	target := gotgbot.User{Id: userID, FirstName: "User"}
+	if member, err := bot.GetChatMember(chatID, userID, nil); err == nil {
 		user := member.GetUser()
-		if user.FirstName != "" {
-			userName = user.FirstName
-		} else {
-			userName = "User"
-		}
-	} else {
-		userName = "User"
+		target = gotgbot.User{Id: userID, FirstName: user.FirstName, LastName: user.LastName, Username: user.Username}
 	}
 
 	if err := executeCaptchaFailureAction(bot, chatID, userID, action); err != nil {
@@ -1567,17 +1560,8 @@ func handleCaptchaTimeout(bot *gotgbot.Bot, chatID, userID int64, attemptID uint
 	}
 
 	tr := i18n.MustNewTranslator(lang.GetLanguage(&ext.Context{EffectiveChat: &gotgbot.Chat{Id: chatID}}))
-	failureMsg := buildCaptchaFailureMessage(tr, action, userID, userName, storedMsgCount)
-	sent, err := helpers.SendMessageWithErrorHandling(bot, chatID, failureMsg, &gotgbot.SendMessageOpts{ParseMode: formatting.HTML})
-	if err != nil {
+	if err := postCaptchaFailureNotice(bot, chatID, tr, target, action, storedMsgCount); err != nil {
 		log.Errorf("Failed to send captcha failure message: %v", err)
-	}
-
-	if sent != nil {
-		time.AfterFunc(30*time.Second, func() {
-			defer error_handling.RecoverFromPanic("captchaFailureMsgDelete", "captcha")
-			_ = helpers.DeleteMessageWithErrorHandling(bot, chatID, sent.MessageId)
-		})
 	}
 
 	return true, true
