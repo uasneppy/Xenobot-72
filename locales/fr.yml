@@ -97,6 +97,10 @@ eventmsg_action_mute: "rendu muet"
 eventmsg_action_kick: "expulsé"
 eventmsg_action_ban: "banni"
 eventmsg_reason_flood: "trop de messages envoyés d'affilée"
+eventmsg_action_delete: "supprimé"
+eventmsg_reason_captcha: "n'a pas terminé le captcha à temps"
+eventmsg_reason_aispam: "le message ressemblait à du spam"
+eventmsg_mreq_rules: "Exigences non remplies : {rules}."
 common_anonymous_user_error: Cette commande ne peut pas être utilisée sur un utilisateur anonyme.
 common_anonymous_ban_error: Cette commande ne peut pas être utilisée sur un utilisateur anonyme, ces utilisateurs peuvent uniquement être bannis/débannis.
 common_cannot_identify_user: Impossible d'identifier l'utilisateur. Cette commande ne peut pas être utilisée par les chaînes.
@@ -1539,6 +1543,7 @@ aispam_no_key: "❌ Je ne peux pas activer le filtre anti-spam par IA : l'opéra
 aispam_globally_disabled: "❌ Je ne peux pas activer le filtre anti-spam par IA : l'opérateur du bot l'a désactivé globalement. Rien n'a changé."
 aispam_invalid_option: "Je ne comprends qu'une option parmi : <code>on</code>/<code>off</code>/<code>yes</code>/<code>no</code>"
 aispam_breaker_notice: "⚠️ Les analyses anti-spam par IA sont en pause dans ce chat pendant quelques minutes après des échecs répétés du fournisseur d'IA. Elles reprennent d'elles-mêmes et le filtre reste activé."
+aispam_notice_deleted: "🧠 J'ai supprimé un message de {name} : il ressemblait à du spam."
 
 # Locks module extended documentation
 locks_types_docs: |

@@ -634,6 +634,7 @@ aispam_no_key: "❌ मैं AI स्पैम फ़िल्टर चाल
 aispam_globally_disabled: "❌ मैं AI स्पैम फ़िल्टर चालू नहीं कर सकता: बॉट ऑपरेटर ने इसे विश्व स्तर पर बंद कर दिया है। कुछ नहीं बदला।"
 aispam_invalid_option: "मैं इनमें से कोई एक विकल्प समझता हूँ: <code>on</code>/<code>off</code>/<code>yes</code>/<code>no</code>"
 aispam_breaker_notice: "⚠️ AI प्रदाता की बार-बार विफलता के बाद इस चैट में AI स्पैम जाँच कुछ मिनट के लिए रोक दी गई है। यह अपने आप फिर शुरू हो जाएगी और फ़िल्टर चालू ही रहेगा।"
+aispam_notice_deleted: "🧠 मैंने {name} का एक संदेश हटा दिया: यह स्पैम जैसा लगा।"
 
 # Antiflood module strings
 antiflood_checkflood_perform_action: "हाँ, मुझे आपकी flooding पसंद नहीं है। %s को %s कर दिया गया है!"
@@ -1752,6 +1753,10 @@ eventmsg_action_mute: "म्यूट किया गया"
 eventmsg_action_kick: "किक किया गया"
 eventmsg_action_ban: "बैन किया गया"
 eventmsg_reason_flood: "लगातार बहुत सारे संदेश भेजना"
+eventmsg_action_delete: "हटाया गया"
+eventmsg_reason_captcha: "समय पर कैप्चा पूरा नहीं किया"
+eventmsg_reason_aispam: "संदेश स्पैम जैसा लगा"
+eventmsg_mreq_rules: "शर्तें पूरी नहीं हुईं: {rules}।"
 
 # Database default keys
 db_default_welcome: "हेलो {first}, आप कैसे हैं?"

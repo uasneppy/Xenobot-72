@@ -277,6 +277,10 @@ eventmsg_action_mute: "отримує мут"
 eventmsg_action_kick: "вилучено"
 eventmsg_action_ban: "забанено"
 eventmsg_reason_flood: "забагато повідомлень поспіль"
+eventmsg_action_delete: "видалено"
+eventmsg_reason_captcha: "капчу не пройдено вчасно"
+eventmsg_reason_aispam: "повідомлення схоже на спам"
+eventmsg_mreq_rules: "Не виконано вимоги: {rules}."
 common_anonymous_user_error: "Цю команду не можна застосувати до анонімного користувача."
 common_anonymous_ban_error: "Цю команду не можна застосувати до анонімного користувача. Анонімних можна лише забанити або розбанити."
 common_cannot_identify_user: "Не вдається визначити користувача. Канали не можуть користуватися цією командою."
@@ -988,6 +992,7 @@ aispam_no_key: "❌ Увімкнути AI-фільтр спаму не можн�
 aispam_globally_disabled: "❌ Увімкнути AI-фільтр спаму не можна: мій оператор вимкнув його глобально. Нічого не змінено."
 aispam_invalid_option: "Значення не розпізнано. Я приймаю лише <code>on</code>/<code>off</code>/<code>yes</code>/<code>no</code>."
 aispam_breaker_notice: "⚠️ AI-перевірки спаму в цьому чаті призупинено на кілька хвилин через повторні збої AI-провайдера. Вони відновляться самі, а фільтр лишається увімкненим."
+aispam_notice_deleted: "🧠 Видалено повідомлення від {name}: воно схоже на спам."
 
 # Admin module extended documentation
 admin_extended_docs: "<b>Підтримка анонімних адмінів</b>\n\nКоманда <code>/anonadmin</code> дозволяє власникам групи вмикати розпізнавання анонімних адмінів:\n<code>/anonadmin on</code> - Увімкнути перевірку анонімних адмінів\n<code>/anonadmin off</code> - Вимкнути перевірку анонімних адмінів\n\nКоли перевірку увімкнено, я прошу анонімні акаунти підтвердитися перед адмінською дією.\n\n<b>Як працює перевірка анонімного адміна:</b>\n1. Я бачу, що відправник — GroupAnonymousBot\n2. Початкове повідомлення кешується на 20 секунд\n3. У чат надсилається кнопка «Підтвердити адміна»\n4. Хто її натисне, того перевіряють як адміна, і команда виконується\n5. Якщо ніхто не підтвердився, кнопка спливає за 20 секунд\n\n<b>Підтримувані команди:</b>\nАдміни: /promote, /demote, /title\nБани: /ban, /dban, /sban, /tban, /unban\nМути: /mute, /smute, /dmute, /tmute, /unmute\nЗакріплення: /pin, /unpin, /permapin, /unpinall\nОчищення: /purge, /del\nПопередження: /warn, /swarn, /dwarn"

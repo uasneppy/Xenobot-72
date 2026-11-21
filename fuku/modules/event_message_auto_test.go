@@ -121,10 +121,16 @@ func TestEventMessageWarn(t *testing.T) {
 func TestEventActionWords(t *testing.T) {
 	withRealLocales(t)
 	actions := map[string]string{
-		"warn": "eventmsg_action_warn",
-		"mute": "eventmsg_action_mute",
-		"kick": "eventmsg_action_kick",
-		"ban":  "eventmsg_action_ban",
+		"warn":   "eventmsg_action_warn",
+		"mute":   "eventmsg_action_mute",
+		"kick":   "eventmsg_action_kick",
+		"ban":    "eventmsg_action_ban",
+		"delete": "eventmsg_action_delete",
+	}
+	reasons := map[string]func(*i18n.Translator) string{
+		"eventmsg_reason_flood":   floodEventReason,
+		"eventmsg_reason_captcha": captchaEventReason,
+		"eventmsg_reason_aispam":  aispamEventReason,
 	}
 	for _, lang := range []string{"uk", "en", "es", "fr", "hi", "id", "pt", "ru"} {
 		t.Run(lang, func(t *testing.T) {
@@ -139,16 +145,18 @@ func TestEventActionWords(t *testing.T) {
 				words[got] = true
 			}
 			if len(words) != len(actions) {
-				t.Errorf("action words = %v, want four different words", words)
+				t.Errorf("action words = %v, want %d different words", words, len(actions))
 			}
-			for _, inert := range []string{"", "tban", "tmute", "none", "Mute", "delete"} {
+			for _, inert := range []string{"", "tban", "tmute", "none", "Mute", "Delete", "deleted"} {
 				if got := eventActionWord(tr, inert); got != "" {
 					t.Errorf("eventActionWord(%q) = %q, want no word", inert, got)
 				}
 			}
-			want, _ := tr.GetString("eventmsg_reason_flood")
-			if got := floodEventReason(tr); got != want || strings.TrimSpace(got) == "" || strings.ContainsAny(got, "<>&{}%") {
-				t.Errorf("floodEventReason = %q, want the non-empty plain eventmsg_reason_flood %q", got, want)
+			for key, reason := range reasons {
+				want, _ := tr.GetString(key)
+				if got := reason(tr); got != want || strings.TrimSpace(got) == "" || strings.ContainsAny(got, "<>&{}%") {
+					t.Errorf("the reason of %s = %q, want the non-empty plain %q", key, got, want)
+				}
 			}
 		})
 	}

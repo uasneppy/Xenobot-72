@@ -64,6 +64,7 @@ type eventActor struct {
 // and the duration text of a timed punishment. The automatic events also pass the warn or message
 // count and the limit, the action's mode word (warn, mute, kick or ban, never translated), the stored
 // reasons of a warn limit and the bot's own keyboard rows the site computed, so a builder stays pure.
+// Rules is the mask of the broken member requirement rules, read only by the requirement builders.
 type eventDefaultInput struct {
 	Target  gotgbot.User
 	Reason  string
@@ -73,6 +74,7 @@ type eventDefaultInput struct {
 	Action  string
 	Reasons []string
 	Rows    [][]gotgbot.InlineKeyboardButton
+	Rules   int
 }
 
 // eventDefaultReply builds an event's default reply: the text and the options the send site sent
@@ -86,6 +88,9 @@ type eventDefaultReply func(tr *i18n.Translator, in eventDefaultInput) (string, 
 // KeepRows are the bot's own rows a custom message keeps (nil means the rows of Opts, the Unban row of
 // a ban); with KeepRowsLast they follow the custom and {rules} buttons instead of preceding them (the
 // warn's Remove warn row). The site sets both, never the stored row, so a custom message cannot drop them.
+// Required makes the group message ignore a stored Silent switch (a notice that carries the member's only
+// way out, the requirement mute's "I fixed it", is always posted), and TextOnly ignores a stored media file
+// (an event whose custom message is text and buttons only). Both are set by the site.
 type eventReply struct {
 	Event        string
 	Target       gotgbot.User
@@ -96,6 +101,8 @@ type eventReply struct {
 	PMNote       string
 	KeepRows     [][]gotgbot.InlineKeyboardButton
 	KeepRowsLast bool
+	Required     bool
+	TextOnly     bool
 }
 
 // eventSite is where and how one send site posts an event's reply: the bot, the group and its
@@ -108,7 +115,10 @@ type eventReply struct {
 // SendCustom sends a composed custom message (nil: media.SendGreetingMessage to the site's chat), and
 // Schedule takes care of what the group step posted, default or custom alike (nil: queue it under Kind
 // with scheduleBotMessage). A site with a deletion of its own (the captcha notice deletes itself after
-// 30 s and never enters the queue) sets Schedule.
+// 30 s and never enters the queue) sets Schedule. Admit is an admission gate (nil: always admitted): it is
+// asked once, after the read and only when the group message or the private copy would be sent, and a false
+// answer posts nothing and offers no private copy (the AI spam notice's rate limit). The site bounds its own
+// call; the context it is given carries no deadline.
 type eventSite struct {
 	Bot         *gotgbot.Bot
 	Chat        *gotgbot.Chat
@@ -121,6 +131,12 @@ type eventSite struct {
 	SendDefault func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error)
 	SendCustom  func(msg media.GreetingMessage) (*gotgbot.Message, error)
 	Schedule    func(sent *gotgbot.Message)
+	Admit       func(ctx context.Context) bool
+}
+
+// admit asks the site's admission gate, and admits everything when the site has none.
+func (site eventSite) admit() bool {
+	return site.Admit == nil || site.Admit(context.Background())
 }
 
 // sendCustom sends a composed custom message through the site's SendCustom, or with
@@ -346,20 +362,61 @@ func postEvent(site eventSite, r eventReply) error {
 // postEventSent posts one event's reply for any send site and then offers its private copy, and
 // returns what the group step posted. The punishment has already been applied (D-03). It reads the
 // group's stored messages once (bounded by eventMessageReadTimeout): a read error is one Warn, the
-// default and no private copy (the switch is unknown, and unknown never sends). Otherwise the group
-// step runs (postEventGroup), and then, whatever it did, the private copy is offered (offerReplyPM),
-// which never blocks. The error is the group step's.
+// default (after the site's admission gate) and no private copy (the switch is unknown, and unknown
+// never sends); for an event that is off by default (eventmsg.OffByDefault) a read error posts nothing,
+// because its switch is unknown too. Otherwise the site's admission gate is asked when the group
+// message or the private copy would be sent (a refusal posts and offers nothing), the group step runs
+// (postEventGroup), and then, whatever it did, the private copy is offered (offerReplyPM), which never
+// blocks. The error is the group step's.
 func postEventSent(site eventSite, r eventReply) (eventGroupPost, error) {
 	readCtx, cancel := context.WithTimeout(context.Background(), eventMessageReadTimeout)
 	msgs, err := eventMessagesLookup(readCtx, site.Chat.Id)
 	cancel()
 	if err != nil {
+		if eventmsg.OffByDefault(r.Event) {
+			log.Warnf("[EventMessage] the messages of chat %d could not be read for %s, nothing was posted", site.Chat.Id, r.Event)
+			return eventGroupPost{}, nil
+		}
 		log.Warnf("[EventMessage] the messages of chat %d could not be read for %s, the default was sent", site.Chat.Id, r.Event)
+		if !site.admit() {
+			return eventGroupPost{}, nil
+		}
 		return sendDefaultPost(site, r)
+	}
+	if site.Admit != nil && (eventGroupWouldPost(r, msgs) || eventPMWouldOffer(site, r, msgs)) && !site.admit() {
+		log.Debugf("[EventMessage] the %s message of chat %d for user %d was not admitted, nothing was posted", r.Event, site.Chat.Id, r.Target.Id)
+		return eventGroupPost{}, nil
 	}
 	post, err := postEventGroup(site, r, msgs)
 	offerReplyPM(site, r, msgs, post)
 	return post, err
+}
+
+// eventGroupMessage is the group message of a reply as the group step reads it: the resolved row
+// (eventmsg's Resolve, so an event that is off by default reads Silent with no row) with its media
+// dropped when the reply is text only, and whether the step posts nothing (Silent, unless the reply is
+// required).
+func eventGroupMessage(r eventReply, msgs *eventmsg.Messages) (row eventmsg.Message, silent bool) {
+	row = msgs.Resolve(r.Event, eventmsg.DestGroup)
+	if r.TextOnly {
+		row.FileID, row.MediaType = "", 0
+	}
+	return row, row.Silent && !r.Required
+}
+
+// eventGroupWouldPost reports whether the group step would post anything for this reply.
+func eventGroupWouldPost(r eventReply, msgs *eventmsg.Messages) bool {
+	_, silent := eventGroupMessage(r, msgs)
+	return !silent
+}
+
+// eventPMWouldOffer reports whether offerReplyPM would offer a private copy: an event with a spec whose
+// private copy is on, for a target that can receive one.
+func eventPMWouldOffer(site eventSite, r eventReply, msgs *eventmsg.Messages) bool {
+	if _, ok := eventPMSpecFor(r.Event); !ok {
+		return false
+	}
+	return !msgs.Resolve(r.Event, eventmsg.DestPM).Silent && !pmCopySkipTarget(site.Bot, r.Target.Id)
 }
 
 // eventGroupPost is what the group step of a reply posted: the message (nil when nothing was posted) and the
@@ -371,20 +428,21 @@ type eventGroupPost struct {
 }
 
 // postEventGroup is the group step of an event reply and returns what it posted (no message when
-// nothing was posted) with the keyboard rows the message was sent with. No row, or a row with no
-// content and Silent off, is the default through the site's own send; Silent posts and schedules
-// nothing; otherwise the custom message is sent where the site's default goes (site.ReplyTo,
+// nothing was posted) with the keyboard rows the message was sent with. It reads the row through
+// eventGroupMessage (Resolve, the media dropped for a text-only reply). Silent posts and schedules
+// nothing, unless the reply is required; no row, or a row with no content, is the default through
+// the site's own send; otherwise the custom message is sent where the site's default goes (site.ReplyTo,
 // site.ThreadID) through the site's custom send, and handed to the site's schedule (by default queued
 // under site.Kind, the default's kind, D-15). A custom message Telegram
 // definitely refuses (eventMessageRefused) is replaced by the default, sent once; any other send error
 // is returned, as the default's send error always was.
 func postEventGroup(site eventSite, r eventReply, msgs *eventmsg.Messages) (eventGroupPost, error) {
-	row, ok := msgs.Lookup(r.Event, eventmsg.DestGroup)
-	if ok && row.Silent {
+	row, silent := eventGroupMessage(r, msgs)
+	if silent {
 		log.Debugf("[EventMessage] the %s message of chat %d is silent, nothing was posted", r.Event, site.Chat.Id)
 		return eventGroupPost{}, nil
 	}
-	if !ok || !row.HasContent() {
+	if !row.HasContent() {
 		return sendDefaultPost(site, r)
 	}
 

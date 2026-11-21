@@ -1,5 +1,6 @@
 // Package eventmsg stores the custom event messages of a group: one message per event (a manual
-// punishment such as ban or mute, or an automatic action such as a warn or a flood notice) and
+// punishment such as ban or mute, an automatic action such as a warn or a flood notice, or a screening
+// notice such as a failed captcha, a member requirement or an AI spam deletion) and
 // destination (the group itself, or the private copy sent to the punished person), each with a text, at most one media item, URL buttons and a Silent switch,
 // plus the group's two options of the private copies. A chat's messages and options are read as
 // one struct per chat through the cache key event_messages:<chat>, which is listed in skipLocal,
@@ -47,6 +48,19 @@ const (
 	// EventCaptcha is the notice posted after a member failed the captcha (the time ran out, or the
 	// web check proved a failed solve) and the group's failure action (kick, ban or mute) took effect.
 	EventCaptcha = "captcha"
+	// EventAISpam is the notice posted after the AI spam filter deleted a message. It is off by
+	// default (OffByDefault): a group turns it on by writing its group message's Silent switch false.
+	EventAISpam = "aispam"
+	// EventReqWarn is the notice of a member requirement warn, including the variants posted when the
+	// warn reached the limit and the limit action (kick, ban or mute) took effect.
+	EventReqWarn = "mreqwarn"
+	// EventReqKick is the notice posted after a member requirement kicked a member.
+	EventReqKick = "mreqkick"
+	// EventReqBan is the notice posted after a member requirement banned a member.
+	EventReqBan = "mreqban"
+	// EventReqMute is the notice posted after a member requirement muted a member. It carries the
+	// member's "I fixed it" button, so the send path never silences it.
+	EventReqMute = "mreqmute"
 )
 
 // The destinations a message can be stored for.
@@ -75,6 +89,11 @@ var Events = []string{
 	EventBlacklist,
 	EventForwardBlock,
 	EventCaptcha,
+	EventAISpam,
+	EventReqWarn,
+	EventReqKick,
+	EventReqBan,
+	EventReqMute,
 }
 
 // Dests lists every destination a message can be stored for.
@@ -106,6 +125,20 @@ func ValidDest(dest string) bool {
 // stores this value too, so storing a text alone never turns a private copy on.
 func DefaultSilent(dest string) bool {
 	return dest == DestPM
+}
+
+// OffByDefault reports whether an event's group message is off until the group turns it on: true for
+// the AI spam notice only, which is new behaviour no group had before Phase 24.
+func OffByDefault(event string) bool {
+	return event == EventAISpam
+}
+
+// DefaultSilentFor is the Silent switch of an event and destination that has no stored row:
+// DefaultSilent(dest), or true for the group message of an event that is off by default. Like a
+// private copy, such a group message stays off until its switch is written false, and a part writer
+// that inserts a new row stores this value, so storing a text alone never turns it on.
+func DefaultSilentFor(event, dest string) bool {
+	return DefaultSilent(dest) || (dest == DestGroup && OffByDefault(event))
 }
 
 // validate checks an event and a destination and returns the matching error for the first that

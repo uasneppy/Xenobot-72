@@ -2889,8 +2889,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `eventmsg.ValidEvent` and `eventmsg.ValidDest` (`fuku/db/eventmsg/events.go`: today the seven manual events `ban`,
   `tban`, `kick`, `mute`, `tmute`, `unban`, `unmute`, then the five automatic events of Phase 23, `warn`
   (`EventWarn`), `warnlimit` (`EventWarnLimit`), `flood` (`EventFlood`), `blacklist` (`EventBlacklist`) and `fwdblock`
-  (`EventForwardBlock`), in that order in `Events`, then Phase 24's screening notices, `captcha` (`EventCaptcha`, the notice
-  of a failed captcha), and the destinations `group` and `pm`, the private copy sent to the
+  (`EventForwardBlock`), in that order in `Events`, then Phase 24's six screening notices, `captcha` (`EventCaptcha`, the
+  notice of a failed captcha), `aispam` (`EventAISpam`, the notice of an AI spam deletion), `mreqwarn` (`EventReqWarn`, the
+  requirement warn and its warn-limit variants), `mreqkick` (`EventReqKick`), `mreqban` (`EventReqBan`) and `mreqmute`
+  (`EventReqMute`), and the destinations `group` and `pm`, the private copy sent to the
   punished person, Phase 22) and never by a CHECK, so Phases 23 and 24 added theirs with no migration and Phase 25 adds
   its own the same way; an unknown one is `ErrUnknownEvent` or `ErrUnknownDest` before any write. It is read through `cache.GetFromCacheOrLoad` as one
   `eventmsg.Messages` per chat (a map keyed `event|dest`, `Lookup(event, dest)`, plus the chat's `Options`, read from
@@ -2907,7 +2909,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   inserts a new row stores that same default (so a `pm` row created by `SetText`, `SetMedia` or `SetButtons` is stored with
   `silent` true and storing a text alone never turns a private copy on), the conflict update never touches the switch of an
   existing row, and only `SetSilent` changes it. The send path reads a message with `(*Messages).Resolve(event, dest)`
-  (nil-safe): the stored row, or the empty message whose Silent is `DefaultSilent(dest)`. It is never part of backup,
+  (nil-safe): the stored row, or the empty message whose Silent is `DefaultSilentFor(event, dest)`. Since Phase 24 (D-21)
+  an event can be off by default: `eventmsg.OffByDefault(event)` is true for `aispam` alone, and
+  `eventmsg.DefaultSilentFor(event, dest)` is `DefaultSilent(dest)` or a group message of such an event, so the AI spam
+  notice with no row reads Silent like a private copy, `Resolve` and the part writers' insert default use it (storing a
+  text alone never turns the notice on; only `SetSilent(false)` does), and every other event reads exactly as before. It is never part of backup,
   export, import or reset in Phase 21 or 22, `pm` rows included (`TestEventMessagesStayOutOfBackup`; Phase 30 decides).
 - `chat_event_message_options` (migration 20261120120000) holds a group's two options of the private copies, one row per
   chat under the inline primary key `pk_chat_event_message_options`: `pm_details` (a private copy that was not delivered
@@ -3685,7 +3691,21 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and a failed web check, and their claimed and applied results are unchanged (`TestEventMessageCaptcha` in
   `event_message_screening_test.go`: the timer with a custom text and two held messages, its self-delete and no queue row with
   every bot kind at 60 s, a failed web check with a custom text, nothing stored, a refused custom message replaced by the
-  golden default, Silent).
+  golden default, Silent). The rest of the engine's Phase 24 vocabulary (D-24) is all optional with today's behaviour as the
+  zero value: `eventSite.Admit func(ctx context.Context) bool` is an admission gate (nil: always admitted), asked once after
+  the read and only when the group message or the private copy would be sent (`eventGroupWouldPost`, `eventPMWouldOffer`),
+  a false answer posting nothing and offering no private copy (the AI spam notice's cap); `eventReply.Required` ignores a
+  stored Silent switch (the requirement mute notice carries the member's only way out) and `eventReply.TextOnly` ignores a
+  stored media file; `eventDefaultInput.Rules` is the broken requirement rules' mask, read only by the requirement builders.
+  The group step reads `msgs.Resolve(r.Event, eventmsg.DestGroup)` through `eventGroupMessage` (Silent and not Required
+  posts nothing; no content is the default; byte-identical for every earlier event), and a read error of an event that is
+  off by default posts nothing (one Warn; unknown never sends), while any other event's read error still sends the default
+  (after `Admit`). The new words: `eventActionWord(tr, "delete")` (`eventmsg_action_delete`), `captchaEventReason(tr)`
+  (`eventmsg_reason_captcha`, the captcha site's `{reason}`) and `aispamEventReason(tr)` (`eventmsg_reason_aispam`, which
+  names no provider, model, probability or category); `eventmsg_mreq_rules` (`{rules}`) is the requirements line a custom
+  requirement text is followed by, and `aispam_notice_deleted` (`{name}`) the AI spam notice's default text
+  (`TestEventMessageEngineHooks` on a test-only site: Required, TextOnly, Admit refused and not asked, a read error and no
+  row of `aispam` against `ban`).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
@@ -5918,7 +5938,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `screenGoldenWantAction`) is reused by name and the file is never edited. `TestEventMessageCaptcha`
   (`event_message_screening_test.go`, toolkit `eventMsgCaptchaSite`: the screening site with captcha on and every bot kind at
   60 s) holds the captcha site: a custom text through the timer and through a failed web check, the 30 second self-delete
-  shortened through `captchaFailureNoticeLife`, nothing stored, a refused custom message and Silent.
+  shortened through `captchaFailureNoticeLife`, nothing stored, a refused custom message and Silent. `TestEventMessageEngineHooks`
+  (same file, toolkit `eventMsgHookSite`, `eventMsgHookReply`) holds the engine's Phase 24 hooks on a test-only site, and Phase
+  23's `TestEventActionWords` sweeps the delete word and the captcha and AI spam reasons in 8 languages.
 
 ## Commits
 

@@ -67,14 +67,15 @@ func (m *Messages) Lookup(event, dest string) (Message, bool) {
 }
 
 // Resolve returns the message of one event and destination as the send path must read it: the
-// stored row, or, with no row, the empty message whose Silent switch is DefaultSilent(dest). So a
-// group message with no row is sent as the default, and a private copy with no row is off. It is
-// safe on a nil *Messages.
+// stored row, or, with no row, the empty message whose Silent switch is DefaultSilentFor(event,
+// dest). So a group message with no row is sent as the default, a private copy with no row is off,
+// and so is the group message of an event that is off by default (the AI spam notice). It is safe
+// on a nil *Messages.
 func (m *Messages) Resolve(event, dest string) Message {
 	if msg, ok := m.Lookup(event, dest); ok {
 		return msg
 	}
-	return Message{Event: event, Dest: dest, Silent: DefaultSilent(dest)}
+	return Message{Event: event, Dest: dest, Silent: DefaultSilentFor(event, dest)}
 }
 
 // rowKey is the map key of one event and destination.
@@ -236,8 +237,9 @@ func upsertOptions(ctx context.Context, chatID, by int64, row *models.ChatEventM
 // upsert validates the key, then inserts row (the full struct, so a new row gets zero values for
 // the other parts) or, on a conflict of the key, updates only columns plus updated_by and
 // updated_at, so two writers of different parts never clobber each other. A writer that does not
-// write the Silent switch inserts a new row with DefaultSilent(dest), so a private copy created by
-// storing a part stays off, and the conflict update never touches the switch of an existing row.
+// write the Silent switch inserts a new row with DefaultSilentFor(event, dest), so a private copy, or
+// the group message of an event that is off by default, created by storing a part stays off, and the
+// conflict update never touches the switch of an existing row.
 // Its caller drops the chat's cache key after a successful write.
 func upsert(ctx context.Context, chatID int64, event, dest string, by int64, row *models.ChatEventMessage, what string, columns ...string) error {
 	if err := validate(event, dest); err != nil {
@@ -252,7 +254,7 @@ func upsert(ctx context.Context, chatID int64, event, dest string, by int64, row
 	row.UpdatedBy = by
 	row.UpdatedAt = time.Now()
 	if !slices.Contains(columns, "silent") {
-		row.Silent = DefaultSilent(dest)
+		row.Silent = DefaultSilentFor(event, dest)
 	}
 	err := db.DB.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "chat_id"}, {Name: "event"}, {Name: "dest"}},

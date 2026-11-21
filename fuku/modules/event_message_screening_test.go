@@ -3,6 +3,8 @@
 package modules
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -19,8 +21,8 @@ import (
 )
 
 // eventMsgCaptchaText is the custom captcha text the captcha tests store: a Welcome placeholder in
-// markup and the two event placeholders a captcha failure fills.
-const eventMsgCaptchaText = "<i>{mention}</i> {action} ({count})"
+// markup and the event placeholders a captcha failure fills.
+const eventMsgCaptchaText = "<i>{mention}</i> {action} ({count}): {reason}"
 
 // eventMsgBotKinds are the five bot message kinds; the captcha tests give each its shortest delay, so a
 // captcha notice queued under any of them would show.
@@ -64,7 +66,9 @@ func eventMsgKickedFirst(t *testing.T, s *botSite) []moduleBotCall {
 
 func TestEventMessageCaptcha(t *testing.T) {
 	withModerationGoldenLocales(t)
-	kicked := eventActionWord(i18n.MustNewTranslator("uk"), "kick")
+	tr := i18n.MustNewTranslator("uk")
+	kicked := eventActionWord(tr, "kick")
+	reason := captchaEventReason(tr)
 
 	t.Run("timer custom", func(t *testing.T) {
 		mreqSwap(t, &captchaFailureNoticeLife, 50*time.Millisecond)
@@ -89,7 +93,7 @@ func TestEventMessageCaptcha(t *testing.T) {
 			t.Fatalf("sendMessage calls = %d, want the one custom notice", len(sends))
 		}
 		params := rulesCallParams(t, sends[0])
-		if want := "<i>@ann_lee</i> " + kicked + " (2)"; params["text"] != want {
+		if want := "<i>@ann_lee</i> " + kicked + " (2): " + reason; params["text"] != want {
 			t.Fatalf("text = %q, want %q", params["text"], want)
 		}
 		if _, ok := params["reply_parameters"]; ok {
@@ -185,6 +189,160 @@ func TestEventMessageCaptcha(t *testing.T) {
 			if eventmsg.ValidEvent(word) {
 				t.Errorf("ValidEvent(%q) = true", word)
 			}
+		}
+	})
+}
+
+// eventMsgHookDefault is the default text of the engine hook tests' replies.
+const eventMsgHookDefault = "hook default"
+
+// eventMsgHookSite is a test-only site in the botSite's chat: no reply, no topic, the automatic kind,
+// the default sent with SendMessage and the given admission gate (nil for none).
+func eventMsgHookSite(s *botSite, admit func(context.Context) bool) eventSite {
+	return eventSite{
+		Bot:       s.bot,
+		Chat:      &s.chat,
+		Tr:        i18n.MustNewTranslator("en"),
+		Kind:      deletion.KindBotAuto,
+		Automatic: true,
+		SendDefault: func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			return s.bot.SendMessage(s.chat.Id, text, opts)
+		},
+		Admit: admit,
+	}
+}
+
+// eventMsgHookReply is a reply of event to member 42 with the hook default.
+func eventMsgHookReply(event string) eventReply {
+	return eventReply{
+		Event:   event,
+		Target:  gotgbot.User{Id: 42, FirstName: "Ann"},
+		Default: eventMsgHookDefault,
+		Opts:    &gotgbot.SendMessageOpts{},
+	}
+}
+
+// eventMsgHookTexts are the texts of the site's sendMessage calls, in order.
+func eventMsgHookTexts(t *testing.T, s *botSite) []string {
+	t.Helper()
+	var texts []string
+	for _, call := range s.client.callsFor("sendMessage") {
+		texts = append(texts, rulesCallParams(t, call)["text"].(string))
+	}
+	return texts
+}
+
+func TestEventMessageEngineHooks(t *testing.T) {
+	newSite := func(t *testing.T) *botSite {
+		t.Helper()
+		s := newBotSite(t, "supergroup")
+		eventMsgCleanup(t, s.chat.Id)
+		return s
+	}
+	post := func(t *testing.T, site eventSite, r eventReply) {
+		t.Helper()
+		if err := postEvent(site, r); err != nil {
+			t.Fatalf("postEvent(%s) error = %v", r.Event, err)
+		}
+		pmCopyJobs.wait()
+	}
+
+	t.Run("required posts a silent row", func(t *testing.T) {
+		s := newSite(t)
+		eventMsgStore(t, s.chat.Id, eventmsg.EventBan, "required custom")
+		if err := eventmsg.SetSilent(t.Context(), s.chat.Id, eventmsg.EventBan, eventmsg.DestGroup, true, 1); err != nil {
+			t.Fatal(err)
+		}
+		r := eventMsgHookReply(eventmsg.EventBan)
+		post(t, eventMsgHookSite(s, nil), r)
+		if got := eventMsgHookTexts(t, s); len(got) != 0 {
+			t.Fatalf("a silent row without Required sent %v", got)
+		}
+		r.Required = true
+		post(t, eventMsgHookSite(s, nil), r)
+		if got := eventMsgHookTexts(t, s); len(got) != 1 || got[0] != "required custom" {
+			t.Fatalf("sends = %v, want the stored text despite Silent", got)
+		}
+	})
+
+	t.Run("text only drops the stored file", func(t *testing.T) {
+		s := newSite(t)
+		eventMsgStoreRow(t, s.chat.Id, eventmsg.EventBan, "with a photo", "PHOTO-FILE", db.PHOTO, nil)
+		r := eventMsgHookReply(eventmsg.EventBan)
+		r.TextOnly = true
+		post(t, eventMsgHookSite(s, nil), r)
+		if photos := s.client.callsFor("sendPhoto"); len(photos) != 0 {
+			t.Fatalf("sendPhoto calls = %d, want none for a text-only reply", len(photos))
+		}
+		if got := eventMsgHookTexts(t, s); len(got) != 1 || got[0] != "with a photo" {
+			t.Fatalf("sends = %v, want the stored text alone", got)
+		}
+	})
+
+	t.Run("admit", func(t *testing.T) {
+		s := newSite(t)
+		asked := 0
+		refuse := func(context.Context) bool { asked++; return false }
+		eventMsgStore(t, s.chat.Id, eventmsg.EventBan, "admitted custom")
+		if err := eventmsg.SetText(t.Context(), s.chat.Id, eventmsg.EventBan, eventmsg.DestPM, "private", 1); err != nil {
+			t.Fatal(err)
+		}
+		if err := eventmsg.SetSilent(t.Context(), s.chat.Id, eventmsg.EventBan, eventmsg.DestPM, false, 1); err != nil {
+			t.Fatal(err)
+		}
+		post(t, eventMsgHookSite(s, refuse), eventMsgHookReply(eventmsg.EventBan))
+		if asked != 1 {
+			t.Fatalf("Admit asked %d times, want once", asked)
+		}
+		if calls := len(eventMsgMethods(s.client)); calls != 0 {
+			t.Fatalf("a refused admission made %d calls (%v), want none: no group message, no private copy",
+				calls, eventMsgMethods(s.client))
+		}
+
+		// With the group message Silent and the private copy off, nothing would be sent: Admit is not asked.
+		if err := eventmsg.SetSilent(t.Context(), s.chat.Id, eventmsg.EventBan, eventmsg.DestGroup, true, 1); err != nil {
+			t.Fatal(err)
+		}
+		if err := eventmsg.SetSilent(t.Context(), s.chat.Id, eventmsg.EventBan, eventmsg.DestPM, true, 1); err != nil {
+			t.Fatal(err)
+		}
+		post(t, eventMsgHookSite(s, refuse), eventMsgHookReply(eventmsg.EventBan))
+		if asked != 1 {
+			t.Fatalf("Admit asked %d times, want no second ask when nothing would be sent", asked)
+		}
+
+		admitted := 0
+		eventMsgStore(t, s.chat.Id, eventmsg.EventKick, "kick custom")
+		post(t, eventMsgHookSite(s, func(context.Context) bool { admitted++; return true }), eventMsgHookReply(eventmsg.EventKick))
+		if got := eventMsgHookTexts(t, s); admitted != 1 || len(got) != 1 || got[0] != "kick custom" {
+			t.Fatalf("admitted %d times, sends = %v, want one ask and the custom message", admitted, got)
+		}
+	})
+
+	t.Run("a read error", func(t *testing.T) {
+		s := newSite(t)
+		mreqSwap(t, &eventMessagesLookup, func(context.Context, int64) (*eventmsg.Messages, error) {
+			return nil, errors.New("read failed")
+		})
+		post(t, eventMsgHookSite(s, nil), eventMsgHookReply(eventmsg.EventAISpam))
+		if got := eventMsgHookTexts(t, s); len(got) != 0 {
+			t.Fatalf("an unreadable off-by-default event sent %v, want nothing", got)
+		}
+		post(t, eventMsgHookSite(s, nil), eventMsgHookReply(eventmsg.EventBan))
+		if got := eventMsgHookTexts(t, s); len(got) != 1 || got[0] != eventMsgHookDefault {
+			t.Fatalf("an unreadable ban sent %v, want the default", got)
+		}
+	})
+
+	t.Run("no row", func(t *testing.T) {
+		s := newSite(t)
+		post(t, eventMsgHookSite(s, nil), eventMsgHookReply(eventmsg.EventAISpam))
+		if got := eventMsgHookTexts(t, s); len(got) != 0 {
+			t.Fatalf("the AI spam notice with no row sent %v, want nothing (off by default)", got)
+		}
+		post(t, eventMsgHookSite(s, nil), eventMsgHookReply(eventmsg.EventBan))
+		if got := eventMsgHookTexts(t, s); len(got) != 1 || got[0] != eventMsgHookDefault {
+			t.Fatalf("a ban with no row sent %v, want the default", got)
 		}
 	})
 }

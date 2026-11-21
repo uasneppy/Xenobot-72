@@ -132,6 +132,8 @@ var eventActionWords = map[string]string{
 	"mute": "eventmsg_action_mute",
 	"kick": "eventmsg_action_kick",
 	"ban":  "eventmsg_action_ban",
+	// delete is the AI spam filter's deletion (Phase 24).
+	"delete": "eventmsg_action_delete",
 }
 
 // eventActionWord is the word {action} takes for an action in the translator's language (the
@@ -151,6 +153,23 @@ func eventActionWord(tr *i18n.Translator, action string) string {
 // flood has no reason of its own today, so the custom message gets this fixed phrase (D-14).
 func floodEventReason(tr *i18n.Translator) string {
 	reason, _ := tr.GetString("eventmsg_reason_flood")
+	return reason
+}
+
+// captchaEventReason is the reason {reason} takes for a failed captcha in the translator's language: the
+// captcha failure has no reason of its own, so a custom message gets this fixed phrase (D-14).
+func captchaEventReason(tr *i18n.Translator) string {
+	reason, _ := tr.GetString("eventmsg_reason_captcha")
+	return reason
+}
+
+// aispamEventReason is the reason {reason} takes for an AI spam deletion in the translator's language. It
+// says only that the message looked like spam: never the provider, a model, a probability or a category
+// (D-36).
+//
+//nolint:unused // first production caller arrives in plan 24-06
+func aispamEventReason(tr *i18n.Translator) string {
+	reason, _ := tr.GetString("eventmsg_reason_aispam")
 	return reason
 }
 
@@ -244,14 +263,14 @@ func captchaFailureNoticeDelete(bot *gotgbot.Bot, chatID int64) func(*gotgbot.Me
 // postCaptchaFailureNotice posts the notice of a failed captcha once the failure action took effect: the
 // group's custom captcha message, or the default (captchaFailureDefaultReply) when none is stored. It goes
 // to the group as a new message with no reply and no topic, names no acting admin ({admin} reads "an
-// admin"), fills {action} with the failure action's word, {count} with the messages held while the captcha
+// admin"), fills {reason} with the captcha's fixed phrase, {action} with the failure action's word, {count} with the messages held while the captcha
 // was pending and, for a mute, {until} with the end of the 24 hour mute. The chat's title comes from the
 // stored chats row, with no Telegram call. The default is sent with helpers.SendMessageWithErrorHandling,
 // today's call, and either message deletes itself after captchaFailureNoticeLife.
 func postCaptchaFailureNotice(bot *gotgbot.Bot, chatID int64, tr *i18n.Translator, target gotgbot.User, action string, stored int64) error {
 	chat := &gotgbot.Chat{Id: chatID, Type: "supergroup", Title: chats.GetChatSettings(chatID).ChatName}
 	text, opts := captchaFailureDefaultReply(tr, eventDefaultInput{Target: target, Action: action, Count: int(stored)})
-	values := eventValues{Action: eventActionWord(tr, action), Count: int(stored)}
+	values := eventValues{Reason: captchaEventReason(tr), Action: eventActionWord(tr, action), Count: int(stored)}
 	if action == "mute" {
 		values.Until = time.Now().Add(captchaFailureMuteSpan)
 	}

@@ -215,7 +215,8 @@ func TestEventMessages(t *testing.T) {
 	})
 
 	t.Run("the event and destination tables", func(t *testing.T) {
-		want := []string{"ban", "tban", "kick", "mute", "tmute", "unban", "unmute", "warn", "warnlimit", "flood", "blacklist", "fwdblock", "captcha"}
+		want := []string{"ban", "tban", "kick", "mute", "tmute", "unban", "unmute", "warn", "warnlimit", "flood", "blacklist", "fwdblock", "captcha",
+			"aispam", "mreqwarn", "mreqkick", "mreqban", "mreqmute"}
 		if len(Events) != len(want) {
 			t.Fatalf("Events = %v, want %v", Events, want)
 		}
@@ -224,7 +225,7 @@ func TestEventMessages(t *testing.T) {
 				t.Errorf("event %d: Events has %q, ValidEvent(%q) = %v", i, Events[i], event, ValidEvent(event))
 			}
 		}
-		for _, event := range []string{"", "Ban", "warning", "Warn", "ban ", "dban", "sban", "Captcha", "captchas"} {
+		for _, event := range []string{"", "Ban", "warning", "Warn", "ban ", "dban", "sban", "Captcha", "captchas", "AISpam", "mreq", "mreqwarns", "mreq_ban"} {
 			if ValidEvent(event) {
 				t.Errorf("ValidEvent(%q) = true", event)
 			}
@@ -578,6 +579,70 @@ func TestEventMessagesPM(t *testing.T) {
 		}
 		if !storedSilent(t, chatID, EventUnmute, DestGroup) {
 			t.Errorf("SetMedia on an existing silent group row cleared its switch")
+		}
+	})
+
+	t.Run("an event off by default", func(t *testing.T) {
+		for _, event := range Events {
+			if got := OffByDefault(event); got != (event == EventAISpam) {
+				t.Errorf("OffByDefault(%s) = %v", event, got)
+			}
+			if !DefaultSilentFor(event, DestPM) {
+				t.Errorf("DefaultSilentFor(%s, pm) = false, want true", event)
+			}
+			if got := DefaultSilentFor(event, DestGroup); got != (event == EventAISpam) {
+				t.Errorf("DefaultSilentFor(%s, group) = %v", event, got)
+			}
+		}
+		if !DefaultSilentFor("aispam", "group") || DefaultSilentFor("ban", "group") {
+			t.Fatalf("DefaultSilentFor(aispam, group) = %v, DefaultSilentFor(ban, group) = %v, want true and false",
+				DefaultSilentFor("aispam", "group"), DefaultSilentFor("ban", "group"))
+		}
+
+		chatID := freshChat(t)
+		msgs, err := GetFresh(ctx, chatID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := msgs.Resolve(EventAISpam, DestGroup); !got.Silent || got.HasContent() {
+			t.Errorf("Resolve(aispam, group) with no row = %+v, want an empty silent message", got)
+		}
+		var nilMsgs *Messages
+		if got := nilMsgs.Resolve(EventAISpam, DestGroup); !got.Silent {
+			t.Errorf("Resolve(aispam, group) on a nil set = %+v, want silent", got)
+		}
+		for _, event := range Events {
+			if event == EventAISpam {
+				continue
+			}
+			if got := msgs.Resolve(event, DestGroup); got.Silent {
+				t.Errorf("Resolve(%s, group) with no row = %+v, want not silent", event, got)
+			}
+		}
+
+		if err := SetText(ctx, chatID, EventAISpam, DestGroup, "removed", 1); err != nil {
+			t.Fatal(err)
+		}
+		if !storedSilent(t, chatID, EventAISpam, DestGroup) {
+			t.Fatalf("SetText on a fresh aispam group key stored silent false: the notice was turned on")
+		}
+		if err := SetSilent(ctx, chatID, EventAISpam, DestGroup, false, 2); err != nil {
+			t.Fatal(err)
+		}
+		if storedSilent(t, chatID, EventAISpam, DestGroup) {
+			t.Fatalf("SetSilent(aispam, group, false) did not write a Go false")
+		}
+		if err := SetButtons(ctx, chatID, EventAISpam, DestGroup, []models.Button{{Name: "a", Url: "https://a.b"}}, 3); err != nil {
+			t.Fatal(err)
+		}
+		if storedSilent(t, chatID, EventAISpam, DestGroup) {
+			t.Errorf("a later part writer switched the notice off again")
+		}
+		if err := SetText(ctx, chatID, EventReqWarn, DestGroup, "warned", 1); err != nil {
+			t.Fatal(err)
+		}
+		if storedSilent(t, chatID, EventReqWarn, DestGroup) {
+			t.Errorf("SetText on a fresh mreqwarn group key stored silent true, want false")
 		}
 	})
 

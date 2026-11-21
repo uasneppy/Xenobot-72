@@ -294,6 +294,10 @@ eventmsg_action_mute: "muted"
 eventmsg_action_kick: "kicked"
 eventmsg_action_ban: "banned"
 eventmsg_reason_flood: "sending too many messages in a row"
+eventmsg_action_delete: "deleted"
+eventmsg_reason_captcha: "did not complete the captcha in time"
+eventmsg_reason_aispam: "the message looked like spam"
+eventmsg_mreq_rules: "Requirements not met: {rules}."
 common_anonymous_user_error: "This command cannot be used on an anonymous user."
 common_anonymous_ban_error: "This command cannot be used on an anonymous user. Anonymous users can only be banned or unbanned."
 common_cannot_identify_user: "Cannot identify the user. Channels cannot use this command."
@@ -1022,6 +1026,7 @@ aispam_no_key: "❌ I cannot turn the AI spam filter on: my operator has not con
 aispam_globally_disabled: "❌ I cannot turn the AI spam filter on: my operator has switched it off globally. Nothing has changed."
 aispam_invalid_option: "Unrecognised input. I accept <code>on</code>/<code>off</code>/<code>yes</code>/<code>no</code> only."
 aispam_breaker_notice: "⚠️ AI spam checks are paused in this chat for a few minutes after repeated failures from the AI provider. They resume on their own, and the filter stays on."
+aispam_notice_deleted: "🧠 I removed a message from {name}: it looked like spam."
 
 # Admin module extended documentation
 admin_extended_docs: "<b>Anonymous Admin Support</b>\n\nThe <code>/anonadmin</code> command lets group owners toggle anonymous admin recognition:\n<code>/anonadmin on</code> - Enable anonymous admin checks\n<code>/anonadmin off</code> - Disable anonymous admin checks\n\nWhen enabled, I ask anonymous accounts to verify before an admin action.\n\n<b>How Anonymous Admin Verification Works:</b>\n1. I detect that the sender is GroupAnonymousBot\n2. The original message is cached with a 20-second TTL\n3. A \"Verify Admin\" button is sent to the chat\n4. The user who presses it is verified as an admin and the command runs\n5. The button expires after 20 seconds if nobody verifies\n\n<b>Supported Commands:</b>\nAdmin: /promote, /demote, /title\nBans: /ban, /dban, /sban, /tban, /unban\nMutes: /mute, /smute, /dmute, /tmute, /unmute\nPins: /pin, /unpin, /permapin, /unpinall\nPurges: /purge, /del\nWarns: /warn, /swarn, /dwarn"

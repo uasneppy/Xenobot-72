@@ -908,6 +908,10 @@ eventmsg_action_mute: "silenciado"
 eventmsg_action_kick: "expulso"
 eventmsg_action_ban: "banido"
 eventmsg_reason_flood: "enviar mensagens demais em sequência"
+eventmsg_action_delete: "apagado"
+eventmsg_reason_captcha: "não concluiu o captcha a tempo"
+eventmsg_reason_aispam: "a mensagem parecia spam"
+eventmsg_mreq_rules: "Requisitos não cumpridos: {rules}."
 common_anonymous_user_error: Este comando não pode ser usado em usuário anônimo.
 common_anonymous_ban_error: Este comando não pode ser usado em usuário anônimo, estes usuários só podem ser banidos/desbanidos.
 common_cannot_identify_user: Não consigo identificar o usuário. Este comando não pode ser usado por canais.
@@ -1677,6 +1681,7 @@ aispam_no_key: "❌ Não consigo ativar o filtro de spam com IA: o operador do b
 aispam_globally_disabled: "❌ Não consigo ativar o filtro de spam com IA: o operador do bot o desativou globalmente. Nada mudou."
 aispam_invalid_option: "Eu só entendo uma opção entre: <code>on</code>/<code>off</code>/<code>yes</code>/<code>no</code>"
 aispam_breaker_notice: "⚠️ As verificações de spam com IA estão pausadas neste chat por alguns minutos após falhas repetidas do provedor de IA. Elas retomam sozinhas e o filtro continua ativado."
+aispam_notice_deleted: "🧠 Apaguei uma mensagem de {name}: parecia spam."
 
 # Admin module extended documentation
 admin_extended_docs: |
