@@ -35,6 +35,9 @@ func TestPMCopyCallers(t *testing.T) {
 			"event_message.go": "replyEvent builds the moderation pipeline's site and posts its reply after the punishment",
 			"warns.go":         "warnThisUser posts its warning after the warn is stored and any limit action applied",
 			"antiflood.go":     "checkFlood posts its notice (floodNotice) after the mute, kick or ban",
+			"blacklists.go":    "the blacklist watcher posts its notice (blacklistNotice) after the mute, kick or ban",
+			"forwardblock_notice.go": "the forward blocklist's notice of the linked group, after its mute, kick or ban; " +
+				"the watcher reaches the engine only through this non-staff file and warns.go (D-30)",
 		},
 	}
 	forbiddenNames := map[string]bool{

@@ -20,6 +20,7 @@ import (
 	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
 	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
+	"github.com/uasneppy/fuku_robot/fuku/db/staff"
 	"github.com/uasneppy/fuku_robot/fuku/db/warns"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
 	"github.com/uasneppy/fuku_robot/fuku/utils/formatting"
@@ -259,4 +260,119 @@ func eventMsgAutoDeleted(s *botSite, id int64) bool {
 		}
 	}
 	return false
+}
+
+// eventMsgAutoListText is the custom blacklist and forward blocklist text.
+const eventMsgAutoListText = "{mention} {action}: {reason}"
+
+func TestEventMessageBlacklist(t *testing.T) {
+	withModerationGoldenLocales(t)
+	tr := i18n.MustNewTranslator("uk")
+	anon, _ := tr.GetString("eventmsg_admin_anon")
+	const reason = "Blacklisted word: &#39;spam&#39;"
+
+	t.Run("blacklist custom ban", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		eventMsgStore(t, s.chat.Id, eventmsg.EventBlacklist, eventMsgAutoListText)
+		noticeGoldenBlacklist(t, s, "ban", false, ext.ContinueGroups)
+		if !eventMsgAutoDeleted(s, 101) {
+			t.Fatal("deleteMessage of message 101 not sent")
+		}
+		eventMsgAutoPunishedFirst(t, s, "banChatMember")
+		eventMsgAutoCustom(t, s, "@ann_lee "+eventActionWord(tr, "ban")+": "+reason, nil, "", deletion.KindBotAuto)
+	})
+
+	t.Run("blacklist channel ban", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		eventMsgStore(t, s.chat.Id, eventmsg.EventBlacklist, eventMsgAutoListText)
+		noticeGoldenBlacklist(t, s, "ban", true, ext.ContinueGroups)
+		eventMsgAutoPunishedFirst(t, s, "banChatSenderChat")
+		want := formatting.MentionHtml(noticeGoldenChannel.Id, noticeGoldenChannel.Title) + " " + eventActionWord(tr, "ban") + ": " + reason
+		eventMsgAutoCustom(t, s, want, nil, "", deletion.KindBotAuto)
+	})
+
+	t.Run("blacklist warn is the warn event", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		eventMsgStoreWarn(t, s)
+		eventMsgStore(t, s.chat.Id, eventmsg.EventBlacklist, eventMsgAutoListText)
+		noticeGoldenBlacklist(t, s, "warn", false, ext.EndGroups)
+		warned, _ := tr.GetString("eventmsg_action_warn")
+		eventMsgWarnCustom(t, s, "<i>@ann_lee</i> 1/3: "+reason+" ("+anon+", "+warned+")", deletion.KindBotAuto)
+	})
+
+	t.Run("blacklist nothing stored", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		eventMsgCleanup(t, s.chat.Id)
+		noticeGoldenBlacklist(t, s, "mute", false, ext.ContinueGroups)
+		eventMsgAutoPunishedFirst(t, s, "restrictChatMember")
+		eventMsgAutoGolden(t, s, 1, goldenNoticeBlacklistMute)
+		s.wantRow(s.chat.Id, 9001, deletion.KindBotAuto, 600*time.Second)
+	})
+}
+
+// eventMsgAutoEveryPlaceholder is a stored text with every Welcome and event placeholder.
+const eventMsgAutoEveryPlaceholder = "{first}|{last}|{fullname}|{username}|{mention}|{id}|{chatname}|{rules}|" +
+	"{admin}|{reason}|{action}|{count}|{limit}|{window}|{duration}|{until}"
+
+func TestEventMessageForwardBlock(t *testing.T) {
+	withModerationGoldenLocales(t)
+	tr := i18n.MustNewTranslator("uk")
+	anon, _ := tr.GetString("eventmsg_admin_anon")
+	reason := html.EscapeString(forwardBlockReason(tr))
+
+	t.Run("forward block custom", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		eventMsgStore(t, s.chat.Id, eventmsg.EventForwardBlock, eventMsgAutoEveryPlaceholder)
+		// A Staff Group with a sentinel title keeps the site's group, and the member's message is a
+		// forward of a source with a sentinel title: neither may reach the notice.
+		const staffTitle, sourceTitle = "Sentinel Staff HQ", "Sentinel Source"
+		staffChat, source, owner := uniqueModuleChatID(), uniqueModuleChatID(), uniqueLinkOwnerID()
+		staffCleanup(t, staffChat, s.chat.Id)
+		if _, err := staff.CreateStaffGroup(staffChat, owner, staffTitle); err != nil {
+			t.Fatalf("create the Staff Group: %v", err)
+		}
+		if err := staff.CreateLink(&models.StaffGroupLink{GroupChatID: s.chat.Id, StaffChatID: staffChat, OwnerUserID: owner, GroupTitle: s.chat.Title}); err != nil {
+			t.Fatalf("link the group: %v", err)
+		}
+		ctx := noticeGoldenMessage(s, 101, "forwarded post", false)
+		ctx.EffectiveMessage.ForwardOrigin = gotgbot.MessageOriginChannel{
+			Date: 1, Chat: gotgbot.Chat{Id: source, Type: "channel", Title: sourceTitle}, MessageId: 5,
+		}
+		if err := forwardBlockKick(s.bot, ctx, noticeGoldenTarget.Id); err != nil {
+			t.Fatalf("forwardBlockKick error = %v", err)
+		}
+		eventMsgAutoPunishedFirst(t, s, "unbanChatMember")
+		want := "Ann &amp; &lt;Bo&gt;|Lee|Ann &amp; &lt;Bo&gt; Lee|@ann_lee|@ann_lee|42|" + s.chat.Title + "||" +
+			anon + "|" + reason + "|" + eventActionWord(tr, "kick") + "|||||"
+		eventMsgAutoCustom(t, s, want, nil, "", deletion.KindBotAuto)
+		request := legacyRequestJSON(t, s.client.callsFor("sendMessage")[0])
+		for _, forbidden := range []string{staffTitle, sourceTitle, strconv.FormatInt(source, 10), strconv.FormatInt(staffChat, 10)} {
+			if strings.Contains(request, forbidden) {
+				t.Fatalf("the forward blocklist message names %q: %s", forbidden, request)
+			}
+		}
+	})
+
+	t.Run("forward block through the watcher", func(t *testing.T) {
+		env := newFwdWatchEnv(t, "mute")
+		eventMsgStore(t, env.group, eventmsg.EventForwardBlock, eventMsgAutoListText)
+		member := env.member()
+		env.forward(member)
+		if calls := env.callsTo("restrictChatMember", env.group); len(calls) != 1 {
+			t.Fatalf("restrictChatMember calls = %d, want the one mute", len(calls))
+		}
+		sent := env.fake.sentTo(env.group)
+		if len(sent) != 1 {
+			t.Fatalf("messages sent to the linked group = %d, want the one custom notice", len(sent))
+		}
+		text := fmt.Sprint(sent[0].Params["text"])
+		// The staff environment installs its own locale, so the words come from it.
+		envTr := i18n.MustNewTranslator("uk")
+		want := formatting.MentionHtml(member.Id, member.FirstName) + " " + eventActionWord(envTr, "mute") + ": " +
+			html.EscapeString(forwardBlockReason(envTr))
+		if text != want {
+			t.Fatalf("text = %q, want %q", text, want)
+		}
+		fwdForbiddenInText(t, env, "the custom notice", text)
+	})
 }

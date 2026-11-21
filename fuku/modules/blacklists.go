@@ -15,7 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/fuku_robot/fuku/db/blacklists"
-	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/lang"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
@@ -719,7 +719,6 @@ func (m moduleStruct) blacklistWatcher(b *gotgbot.Bot, ctx *ext.Context) error {
 		return ext.ContinueGroups
 	}
 
-	tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
 	reason := matched.Reason
 	if reason == "" {
 		reason = "Blacklisted word: '%s'"
@@ -732,70 +731,18 @@ func (m moduleStruct) blacklistWatcher(b *gotgbot.Bot, ctx *ext.Context) error {
 		if user.IsAnonymousChannel() {
 			return ext.ContinueGroups
 		}
-
 		_, err = b.RestrictChatMember(chat.Id, user.Id(), MutedPermissions, nil)
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-
-		var sent *gotgbot.Message
-		sent, err = b.SendMessage(chat.Id,
-			func() string {
-				temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_bl_watcher_muted_user")
-				return fmt.Sprintf(temp, formatting.MentionHtml(user.Id(), user.Name()), fmt.Sprintf(reason, i))
-			}(),
-			formatting.Shtml())
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-		scheduleBotMessage(sent, deletion.KindBotAuto)
 	case "ban":
 		if user.IsAnonymousChannel() {
 			_, err = b.BanChatSenderChat(chat.Id, user.Id(), nil)
 		} else {
 			_, err = b.BanChatMember(chat.Id, user.Id(), nil)
 		}
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-
-		var sent *gotgbot.Message
-		sent, err = b.SendMessage(chat.Id,
-			func() string {
-				temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_bl_watcher_banned_user")
-				return fmt.Sprintf(temp, formatting.MentionHtml(user.Id(), user.Name()), fmt.Sprintf(reason, i))
-			}(),
-			formatting.Shtml())
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-		scheduleBotMessage(sent, deletion.KindBotAuto)
 	case "kick":
 		if user.IsAnonymousChannel() {
 			return ext.ContinueGroups
 		}
-
-		if err = kickMember(b, chat.Id, user.Id()); err != nil {
-			log.Error(err)
-			return err
-		}
-
-		var sent *gotgbot.Message
-		sent, err = b.SendMessage(chat.Id,
-			func() string {
-				temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_bl_watcher_kicked_user")
-				return fmt.Sprintf(temp, formatting.MentionHtml(user.Id(), user.Name()), fmt.Sprintf(reason, i))
-			}(),
-			formatting.Shtml())
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-		scheduleBotMessage(sent, deletion.KindBotAuto)
+		err = kickMember(b, chat.Id, user.Id())
 	case "warn":
 		if user.IsAnonymousChannel() {
 			return ext.ContinueGroups
@@ -808,11 +755,32 @@ func (m moduleStruct) blacklistWatcher(b *gotgbot.Bot, ctx *ext.Context) error {
 			}
 			return err
 		}
-	case "none":
+		return ext.ContinueGroups
+	default:
+		// none, and a stored action the watcher applies nothing for, post nothing.
 		return ext.ContinueGroups
 	}
-
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	if err = blacklistNotice(b, ctx, user, matched.Action, fmt.Sprintf(reason, i)); err != nil {
+		log.Error(err)
+		return err
+	}
 	return ext.ContinueGroups
+}
+
+// blacklistNotice posts the blacklist's punishment notice after the mute, kick or ban (D-03) through the
+// event message engine: a group's stored blacklist message replaces the default, with {action} the word
+// of the list's action and {reason} the reason the default shows (the stored reason filled with the
+// matched word), escaped by the engine while the default splices it as today (D-14). The site and the
+// reply are the forward blocklist's too (listNoticeSite, listNoticeReply); the default is today's request
+// byte for byte, queued as an automatic punishment message.
+func blacklistNotice(b *gotgbot.Bot, ctx *ext.Context, user *gotgbot.Sender, action, reason string) error {
+	tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
+	reply := listNoticeReply(tr, eventmsg.EventBlacklist, eventSenderTarget(user), action, reason)
+	return postEvent(listNoticeSite(b, ctx.EffectiveChat, tr), reply)
 }
 
 func LoadBlacklists(dispatcher *ext.Dispatcher) {

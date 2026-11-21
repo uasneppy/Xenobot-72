@@ -7,6 +7,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
+	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
 	"github.com/uasneppy/fuku_robot/fuku/utils/formatting"
 )
@@ -163,4 +164,35 @@ func eventSenderTarget(sender *gotgbot.Sender) gotgbot.User {
 		}
 	}
 	return gotgbot.User{}
+}
+
+// listNoticeSite is the site of the blacklist's and the forward blocklist's punishment notices, which
+// post alike: in the group with no reply and no topic, queued as an automatic punishment message, with
+// no acting admin ({admin} reads "an admin") and the default sent with b.SendMessage, today's call.
+func listNoticeSite(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator) eventSite {
+	return eventSite{
+		Bot:       b,
+		Chat:      chat,
+		Tr:        tr,
+		Kind:      deletion.KindBotAuto,
+		Automatic: true,
+		SendDefault: func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			return b.SendMessage(chat.Id, text, opts)
+		},
+	}
+}
+
+// listNoticeReply is the event of a blacklist or forward blocklist punishment notice: the default built
+// by blacklistNoticeDefaultReply (today's request, the reason spliced as is), and the values a custom
+// text fills, the same reason (which the engine escapes) and the action's translated word. Neither event
+// has a count, a limit or a bot row (D-11, D-15).
+func listNoticeReply(tr *i18n.Translator, event string, target gotgbot.User, action, reason string) eventReply {
+	text, opts := blacklistNoticeDefaultReply(tr, eventDefaultInput{Target: target, Action: action, Reason: reason})
+	return eventReply{
+		Event:   event,
+		Target:  target,
+		Values:  eventValues{Reason: reason, Action: eventActionWord(tr, action)},
+		Default: text,
+		Opts:    opts,
+	}
 }

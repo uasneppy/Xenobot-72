@@ -361,7 +361,7 @@ func forwardBlockMute(b *gotgbot.Bot, ctx *ext.Context, userID int64) error {
 	if _, err := b.RestrictChatMember(chatID, userID, MutedPermissions, nil); err != nil {
 		return err
 	}
-	return forwardBlockNotice(b, ctx, userID, "blacklists_bl_watcher_muted_user")
+	return forwardBlockNotice(b, ctx, userID, "mute")
 }
 
 // forwardBlockKick removes the member (they can join again), then posts the notice.
@@ -369,7 +369,7 @@ func forwardBlockKick(b *gotgbot.Bot, ctx *ext.Context, userID int64) error {
 	if err := kickMember(b, ctx.EffectiveMessage.Chat.Id, userID); err != nil {
 		return err
 	}
-	return forwardBlockNotice(b, ctx, userID, "blacklists_bl_watcher_kicked_user")
+	return forwardBlockNotice(b, ctx, userID, "kick")
 }
 
 // forwardBlockBan bans the member with no end date, then posts the notice.
@@ -377,5 +377,5 @@ func forwardBlockBan(b *gotgbot.Bot, ctx *ext.Context, userID int64) error {
 	if _, err := b.BanChatMember(ctx.EffectiveMessage.Chat.Id, userID, nil); err != nil {
 		return err
 	}
-	return forwardBlockNotice(b, ctx, userID, "blacklists_bl_watcher_banned_user")
+	return forwardBlockNotice(b, ctx, userID, "ban")
 }

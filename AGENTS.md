@@ -263,11 +263,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   forward after the window punishes again. The actions: `none` is the delete alone, `warn` is `warnsModule.warnThisUser` with
   `warnSourceAuto` (the sentinels `ext.EndGroups` and `ext.ContinueGroups` ignored, as `blacklistWatcher` does), `mute` is
   `RestrictChatMember` with `MutedPermissions` and no end date, `kick` is `kickMember`, `ban` is `BanChatMember` with no end
-  date; after mute, kick and ban the notice is the existing `blacklists_bl_watcher_{muted,kicked,banned}_user` template spliced
-  with `formatting.MentionHtml` and the reason `staff_fwdblock_reason`, in the group's language, then queued through
-  `scheduleBotMessage(sent, deletion.KindBotAuto)` (`forwardBlockNotice`, in `forwardblock_notice.go` and not in a `staff*` file,
-  because the notice is a linked group's own message and `TestMemberDeletionExcludedMessages` forbids any deletion producer in a
-  staff file); the reason and the notices name neither the source nor the Staff Group.
+  date; after mute, kick and ban the punishment calls `forwardBlockNotice(b, ctx, userID, action)` with the action word
+  (`"mute"`, `"kick"`, `"ban"`), which posts the `fwdblock` event through the event message engine (`postEvent`, Phase 23
+  plan 23-04): a group's stored forward blocklist message replaces the default, which is the existing
+  `blacklists_bl_watcher_{muted,kicked,banned}_user` template with the member's mention and the reason
+  `staff_fwdblock_reason`, in the group's language; both are queued as `bot:punish_auto` (the blacklist's site and reply,
+  `listNoticeSite` and `listNoticeReply` in `event_message_auto.go`). `forwardBlockNotice` lives in `forwardblock_notice.go`
+  and not in a `staff*` file, because the notice is a linked group's own message, `TestMemberDeletionExcludedMessages`
+  forbids any deletion producer in a staff file and `TestPMCopyCallers` forbids `postEvent` in one; the watcher reaches the
+  engine only through that file and `warns.go` (D-30). The reason and the notices, default or custom, name neither the
+  source nor the Staff Group: the site holds only the fixed reason and the member, so no placeholder can add them (D-31,
+  `TestEventMessageForwardBlock`).
   A sender_chat channel identity or an anonymous admin posting a blocked forward is exempt: a stated limit. The two action
   vocabularies are one set (`TestForwardBlockVocabulary`); `blacklistWatcher`'s own inline switch is not edited.
 - The `ServiceDeletion` module (priority 242, `deletion_service.go`) registers the service message deletion watcher
@@ -3630,7 +3636,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   default `floodDefaultReply` with the switch's rows, the values the flood reason, the burst's message count, the flood
   limit and the action word, and `KeepRows` nil, so a custom flood message keeps the Unmute or Unban row first (D-15).
   Only a mute, a kick or a ban is the event; a stored inert action (`warn`, `tban`, `tmute`) applies nothing and keeps
-  today's notice through `sendDefaultPost` (D-10). `checkFlood` logs a send error and returns it as before. The default
+  today's notice through `sendDefaultPost` (D-10). `checkFlood` logs a send error and returns it as before. The blacklist
+  (plan 23-04, the `blacklist` event) and the forward blocklist (the `fwdblock` event) share one site and reply
+  (`listNoticeSite`: no reply, no topic, `bot:punish_auto`, `Automatic`, no actor, the default through `b.SendMessage`;
+  `listNoticeReply`: the default from `blacklistNoticeDefaultReply`, the values the reason and the action word, no count,
+  limit or kept row). `blacklistWatcher` applies its mute, kick or ban as before and then calls `blacklistNotice(b, ctx,
+  user, action, reason)` with the reason the default shows (the stored reason filled with the matched word), which the
+  engine escapes in `{reason}` while the default splices it as today (D-14); its warn action is the `warn` event, and
+  `none` and a stored inert action post nothing. A punishment or send error is logged and returned as before. The
+  forward blocklist's site is `forwardBlockNotice` (the forward blocklist watcher bullet). The default
   texts never use these words: the flood's default keeps its untranslated English `muted`, `kicked` or `banned` (D-13, D-14). The Automatic
   family's default replies all live in `event_message_auto.go` (D-22), each an `eventDefaultReply` that returns the text
   and options its site sent before custom messages, byte for byte: `warnDefaultReply` (the warn, with the site's rows),
@@ -3643,7 +3657,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`TestLegacyPunishmentNoticeRequests` pins every warn byte for a group with nothing stored, `TestEventMessageWarn` the
   custom warn, `TestEventMessageWarnLimit` in `event_message_auto_sites_test.go` the custom warn limit, the automatic one,
   the inert mode and Silent, `TestEventMessageFlood` a custom mute in a topic, a sender chat's ban, the inert action and
-  a refused custom message).
+  a refused custom message, `TestEventMessageBlacklist` a custom ban, a sender chat's ban, the warn action as the warn
+  event and nothing stored, `TestEventMessageForwardBlock` a stored text with every placeholder that names neither a
+  sentinel source nor a sentinel Staff Group, and one real forward through the watcher).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
@@ -3732,7 +3748,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`pm_copy_callers_test.go`, D-33: a `go/parser` walk of the package's non-test files; `offerEventPM` is used only by
   `event_message.go`, `registerEventPM` only by `event_message_pm.go` and `postEvent` (plan 23-02) only by `event_message.go`
   (`replyEvent`, the moderation pipeline's site), `warns.go` (`warnThisUser`, after the warn is stored and any limit
-  action applied) and `antiflood.go` (`floodNotice`, after the flood's mute, kick or ban), each allow-list entry with its reason and a stale entry failing, and no file whose name starts with
+  action applied), `antiflood.go` (`floodNotice`, after the flood's mute, kick or ban), `blacklists.go`
+  (`blacklistNotice`, after the blacklist's mute, kick or ban) and `forwardblock_notice.go` (`forwardBlockNotice`, the
+  forward blocklist's notice of the linked group, the watcher's only way to the engine besides `warns.go`), each allow-list entry with its reason and a stale entry failing, and no file whose name starts with
   `staff`, `lockdown` or `raid` names `offerEventPM`, `registerEventPM`, `offerReplyPM`, `replyEvent`, `postEvent` or any
   `pmCopy` identifier, so a lockdown's joiner bans, "Ban N recent joiners" and Staff
   Group actions can never send a copy, PMSG-05; a later phase adds its caller to the list with a reason) and `TestEventMsgLocaleKeys` (`fuku/i18n/eventmsg_locale_test.go`, whose
@@ -5778,6 +5796,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   flood text (the translated mute word, 6/5 and the flood reason, no bot row), with nothing sent to the group. The page's earlier
   families cover both families through `settingsMsgScreens`, whose expected widths follow the table (`settingsMsgFamilyWidths`, and an
   event screen without the private copy row while its event has no spec).
+  `TestEventMessageWarnLimit`, `TestEventMessageFlood`, `TestEventMessageBlacklist` and `TestEventMessageForwardBlock`
+  (`event_message_auto_sites_test.go`, plan 23-04) run the four other sites, one `newNoticeGoldenSite` per subtest (one
+  `newFwdWatchEnv` for the real forward through the watcher): each custom message is checked for its exact text, keyboard
+  rows, reply parameters and queue kind, the punishment call comes before the notice (`eventMsgAutoPunishedFirst`), and
+  the inert warn mode, the inert flood action, nothing stored and a refused custom flood message each equal their golden
+  (toolkit `eventMsgAutoWarnSettings`, `eventMsgAutoSilent`, `eventMsgAutoCustom`, `eventMsgAutoGolden`,
+  `eventMsgAutoFlood`, a flood driver with a topic, `eventMsgAutoRow`, `eventMsgAutoDeleted`).
 
 ## Commits
 
