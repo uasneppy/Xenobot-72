@@ -3751,8 +3751,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   row's file. It is sent by `offerEventPM` from a bounded job (`pmCopyJobs`, a `raidPostTracker`, `startBelow` of
   `pmCopyMaxInFlight` 16 per replica, a full pool sheds the copy with one Debug line naming the chat and the user; each job starts with
   `defer error_handling.RecoverFromPanic` and runs under `pmCopyJobTimeout`, 60 s, from `context.Background()`). For an
-  event whose spec is `Automatic` (the flood, blacklist and forward blocklist punishments since Phase 23; Phase 24 adds
-  more), and for a reply an automatic rule raised whatever its spec (`eventPMOffer.ByRule`, set by `offerReplyPM` from
+  event whose spec is `Automatic` (the flood, blacklist and forward blocklist punishments since Phase 23, and the six screening events of Phase 24:
+  the failed captcha, the AI spam notice and the requirement warn, kick, ban and mute), and for a reply an automatic rule raised whatever its spec (`eventPMOffer.ByRule`, set by `offerReplyPM` from
   `eventSite.Automatic`: the blacklist's and the forward blocklist's warns and the warn limit they reach, D-28; `offerEventPM`
   sets the job's unexported `automatic` flag to `spec.Automatic || o.ByRule` and nothing else sets it), the job's first step is the per-group cap
   `pmCopyCapAllow` (Data: `fuku:pmcopy:{<chat>}:cap:<unix minute>`, at most `pmCopyAutoCapPerMinute` 10 a group a minute,
@@ -5966,6 +5966,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   seven requirement goldens (the member and hold filled into `<user>` and `<hold>`), checks `aispamNoticeDefaultReply`, and
   holds `memberReqNoticeDefault`'s text equal to `memberReqNoticeText`'s for every notice kind over every mask of one, two and
   all eight rules; `TestMemberReqNoticeNoteFitsReserve` sweeps the worst note in 8 languages.
+  `TestEventPMCaptcha` (`event_message_pm_screening_test.go`, plan 24-03, about 0.1 s, toolkit `newEventPMCaptchaSite`: the captcha
+  site with miniredis, the fast private copy pacer, the stored title `Q&A <Group>` and the copy switched on, and
+  `eventPMCaptchaFail`) holds the captcha's private copy through `handleCaptchaTimeout`: the default private text after the kick and
+  the group notice, a member who blocked the bot (one attempted send, nothing else), and the cap (three members in one minute with the
+  cap at 2: all kicked and noticed, two copies; a fourth in the next minute with no Redis: kicked and noticed, no copy). The captcha
+  site is also `eventSite.Automatic`, so its copies are capped through `eventPMOffer.ByRule` as well as through the spec.
 
 ## Commits
 
