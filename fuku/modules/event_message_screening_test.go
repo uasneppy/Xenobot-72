@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
 	"github.com/uasneppy/fuku_robot/fuku/utils/captchaweb"
+	"github.com/uasneppy/fuku_robot/fuku/utils/formatting"
 )
 
 // eventMsgCaptchaText is the custom captcha text the captcha tests store: a Welcome placeholder in
@@ -345,4 +348,140 @@ func TestEventMessageEngineHooks(t *testing.T) {
 			t.Fatalf("a ban with no row sent %v, want the default", got)
 		}
 	})
+}
+
+// The requirement goldens' member and hold, as the default builder tests fill the <user> and <hold> tokens.
+const (
+	screenDefaultUser = 7771234
+	screenDefaultHold = 98765
+)
+
+// screenDefaultWant is a golden with its tokens filled as autoDefaultRequest sends it: chat 0, the test's
+// member and hold.
+func screenDefaultWant(golden string) string {
+	return strings.NewReplacer(
+		"<chat>", "0",
+		"<user>", strconv.Itoa(screenDefaultUser),
+		"<hold>", strconv.Itoa(screenDefaultHold),
+	).Replace(golden)
+}
+
+// screenNoticeInput is the default input of a requirement notice kind (mreqNoticeKinds' shapes) for the
+// member, the broken rules and the mute's keyboard rows.
+func screenNoticeInput(kind mreqNoticeKind, target gotgbot.User, rules int, rows [][]gotgbot.InlineKeyboardButton) eventDefaultInput {
+	in := eventDefaultInput{Target: target, Rules: rules}
+	if kind.warn != nil {
+		in.Count, in.Limit, in.Action = kind.warn.Count, kind.warn.Limit, kind.warn.Mode
+	}
+	if kind.action == models.RequirementActionMute {
+		in.Rows = rows
+	}
+	return in
+}
+
+func TestScreeningEventDefaults(t *testing.T) {
+	withRealLocales(t)
+	tr := i18n.MustNewTranslator("uk")
+	member := gotgbot.User{Id: screenDefaultUser, FirstName: "Ann & <Bo>", Username: "ann_lee"}
+	lastName := mreqRuleMask(t, "ln")
+	fixed := memberReqFixedButton(tr, screenDefaultHold, screenDefaultUser).InlineKeyboard
+	warn := func(count, limit int, action string) eventDefaultInput {
+		return eventDefaultInput{Target: member, Rules: lastName, Count: count, Limit: limit, Action: action}
+	}
+
+	cases := []struct {
+		name   string
+		build  eventDefaultReply
+		in     eventDefaultInput
+		golden string
+	}{
+		{"captcha_kick", captchaFailureDefaultReply, eventDefaultInput{Target: noticeGoldenTarget, Action: "kick"}, goldenScreenCaptchaKick},
+		{"captcha_ban", captchaFailureDefaultReply, eventDefaultInput{Target: noticeGoldenTarget, Action: "ban"}, goldenScreenCaptchaBan},
+		{"captcha_mute", captchaFailureDefaultReply, eventDefaultInput{Target: noticeGoldenTarget, Action: "mute"}, goldenScreenCaptchaMute},
+		{"captcha_kick_held", captchaFailureDefaultReply, eventDefaultInput{Target: noticeGoldenTarget, Action: "kick", Count: 2}, goldenScreenCaptchaKickHeld},
+		{"req_warn", memberReqNoticeDefault(models.RequirementActionWarn), warn(1, 3, ""), goldenScreenReqWarn},
+		{"req_warnlimit_kick", memberReqNoticeDefault(models.RequirementActionWarn), warn(1, 1, "kick"), goldenScreenReqWarnLimitKick},
+		{"req_warnlimit_ban", memberReqNoticeDefault(models.RequirementActionWarn), warn(1, 1, "ban"), goldenScreenReqWarnLimitBan},
+		{"req_warnlimit_mute", memberReqNoticeDefault(models.RequirementActionWarn), warn(1, 1, "mute"), goldenScreenReqWarnLimitMute},
+		{"req_kick", memberReqNoticeDefault(models.RequirementActionKick), eventDefaultInput{Target: member, Rules: lastName}, goldenScreenReqKick},
+		{"req_ban", memberReqNoticeDefault(models.RequirementActionBan), eventDefaultInput{Target: member, Rules: lastName}, goldenScreenReqBan},
+		{"req_mute", memberReqNoticeDefault(models.RequirementActionMute), eventDefaultInput{Target: member, Rules: lastName, Rows: fixed}, goldenScreenReqMute},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text, opts := tc.build(tr, tc.in)
+			if got, want := autoDefaultRequest(t, text, opts), screenDefaultWant(tc.golden); got != want {
+				t.Fatalf("default request\n got %q\nwant %q", got, want)
+			}
+		})
+	}
+
+	t.Run("aispam_notice", func(t *testing.T) {
+		target := gotgbot.User{Id: 42, FirstName: "Ann & <Bo>", LastName: "Lee"}
+		text, opts := aispamNoticeDefaultReply(tr, eventDefaultInput{Target: target})
+		mention := formatting.MentionHtml(42, "Ann & <Bo> Lee")
+		want, _ := tr.GetString("aispam_notice_deleted", i18n.TranslationParams{"name": mention})
+		if text != want || !strings.Contains(text, "Ann &amp; &lt;Bo&gt; Lee") || strings.Contains(text, "{name}") {
+			t.Fatalf("text = %q, want %q with the escaped mention", text, want)
+		}
+		raw := autoDefaultRequest(t, text, opts)
+		if !strings.Contains(raw, `"parse_mode":"HTML"`) || !strings.Contains(raw, `"link_preview_options":{"is_disabled":true}`) ||
+			strings.Contains(raw, "reply_markup") || strings.Contains(raw, "reply_parameters") {
+			t.Fatalf("request = %s, want HTML with link previews off, no keyboard and no reply", raw)
+		}
+	})
+
+	t.Run("requirement text equals memberReqNoticeText", func(t *testing.T) {
+		var masks []int
+		for i, a := range memberReqRules {
+			masks = append(masks, a.Bit)
+			for _, b := range memberReqRules[i+1:] {
+				masks = append(masks, a.Bit|b.Bit)
+			}
+		}
+		masks = append(masks, mreqAllRulesMask())
+		for _, kind := range mreqNoticeKinds() {
+			for _, mask := range masks {
+				got, _ := memberReqNoticeDefault(kind.action)(tr, screenNoticeInput(kind, member, mask, fixed))
+				if want := memberReqNoticeText(tr, member, mask, kind.action, kind.warn); got != want {
+					t.Fatalf("%s notice of mask %d\n got %q\nwant %q", kind.name, mask, got, want)
+				}
+			}
+		}
+	})
+}
+
+func TestMemberReqNoticeNoteFitsReserve(t *testing.T) {
+	withRealLocales(t)
+	all := mreqAllRulesMask()
+	for _, lang := range []string{"uk", "en", "es", "fr", "hi", "id", "pt", "ru"} {
+		tr := i18n.MustNewTranslator(lang)
+		note := memberReqNoticeNote(tr, all, "mreq_notice_mute")
+		line, _ := tr.GetString("eventmsg_mreq_rules", i18n.TranslationParams{"rules": memberReqRulesText(tr, all)})
+		want := "\n" + line
+		for _, remedy := range memberReqNoticeRemedies("mreq_notice_mute", all) {
+			sentence, _ := tr.GetString(remedy)
+			want += " " + sentence
+		}
+		if len(memberReqNoticeRemedies("mreq_notice_mute", all)) != 2 {
+			t.Fatalf("remedies of every rule = %v, want the photo and the AI remedy", memberReqNoticeRemedies("mreq_notice_mute", all))
+		}
+		if note != want || !strings.HasPrefix(note, "\n") || strings.Contains(note, "{rules}") {
+			t.Errorf("%s: note = %q, want %q", lang, note, want)
+		}
+		for _, rule := range memberReqRules {
+			phrase, _ := tr.GetString(rule.PhraseKey)
+			if !strings.Contains(note, phrase) {
+				t.Errorf("%s: the note misses the phrase of %s", lang, rule.PhraseKey)
+			}
+		}
+		n := formatting.VisibleLength(note)
+		if n > memberReqNoticeNoteReserve {
+			t.Errorf("%s: the worst note is %d UTF-16 units, over the reserve %d", lang, n, memberReqNoticeNoteReserve)
+		}
+		t.Logf("%s: the worst note is %d UTF-16 units", lang, n)
+		if ban := memberReqNoticeNote(tr, all, "mreq_notice_ban"); ban != "\n"+line {
+			t.Errorf("%s: the ban note = %q, want the requirements line alone", lang, ban)
+		}
+	}
 }

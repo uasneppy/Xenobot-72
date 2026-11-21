@@ -156,6 +156,21 @@ func floodEventReason(tr *i18n.Translator) string {
 	return reason
 }
 
+// aispamNoticeDefaultReply is the default AI spam notice (new in Phase 24, off by default): the
+// aispam_notice_deleted text with {name} the escaped mention of the member's full name, in HTML with
+// link previews off. The site adds the deleted message's topic; it is never a reply. It says only that
+// a message was removed: never the provider, a model, a probability or a category (D-36).
+//
+//nolint:unused // first production caller arrives in plan 24-04
+func aispamNoticeDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	name := formatting.GetFullName(in.Target.FirstName, in.Target.LastName)
+	text, _ := tr.GetString("aispam_notice_deleted", i18n.TranslationParams{"name": formatting.MentionHtml(in.Target.Id, name)})
+	return text, &gotgbot.SendMessageOpts{
+		ParseMode:          formatting.HTML,
+		LinkPreviewOptions: &gotgbot.LinkPreviewOptions{IsDisabled: true},
+	}
+}
+
 // captchaEventReason is the reason {reason} takes for a failed captcha in the translator's language: the
 // captcha failure has no reason of its own, so a custom message gets this fixed phrase (D-14).
 func captchaEventReason(tr *i18n.Translator) string {

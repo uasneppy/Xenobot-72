@@ -3705,7 +3705,22 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   names no provider, model, probability or category); `eventmsg_mreq_rules` (`{rules}`) is the requirements line a custom
   requirement text is followed by, and `aispam_notice_deleted` (`{name}`) the AI spam notice's default text
   (`TestEventMessageEngineHooks` on a test-only site: Required, TextOnly, Admit refused and not asked, a read error and no
-  row of `aispam` against `ban`).
+  row of `aispam` against `ban`). The screening events' default builders (D-25) each return today's text and options byte
+  for byte and are proven against the goldens of `TestLegacyScreeningNoticeRequests` before a site switches
+  (`TestScreeningEventDefaults`, pure): `captchaFailureDefaultReply` (above), `memberReqNoticeDefault(action)`
+  (`memberreq_notice.go`: `memberReqNoticeText` for `in.Target`, the mask `in.Rules` and, for a warn, `in.Count`, `in.Limit`
+  and `in.Action` naming the limit action that took effect, empty for the plain warn; HTML, link previews off, no reply, and
+  `ReplyMarkup` only when `in.Rows` has rows, so a notice without a button sends no `reply_markup` at all) and
+  `aispamNoticeDefaultReply` (`event_message_auto.go`: `aispam_notice_deleted` with the escaped mention of the full name,
+  HTML, link previews off; the site adds the topic). `memberReqNoticeNote(tr, broken, key)` is what follows a custom
+  requirement text: a newline, `eventmsg_mreq_rules` with the broken rules' phrases in rule order and, after one space each,
+  the remedy sentences of `memberReqNoticeRemedies(key, broken)`; the engine appends it after its own newline, so a blank
+  line precedes it. `memberReqNoticeNoteReserve` (600 UTF-16 units) is the room the editor holds back for it, and the worst
+  note (all eight rules, both remedies) is at most 346 units in every language (`TestMemberReqNoticeNoteFitsReserve`; a
+  translation that exceeds it is shortened, never the reserve raised). Until their sites switch, `memberReqNoticeDefault`,
+  `memberReqNoticeNote`, `memberReqNoticeNoteReserve` and `aispamNoticeDefaultReply` carry
+  `//nolint:unused // first production caller arrives in plan 24-04` and `aispamEventReason` the same marker naming plan
+  24-06; the named plan removes it.
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
@@ -5940,7 +5955,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   60 s) holds the captcha site: a custom text through the timer and through a failed web check, the 30 second self-delete
   shortened through `captchaFailureNoticeLife`, nothing stored, a refused custom message and Silent. `TestEventMessageEngineHooks`
   (same file, toolkit `eventMsgHookSite`, `eventMsgHookReply`) holds the engine's Phase 24 hooks on a test-only site, and Phase
-  23's `TestEventActionWords` sweeps the delete word and the captcha and AI spam reasons in 8 languages.
+  23's `TestEventActionWords` sweeps the delete word and the captcha and AI spam reasons in 8 languages. `TestScreeningEventDefaults`
+  (pure, real locales) compares `captchaFailureDefaultReply` with the four captcha goldens, `memberReqNoticeDefault` with the
+  seven requirement goldens (the member and hold filled into `<user>` and `<hold>`), checks `aispamNoticeDefaultReply`, and
+  holds `memberReqNoticeDefault`'s text equal to `memberReqNoticeText`'s for every notice kind over every mask of one, two and
+  all eight rules; `TestMemberReqNoticeNoteFitsReserve` sweeps the worst note in 8 languages.
 
 ## Commits
 

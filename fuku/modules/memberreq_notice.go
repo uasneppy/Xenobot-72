@@ -143,6 +143,58 @@ func memberReqNoticeText(tr *i18n.Translator, user gotgbot.User, broken, action 
 	return lockdownSplice(text, memberReqNamePlaceholder, memberReqMention(user, fallback))
 }
 
+// memberReqNoticeDefault is the default reply builder of a requirement notice for the punishment
+// action (warn, kick, ban or mute): memberReqNoticeText for in.Target and the broken rules in.Rules,
+// with, for a warn, the warn count in.Count and the group's limit in.Limit, and in.Action naming the
+// limit action that took effect (kick, ban or mute: the warn-limit variant) or nothing for the plain
+// warn. The options are memberReqPostNotice's: HTML with link previews off, never a reply, and the
+// keyboard in.Rows only when it has rows (the mute's "I fixed it"), so a notice with no button sends
+// no reply_markup at all. It returns today's request byte for byte.
+//
+//nolint:unused // first production caller arrives in plan 24-04
+func memberReqNoticeDefault(action int) eventDefaultReply {
+	return func(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+		var warn *warnApplyResult
+		if action == models.RequirementActionWarn {
+			warn = &warnApplyResult{Count: in.Count, Limit: in.Limit}
+			switch in.Action {
+			case "kick", "ban", "mute":
+				warn.Mode, warn.LimitReached, warn.LimitApplied = in.Action, true, true
+			}
+		}
+		opts := &gotgbot.SendMessageOpts{
+			ParseMode:          formatting.HTML,
+			LinkPreviewOptions: &gotgbot.LinkPreviewOptions{IsDisabled: true},
+		}
+		if len(in.Rows) > 0 {
+			opts.ReplyMarkup = gotgbot.InlineKeyboardMarkup{InlineKeyboard: in.Rows}
+		}
+		return memberReqNoticeText(tr, in.Target, in.Rules, action, warn), opts
+	}
+}
+
+// memberReqNoticeNoteReserve is the room, in UTF-16 units, a custom requirement text leaves for the
+// note the bot appends after it (memberReqNoticeNote): the editor holds it back from the text limit.
+// The worst note (all eight rules and both remedies) is measured in every language against it.
+//
+//nolint:unused // first production caller arrives in plan 24-04
+const memberReqNoticeNoteReserve = 600
+
+// memberReqNoticeNote is what follows a custom requirement text (D-05, D-14): a newline, the
+// requirements line (eventmsg_mreq_rules with the broken rules' phrases in rule order) and, after one
+// space each, the remedy sentences the notice with this template key carries
+// (memberReqNoticeRemedies). The engine appends it to a custom text after its own newline, so a blank
+// line precedes the requirements line. It names no member and no group.
+//
+//nolint:unused // first production caller arrives in plan 24-04
+func memberReqNoticeNote(tr *i18n.Translator, broken int, key string) string {
+	note := "\n" + memberReqText(tr, "eventmsg_mreq_rules", i18n.TranslationParams{"rules": memberReqRulesText(tr, broken)})
+	for _, remedy := range memberReqNoticeRemedies(key, broken) {
+		note += " " + memberReqText(tr, remedy)
+	}
+	return note
+}
+
 // memberReqNoticeRemedies returns the locale keys of the remedy sentences the notice with this
 // template key carries for the broken rules, in table order: only the plain warn, kick and mute
 // notices carry any, and only for a broken rule whose row has a RemedyKey. It names no rule by its
