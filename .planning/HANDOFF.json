@@ -1,0 +1,37 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-11-21T23:29:59.591Z",
+  "phase": "24",
+  "phase_name": "Captcha, AI Spam and Member Requirement Notices",
+  "phase_dir": ".planning/phases/24-captcha-ai-spam-and-member-requirement-notices",
+  "plan": 3,
+  "task": 3,
+  "total_tasks": 3,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "24-03 task 1: default private texts (8 locales)", "status": "done", "commit": "ea2bbcc"},
+    {"id": 2, "name": "24-03 task 2: automatic private copy specs for the six events", "status": "done", "commit": "8dc5063"},
+    {"id": 3, "name": "24-03 task 3: captcha private copy through its site and the cap", "status": "done", "commit": "f6e76f1"}
+  ],
+  "remaining_tasks": [
+    {"id": 4, "name": "24-03 gates (full fuku/modules run, lint) and 24-03-SUMMARY.md", "status": "in_progress"},
+    {"id": 5, "name": "Plans 24-04 to 24-08", "status": "not_started"},
+    {"id": 6, "name": "Verify Phase 24, then plan/execute Phases 25-30", "status": "not_started"}
+  ],
+  "blockers": [],
+  "async_jobs": [],
+  "human_actions_pending": [
+    {"action": "Live Telegram checks of Phases 21, 22 and 23", "context": "21-VERIFICATION.md, 22-VERIFICATION.md, 23-VERIFICATION.md (status human_needed)", "blocking": false},
+    {"action": "Confirm provisional decisions", "context": "Phase 22 defaults (22-VERIFICATION.md), Phase 23 P1-P10 (23-CONTEXT.md), Phase 24 P1-P16 (24-CONTEXT.md)", "blocking": false},
+    {"action": "Run make test-postgres-integrity against PostgreSQL", "context": "No database in the cloud container", "blocking": false},
+    {"action": "Unify commit trailers (earlier commits say Fable 5.2, later Opus 5.5)", "context": "Asked earlier, no answer", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "Everything is configured group by group in the group's settings in the bot's PM; no Staff Group defaults", "rationale": "Owner decision", "phase": "21-30"},
+    {"decision": "Proceed autonomously: plan with gsd-planner, execute each plan with one Opus gsd-executor, verify with gsd-verifier", "rationale": "Owner's standing authorization", "phase": "21-30"},
+    {"decision": "Goldens first, never re-recorded; one apply function per setting; PM copies of automatic events capped", "rationale": "AGENTS.md and the phase pattern", "phase": "21-24"}
+  ],
+  "uncommitted_files": [],
+  "next_action": "Check whether 24-03-SUMMARY.md exists. If not, run the 24-03 gates (full fuku/modules ~6 min, lint per AGENTS.md) and write/commit the summary. Then spawn an Opus gsd-executor for 24-04 with the 24-03 notes.",
+  "context_notes": "Use node /root/.claude/gsd-core/bin/gsd-tools.cjs (project-local gsd-tools is broken). The full fuku/modules package now runs in about 6 minutes after the test speed-up (9276055 etc.). Lint gates: golangci-lint v2.13.1 --new-from-rev=origin/main, with --build-tags=notesttools, and --new=false on touched files. Push after each plan; a CI failure on a superseded SHA is just a cancelled run. Draft PR #23 is open from this branch and subscribed."
+}
