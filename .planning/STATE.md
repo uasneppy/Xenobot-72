@@ -20,16 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-18)
 
 **Core value:** My trusted staff can protect every one of my communities from one place. We act on a bad actor across all groups at once, and the bot never lets anyone act in a group where they aren't an admin.
-**Current focus:** Phase 21 (Message Engine, Messages Page and Manual Punishments). Milestone v1.2 has ten phases (21 to 30) and 40 requirements, all mapped in `.planning/ROADMAP.md`. The next step is to discuss and plan Phase 21. v1.1 shipped 2026-11-13 and its live Telegram checks stay deferred (see Deferred Items below).
+**Current focus:** Phase 23 (Warn, Flood, Blacklist and Forward Blocklist Messages). Milestone v1.2 has ten phases (21 to 30) and 40 requirements, all mapped in `.planning/ROADMAP.md`. Phases 21 and 22 are built and verified with no code gaps and await the owner's live Telegram checks (`21-VERIFICATION.md`, `22-VERIFICATION.md`). v1.1 shipped 2026-11-13 and its live Telegram checks stay deferred (see Deferred Items below).
 
 ## Current Position
 
 Phase: 22 of 30 (PM Copies), milestone v1.2 (Phase 20 Conversations shipped in v2.26.0; this milestone's phases were renumbered 20-29 to 21-30 on 2026-11-21)
-Plan: 22-06 of 9 in progress, paused (see `.planning/phases/22-pm-copies/.continue-here.md`); Phase 21's 11 plans are done and verified with no gaps, awaiting the owner's live checks (`21-VERIFICATION.md`)
-Status: Paused
-Last activity: 2026-11-21 - Merged main (Conversations, v2.26.0) and renumbered the phases
+Plan: Phase 22's 9 plans are done and verified (no code gaps, human_needed: live checks, five provisional defaults and a PostgreSQL run in `22-VERIFICATION.md`); Phase 21's 11 plans likewise (`21-VERIFICATION.md`). Next: plan Phase 23
+Status: Ready to plan Phase 23
+Last activity: 2026-11-21 - Finished and verified Phase 22 (PM copies)
 
-Progress: [███░░░░░░░] 3 of 11 phases done or verified
+Progress: [████░░░░░░] 4 of 11 phases done or verified
 
 ## Performance Metrics
 
@@ -424,4 +424,4 @@ Resume file: None
 ## Operator Next Steps
 
 
-- Discuss Phase 21 with /gsd-discuss-phase 21, then plan it with /gsd-plan-phase 21
+- Plan Phase 23 with /gsd-plan-phase 23 (its CONTEXT carries the owner's standing decisions), then execute it

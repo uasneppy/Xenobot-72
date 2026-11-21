@@ -56,8 +56,8 @@ Every phase is code-verified and security-audited with no open threat; each veri
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 20: Conversations** - 8/8 plans, shipped in v2.26.0 (the bot answers members in groups through Anthropic or Google; its brief is `.planning/research/xenobot-chat/PLAN.md` and its phase folder `phases/20-conversations/`)
-- [ ] **Phase 21: Message Engine, Messages Page and Manual Punishments** - Storage, one renderer with default fallback, goldens of today's replies, a private Messages page on the editor, and custom messages for ban, kick, mute, unban and unmute
-- [ ] **Phase 22: PM Copies** - An optional private copy to the punished person on its own pacing, with a Details button fallback and a log line
+- [ ] **Phase 21: Message Engine, Messages Page and Manual Punishments** - 11/11 plans, verified, awaiting live checks. Storage, one renderer with default fallback, goldens of today's replies, a private Messages page on the editor, and custom messages for ban, kick, mute, unban and unmute
+- [ ] **Phase 22: PM Copies** - 9/9 plans, verified, awaiting live checks. An optional private copy to the punished person on its own pacing, with a Details button fallback and a log line
 - [ ] **Phase 23: Warn, Flood, Blacklist and Forward Blocklist Messages** - Custom messages for warn, warn limit and the three automatic actions
 - [ ] **Phase 24: Captcha, AI Spam and Member Requirement Notices** - Custom messages for a failed captcha and requirement notices, and a new rate-limited AI spam notice
 - [ ] **Phase 25: Lockdown Messages** - Custom messages for a manual lockdown, each automatic trigger and the lift, with every alert and raid-scale path unchanged
@@ -154,7 +154,7 @@ Plans:
   3. With the Details option on and the PM not delivered, the group message carries a Details button. The punished person taps it, the bot's private chat opens and shows them their message. Anyone else who taps it gets no content.
   4. With the log option on, a PM copy that could not be delivered leaves one line in the group's log channel.
   5. No PM copy is sent for a lockdown's joiner bans, for "Ban N recent joiners" or for a Staff Group action. A per-group cap bounds PM copies per minute for automatic events. A PM copy never names the Staff Group or another group, and names the acting admin only through `{admin}`.
-**Plans**: TBD
+**Plans**: 9 plans (all done, verified 2026-11-21 with no code gaps; awaiting the owner's live checks in `22-VERIFICATION.md`)
 **UI hint**: yes
 
 ### Phase 23: Warn, Flood, Blacklist and Forward Blocklist Messages
