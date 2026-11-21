@@ -172,6 +172,12 @@ func TestSettingsStaffPrivacy(t *testing.T) {
 				for r := staffUnlinkAnonymous; r <= staffUnlinkGone; r++ {
 					notices = append(notices, settingsNoticeWarn(staffUnlinkRefusalText(tr, r, groupView.GroupTitle)))
 				}
+				longestNotice := 0
+				for i, notice := range notices {
+					if len(notice) > len(notices[longestNotice]) {
+						longestNotice = i
+					}
+				}
 
 				// Main as every page reports it: the status block holds each page's state and
 				// never the Staff Group.
@@ -233,8 +239,17 @@ func TestSettingsStaffPrivacy(t *testing.T) {
 					for name, st := range settingsEditCallbackStates(def) {
 						states["phase 12 "+name] = st
 					}
+					// A notice is spliced in whole and adds only its own text, whatever the state: every state
+					// is drawn plain and under the longest notice, and every notice once over the fullest state.
 					for stateName, st := range states {
 						for viewName, view := range map[string]settingsView{"group": groupView, "private admin": privateAdminView} {
+							for _, i := range []int{0, longestNotice} {
+								key := fmt.Sprintf("editor %s %s %s notice %d", def.Key, stateName, viewName, i)
+								screens[key] = renderSettingsEditor(view, def, st, settingsEditScreenOpts{Notice: notices[i], BotUsername: "FukuTestBot"})
+							}
+							if stateName != "all set" {
+								continue
+							}
 							for i, notice := range notices {
 								key := fmt.Sprintf("editor %s %s %s notice %d", def.Key, stateName, viewName, i)
 								screens[key] = renderSettingsEditor(view, def, st, settingsEditScreenOpts{Notice: notice, BotUsername: "FukuTestBot"})
