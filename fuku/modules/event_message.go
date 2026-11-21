@@ -392,7 +392,8 @@ func sendDefaultPost(site eventSite, r eventReply) (eventGroupPost, error) {
 // private copy options, the group message the group step posted (none when it was Silent or failed) with its
 // rows, and the Details button's label in the group's language, for the Details button of a copy that is not
 // delivered, and the member's first name with the group's translator (only while the log option is on) for its log
-// line.
+// line. ByRule carries site.Automatic, so a reply an automatic rule raised is capped even when its event's spec is
+// manual (the blacklist's and the forward blocklist's warns, D-28), while /warn is not.
 func offerReplyPM(site eventSite, r eventReply, msgs *eventmsg.Messages, post eventGroupPost) {
 	spec, ok := eventPMSpecFor(r.Event)
 	if !ok {
@@ -414,6 +415,7 @@ func offerReplyPM(site eventSite, r eventReply, msgs *eventmsg.Messages, post ev
 		Custom:     row.HasContent(),
 		Options:    msgs.Options,
 		TargetName: r.Target.FirstName,
+		ByRule:     site.Automatic,
 	}
 	if post.Msg != nil {
 		offer.GroupMsgID = post.Msg.MessageId

@@ -16,6 +16,7 @@ import (
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/admin"
+	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
 	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
@@ -155,17 +156,27 @@ func TestEventPMSpecs(t *testing.T) {
 		eventmsg.EventBan, eventmsg.EventTimedBan, eventmsg.EventKick, eventmsg.EventMute,
 		eventmsg.EventTimedMute, eventmsg.EventUnban, eventmsg.EventUnmute,
 	}
-	if len(eventPMSpecs) != len(manual) {
-		t.Fatalf("specs = %d, want the %d manual events", len(eventPMSpecs), len(manual))
+	// Phase 23 (D-28): the warn and the warn limit are manual specs (a rule-raised reply is capped through
+	// eventPMOffer.ByRule), and the flood, blacklist and forward blocklist punishments are automatic.
+	manual = append(manual, eventmsg.EventWarn, eventmsg.EventWarnLimit)
+	automatic := []string{eventmsg.EventFlood, eventmsg.EventBlacklist, eventmsg.EventForwardBlock}
+	if len(eventPMSpecs) != len(manual)+len(automatic) {
+		t.Fatalf("specs = %d, want the %d manual and %d automatic events", len(eventPMSpecs), len(manual), len(automatic))
 	}
 	for _, event := range manual {
 		spec, ok := eventPMSpecFor(event)
-		if !ok || spec.DefaultKey == "" || spec.Automatic {
-			t.Fatalf("spec of %s = %+v (%v), want a default key and not automatic", event, spec, ok)
+		if !ok || spec.DefaultKey != "eventmsg_pm_"+event || spec.Automatic {
+			t.Fatalf("spec of %s = %+v (%v), want the key eventmsg_pm_%s and not automatic", event, spec, ok, event)
 		}
 	}
-	if _, ok := eventPMSpecFor("warn"); ok {
-		t.Fatal("spec of warn exists, want none")
+	for _, event := range automatic {
+		spec, ok := eventPMSpecFor(event)
+		if !ok || spec.DefaultKey != "eventmsg_pm_"+event || !spec.Automatic {
+			t.Fatalf("spec of %s = %+v (%v), want the key eventmsg_pm_%s and automatic", event, spec, ok, event)
+		}
+	}
+	if _, ok := eventPMSpecFor("warning"); ok {
+		t.Fatal("spec of an unknown event exists, want none")
 	}
 
 	panics := func(t *testing.T, name string, register func()) {
@@ -273,6 +284,24 @@ func TestEventPMDefaultTexts(t *testing.T) {
 			}
 		})
 	}
+
+	// The warn limit's default fills the count, the limit and the action word of the group's language,
+	// then the reason line (Phase 23, D-29).
+	t.Run("warn limit", func(t *testing.T) {
+		s := newEventPMAutoSite(t, deletion.KindBotManual)
+		s.chat.Title = title
+		eventMsgAutoWarnSettings(t, s, 3, "ban")
+		storeEventPM(t, s.chat.Id, eventmsg.EventWarnLimit, "", true)
+		noticeGoldenWarn(t, s, warnsModule.warnUser, "/warn first", "/warn second", "/warn spam <b>")
+		tr := i18n.MustNewTranslator("uk")
+		want := eventPMAutoDefault(t, "eventmsg_pm_warnlimit", i18n.TranslationParams{
+			"group": escaped, "count": "3", "limit": "3", "action": eventActionWord(tr, "ban"),
+		}, "spam &lt;b&gt;")
+		params := eventPMOnly(t, s, "sendMessage")
+		if params["text"] != want {
+			t.Fatalf("private copy text = %q, want %q", params["text"], want)
+		}
+	})
 }
 
 func TestEventPMComposition(t *testing.T) {

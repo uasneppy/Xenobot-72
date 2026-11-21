@@ -93,9 +93,16 @@ func TestEventPMTextsFitEveryLocale(t *testing.T) {
 			if strings.TrimSpace(note) == "" {
 				t.Fatal("the unmute lockdown note is empty")
 			}
+			longestAction := ""
+			for _, mode := range []string{"warn", "mute", "kick", "ban"} {
+				if word := eventActionWord(tr, mode); len([]rune(word)) > len([]rune(longestAction)) {
+					longestAction = word
+				}
+			}
 			for _, event := range events {
 				spec, _ := eventPMSpecFor(event)
-				values := eventValues{Reason: eventPMWorstReason, Duration: "366 days"}
+				// The Automatic family's texts (Phase 23) also fill the count, the limit and the longest action word.
+				values := eventValues{Reason: eventPMWorstReason, Duration: "366 days", Count: 100, Limit: 100, Action: longestAction}
 				if eventPMTimed(t, event) {
 					values.Until = until
 				}

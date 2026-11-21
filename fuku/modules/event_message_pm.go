@@ -74,6 +74,16 @@ func init() {
 	registerEventPM(eventmsg.EventTimedMute, eventPMSpec{DefaultKey: "eventmsg_pm_tmute", Automatic: false})
 	registerEventPM(eventmsg.EventUnban, eventPMSpec{DefaultKey: "eventmsg_pm_unban", Automatic: false})
 	registerEventPM(eventmsg.EventUnmute, eventPMSpec{DefaultKey: "eventmsg_pm_unmute", Automatic: false})
+	// The Automatic family of Phase 23 (D-28): the warn and the warn limit are manual specs, because /warn
+	// is an admin's act and never capped, while a warn or a warn limit an automatic rule raised (the
+	// blacklist's and the forward blocklist's warns) is capped through eventPMOffer.ByRule. The flood,
+	// blacklist and forward blocklist punishments are automatic, so the per-group cap bounds a flood of
+	// offenders (D-07).
+	registerEventPM(eventmsg.EventWarn, eventPMSpec{DefaultKey: "eventmsg_pm_warn", Automatic: false})
+	registerEventPM(eventmsg.EventWarnLimit, eventPMSpec{DefaultKey: "eventmsg_pm_warnlimit", Automatic: false})
+	registerEventPM(eventmsg.EventFlood, eventPMSpec{DefaultKey: "eventmsg_pm_flood", Automatic: true})
+	registerEventPM(eventmsg.EventBlacklist, eventPMSpec{DefaultKey: "eventmsg_pm_blacklist", Automatic: true})
+	registerEventPM(eventmsg.EventForwardBlock, eventPMSpec{DefaultKey: "eventmsg_pm_fwdblock", Automatic: true})
 }
 
 // pmCopyPacerOptions are the options of the private copies' pacer: its own Redis keys, so a burst of
@@ -126,8 +136,11 @@ var pmCopyJobTimeout = 60 * time.Second
 // it was Silent or its send failed), GroupRows the keyboard rows it was sent with and DetailsLabel the Details
 // button's label in the group's language: a job that did not deliver adds the Details button from them
 // (pmCopyAddDetails). TargetName is the member's first name and Tr the group's translator (set only while the
-// log option is on), from which a job that did not deliver builds its log line (pmCopyPostLog). automatic is set
-// by offerEventPM from the event's spec, never by a caller: the job checks the per-group cap for it.
+// log option is on), from which a job that did not deliver builds its log line (pmCopyPostLog). ByRule is set by
+// offerReplyPM from the site when an automatic rule raised the reply (eventSite.Automatic: the blacklist's and the
+// forward blocklist's warns and the warn limit they reach), so a reply whose spec is manual is capped all the same
+// (D-28). automatic is set by offerEventPM from the event's spec or ByRule, never by a caller: the job checks the
+// per-group cap for it.
 type eventPMOffer struct {
 	Bot          *gotgbot.Bot
 	Chat         gotgbot.Chat
@@ -142,6 +155,7 @@ type eventPMOffer struct {
 	DetailsLabel string
 	TargetName   string
 	Tr           *i18n.Translator
+	ByRule       bool
 	automatic    bool
 }
 
@@ -284,7 +298,7 @@ func offerEventPM(o eventPMOffer) {
 	if !ok {
 		return
 	}
-	o.automatic = spec.Automatic
+	o.automatic = spec.Automatic || o.ByRule
 	if !pmCopyJobs.startBelow(pmCopyMaxInFlight) {
 		log.Debugf("[EventMessage] the private %s copy of user %d in chat %d was shed: too many copies in flight", o.Event, o.UserID, o.Chat.Id)
 		return
@@ -377,12 +391,23 @@ func composeEventPM(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator, spe
 }
 
 // eventPMDefaultText is an event's default private text in the translator's language (the group's):
-// the spec's DefaultKey with {group} the group's title escaped and cut like a Staff Group title, and
-// {until} the end in the group's zone for a timed event, then, each on a new line, the reason line
+// the spec's DefaultKey with {group} the group's title escaped and cut like a Staff Group title,
+// {until} the end in the group's zone for a timed event, {count} and {limit} the numbers of a warn or a
+// flood (empty when 0) and {action} the translated action word, escaped (empty when the event has none;
+// the manual texts carry none of the three), then, each on a new line, the reason line
 // (eventmsg_pm_reason with the reason escaped) when a reason was given and the note when set. It
 // never names the acting admin.
 func eventPMDefaultText(tr *i18n.Translator, spec eventPMSpec, chat *gotgbot.Chat, values eventValues, note string) string {
-	params := i18n.TranslationParams{"group": staffDisplayTitle(chat.Title), "until": ""}
+	params := i18n.TranslationParams{
+		"group": staffDisplayTitle(chat.Title), "until": "", "count": "", "limit": "",
+		"action": html.EscapeString(values.Action),
+	}
+	if values.Count > 0 {
+		params["count"] = strconv.Itoa(values.Count)
+	}
+	if values.Limit > 0 {
+		params["limit"] = strconv.Itoa(values.Limit)
+	}
 	if !values.Until.IsZero() {
 		params["until"] = formatChatTime(values.Until, chatClockOf(chat.Id), "02.01.2006 15:04")
 	}

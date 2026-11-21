@@ -2787,11 +2787,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   copies take at most five sends a second and a burst never delays a punishment, a group reply or another pacer's work; a
   slot more than 15 s away fails at once with no request. They sit outside the `fuku:cache:` prefix, so
   `CLEAR_CACHE_ON_STARTUP` keeps them.
-- `fuku:pmcopy:{<chat>}:cap:<unix minute>` is the per-group cap of the private copies of automatic events (`pmCopyCapKey`,
+- `fuku:pmcopy:{<chat>}:cap:<unix minute>` is the per-group cap of the private copies of automatic events and of replies an
+  automatic rule raised (`eventPMOffer.ByRule`) (`pmCopyCapKey`,
   `pmCopyCapAllow`, D-17): a counter of one fixed minute (`pmCopyNow().Unix()/60`), the chat ID a hash tag, `INCR` and
   `EXPIRE 120` in one transaction under `raidRedisTimeout`, at most `pmCopyAutoCapPerMinute` (10) copies a group a minute.
-  Only the job of an event whose spec is `Automatic` reads it; manual events are never counted (the pool and the pacer bound
-  them). It fails closed: with no Redis client or on any Redis error an automatic copy is not sent. It sits outside the
+  Only the job of an event whose spec is `Automatic`, or of a rule-raised reply (`ByRule`), reads it; manual events are never
+  counted (the pool and the pacer bound them). It fails closed: with no Redis client or on any Redis error an automatic copy is not sent. It sits outside the
   `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it.
 - `fuku:pmcopy:det:<token>` is the Details record of a private copy that was not delivered (`pmCopyDetailsKey`, plan 22-06,
   D-19): the JSON of `pmCopyDetailsRecord` (`u` the punished user's ID, `c` the chat ID, `e` the event, `t` the text, `f` the
@@ -3600,7 +3601,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `postEventGroup(site, r, msgs)` (Silent, the default through `sendDefaultPost`: `site.SendDefault` then
   `scheduleBotMessage(sent, site.Kind)`, or the custom message at `site.ReplyTo` and `site.ThreadID` queued under
   `site.Kind`, with the refusal fallback once) and then `offerReplyPM(site, r, msgs, post)`, which takes the actor, bot,
-  chat and translator from the site. `(c *moderationCtx) replyEvent` is a thin wrapper, `postEvent(c.site(), r)`, whose
+  chat and translator from the site and passes `site.Automatic` on as the offer's `ByRule`, so the private copy of a reply an
+  automatic rule raised counts against the per-group cap (plan 23-05, D-28). `(c *moderationCtx) replyEvent` is a thin wrapper, `postEvent(c.site(), r)`, whose
   site is exactly what the reply step used (a reply to the command, its topic for a topic message, `bot:punish_manual`,
   the default through `c.Msg.Reply`, the issuer with `actorIsAnonymous`), so `TestLegacyModerationRequests` is unchanged;
   `replySuccess` and `sendSuccess` stay for their other callers. `eventReply` gains `KeepRows` (the bot rows a custom
@@ -3663,7 +3665,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
-  default text `eventmsg_pm_<event>` (D-06). `/dban`, `/dkick` and `/dmute` use their parent event's copy, the silent
+  default text `eventmsg_pm_<event>` (D-06), and, since Phase 23 (plan 23-05, D-28), the Automatic family: `warn` and
+  `warnlimit` with `Automatic` false and `flood`, `blacklist` and `fwdblock` with `Automatic` true, twelve specs in all, each
+  with its default text `eventmsg_pm_<event>`. `/dban`, `/dkick` and `/dmute` use their parent event's copy, the silent
   variants never reach `replyEvent` and send none, and the channel `/ban` and `/unban` are not events. `replyEvent` reads the
   messages once (through `postEvent`), runs the unchanged group step (`postEventGroup`, pinned by `TestLegacyModerationRequests`) and then
   `offerReplyPM`, whatever the group step did (posted, Silent, the refusal fallback, a send error): it offers a copy only
@@ -3672,19 +3676,26 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   is composed in the handler by `composeEventPM` in the group's language (the moderation context's translator): with a
   stored text, the group renderer (`renderEventText`, so the Welcome and event placeholders, every user value escaped and
   `{admin}` the translated `eventmsg_admin_anon` for an anonymous admin), else `eventPMDefaultText` (the spec's
-  `DefaultKey` with `{group}` the group's title through `staffDisplayTitle` and `{until}` in the group's zone, then
-  `eventmsg_pm_reason` with the escaped reason when one was typed; it never names the admin), followed by `eventReply.PMNote`
+  `DefaultKey` with `{group}` the group's title through `staffDisplayTitle`, `{until}` in the group's zone, `{count}` and
+  `{limit}` the numbers of a warn or a flood, empty when 0, and `{action}` the translated action word escaped, empty when
+  the event has none (D-29: the five Phase 23 texts name the count, the limit and the action after a label where they apply,
+  and the manual texts carry none of the three), then `eventmsg_pm_reason` with the escaped reason when one was given; it
+  never names the admin), followed by `eventReply.PMNote`
   on a new line when the site set it (`/unmute` during an active lockdown reads `eventmsg_pm_unmute_lockdown` beside the
   group's `mutes_unmute_lockdown_note`; the group `Note` and default are unchanged); the keyboard is the stored
   buttons and the `{rules}` button only, never the bot's Unban or Unmute row (group callbacks), and the media is the
   row's file. It is sent by `offerEventPM` from a bounded job (`pmCopyJobs`, a `raidPostTracker`, `startBelow` of
   `pmCopyMaxInFlight` 16 per replica, a full pool sheds the copy with one Debug line naming the chat and the user; each job starts with
   `defer error_handling.RecoverFromPanic` and runs under `pmCopyJobTimeout`, 60 s, from `context.Background()`). For an
-  event whose spec is `Automatic` (none yet: Phases 23 and 24 register them) the job's first step is the per-group cap
+  event whose spec is `Automatic` (the flood, blacklist and forward blocklist punishments since Phase 23; Phase 24 adds
+  more), and for a reply an automatic rule raised whatever its spec (`eventPMOffer.ByRule`, set by `offerReplyPM` from
+  `eventSite.Automatic`: the blacklist's and the forward blocklist's warns and the warn limit they reach, D-28; `offerEventPM`
+  sets the job's unexported `automatic` flag to `spec.Automatic || o.ByRule` and nothing else sets it), the job's first step is the per-group cap
   `pmCopyCapAllow` (Data: `fuku:pmcopy:{<chat>}:cap:<unix minute>`, at most `pmCopyAutoCapPerMinute` 10 a group a minute,
   the minute from `pmCopyNow`, the client from `pmCopyRedisClient`), so the handler never makes a Redis call for a copy;
   over the cap, with no Redis or on a Redis error the copy is not sent (fail closed, D-17: the copy is optional and a raid
-  must not become a stream of private messages), and a manual copy never reads the counter. A copy shed by the pool or
+  must not become a stream of private messages), and a manual copy (`/warn`, `/dwarn` and `/swarn` included) never reads the
+  counter. A copy shed by the pool or
   refused by the cap leaves nothing behind but one Debug line with the chat and user IDs (D-18): only a job that tried to
   send can be "not delivered". The job sends through
   `pmCopyPaced` on its own pacer keys (Data), with `media.SendGreetingMessage` to the member's private chat (the target's
@@ -5738,7 +5749,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   because cleanups run last in, first out; a held job is released in `t.Cleanup` before that wait; the `fuku:pmcopy:*` keys are removed by
   `eventPMCleanup`; and a test reads the recorded requests under the fake's lock (`eventPMAllCalls`, `eventPMCalls`), never through
   `callsFor("")`, which matches no method. The safeguards of plan 22-08 (`event_message_pm_safety_test.go`): `TestEventPMTextsFitEveryLocale`
-  (every event's default private text with a 64-rune markup-heavy title, a 200-character reason and, for a timed event, an end, with and
+  (every event's default private text with a 64-rune markup-heavy title, a 200-character reason, since Phase 23 a count and a limit of 100
+  and the language's longest action word, and, for a timed event, an end, with and
   without the unmute lockdown note, at most 4096 UTF-16 units with no unfilled placeholder in 8 languages; the log line of every outcome at
   most 1000 with a 64-rune markup-heavy name that appears once, escaped, only inside the mention; the Details label at most 20 code points,
   the neutral reply at most 120), `TestEventPMCost` (`/ban` with the copy off makes exactly the golden site's requests; with the copy on and
