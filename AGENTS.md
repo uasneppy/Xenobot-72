@@ -5878,6 +5878,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   warn, posts nothing and the member still receives the copy) and `pm copies and the cap` (the blacklist's and the warn's copies switched
   on from their private copy screens, the cap at 2 in a stopped minute: four offenders are muted with a notice each, exactly two copies
   are sent, and a `/warn` in the same minute still sends its copy).
+- Phase 24 test families (the captcha, AI spam and member requirement notices). The golden `TestLegacyScreeningNoticeRequests`
+  (`screening_notice_legacy_request_test.go`, one subtest per case, the constants `goldenScreen*`) was recorded alone, on the code
+  before any of these send sites changed, and is never re-recorded or weakened: it pins the `sendMessage` request, the action call and
+  the queue state of the captcha failure notice through `handleCaptchaTimeout` at kick, ban, mute and kick with two held messages (no
+  queue row under either bot kind's rule: the notice deletes itself after 30 s in process), of the requirement notices through the
+  executor (warn 1 of 3, the warn limit at kick, ban and mute, kick, ban, and mute with its "I fixed it" button, each queued under
+  `bot:punish_auto` at 600 s and the mute at the 24 hour cap) and the requirement pause notice, and of aispam's breaker notice
+  (`bot:punish_auto`, 600 s), plus aispam's delete verdict, which deletes the message and posts nothing in the group, in Ukrainian with
+  the real locales. The requirement member, the hold and the chat are replaced by `<user>`, `<hold>` and `<chat>`. Its toolkit
+  (`newScreenGoldenSite`, `newScreenGoldenMreqEnv`, `screenGoldenReqMember`, `screenGoldenTokens`, `screenGoldenCaptcha`,
+  `screenGoldenWantAction`) is reused by name and the file is never edited.
 
 ## Commits
 
