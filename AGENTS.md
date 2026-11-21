@@ -5299,7 +5299,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestSettingsEditScreensFitEveryLocale` (`settings_edit_screens_test.go`, whose `settingsEditScreens` builds every
   non-page editor screen and is also what `TestSettingsStaffPrivacy` renders) holds them to 3800 UTF-16 units and 64-byte
   buttons with a 64-rune title. `RealLocale` installs the real locale files through `i18n.OverrideManagerLanguagesForTest`, because the test binary
-  has no locale manager of its own. `fuku/i18n/settings_locale_test.go` keeps a limits table that must cover exactly the
+  has no locale manager of its own. `OverrideManagerForTest` and `OverrideManagerLanguagesForTest` keep one manager per distinct
+  set of YAML texts (a SHA-256 of the codes and texts) and install it again on a repeat, and `withStaffLocale` builds its
+  marker locale once per binary, because parsing the locale files costs about a second under `-race` and `fuku/modules`
+  does it in hundreds of tests; a manager is never changed after its parse, so reusing it proves the same.
+  `fuku/i18n/settings_locale_test.go` keeps a limits table that must cover exactly the
   `settings_` keys of the locale files, so a plan that adds a key adds its row.
 - Run the settings tests with `go test -tags testtools -race -count=1 -run '^(TestSettings|TestLoadSettings)' ./fuku/modules ./fuku/i18n`.
   Page tests add page-prefixed helpers in their own files (`settings_<page>_test.go`). Every setting the menu changes

@@ -246,13 +246,35 @@ var staffPlaceholderRe = regexp.MustCompile(`\{\w+\}`)
 func withStaffLocale(t *testing.T) {
 	t.Helper()
 
+	staffLocaleOnce.Do(func() { staffLocaleYAML, staffLocaleErr = buildStaffLocale() })
+	if staffLocaleErr != nil {
+		t.Fatalf("build the marker locale: %v", staffLocaleErr)
+	}
+	restore, err := i18n.OverrideManagerForTest(staffLocaleYAML)
+	if err != nil {
+		t.Fatalf("override locale manager: %v", err)
+	}
+	t.Cleanup(restore)
+}
+
+// The marker locale depends only on en.yml, which no test changes, so it is built once per
+// test binary (parsing and re-encoding en.yml costs most of a second under -race).
+var (
+	staffLocaleOnce sync.Once
+	staffLocaleYAML string
+	staffLocaleErr  error
+)
+
+// buildStaffLocale turns en.yml into the marker locale: every string becomes its key's marker
+// followed by the placeholders of the English text.
+func buildStaffLocale() (string, error) {
 	raw, err := os.ReadFile("../../locales/en.yml")
 	if err != nil {
-		t.Fatalf("read en.yml: %v", err)
+		return "", fmt.Errorf("read en.yml: %w", err)
 	}
 	var data map[string]any
 	if err := yaml.Unmarshal(raw, &data); err != nil {
-		t.Fatalf("parse en.yml: %v", err)
+		return "", fmt.Errorf("parse en.yml: %w", err)
 	}
 	marked := make(map[string]any, len(data))
 	for key, value := range data {
@@ -266,13 +288,9 @@ func withStaffLocale(t *testing.T) {
 	}
 	out, err := yaml.Marshal(marked)
 	if err != nil {
-		t.Fatalf("marshal marker locale: %v", err)
+		return "", fmt.Errorf("marshal marker locale: %w", err)
 	}
-	restore, err := i18n.OverrideManagerForTest(string(out))
-	if err != nil {
-		t.Fatalf("override locale manager: %v", err)
-	}
-	t.Cleanup(restore)
+	return string(out), nil
 }
 
 // runStaffCommand mirrors helpers.WrapCommand without a dispatcher: it builds the
