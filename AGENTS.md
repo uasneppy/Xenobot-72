@@ -5840,6 +5840,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settings_no_change_info` alert with no edit, no wait and every row unchanged. `TestSettingsStaffPrivacy` gains
   `settingsPrivacyPhase23Run` (the Automatic list, the forward blocklist's event and private copy screens, a typed text, Silent and Full
   preview by an administrator who is not the creator, through the shared `settingsPrivacyMsgRunClean`).
+  `TestEventMessageAutoLogsCarryIDsOnly` (`event_message_auto_safety_test.go`, plan 23-06) runs each of the five sites (`/warn`, the warn
+  limit through `/warn`, the flood, the blacklist with a sentinel word, the forward blocklist) on its own `newNoticeGoldenSite` under a
+  debug-level hook, once with the messages unreadable (the default and one Warn naming the chat and the event) and once with a stored
+  photo message Telegram refuses (the default and one Warn naming the chat and the event): no line carries the stored text or caption,
+  the file ID, the button's name or link, the typed reason, the matched word, the member's names or the fixed flood and forward blocklist
+  reasons. `TestEventMessageAutoPrivacy` forwards a listed source into the linked group through the real watcher on `newFwdWatchEnv`,
+  the Staff Group renamed and the forward's source titled with sentinels, both private copy options on, a log channel linked and the
+  member refusing private messages (403), once with a custom group message and private copy using every placeholder and once with
+  nothing stored: the member is muted once, the group notice, the Details edit and record and the `#PM_COPY` post exist, and no send
+  or edit, the Details record read from Redis or any log line names either title or either chat ID. `TestEventPMTextsFitEveryLocale`
+  already fills count 100, limit 100 and the longest action word for every spec since plan 23-05.
 
 ## Commits
 
