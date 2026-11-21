@@ -424,4 +424,4 @@ Resume file: None
 ## Operator Next Steps
 
 
-- Plan Phase 23 with /gsd-plan-phase 23 (its CONTEXT carries the owner's standing decisions), then execute it
+- Phase 23 is planned (7 plans in `phases/23-warn-flood-blacklist-and-forward-blocklist-messages/`, its CONTEXT records the provisional decisions P1 to P10 for owner confirmation); next: execute its plans with /gsd-execute-phase 23

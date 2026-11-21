@@ -173,7 +173,15 @@ Plans:
   3. A flood, blacklist or forward blocklist punishment posts its custom message with `{action}` and `{reason}`. The forward blocklist message names neither the blocked source nor the Staff Group.
   4. A group with nothing stored gets today's text for all five, byte for byte. A refused custom message falls back to the default. The message is deleted on the same timer as the default, and the punishment is never delayed.
   5. PM copies for these events follow Phase 22's rules, including the per-group cap. A flood of offenders produces at most the capped number of PM copies a minute, and every punishment still happens.
-**Plans**: TBD
+**Plans**: 7 plans
+Plans:
+- [ ] 23-01-PLAN.md — goldens of the warn, warn limit, flood, blacklist and forward blocklist sends, committed alone (wave 1)
+- [ ] 23-02-PLAN.md — tracer: the generic event engine and the warn message end to end; event keys, action words, default builders (wave 2)
+- [ ] 23-03-PLAN.md — the Automatic family on the Messages page: five events, strings, sample previews (wave 3)
+- [ ] 23-04-PLAN.md — the warn limit, flood, blacklist and forward blocklist sends through the engine (wave 4)
+- [ ] 23-05-PLAN.md — private copies of the five events, the per-group cap for rule-raised warns (wave 5)
+- [ ] 23-06-PLAN.md — safeguards: forged presses, rights, reads, sizes, logs, forward blocklist privacy (wave 6)
+- [ ] 23-07-PLAN.md — end-to-end proof, phase gates and the one full package run (wave 7)
 **UI hint**: yes
 
 ### Phase 24: Captcha, AI Spam and Member Requirement Notices
