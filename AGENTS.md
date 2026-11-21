@@ -5753,6 +5753,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   four default builders' text and options through `SendMessage` to chat 0 (`autoDefaultRequest`, with the warn's and the
   warn limit's reply added as their site adds it) and compares the request byte for byte with the 18 goldens of the warn,
   the warn limit, the flood, the blacklist and the forward blocklist notices.
+  `TestSettingsMessagesAutoFamily` (`settings_messages_auto_test.go`, plan 23-03) drives the Automatic family through the real private
+  menu, one `newSettingsMsgEnv` per subtest: the hub's bold 🤖 section with five Default lines and rows `[2 1 1 2]`, the list `a=hl&t=a`
+  with five cells and rows `[2 2 1 2]`, each event screen with the family's hint, its part rows and its Silent toggle; a typed text on
+  the warn stored on its group row and read Custom on the hub; the flood's Silent press stored and read Silent; and, with the real
+  locales, Full preview of the default warn limit (the presser's mention, 3/3 and the sample reason, no keyboard) and of a stored
+  flood text (the translated mute word, 6/5 and the flood reason, no bot row), with nothing sent to the group. The page's earlier
+  families cover both families through `settingsMsgScreens`, whose expected widths follow the table (`settingsMsgFamilyWidths`, and an
+  event screen without the private copy row while its event has no spec).
 
 ## Commits
 
