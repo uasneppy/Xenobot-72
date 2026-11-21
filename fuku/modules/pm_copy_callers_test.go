@@ -16,9 +16,10 @@ import (
 // TestPMCopyCallers holds PMSG-05 structurally (D-04, D-33): a lockdown's joiner bans, "Ban N recent
 // joiners" and every Staff Group action must never send a private copy, so no raid-scale or staff path
 // may reach the private copy engine. It parses every non-test file of the package and compares the
-// files that use offerEventPM and registerEventPM (any reference but the declaration itself) with the
-// two allow-lists below, and it fails when a file whose base name starts with staff, lockdown or raid
-// names offerEventPM, registerEventPM, offerReplyPM, replyEvent or any identifier starting with pmCopy.
+// files that use offerEventPM, registerEventPM and postEvent (any reference but the declaration itself)
+// with the allow-lists below, and it fails when a file whose base name starts with staff, lockdown or raid
+// names offerEventPM, registerEventPM, offerReplyPM, replyEvent, postEvent or any identifier starting with
+// pmCopy.
 // Each allow-list entry carries the reason the file may use the engine, and an entry no longer found
 // fails, so the lists stay exact. A later phase that gives its events a private copy adds its caller
 // here with a reason, never a staff, lockdown or raid file.
@@ -30,8 +31,14 @@ func TestPMCopyCallers(t *testing.T) {
 		"registerEventPM": {
 			"event_message_pm.go": "the manual events' specs, registered with the engine",
 		},
+		"postEvent": {
+			"event_message.go": "replyEvent builds the moderation pipeline's site and posts its reply after the punishment",
+			"warns.go":         "warnThisUser posts its warning after the warn is stored and any limit action applied",
+		},
 	}
-	forbiddenNames := map[string]bool{"offerEventPM": true, "registerEventPM": true, "offerReplyPM": true, "replyEvent": true}
+	forbiddenNames := map[string]bool{
+		"offerEventPM": true, "registerEventPM": true, "offerReplyPM": true, "replyEvent": true, "postEvent": true,
+	}
 	forbiddenPrefixes := []string{"staff", "lockdown", "raid"}
 
 	paths, err := filepath.Glob("*.go")
@@ -39,7 +46,7 @@ func TestPMCopyCallers(t *testing.T) {
 		t.Fatalf("glob: %v", err)
 	}
 	fset := token.NewFileSet()
-	users := map[string]map[string]bool{"offerEventPM": {}, "registerEventPM": {}}
+	users := map[string]map[string]bool{"offerEventPM": {}, "registerEventPM": {}, "postEvent": {}}
 	scanned := 0
 	for _, path := range paths {
 		base := filepath.Base(path)

@@ -87,6 +87,11 @@ eventmsg_pm_details_none: "Il n'y a rien à afficher ici."
 eventmsg_pm_log: "📩 La copie privée du message « {event} » n'a pas atteint {user} : {why}."
 eventmsg_pm_why_blocked: "il n'a jamais lancé de discussion avec moi ou m'a bloqué"
 eventmsg_pm_why_failed: "Telegram ne l'a pas remise"
+eventmsg_action_warn: "averti"
+eventmsg_action_mute: "rendu muet"
+eventmsg_action_kick: "expulsé"
+eventmsg_action_ban: "banni"
+eventmsg_reason_flood: "trop de messages envoyés d'affilée"
 common_anonymous_user_error: Cette commande ne peut pas être utilisée sur un utilisateur anonyme.
 common_anonymous_ban_error: Cette commande ne peut pas être utilisée sur un utilisateur anonyme, ces utilisateurs peuvent uniquement être bannis/débannis.
 common_cannot_identify_user: Impossible d'identifier l'utilisateur. Cette commande ne peut pas être utilisée par les chaînes.

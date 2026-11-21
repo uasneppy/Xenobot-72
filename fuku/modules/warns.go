@@ -392,7 +392,7 @@ func warnEventReply(b *gotgbot.Bot, chat *gotgbot.Chat, replyTo int64, tr *i18n.
 	return eventReply{
 		Event:        eventmsg.EventWarn,
 		Target:       u,
-		Values:       eventValues{Reason: reason, Count: res.Count, Limit: res.Limit},
+		Values:       eventValues{Reason: reason, Count: res.Count, Limit: res.Limit, Action: eventActionWord(tr, "warn")},
 		Default:      text,
 		Opts:         opts,
 		KeepRows:     [][]gotgbot.InlineKeyboardButton{{removeWarn}},

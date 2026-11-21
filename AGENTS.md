@@ -3597,7 +3597,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   values reason, count and limit; `KeepRows` the Remove warn row alone with `KeepRowsLast`, so a custom warn keeps Remove
   warn last and drops the default's Rules button unless its text has `{rules}`, D-05, D-15) and posts through `postEvent`.
   A Silent warn stores the warn and posts nothing (no Remove warn button, admins use `/rmwarn`). The warn limit keeps
-  today's send (`warnPostLimit`) until plan 23-04. `warnThisUser` logs a send error and returns it as before
+  today's send (`warnPostLimit`) until plan 23-04. `{action}` is a translated word in the group's language,
+  `eventActionWord(tr, action)` (`event_message_auto.go`): `eventmsg_action_warn`, `_mute`, `_kick` and `_ban`, short
+  participles that read after the member's name or after a label, and the empty string for any other action (an inert
+  mode); the warn fills it with the warn word. The flood's `{reason}` will be `floodEventReason(tr)`
+  (`eventmsg_reason_flood`; its first production caller is plan 23-04's flood site). The default texts never use these
+  words: the flood's default keeps its untranslated English `muted`, `kicked` or `banned` (D-13, D-14). `warnThisUser` logs a send error and returns it as before
   (`TestLegacyPunishmentNoticeRequests` pins every warn byte for a group with nothing stored, `TestEventMessageWarn` the
   custom warn).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
@@ -3686,9 +3691,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   capped paths, with a stored text, caption, file ID, button, link, reason, member name, description and transport text
   each a sentinel: none reaches a line, and each failure line names the chat and the event), `TestPMCopyCallers`
   (`pm_copy_callers_test.go`, D-33: a `go/parser` walk of the package's non-test files; `offerEventPM` is used only by
-  `event_message.go` and `registerEventPM` only by `event_message_pm.go`, each allow-list entry with its reason and a stale
-  entry failing, and no file whose name starts with `staff`, `lockdown` or `raid` names `offerEventPM`, `registerEventPM`,
-  `offerReplyPM`, `replyEvent` or any `pmCopy` identifier, so a lockdown's joiner bans, "Ban N recent joiners" and Staff
+  `event_message.go`, `registerEventPM` only by `event_message_pm.go` and `postEvent` (plan 23-02) only by `event_message.go`
+  (`replyEvent`, the moderation pipeline's site) and `warns.go` (`warnThisUser`, after the warn is stored and any limit
+  action applied), each allow-list entry with its reason and a stale entry failing, and no file whose name starts with
+  `staff`, `lockdown` or `raid` names `offerEventPM`, `registerEventPM`, `offerReplyPM`, `replyEvent`, `postEvent` or any
+  `pmCopy` identifier, so a lockdown's joiner bans, "Ban N recent joiners" and Staff
   Group actions can never send a copy, PMSG-05; a later phase adds its caller to the list with a reason) and `TestEventMsgLocaleKeys` (`fuku/i18n/eventmsg_locale_test.go`, whose
   `eventMsgLocaleLimits` must cover exactly the `eventmsg_` keys of the locale files, so a new key adds its row) hold it (toolkit `event_message_pm_env_test.go`: `newEventPMSite`, which is
   `newModerationGoldenSite` with miniredis, `withFastPMCopyPacer` and `eventPMTestClient`, whose `eventPMScript` refuses the
@@ -5718,6 +5725,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   custom warn with a URL button is filled and escaped with the Remove warn row last and queued under `bot:punish_manual`, the blacklist's
   warn reads `{admin}` as "an admin" under `bot:punish_auto`, a Silent warn stores the warn and posts nothing, and a refused custom warn is
   followed by exactly the golden default (toolkit `eventMsgStoreWarn`, `eventMsgWarnCustom`, `eventMsgWarnRemoveRow`).
+  `TestEventActionWords` is a pure sweep over the 8 languages with the real locales: each action word and the flood reason
+  is the translated, non-empty, plain text of its key, the four words differ, and an inert action has no word.
 
 ## Commits
 

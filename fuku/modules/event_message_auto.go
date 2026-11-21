@@ -37,3 +37,33 @@ func warnDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgb
 
 // warnDefaultReply is held to the eventDefaultReply shape at compile time.
 var _ eventDefaultReply = warnDefaultReply
+
+// eventActionWords maps an action's mode word to the locale key of its translated word.
+var eventActionWords = map[string]string{
+	"warn": "eventmsg_action_warn",
+	"mute": "eventmsg_action_mute",
+	"kick": "eventmsg_action_kick",
+	"ban":  "eventmsg_action_ban",
+}
+
+// eventActionWord is the word {action} takes for an action in the translator's language (the
+// group's): a short participle such as "muted" that reads after the member's name or after a label
+// (D-13). Any other action (an inert mode the code applies nothing for) has no word and renders as
+// nothing. The default texts never use it: the flood's default keeps its untranslated English word.
+func eventActionWord(tr *i18n.Translator, action string) string {
+	key, ok := eventActionWords[action]
+	if !ok {
+		return ""
+	}
+	word, _ := tr.GetString(key)
+	return word
+}
+
+// floodEventReason is the reason {reason} takes for a flood notice in the translator's language: the
+// flood has no reason of its own today, so the custom message gets this fixed phrase (D-14).
+//
+//nolint:unused // first production caller arrives in plan 23-04
+func floodEventReason(tr *i18n.Translator) string {
+	reason, _ := tr.GetString("eventmsg_reason_flood")
+	return reason
+}

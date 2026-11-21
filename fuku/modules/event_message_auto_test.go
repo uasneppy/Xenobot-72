@@ -69,7 +69,7 @@ func TestEventMessageWarn(t *testing.T) {
 	withModerationGoldenLocales(t)
 	tr := i18n.MustNewTranslator("uk")
 	anon, _ := tr.GetString("eventmsg_admin_anon")
-	warned := "" // the action word arrives with eventActionWord
+	warned, _ := tr.GetString("eventmsg_action_warn")
 
 	t.Run("custom warn keeps the Remove warn row last", func(t *testing.T) {
 		s := newNoticeGoldenSite(t, deletion.KindBotManual)
@@ -116,4 +116,40 @@ func TestEventMessageWarn(t *testing.T) {
 		}
 		s.wantRow(s.chat.Id, 9001, deletion.KindBotManual, 600*time.Second)
 	})
+}
+
+func TestEventActionWords(t *testing.T) {
+	withRealLocales(t)
+	actions := map[string]string{
+		"warn": "eventmsg_action_warn",
+		"mute": "eventmsg_action_mute",
+		"kick": "eventmsg_action_kick",
+		"ban":  "eventmsg_action_ban",
+	}
+	for _, lang := range []string{"uk", "en", "es", "fr", "hi", "id", "pt", "ru"} {
+		t.Run(lang, func(t *testing.T) {
+			tr := i18n.MustNewTranslator(lang)
+			words := map[string]bool{}
+			for action, key := range actions {
+				want, _ := tr.GetString(key)
+				got := eventActionWord(tr, action)
+				if got != want || strings.TrimSpace(got) == "" || strings.ContainsAny(got, "<>&{}%") {
+					t.Errorf("eventActionWord(%s) = %q, want the non-empty plain %s %q", action, got, key, want)
+				}
+				words[got] = true
+			}
+			if len(words) != len(actions) {
+				t.Errorf("action words = %v, want four different words", words)
+			}
+			for _, inert := range []string{"", "tban", "tmute", "none", "Mute", "delete"} {
+				if got := eventActionWord(tr, inert); got != "" {
+					t.Errorf("eventActionWord(%q) = %q, want no word", inert, got)
+				}
+			}
+			want, _ := tr.GetString("eventmsg_reason_flood")
+			if got := floodEventReason(tr); got != want || strings.TrimSpace(got) == "" || strings.ContainsAny(got, "<>&{}%") {
+				t.Errorf("floodEventReason = %q, want the non-empty plain eventmsg_reason_flood %q", got, want)
+			}
+		})
+	}
 }

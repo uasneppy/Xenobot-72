@@ -1742,6 +1742,11 @@ eventmsg_pm_details_none: "यहाँ दिखाने के लिए क�
 eventmsg_pm_log: "📩 \"{event}\" संदेश की निजी कॉपी {user} तक नहीं पहुँची: {why}।"
 eventmsg_pm_why_blocked: "उन्होंने मुझसे कभी चैट शुरू नहीं की या मुझे ब्लॉक कर दिया"
 eventmsg_pm_why_failed: "Telegram ने इसे डिलीवर नहीं किया"
+eventmsg_action_warn: "चेतावनी दी गई"
+eventmsg_action_mute: "म्यूट किया गया"
+eventmsg_action_kick: "किक किया गया"
+eventmsg_action_ban: "बैन किया गया"
+eventmsg_reason_flood: "लगातार बहुत सारे संदेश भेजना"
 
 # Database default keys
 db_default_welcome: "हेलो {first}, आप कैसे हैं?"

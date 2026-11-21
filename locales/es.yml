@@ -916,6 +916,11 @@ eventmsg_pm_details_none: "No hay nada que mostrar aquí."
 eventmsg_pm_log: "📩 La copia privada del mensaje «{event}» no llegó a {user}: {why}."
 eventmsg_pm_why_blocked: "nunca inició un chat conmigo o me bloqueó"
 eventmsg_pm_why_failed: "Telegram no la entregó"
+eventmsg_action_warn: "advertido"
+eventmsg_action_mute: "silenciado"
+eventmsg_action_kick: "expulsado"
+eventmsg_action_ban: "baneado"
+eventmsg_reason_flood: "enviar demasiados mensajes seguidos"
 common_anonymous_user_error: Este comando no se puede usar en usuario anónimo.
 common_anonymous_ban_error: Este comando no se puede usar en usuario anónimo, estos usuarios solo pueden ser baneados/desbaneados.
 common_cannot_identify_user: No se puede identificar al usuario. Este comando no puede ser usado por canales.

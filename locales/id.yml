@@ -908,6 +908,11 @@ eventmsg_pm_details_none: "Tidak ada yang bisa ditampilkan di sini."
 eventmsg_pm_log: "📩 Salinan pribadi pesan \"{event}\" tidak sampai ke {user}: {why}."
 eventmsg_pm_why_blocked: "dia belum pernah memulai obrolan dengan saya, atau memblokir saya"
 eventmsg_pm_why_failed: "Telegram tidak mengirimkannya"
+eventmsg_action_warn: "diperingatkan"
+eventmsg_action_mute: "dibisukan"
+eventmsg_action_kick: "ditendang"
+eventmsg_action_ban: "diblokir"
+eventmsg_reason_flood: "mengirim terlalu banyak pesan berturut-turut"
 common_anonymous_user_error: Perintah ini tidak dapat digunakan pada pengguna anonim.
 common_anonymous_ban_error: Perintah ini tidak dapat digunakan pada pengguna anonim, pengguna ini hanya dapat diblokir/dibuka blokirnya.
 common_cannot_identify_user: Tidak dapat mengidentifikasi pengguna. Perintah ini tidak dapat digunakan oleh kanal.

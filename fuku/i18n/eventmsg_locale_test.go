@@ -37,6 +37,11 @@ var eventMsgLocaleLimits = map[string]eventMsgLimit{
 	"eventmsg_pm_log":             {140, 200},
 	"eventmsg_pm_why_blocked":     {70, 100},
 	"eventmsg_pm_why_failed":      {70, 100},
+	"eventmsg_action_warn":        {20, 30},
+	"eventmsg_action_mute":        {20, 30},
+	"eventmsg_action_kick":        {20, 30},
+	"eventmsg_action_ban":         {20, 30},
+	"eventmsg_reason_flood":       {60, 90},
 }
 
 // eventMsgNotDefaultText are the eventmsg_pm_ keys that are not an event's default private text, so they do
