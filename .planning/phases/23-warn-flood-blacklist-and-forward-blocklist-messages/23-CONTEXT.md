@@ -215,7 +215,9 @@ flood, blacklist or forward blocklist logic itself.
 - **D-39:** Every new production identifier has a production caller in the plan that adds it, or a dated `//nolint:unused // first production
   caller arrives in plan 23-NN` that the named plan removes. Lint gates: golangci-lint v2.13.1 (`/root/go/bin/golangci-lint`, `CGO_ENABLED=0`)
   `run --new-from-rev=origin/main ./...`, the same with `--build-tags=notesttools`, and `run --new=false` on the touched packages filtered to the
-  touched files. No AI model is named in code, docs or commit subjects.
+  touched files. At 1a382c3 that last gate already reports four findings in files this phase touches (the `dupl` of `blacklists.go` with
+  `approvals.go`, and `gocyclo` of `checkFlood` at 31, `addBlacklist` at 23 and `blacklistWatcher` at 35); the gate allows those four and nothing
+  else, and the two watchers' complexity must not rise. No AI model is named in code, docs or commit subjects.
 
 ### Planner's and Executor's Discretion
 Function, field and test names inside the prefixes above, the exact strings (inside their limits and the style guide), the order of lines inside a
