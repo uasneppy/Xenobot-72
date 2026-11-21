@@ -875,9 +875,9 @@ func mreqAIShapeEnv(t *testing.T, shape mreqAIShape, action int, join bool) (*me
 	if shape.hangs {
 		mreqSwap(t, &memberReqLookupJobBudget, 150*time.Millisecond)
 		mreqSwap(t, &memberReqLookupJoinBudget, 150*time.Millisecond)
-		mreqSwap(t, &memberReqLookupFlightTimeout, 600*time.Millisecond)
+		mreqSwap(t, &memberReqLookupFlightTimeout, mreqHangFlightTimeout)
 		// Runs before the row cleanups: the abandoned flight has ended by its own timeout.
-		t.Cleanup(func() { time.Sleep(700 * time.Millisecond) })
+		t.Cleanup(func() { time.Sleep(mreqHangSettle) })
 	}
 	if shape.stops {
 		restoreMemberReqRunner(t)
@@ -901,7 +901,7 @@ func TestMemberReqAIUnanswerable(t *testing.T) {
 			shape.cure(t)
 		}
 		if shape.hangs {
-			time.Sleep(700 * time.Millisecond)
+			time.Sleep(mreqHangSettle)
 		}
 		if shape.stops {
 			mreqAIRestartRoot()

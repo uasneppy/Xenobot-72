@@ -404,6 +404,14 @@ func mreqUnanswerableShapes() []mreqUnanswerable {
 // mreqUnanswerableEnv builds the environment of one shape for the job path or the join entry,
 // with the rule stored at action, the lookup fake installed and, for a channel rule, a linked
 // channel the bot administers and a member who is not in it (so a definite answer is a breach).
+// A hanging shape's flight outlives the 150 ms budget of the job and the join by its own timeout,
+// and the test waits a little longer than that timeout before its cleanups, so the abandoned flight
+// has ended before the rows go.
+const (
+	mreqHangFlightTimeout = 300 * time.Millisecond
+	mreqHangSettle        = 400 * time.Millisecond
+)
+
 func mreqUnanswerableEnv(t *testing.T, shape mreqUnanswerable, action int, join bool) (*memberReqEnv, gotgbot.User) {
 	t.Helper()
 	var env *memberReqEnv
@@ -419,9 +427,9 @@ func mreqUnanswerableEnv(t *testing.T, shape mreqUnanswerable, action int, join 
 	if shape.hangs {
 		mreqSwap(t, &memberReqLookupJobBudget, 150*time.Millisecond)
 		mreqSwap(t, &memberReqLookupJoinBudget, 150*time.Millisecond)
-		mreqSwap(t, &memberReqLookupFlightTimeout, 600*time.Millisecond)
+		mreqSwap(t, &memberReqLookupFlightTimeout, mreqHangFlightTimeout)
 		// Runs before the row cleanups: the abandoned flight has ended by its own timeout.
-		t.Cleanup(func() { time.Sleep(700 * time.Millisecond) })
+		t.Cleanup(func() { time.Sleep(mreqHangSettle) })
 	}
 	var member gotgbot.User
 	var channel int64
