@@ -84,6 +84,16 @@ func init() {
 	registerEventPM(eventmsg.EventFlood, eventPMSpec{DefaultKey: "eventmsg_pm_flood", Automatic: true})
 	registerEventPM(eventmsg.EventBlacklist, eventPMSpec{DefaultKey: "eventmsg_pm_blacklist", Automatic: true})
 	registerEventPM(eventmsg.EventForwardBlock, eventPMSpec{DefaultKey: "eventmsg_pm_fwdblock", Automatic: true})
+	// The screening events of Phase 24 (D-34): the failed captcha, the AI spam notice and the requirement warn,
+	// kick, ban and mute are all actions the bot takes by itself, so every one is automatic and the per-group
+	// cap of automatic copies (10 a minute, fail closed) bounds a raid of joiners or offenders. None needs
+	// eventPMOffer.ByRule: the spec alone sets the cap.
+	registerEventPM(eventmsg.EventCaptcha, eventPMSpec{DefaultKey: "eventmsg_pm_captcha", Automatic: true})
+	registerEventPM(eventmsg.EventAISpam, eventPMSpec{DefaultKey: "eventmsg_pm_aispam", Automatic: true})
+	registerEventPM(eventmsg.EventReqWarn, eventPMSpec{DefaultKey: "eventmsg_pm_mreqwarn", Automatic: true})
+	registerEventPM(eventmsg.EventReqKick, eventPMSpec{DefaultKey: "eventmsg_pm_mreqkick", Automatic: true})
+	registerEventPM(eventmsg.EventReqBan, eventPMSpec{DefaultKey: "eventmsg_pm_mreqban", Automatic: true})
+	registerEventPM(eventmsg.EventReqMute, eventPMSpec{DefaultKey: "eventmsg_pm_mreqmute", Automatic: true})
 }
 
 // pmCopyPacerOptions are the options of the private copies' pacer: its own Redis keys, so a burst of

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 	"testing"
@@ -160,6 +161,10 @@ func TestEventPMSpecs(t *testing.T) {
 	// eventPMOffer.ByRule), and the flood, blacklist and forward blocklist punishments are automatic.
 	manual = append(manual, eventmsg.EventWarn, eventmsg.EventWarnLimit)
 	automatic := []string{eventmsg.EventFlood, eventmsg.EventBlacklist, eventmsg.EventForwardBlock}
+	// Phase 24 (D-34): the failed captcha, the AI spam notice and the four requirement notices are automatic, so the
+	// per-group cap bounds their copies.
+	automatic = append(automatic, eventmsg.EventCaptcha, eventmsg.EventAISpam, eventmsg.EventReqWarn,
+		eventmsg.EventReqKick, eventmsg.EventReqBan, eventmsg.EventReqMute)
 	if len(eventPMSpecs) != len(manual)+len(automatic) {
 		t.Fatalf("specs = %d, want the %d manual and %d automatic events", len(eventPMSpecs), len(manual), len(automatic))
 	}
@@ -300,6 +305,30 @@ func TestEventPMDefaultTexts(t *testing.T) {
 		params := eventPMOnly(t, s, "sendMessage")
 		if params["text"] != want {
 			t.Fatalf("private copy text = %q, want %q", params["text"], want)
+		}
+	})
+
+	// The requirement warn's default names the count and the limit and the action word, then the reason line, which
+	// for a requirement event lists the broken rules (Phase 24, D-14, D-34). Its site switches in plan 24-05, so the
+	// text is rendered here as the job renders it.
+	t.Run("requirement warn", func(t *testing.T) {
+		tr := i18n.MustNewTranslator("uk")
+		spec, ok := eventPMSpecFor(eventmsg.EventReqWarn)
+		if !ok {
+			t.Fatal("the requirement warn has no private copy spec")
+		}
+		rules := memberReqRulesText(tr, 2|4)
+		if !strings.Contains(rules, memberReqRulesSeparator) {
+			t.Fatalf("the rules text %q does not list two rules", rules)
+		}
+		chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: title}
+		action := eventActionWord(tr, "warn")
+		got := eventPMDefaultText(tr, spec, &chat, eventValues{Reason: rules, Count: 1, Limit: 3, Action: action}, "")
+		want := eventPMAutoDefault(t, "eventmsg_pm_mreqwarn", i18n.TranslationParams{
+			"group": escaped, "count": "1", "limit": "3", "action": action,
+		}, html.EscapeString(rules))
+		if got != want {
+			t.Fatalf("requirement warn default = %q, want %q", got, want)
 		}
 	})
 }

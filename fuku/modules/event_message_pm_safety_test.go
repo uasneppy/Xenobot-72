@@ -37,20 +37,6 @@ var eventPMWorstReason = strings.Repeat("&<b>", 50)
 // eventPMWorstName is a 64-rune member name full of markup, the worst name a log line can mention.
 var eventPMWorstName = strings.Repeat("<&Ы>", 16)
 
-// eventPMTimed reports whether the Messages page draws event as a timed event (its texts fill {until}).
-func eventPMTimed(t *testing.T, event string) bool {
-	t.Helper()
-	for _, fam := range settingsMsgFamilies {
-		for _, ev := range fam.Events {
-			if ev.Key == event {
-				return ev.Timed
-			}
-		}
-	}
-	t.Fatalf("no family of the Messages page lists the %s event", event)
-	return false
-}
-
 // eventPMSpecEvents is every event with a private copy spec, in a fixed order.
 func eventPMSpecEvents() []string {
 	events := make([]string, 0, len(eventPMSpecs))
@@ -94,18 +80,19 @@ func TestEventPMTextsFitEveryLocale(t *testing.T) {
 				t.Fatal("the unmute lockdown note is empty")
 			}
 			longestAction := ""
-			for _, mode := range []string{"warn", "mute", "kick", "ban"} {
+			// The AI spam notice's action is the delete word (Phase 24), so it joins the sweep for the longest word.
+			for _, mode := range []string{"warn", "mute", "kick", "ban", "delete"} {
 				if word := eventActionWord(tr, mode); len([]rune(word)) > len([]rune(longestAction)) {
 					longestAction = word
 				}
 			}
 			for _, event := range events {
 				spec, _ := eventPMSpecFor(event)
-				// The Automatic family's texts (Phase 23) also fill the count, the limit and the longest action word.
-				values := eventValues{Reason: eventPMWorstReason, Duration: "366 days", Count: 100, Limit: 100, Action: longestAction}
-				if eventPMTimed(t, event) {
-					values.Until = until
-				}
+				// The Automatic family's texts (Phase 23) also fill the count, the limit and the longest action word. The end is
+				// filled for every event, not only those the Messages page draws as timed: a text without {until} ignores it and a
+				// timed text is at its longest with it, so this is the worst case of each (and it holds for an event whose spec
+				// exists before its page cell, as the six Phase 24 events did between plans 24-03 and 24-04).
+				values := eventValues{Reason: eventPMWorstReason, Duration: "366 days", Count: 100, Limit: 100, Action: longestAction, Until: until}
 				// The default private text with every placeholder filled, then the same text with the lockdown note, which only
 				// /unmute adds, measured for every event because a note only adds its own length.
 				text := eventPMDefaultText(tr, spec, &chat, values, "")

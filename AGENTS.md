@@ -3725,8 +3725,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
   default text `eventmsg_pm_<event>` (D-06), and, since Phase 23 (plan 23-05, D-28), the Automatic family: `warn` and
-  `warnlimit` with `Automatic` false and `flood`, `blacklist` and `fwdblock` with `Automatic` true, twelve specs in all, each
-  with its default text `eventmsg_pm_<event>`. `/dban`, `/dkick` and `/dmute` use their parent event's copy, the silent
+  `warnlimit` with `Automatic` false and `flood`, `blacklist` and `fwdblock` with `Automatic` true, and, since Phase 24 (plan
+  24-03, D-34), the screening events `captcha`, `aispam`, `mreqwarn`, `mreqkick`, `mreqban` and `mreqmute`, all `Automatic`
+  true (the bot raises each by itself, so the per-group cap bounds a raid of failed captchas or requirement punishments),
+  eighteen specs in all, each with its default text `eventmsg_pm_<event>` (the requirement texts say the member does not
+  meet the group's requirements and never repeat the reason, whose line lists the broken rules; `eventmsg_pm_mreqwarn`
+  names the count, the limit and the action, and `eventmsg_pm_mreqmute` tells the member to tap "I fixed it" under the
+  group's notice and carries no button, D-35). `/dban`, `/dkick` and `/dmute` use their parent event's copy, the silent
   variants never reach `replyEvent` and send none, and the channel `/ban` and `/unban` are not events. `replyEvent` reads the
   messages once (through `postEvent`), runs the unchanged group step (`postEventGroup`, pinned by `TestLegacyModerationRequests`) and then
   `offerReplyPM`, whatever the group step did (posted, Silent, the refusal fallback, a send error): it offers a copy only
@@ -5818,7 +5823,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `eventPMCleanup`; and a test reads the recorded requests under the fake's lock (`eventPMAllCalls`, `eventPMCalls`), never through
   `callsFor("")`, which matches no method. The safeguards of plan 22-08 (`event_message_pm_safety_test.go`): `TestEventPMTextsFitEveryLocale`
   (every event's default private text with a 64-rune markup-heavy title, a 200-character reason, since Phase 23 a count and a limit of 100
-  and the language's longest action word, and, for a timed event, an end, with and
+  and the language's longest action word (since Phase 24 the delete word too), and an end for every event (since plan 24-03, which
+  no longer reads the Messages page's timed flag, so a spec may exist before its page cell), with and
   without the unmute lockdown note, at most 4096 UTF-16 units with no unfilled placeholder in 8 languages; the log line of every outcome at
   most 1000 with a 64-rune markup-heavy name that appears once, escaped, only inside the mention; the Details label at most 20 code points,
   the neutral reply at most 120), `TestEventPMCost` (`/ban` with the copy off makes exactly the golden site's requests; with the copy on and
