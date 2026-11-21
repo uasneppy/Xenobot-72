@@ -632,7 +632,7 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	// seven event names and descriptions, the two state words and the group note.
 	"settings_page_msgs":            {14, 18},
 	"settings_state_msg_n":          {16, 22},
-	"settings_msg_intro":            {285, 336},
+	"settings_msg_intro":            {330, 400},
 	"settings_msg_fam_manual":       {16, 18},
 	"settings_msg_fam_manual_intro": {230, 270},
 	"settings_msg_list_hint":        {45, 63},
@@ -683,6 +683,22 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_msg_line_pm_log":     {30, 42},
 	"settings_btn_msg_pm_log":      {24, 34},
 	"settings_msg_hint_pm_log":     {200, 280},
+	// The Automatic family (Phase 23, plan 23-03): its name, intro, the five event names and descriptions, the text
+	// prompt, which lists the Welcome and event placeholders, and the family's hint.
+	"settings_msg_fam_auto":       {18, 18},
+	"settings_msg_fam_auto_intro": {400, 480},
+	"settings_msg_ev_warn":        {16, 18},
+	"settings_msg_ev_warnlimit":   {16, 18},
+	"settings_msg_ev_flood":       {16, 18},
+	"settings_msg_ev_blacklist":   {16, 18},
+	"settings_msg_ev_fwdblock":    {16, 18},
+	"settings_msg_desc_warn":      {140, 196},
+	"settings_msg_desc_warnlimit": {140, 196},
+	"settings_msg_desc_flood":     {140, 196},
+	"settings_msg_desc_blacklist": {140, 196},
+	"settings_msg_desc_fwdblock":  {140, 196},
+	"settings_msg_wait_text_auto": {900, 1100},
+	"settings_msg_hint_auto":      {400, 480},
 }
 
 // settingsAlertKeys are shown as answerCallbackQuery alerts: plain text, no tag, at most
@@ -1017,6 +1033,10 @@ func TestSettingsLabelLengths(t *testing.T) {
 		{"🚫", "settings_msg_ev_ban"}, {"⏳", "settings_msg_ev_tban"}, {"👢", "settings_msg_ev_kick"},
 		{"🔇", "settings_msg_ev_mute"}, {"🔕", "settings_msg_ev_tmute"}, {"🔓", "settings_msg_ev_unban"},
 		{"🔊", "settings_msg_ev_unmute"},
+		// The Automatic family (Phase 23, plan 23-03): its cell and its five event cells.
+		{"🤖", "settings_msg_fam_auto"},
+		{"🚩", "settings_msg_ev_warn"}, {"⛔", "settings_msg_ev_warnlimit"}, {"🌊", "settings_msg_ev_flood"},
+		{"🔤", "settings_msg_ev_blacklist"}, {"🚷", "settings_msg_ev_fwdblock"},
 	}
 
 	for _, lang := range staffLocales {
@@ -1243,7 +1263,7 @@ func TestSettingsReusedKeyPlaceholders(t *testing.T) {
 					// The editor's text prompt lists the literal {id} placeholder of a welcome
 					// text as copyable code; it is never filled in (TestSettingsEditLocaleTokens
 					// holds it byte-identical), so it cannot name anyone.
-					if name == "id" && (key == settingsEditWaitTextKey || key == settingsMsgWaitTextManualKey) {
+					if name == "id" && (key == settingsEditWaitTextKey || key == settingsMsgWaitTextManualKey || key == settingsMsgWaitTextAutoKey) {
 						continue
 					}
 					if name == "staff" || name == "id" {
@@ -1337,6 +1357,17 @@ var settingsMsgManualLiteralTokens = []string{
 	"<code>{reason}</code>", "<code>{duration}</code>", "<code>{until}</code>", "<code>{rules}</code>",
 }
 
+// settingsMsgWaitTextAutoKey is the text prompt of the Automatic family's event messages (Phase 23).
+const settingsMsgWaitTextAutoKey = "settings_msg_wait_text_auto"
+
+// settingsMsgAutoLiteralTokens are the placeholders the Automatic family's text prompt shows as copyable code: the
+// Welcome ones an event fills for the punished member and the group, and the automatic events' own.
+var settingsMsgAutoLiteralTokens = []string{
+	"<code>{first}</code>", "<code>{last}</code>", "<code>{fullname}</code>", "<code>{username}</code>",
+	"<code>{mention}</code>", "<code>{id}</code>", "<code>{chatname}</code>", "<code>{admin}</code>",
+	"<code>{reason}</code>", "<code>{action}</code>", "<code>{count}</code>", "<code>{limit}</code>", "<code>{rules}</code>",
+}
+
 // settingsEditLiteralTokens are the welcome-text placeholders and the button syntax the
 // editor's prompts show as copyable code. They are never translated, in any language, and
 // the translator leaves unknown {name} tokens alone, so each must reach the owner unchanged.
@@ -1371,6 +1402,7 @@ func TestSettingsEditLocaleTokens(t *testing.T) {
 		{"settings_edit_hint_rules", []string{"<code>/rules</code>"}},
 		{"settings_edit_refuse_buttons_syntax", []string{settingsEditSyntaxExample}},
 		{settingsMsgWaitTextManualKey, settingsMsgManualLiteralTokens},
+		{settingsMsgWaitTextAutoKey, settingsMsgAutoLiteralTokens},
 	}
 
 	parameters := []tokenKey{
@@ -1408,6 +1440,7 @@ func TestSettingsEditLocaleTokens(t *testing.T) {
 		{"settings_msg_line_pm_log", []string{"{state}"}},
 		{"settings_btn_msg_pm_log", []string{"{state}"}},
 		{settingsMsgWaitTextManualKey, []string{"{max}"}},
+		{settingsMsgWaitTextAutoKey, []string{"{max}"}},
 	}
 
 	english := loadStaffLocale(t, "en")
