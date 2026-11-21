@@ -2890,8 +2890,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `tban`, `kick`, `mute`, `tmute`, `unban`, `unmute`, then the five automatic events of Phase 23, `warn`
   (`EventWarn`), `warnlimit` (`EventWarnLimit`), `flood` (`EventFlood`), `blacklist` (`EventBlacklist`) and `fwdblock`
   (`EventForwardBlock`), in that order in `Events`, and the destinations `group` and `pm`, the private copy sent to the
-  punished person, Phase 22) and never by a CHECK, so Phases 23 to 25 add events with no migration; an unknown one is
-  `ErrUnknownEvent` or `ErrUnknownDest` before any write. It is read through `cache.GetFromCacheOrLoad` as one
+  punished person, Phase 22) and never by a CHECK, so Phase 23 added its five with no migration and Phases 24 and 25 add
+  theirs the same way; an unknown one is `ErrUnknownEvent` or `ErrUnknownDest` before any write. It is read through `cache.GetFromCacheOrLoad` as one
   `eventmsg.Messages` per chat (a map keyed `event|dest`, `Lookup(event, dest)`, plus the chat's `Options`, read from
   `chat_event_message_options` below) under `event_messages:<chat>` (`eventmsg.Get`; `eventmsg.GetFresh` is the same two
   queries without the cache, for the settings page), a read creates nothing and a failed read of either table is returned,
@@ -3654,8 +3654,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   escaped reason; an empty keyboard), `floodDefaultReply` (`antiflood_checkflood_perform_action` with the full name and
   the English word, the site's Unmute or Unban row by value, the site adds the topic) and `blacklistNoticeDefaultReply`
   (shared by the blacklist and the forward blocklist: `blacklists_bl_watcher_{muted,kicked,banned}_user` with the full
-  name and `Reason` spliced unescaped, `formatting.Shtml()`). The last three have no production caller until the Messages
-  page (plan 23-03) and the sites switch (plans 23-04 and 23-05). `warnThisUser` logs a send error and returns it as before
+  name and `Reason` spliced unescaped, `formatting.Shtml()`). Each is called by its send site and by the Messages page's event
+  table (the `Default` of `settingsMsgAutoEvents`, for the previews). `warnThisUser` logs a send error and returns it as before
   (`TestLegacyPunishmentNoticeRequests` pins every warn byte for a group with nothing stored, `TestEventMessageWarn` the
   custom warn, `TestEventMessageWarnLimit` in `event_message_auto_sites_test.go` the custom warn limit, the automatic one,
   the inert mode and Silent, `TestEventMessageFlood` a custom mute in a topic, a sender chat's ban, the inert action and
