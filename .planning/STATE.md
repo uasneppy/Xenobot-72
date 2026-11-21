@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 
 Phase: 23 of 30 (Warn, Flood, Blacklist and Forward Blocklist Messages), milestone v1.2 (Phase 20 Conversations shipped in v2.26.0; this milestone's phases were renumbered 20-29 to 21-30 on 2026-11-21)
 Plan: Phase 23's 7 plans are done and verified (no code gaps, human_needed: live checks, provisional decisions P1-P10 and a PostgreSQL run in `23-VERIFICATION.md`); Phases 21 and 22 likewise. The full fuku/modules run is 38 min 27 s against make test's 40-minute limit, so slow older tests are trimmed before Phase 24. Next: plan Phase 24
-Status: Ready to plan Phase 24
-Last activity: 2026-11-21 - Finished and verified Phase 23 (automatic messages)
+Status: Executing Phase 24 (8 plans)
+Last activity: 2026-11-21 - Planned Phase 24 (captcha, AI spam and member requirement notices): 8 plans in 8 waves, provisional decisions P1-P16 in 24-CONTEXT.md
 
 Progress: [█████░░░░░] 5 of 11 phases done or verified
 

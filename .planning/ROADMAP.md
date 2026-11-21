@@ -198,7 +198,16 @@ Plans:
   2. A member requirement notice (warn, kick, ban or mute) takes a custom text. The list of broken rules still follows it, and a mute still carries the "I fixed it" button, which works as before.
   3. The AI spam notice is off by default, and a deletion then posts nothing, as today. With it on, a deletion posts a notice, at most one per person per few minutes and a capped number per group per minute. A wave of spam posts at most the cap, and every spam message is still deleted.
   4. A group with nothing stored gets today's captcha and requirement notices byte for byte. A refused custom message falls back to the default, and the deletion timers apply as before.
-**Plans**: TBD
+**Plans**: 8 plans
+Plans:
+- [ ] 24-01-PLAN.md — goldens of the captcha failure, requirement, pause and AI breaker notices and the silent AI delete, committed alone (wave 1)
+- [ ] 24-02-PLAN.md — tracer: the failed captcha's message through the engine's new hooks; the six event keys, the AI notice off by default, words and default builders (wave 2)
+- [ ] 24-03-PLAN.md — private copies of the six events, all automatic, and the captcha's copy under the per-group cap (wave 3)
+- [ ] 24-04-PLAN.md — the Messages page: captcha and AI spam in the Automatic family, the Member requirements family, the Notice switch, the editor's text reserve (wave 4)
+- [ ] 24-05-PLAN.md — the requirement warn, kick, ban and mute notices through the engine, I fixed it kept (wave 5)
+- [ ] 24-06-PLAN.md — the AI spam notice: off by default, capped per member and per group, paced; the /aispam help (wave 6)
+- [ ] 24-07-PLAN.md — safeguards: forged presses, rights, reads, cost, sizes, logs, privacy (wave 7)
+- [ ] 24-08-PLAN.md — end-to-end proof, phase gates and the one full package run (wave 8)
 **UI hint**: yes
 
 ### Phase 25: Lockdown Messages
