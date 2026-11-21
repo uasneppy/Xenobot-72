@@ -16,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/lang"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/db/rules"
@@ -278,18 +279,16 @@ func (s warnSource) deletionKind() string {
 	return deletion.KindBotManual
 }
 
+// warnThisUser warns userID in the update's chat and posts the warning (or, at the limit, the
+// limit message). The warning goes through the event message engine (postEvent): a group's stored warn
+// message replaces the default, keeping the bot's Remove warn row last (D-05), Silent posts nothing,
+// and with nothing stored the default is today's request byte for byte. source picks the deletion kind,
+// the actor ({admin}: the issuer of /warn, /dwarn and /swarn, "an admin" for an automatic warn) and
+// whether an automatic rule raised it.
 func (moduleStruct) warnThisUser(b *gotgbot.Bot, ctx *ext.Context, userId int64, reason, warnType string, source warnSource) (err error) {
-	var (
-		reply    string
-		keyboard gotgbot.InlineKeyboardMarkup
-	)
-
 	chat := ctx.EffectiveChat
 	msg := ctx.EffectiveMessage
 	tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
-
-	removeWarnText, _ := tr.GetString("warns_remove_button")
-	rulesButtonText, _ := tr.GetString("common_rules_button_emoji")
 
 	if chat_status.IsUserAdmin(b, chat.Id, userId) {
 		text, _ := tr.GetString("warns_admin_warning_error")
@@ -332,61 +331,94 @@ func (moduleStruct) warnThisUser(b *gotgbot.Bot, ctx *ext.Context, userId int64,
 		return res.LimitErr
 	}
 
-	numWarns := res.Count
 	if res.LimitReached {
-		limitKeys := map[string]string{
-			"kick": "warns_limit_kicked",
-			"mute": "warns_limit_muted",
-			"ban":  "warns_limit_banned",
-		}
-		if key, ok := limitKeys[res.Mode]; ok {
-			temp, _ := tr.GetString(key)
-			reply = fmt.Sprintf(temp, numWarns, res.Limit, formatting.MentionHtml(u.Id, u.FirstName))
-		}
-		var sb strings.Builder
-		for _, warnReason := range res.Reasons {
-			fmt.Fprintf(&sb, "\n - %s", html.EscapeString(warnReason))
-		}
-		reply += sb.String()
+		err = warnPostLimit(b, chat, msg, tr, u, res, source)
 	} else {
-		// The Rules button shows whenever the rules are set (a text, a media or buttons),
-		// the same test /rules and a welcome's {rules} button use.
-		if rules.GetChatRulesInfo(chat.Id).HasContent() {
-			keyboard = gotgbot.InlineKeyboardMarkup{
-				InlineKeyboard: [][]gotgbot.InlineKeyboardButton{
-					{
-						{
-							Text:         removeWarnText,
-							CallbackData: encodeCallbackData("rmWarn", map[string]string{"u": fmt.Sprint(u.Id)}),
-						},
-						{
-							Text: rulesButtonText,
-							Url:  fmt.Sprintf("t.me/%s?start=rules_%d", b.Username, chat.Id),
-						},
-					},
-				},
-			}
-		} else {
-			keyboard = gotgbot.InlineKeyboardMarkup{
-				InlineKeyboard: [][]gotgbot.InlineKeyboardButton{
-					{
-						{
-							Text:         removeWarnText,
-							CallbackData: encodeCallbackData("rmWarn", map[string]string{"u": fmt.Sprint(u.Id)}),
-						},
-					},
-				},
-			}
-		}
-
-		temp, _ := tr.GetString("warns_user_warning")
-		reply = fmt.Sprintf(temp, formatting.MentionHtml(u.Id, u.FirstName), numWarns, res.Limit)
-
-		if reason != "" {
-			temp, _ := tr.GetString("warns_warning_reason")
-			reply += fmt.Sprintf(temp, html.EscapeString(reason))
-		}
+		err = postEvent(warnSite(b, ctx, tr, source), warnEventReply(b, chat, msg.MessageId, tr, u, reason, res))
 	}
+	if err != nil {
+		log.Errorf("[warn] sendMessage (%d) - %s", userId, err)
+		return err
+	}
+	return ext.EndGroups
+}
+
+// warnSite is the warn's eventSite: a reply to the triggering message (the command, or the member's
+// own message for an automatic warn) in the group's language, queued under the source's kind. An
+// automatic warn has no acting admin ({admin} reads "an admin"); a moderator's names its issuer, or
+// "an admin" for an anonymous admin. The default is sent with b.SendMessage, today's call.
+func warnSite(b *gotgbot.Bot, ctx *ext.Context, tr *i18n.Translator, source warnSource) eventSite {
+	chat := ctx.EffectiveChat
+	site := eventSite{
+		Bot:       b,
+		Chat:      chat,
+		Tr:        tr,
+		ReplyTo:   ctx.EffectiveMessage.MessageId,
+		Kind:      source.deletionKind(),
+		Automatic: source == warnSourceAuto,
+		SendDefault: func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			return b.SendMessage(chat.Id, text, opts)
+		},
+	}
+	if source != warnSourceAuto {
+		site.Actor = eventActor{User: ctx.EffectiveUser, Anonymous: actorIsAnonymous(ctx)}
+	}
+	return site
+}
+
+// warnEventReply is the warn event of one warning: the default built by warnDefaultReply with the
+// bot's rows (Remove warn, and the Rules button while the group's rules are set) and the reply to
+// the triggering message, the values a custom text fills, and the Remove warn row alone as the row a
+// custom message keeps, after its own buttons (D-05, D-15).
+func warnEventReply(b *gotgbot.Bot, chat *gotgbot.Chat, replyTo int64, tr *i18n.Translator, u gotgbot.User, reason string, res warnApplyResult) eventReply {
+	removeWarnText, _ := tr.GetString("warns_remove_button")
+	removeWarn := gotgbot.InlineKeyboardButton{
+		Text:         removeWarnText,
+		CallbackData: encodeCallbackData("rmWarn", map[string]string{"u": fmt.Sprint(u.Id)}),
+	}
+	row := []gotgbot.InlineKeyboardButton{removeWarn}
+	// The Rules button shows whenever the rules are set (a text, a media or buttons),
+	// the same test /rules and a welcome's {rules} button use.
+	if rules.GetChatRulesInfo(chat.Id).HasContent() {
+		rulesButtonText, _ := tr.GetString("common_rules_button_emoji")
+		row = append(row, gotgbot.InlineKeyboardButton{
+			Text: rulesButtonText,
+			Url:  fmt.Sprintf("t.me/%s?start=rules_%d", b.Username, chat.Id),
+		})
+	}
+	in := eventDefaultInput{Target: u, Reason: reason, Count: res.Count, Limit: res.Limit, Rows: [][]gotgbot.InlineKeyboardButton{row}}
+	text, opts := warnDefaultReply(tr, in)
+	opts.ReplyParameters = &gotgbot.ReplyParameters{MessageId: replyTo, AllowSendingWithoutReply: true}
+	return eventReply{
+		Event:        eventmsg.EventWarn,
+		Target:       u,
+		Values:       eventValues{Reason: reason, Count: res.Count, Limit: res.Limit},
+		Default:      text,
+		Opts:         opts,
+		KeepRows:     [][]gotgbot.InlineKeyboardButton{{removeWarn}},
+		KeepRowsLast: true,
+	}
+}
+
+// warnPostLimit posts the warn limit message exactly as before custom messages: the limit action's
+// text (none for a mode the code applies nothing for) and the stored reasons, as a reply to the
+// triggering message with an empty keyboard, queued under the source's kind.
+func warnPostLimit(b *gotgbot.Bot, chat *gotgbot.Chat, msg *gotgbot.Message, tr *i18n.Translator, u gotgbot.User, res warnApplyResult, source warnSource) error {
+	var reply string
+	limitKeys := map[string]string{
+		"kick": "warns_limit_kicked",
+		"mute": "warns_limit_muted",
+		"ban":  "warns_limit_banned",
+	}
+	if key, ok := limitKeys[res.Mode]; ok {
+		temp, _ := tr.GetString(key)
+		reply = fmt.Sprintf(temp, res.Count, res.Limit, formatting.MentionHtml(u.Id, u.FirstName))
+	}
+	var sb strings.Builder
+	for _, warnReason := range res.Reasons {
+		fmt.Fprintf(&sb, "\n - %s", html.EscapeString(warnReason))
+	}
+	reply += sb.String()
 	sent, err := b.SendMessage(chat.Id, reply,
 		&gotgbot.SendMessageOpts{
 			ParseMode: formatting.HTML,
@@ -397,16 +429,14 @@ func (moduleStruct) warnThisUser(b *gotgbot.Bot, ctx *ext.Context, userId int64,
 				MessageId:                msg.MessageId,
 				AllowSendingWithoutReply: true,
 			},
-			ReplyMarkup: &keyboard,
+			ReplyMarkup: &gotgbot.InlineKeyboardMarkup{},
 		},
 	)
 	if err != nil {
-		log.Errorf("[warn] sendMessage (%d) - %s", userId, err)
 		return err
 	}
 	scheduleBotMessage(sent, source.deletionKind())
-
-	return ext.EndGroups
+	return nil
 }
 
 func (m moduleStruct) dispatchWarn(b *gotgbot.Bot, ctx *ext.Context, warnType string) error {

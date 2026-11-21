@@ -1,6 +1,6 @@
 // Package eventmsg stores the custom event messages of a group: one message per event (a manual
-// punishment such as ban or mute) and destination (the group itself, or the private copy sent to
-// the punished person), each with a text, at most one media item, URL buttons and a Silent switch,
+// punishment such as ban or mute, or an automatic action such as a warn or a flood notice) and
+// destination (the group itself, or the private copy sent to the punished person), each with a text, at most one media item, URL buttons and a Silent switch,
 // plus the group's two options of the private copies. A chat's messages and options are read as
 // one struct per chat through the cache key event_messages:<chat>, which is listed in skipLocal,
 // and every write is a column-targeted upsert that drops that key.
@@ -30,6 +30,20 @@ const (
 	EventUnban = "unban"
 	// EventUnmute is the reply of /unmute.
 	EventUnmute = "unmute"
+	// EventWarn is the warning posted below the warn limit, for /warn, /dwarn, /swarn and the warns
+	// of the blacklist and the forward blocklist.
+	EventWarn = "warn"
+	// EventWarnLimit is the message posted when a member reaches the warn limit and the limit
+	// action (kick, mute or ban) took effect.
+	EventWarnLimit = "warnlimit"
+	// EventFlood is the notice posted after antiflood muted, kicked or banned a sender.
+	EventFlood = "flood"
+	// EventBlacklist is the notice posted after a blacklisted word got its sender muted, kicked or
+	// banned.
+	EventBlacklist = "blacklist"
+	// EventForwardBlock is the notice posted after a forward from a blocked source got its sender
+	// muted, kicked or banned. It never names the source or the Staff Group.
+	EventForwardBlock = "fwdblock"
 )
 
 // The destinations a message can be stored for.
@@ -42,7 +56,8 @@ const (
 )
 
 // Events lists every event a message can be stored for, in the order the settings page shows
-// them. Phases 23 to 25 append the automatic, lockdown and requirement events.
+// them: the manual punishments, then the automatic actions (Phase 23). Phases 24 and 25 append
+// more automatic, lockdown and requirement events.
 var Events = []string{
 	EventBan,
 	EventTimedBan,
@@ -51,6 +66,11 @@ var Events = []string{
 	EventTimedMute,
 	EventUnban,
 	EventUnmute,
+	EventWarn,
+	EventWarnLimit,
+	EventFlood,
+	EventBlacklist,
+	EventForwardBlock,
 }
 
 // Dests lists every destination a message can be stored for.

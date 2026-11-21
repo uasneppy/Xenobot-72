@@ -2866,7 +2866,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `models.ButtonArray`), `silent`, `updated_by` and `updated_at`, every column `NOT NULL` with a zero default and no foreign
   key. `models.ChatEventMessage` maps it with no `default:` tag. The event and the destination are validated in Go by
   `eventmsg.ValidEvent` and `eventmsg.ValidDest` (`fuku/db/eventmsg/events.go`: today the seven manual events `ban`,
-  `tban`, `kick`, `mute`, `tmute`, `unban`, `unmute` and the destinations `group` and `pm`, the private copy sent to the
+  `tban`, `kick`, `mute`, `tmute`, `unban`, `unmute`, then the five automatic events of Phase 23, `warn`
+  (`EventWarn`), `warnlimit` (`EventWarnLimit`), `flood` (`EventFlood`), `blacklist` (`EventBlacklist`) and `fwdblock`
+  (`EventForwardBlock`), in that order in `Events`, and the destinations `group` and `pm`, the private copy sent to the
   punished person, Phase 22) and never by a CHECK, so Phases 23 to 25 add events with no migration; an unknown one is
   `ErrUnknownEvent` or `ErrUnknownDest` before any write. It is read through `cache.GetFromCacheOrLoad` as one
   `eventmsg.Messages` per chat (a map keyed `event|dest`, `Lookup(event, dest)`, plus the chat's `Options`, read from
@@ -3521,8 +3523,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   step of the moderation pipeline, after `execute` applied the punishment, so a message never delays, undoes or skips a
   punishment (D-03). It reads `eventmsg.Get` through the seam `eventMessagesLookup` under `eventMessageReadTimeout` (2 s,
   a variable): a read error is one Warn with the chat ID and the event and the default; no row, and a row with no text,
-  media or buttons and Silent off, send the default through `sendSuccess` (the body of `replySuccess`, which wraps it),
-  literally the call the site made before Phase 21 (`TestLegacyModerationRequests` pins every byte and is never re-recorded); Silent, honoured only from a
+  media or buttons and Silent off, send the default through the site's own send (for the moderation pipeline `c.Msg.Reply`
+  queued under `bot:punish_manual`, the call `sendSuccess` makes), literally the call the site made before Phase 21 (`TestLegacyModerationRequests` pins every byte and is never re-recorded); Silent, honoured only from a
   successful read, posts and schedules nothing. A send site builds its default first (the ban's is `banDefaultReply`, an
   `eventDefaultReply`: the same `Sprintf`, mention, `moderationReasonLine` and Unban keyboard as before) and hands it to
   `replyEvent` with the event key, the target (`eventTargetOf` of its `getChat` answer) and the `eventValues` (reason,
@@ -3541,7 +3543,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`allow_sending_without_reply`, link previews off, HTML, the topic of a topic message) and queued with
   `scheduleBotMessage(sent, deletion.KindBotManual)`, the default's kind (D-15). When Telegram definitely refuses it
   (`eventMessageRefused`: `isTelegramClientError`, a 4xx other than 429, or `media.ErrNoPermission`), the default is sent
-  once through `replySuccess` with one Warn naming the chat ID and the event; a 429, a 5xx or a transport error is
+  once through the site's own send with one Warn naming the chat ID and the event; a 429, a 5xx or a transport error is
   returned as the default's send error always was, with no second send. `{admin}` is the acting admin's escaped full
   name, and the translated `eventmsg_admin_anon` (the group's language) for an anonymous admin (`actorIsAnonymous`: the
   update's `eventAnonActorKey` mark set by `markAnonymousActor`, or a sender that is the group itself in AnonAdmin mode);
@@ -3566,17 +3568,44 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestEventMessageSites` (the six other events, custom and with nothing stored, the lockdown note included),
   `TestEventMessageSilentVariants` and `TestEventMessageAfterAnonymousProof` (`event_message_sites_test.go`) hold it (toolkit
   `event_message_env_test.go`: `eventMsgCleanup`, `eventMsgStore`, `eventMsgStoreRow`, `eventMsgFailingClient` with
-  `eventMsgRefuseOnce`, on plan 21-01's `newModerationGoldenSite`). Since Phase 22 the group part is `replyEventGroup` (the
-  same code, returning what it posted as an `eventGroupPost`: the message and the keyboard rows it was sent with, the default's
-  `eventBotRows` through `sendDefaultPost` or a custom message's composed rows, none when Silent or the send failed) and
-  `replyEvent` ends with the private copy offer (`offerReplyPM`, the PM copies bullet below), which never changes the group
-  reply or its error.
+  `eventMsgRefuseOnce`, on plan 21-01's `newModerationGoldenSite`). Since Phase 22 the group part returns what it posted as
+  an `eventGroupPost` (the message and the keyboard rows it was sent with, the default's `eventBotRows` through
+  `sendDefaultPost` or a custom message's composed rows, none when Silent or the send failed) and the reply ends with the
+  private copy offer (`offerReplyPM`, the PM copies bullet below), which never changes the group reply or its error.
+  Since Phase 23 (plan 23-02, D-20, D-21) the engine is generic: an `eventSite{Bot, Chat, Tr, Actor, ReplyTo, ThreadID,
+  Kind, Automatic, SendDefault}` says where and how one send site posts (the group, its translator, the acting admin,
+  empty for an automatic action, which reads "an admin", the message replied to and the topic, 0 for none, the deletion
+  kind, whether an automatic rule raised it, and the site's own default send, exactly its call before custom messages),
+  and `postEvent(site, r)` runs the one bounded read (a read error: one Warn and the default), the group step
+  `postEventGroup(site, r, msgs)` (Silent, the default through `sendDefaultPost`: `site.SendDefault` then
+  `scheduleBotMessage(sent, site.Kind)`, or the custom message at `site.ReplyTo` and `site.ThreadID` queued under
+  `site.Kind`, with the refusal fallback once) and then `offerReplyPM(site, r, msgs, post)`, which takes the actor, bot,
+  chat and translator from the site. `(c *moderationCtx) replyEvent` is a thin wrapper, `postEvent(c.site(), r)`, whose
+  site is exactly what the reply step used (a reply to the command, its topic for a topic message, `bot:punish_manual`,
+  the default through `c.Msg.Reply`, the issuer with `actorIsAnonymous`), so `TestLegacyModerationRequests` is unchanged;
+  `replySuccess` and `sendSuccess` stay for their other callers. `eventReply` gains `KeepRows` (the bot rows a custom
+  message keeps; nil means the rows of `Opts`, the Unban row of a ban) and `KeepRowsLast` (put them after the custom and
+  `{rules}` buttons), both set by the site and never by the stored row; `eventValues` gains `Action` (the translated word),
+  `Count` and `Limit` (0 renders as nothing, else the number) and `Window`, all escaped by `eventPlaceholderValues`;
+  `eventDefaultInput` gains `Count`, `Limit`, `Action` (the mode word), `Reasons` and `Rows` (the bot rows the site
+  computed), so the default builders stay pure. The warn (EVT-02, the `warn` event) is the second site: `warnThisUser`'s
+  below-limit branch builds `warnSite` (a reply to the triggering message, the command or the member's own message for an
+  automatic warn, no topic, `source.deletionKind()`, `Automatic` for `warnSourceAuto`, the issuer of `/warn`, `/dwarn` and
+  `/swarn` as the actor and none for the blacklist's and the forward blocklist's warns, the default through
+  `b.SendMessage`) and `warnEventReply` (the default from `warnDefaultReply` in `event_message_auto.go` with the bot's
+  row, Remove warn and the Rules button while the group's rules are set, plus the reply to the triggering message; the
+  values reason, count and limit; `KeepRows` the Remove warn row alone with `KeepRowsLast`, so a custom warn keeps Remove
+  warn last and drops the default's Rules button unless its text has `{rules}`, D-05, D-15) and posts through `postEvent`.
+  A Silent warn stores the warn and posts nothing (no Remove warn button, admins use `/rmwarn`). The warn limit keeps
+  today's send (`warnPostLimit`) until plan 23-04. `warnThisUser` logs a send error and returns it as before
+  (`TestLegacyPunishmentNoticeRequests` pins every warn byte for a group with nothing stored, `TestEventMessageWarn` the
+  custom warn).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
   default text `eventmsg_pm_<event>` (D-06). `/dban`, `/dkick` and `/dmute` use their parent event's copy, the silent
   variants never reach `replyEvent` and send none, and the channel `/ban` and `/unban` are not events. `replyEvent` reads the
-  messages once, runs the unchanged group step (`replyEventGroup`, pinned by `TestLegacyModerationRequests`) and then
+  messages once (through `postEvent`), runs the unchanged group step (`postEventGroup`, pinned by `TestLegacyModerationRequests`) and then
   `offerReplyPM`, whatever the group step did (posted, Silent, the refusal fallback, a send error): it offers a copy only
   for an event with a spec and a `msgs.Resolve(event, eventmsg.DestPM)` whose `Silent` is false (no pm row, or a pm row
   whose switch was never written, reads as off, D-08), and never after a failed read (unknown never sends, D-11). The copy
@@ -5685,7 +5714,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   blocklist notice at mute, kick and ban, in Ukrainian with the real locales. Its toolkit (`noticeGoldenTarget`, `noticeGoldenChannel`,
   `noticeGoldenClient`, `newNoticeGoldenSite`, which stores a 600 s rule of the case's kind and a 900 s rule of the other bot punishment kind,
   and the drivers `noticeGoldenWarn`, `noticeGoldenFlood`, `noticeGoldenBlacklist`, `noticeGoldenForwardBlock`) is reused by name and the
-  file is never edited.
+  file is never edited. `TestEventMessageWarn` (`event_message_auto_test.go`, plan 23-02) runs the warn site over `newNoticeGoldenSite`: a
+  custom warn with a URL button is filled and escaped with the Remove warn row last and queued under `bot:punish_manual`, the blacklist's
+  warn reads `{admin}` as "an admin" under `bot:punish_auto`, a Silent warn stores the warn and posts nothing, and a refused custom warn is
+  followed by exactly the golden default (toolkit `eventMsgStoreWarn`, `eventMsgWarnCustom`, `eventMsgWarnRemoveRow`).
 
 ## Commits
 

@@ -215,7 +215,7 @@ func TestEventMessages(t *testing.T) {
 	})
 
 	t.Run("the event and destination tables", func(t *testing.T) {
-		want := []string{"ban", "tban", "kick", "mute", "tmute", "unban", "unmute"}
+		want := []string{"ban", "tban", "kick", "mute", "tmute", "unban", "unmute", "warn", "warnlimit", "flood", "blacklist", "fwdblock"}
 		if len(Events) != len(want) {
 			t.Fatalf("Events = %v, want %v", Events, want)
 		}
@@ -224,7 +224,7 @@ func TestEventMessages(t *testing.T) {
 				t.Errorf("event %d: Events has %q, ValidEvent(%q) = %v", i, Events[i], event, ValidEvent(event))
 			}
 		}
-		for _, event := range []string{"", "Ban", "warn", "ban ", "dban", "sban"} {
+		for _, event := range []string{"", "Ban", "warning", "Warn", "ban ", "dban", "sban"} {
 			if ValidEvent(event) {
 				t.Errorf("ValidEvent(%q) = true", event)
 			}
@@ -250,7 +250,7 @@ func TestEventMessages(t *testing.T) {
 			"SetSilent": func(e, d string) error { return SetSilent(ctx, chatID, e, d, true, 1) },
 		}
 		for name, write := range writers {
-			if err := write("warn", DestGroup); !errors.Is(err, ErrUnknownEvent) {
+			if err := write("warning", DestGroup); !errors.Is(err, ErrUnknownEvent) {
 				t.Errorf("%s with an unknown event = %v, want ErrUnknownEvent", name, err)
 			}
 			if err := write(EventBan, "log"); !errors.Is(err, ErrUnknownDest) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"html"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,12 +21,14 @@ import (
 	"github.com/uasneppy/fuku_robot/fuku/utils/media"
 )
 
-// The event message engine (Phase 21). A group can store its own message for an event (a manual
-// punishment such as ban); the success reply of that event is then the stored message instead of
-// the default text. The engine runs in the reply step of the moderation pipeline, after execute
-// applied the punishment (D-03): a message never delays, undoes or skips a punishment. With no row,
-// an empty row or a read that fails, it sends the default reply through replySuccess, which is
-// literally the call the send site made before Phase 21 (TestLegacyModerationRequests pins it).
+// The event message engine (Phase 21, generic since Phase 23). A group can store its own message for
+// an event (a manual punishment such as ban, or a warn); the reply of that event is then the stored
+// message instead of the default text. A send site describes where and how it posts (eventSite) and
+// calls postEvent after the punishment was applied (D-03): a message never delays, undoes or skips a
+// punishment. The moderation pipeline's reply step is one such site (replyEvent), warnThisUser another.
+// With no row, an empty row or a read that fails, the site's own default send runs, which is literally
+// the call the site made before it had custom messages (TestLegacyModerationRequests and
+// TestLegacyPunishmentNoticeRequests pin them).
 // No stored text, caption, button or file ID is ever logged: a line names the chat ID and the event.
 
 // eventMessagesLookup reads a chat's stored event messages. It is a seam so a test can make the
@@ -38,10 +41,16 @@ var eventMessageReadTimeout = 2 * time.Second
 
 // eventValues are the event's own values, filled into the event placeholders of a custom text. A
 // field with no value for the event (a permanent ban has no duration) renders as nothing (D-09).
+// Action is the translated word of the action taken (eventActionWord), Count and Limit the numbers of
+// a warn or a flood (0 renders as nothing) and Window a time window's text.
 type eventValues struct {
 	Reason   string
 	Duration string
 	Until    time.Time
+	Action   string
+	Count    int
+	Limit    int
+	Window   string
 }
 
 // eventActor is the admin who issued the command. Anonymous is set for an anonymous admin, whose
@@ -52,11 +61,18 @@ type eventActor struct {
 }
 
 // eventDefaultInput is what a default reply builder needs: the punished member, the typed reason
-// and the duration text of a timed punishment.
+// and the duration text of a timed punishment. The automatic events also pass the warn or message
+// count and the limit, the action's mode word (warn, mute, kick or ban, never translated), the stored
+// reasons of a warn limit and the bot's own keyboard rows the site computed, so a builder stays pure.
 type eventDefaultInput struct {
 	Target  gotgbot.User
 	Reason  string
 	TimeVal string
+	Count   int
+	Limit   int
+	Action  string
+	Reasons []string
+	Rows    [][]gotgbot.InlineKeyboardButton
 }
 
 // eventDefaultReply builds an event's default reply: the text and the options the send site sent
@@ -67,14 +83,36 @@ type eventDefaultReply func(tr *i18n.Translator, in eventDefaultInput) (string, 
 // member, the event's values and the default reply already built (text and options). Note is a line
 // the site appends to its default (the /unmute lockdown note); a custom text is followed by it too.
 // PMNote is the private wording of Note, followed after a private copy's text, custom or default.
+// KeepRows are the bot's own rows a custom message keeps (nil means the rows of Opts, the Unban row of
+// a ban); with KeepRowsLast they follow the custom and {rules} buttons instead of preceding them (the
+// warn's Remove warn row). The site sets both, never the stored row, so a custom message cannot drop them.
 type eventReply struct {
-	Event   string
-	Target  gotgbot.User
-	Values  eventValues
-	Default string
-	Opts    *gotgbot.SendMessageOpts
-	Note    string
-	PMNote  string
+	Event        string
+	Target       gotgbot.User
+	Values       eventValues
+	Default      string
+	Opts         *gotgbot.SendMessageOpts
+	Note         string
+	PMNote       string
+	KeepRows     [][]gotgbot.InlineKeyboardButton
+	KeepRowsLast bool
+}
+
+// eventSite is where and how one send site posts an event's reply: the bot, the group and its
+// translator (the group's language), the acting admin (empty for an automatic action, which reads as
+// "an admin"), the message the reply answers (0 for none) and the topic it goes to (0 for none), the
+// deletion kind it is queued under, whether an automatic rule raised it, and the site's own default
+// send, which is exactly the call the site made before it had custom messages.
+type eventSite struct {
+	Bot         *gotgbot.Bot
+	Chat        *gotgbot.Chat
+	Tr          *i18n.Translator
+	Actor       eventActor
+	ReplyTo     int64
+	ThreadID    int64
+	Kind        string
+	Automatic   bool
+	SendDefault func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error)
 }
 
 // eventTokenNames are the event placeholders. {count}, {action}, {limit} and {window} belong to the
@@ -98,6 +136,14 @@ func eventPlaceholderValues(tr *i18n.Translator, chatID int64, actor eventActor,
 	values["reason"] = html.EscapeString(v.Reason)
 	values["admin"] = eventAdminName(tr, actor)
 	values["duration"] = html.EscapeString(v.Duration)
+	values["action"] = html.EscapeString(v.Action)
+	values["window"] = html.EscapeString(v.Window)
+	if v.Count > 0 {
+		values["count"] = strconv.Itoa(v.Count)
+	}
+	if v.Limit > 0 {
+		values["limit"] = strconv.Itoa(v.Limit)
+	}
 	if !v.Until.IsZero() {
 		values["until"] = formatChatTime(v.Until, chatClockOf(chatID), "02.01.2006 15:04")
 	}
@@ -185,8 +231,9 @@ func eventBotRows(opts *gotgbot.SendMessageOpts) [][]gotgbot.InlineKeyboardButto
 // the text is filled (renderEventText, which also adds the {rules} button) and followed by r.Note on
 // a new line; with none the text is r.Default, the default reply's own text with its reason line (and
 // its note, which the site already appended). The media is the row's file and type (text when there
-// is no file). The keyboard is the bot's own rows (the Unban row of a ban) followed by the custom and
-// rules buttons; with neither there is no keyboard. The caller sets the reply target and the topic.
+// is no file). The keyboard is the bot's own rows (r.KeepRows, or the rows of the default's options:
+// the Unban row of a ban) followed by the custom and rules buttons, or after them with r.KeepRowsLast;
+// with neither there is no keyboard. The caller sets the reply target and the topic.
 func composeEventMessage(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator, r eventReply, row eventmsg.Message, actor eventActor) media.GreetingMessage {
 	text := r.Default
 	buttons := row.Buttons
@@ -201,8 +248,18 @@ func composeEventMessage(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator
 	if row.FileID == "" || row.MediaType == 0 {
 		msg.FileID, msg.MsgType = "", db.TEXT
 	}
+	kept := r.KeepRows
+	if kept == nil {
+		kept = eventBotRows(r.Opts)
+	}
+	custom := keyboard.BuildKeyboard(buttons)
 	// A fresh slice: the default's options are reused by the refusal fallback and must not change.
-	rows := append(append([][]gotgbot.InlineKeyboardButton(nil), eventBotRows(r.Opts)...), keyboard.BuildKeyboard(buttons)...)
+	var rows [][]gotgbot.InlineKeyboardButton
+	if r.KeepRowsLast {
+		rows = append(append(rows, custom...), kept...)
+	} else {
+		rows = append(append(rows, kept...), custom...)
+	}
 	if len(rows) > 0 {
 		msg.Keyboard = &gotgbot.InlineKeyboardMarkup{InlineKeyboard: rows}
 	}
@@ -224,22 +281,50 @@ func eventTargetOf(info *gotgbot.ChatFullInfo) gotgbot.User {
 	return gotgbot.User{Id: info.Id, FirstName: info.FirstName, LastName: info.LastName, Username: info.Username}
 }
 
-// replyEvent sends the success reply of an event and then offers its private copy. The punishment
-// has already been applied (D-03). It reads the group's stored messages once (bounded by
-// eventMessageReadTimeout): a read error is one Warn, the default and no private copy (the switch is
-// unknown, and unknown never sends). Otherwise the group step runs exactly as before the private copy
-// existed (replyEventGroup), and then, whatever it did, the private copy is offered (offerReplyPM),
-// which never blocks. The error is the group step's.
+// replyEvent sends the success reply of a moderation command's event through postEvent with the
+// moderation pipeline's site (site): a reply to the command, in its topic, queued under
+// bot:punish_manual, with the default sent through Msg.Reply as before the engine existed.
 func (c *moderationCtx) replyEvent(r eventReply) error {
+	return postEvent(c.site(), r)
+}
+
+// site is the moderation pipeline's eventSite: the command's chat, translator and issuer (anonymous
+// for an anonymous admin, also after the proof tap), a reply to the command in its topic, the manual
+// punishment kind, and the default sent through Msg.Reply (sendSuccess's call, byte for byte).
+func (c *moderationCtx) site() eventSite {
+	site := eventSite{
+		Bot:     c.Bot,
+		Chat:    c.Chat,
+		Tr:      c.Tr,
+		Actor:   eventActor{User: c.User, Anonymous: actorIsAnonymous(c.Ctx)},
+		ReplyTo: c.Msg.MessageId,
+		Kind:    deletion.KindBotManual,
+		SendDefault: func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			return c.Msg.Reply(c.Bot, text, opts)
+		},
+	}
+	if c.Msg.IsTopicMessage {
+		site.ThreadID = c.Msg.MessageThreadId
+	}
+	return site
+}
+
+// postEvent posts one event's reply for any send site and then offers its private copy. The
+// punishment has already been applied (D-03). It reads the group's stored messages once (bounded by
+// eventMessageReadTimeout): a read error is one Warn, the default and no private copy (the switch is
+// unknown, and unknown never sends). Otherwise the group step runs (postEventGroup), and then, whatever
+// it did, the private copy is offered (offerReplyPM), which never blocks. The error is the group step's.
+func postEvent(site eventSite, r eventReply) error {
 	readCtx, cancel := context.WithTimeout(context.Background(), eventMessageReadTimeout)
-	msgs, err := eventMessagesLookup(readCtx, c.Chat.Id)
+	msgs, err := eventMessagesLookup(readCtx, site.Chat.Id)
 	cancel()
 	if err != nil {
-		log.Warnf("[EventMessage] the messages of chat %d could not be read for %s, the default was sent", c.Chat.Id, r.Event)
-		return c.replySuccess(r.Default, r.Opts)
+		log.Warnf("[EventMessage] the messages of chat %d could not be read for %s, the default was sent", site.Chat.Id, r.Event)
+		_, err = sendDefaultPost(site, r)
+		return err
 	}
-	post, err := c.replyEventGroup(r, msgs)
-	c.offerReplyPM(r, msgs, post)
+	post, err := postEventGroup(site, r, msgs)
+	offerReplyPM(site, r, msgs, post)
 	return err
 }
 
@@ -251,37 +336,35 @@ type eventGroupPost struct {
 	Rows [][]gotgbot.InlineKeyboardButton
 }
 
-// replyEventGroup is the group step of an event reply and returns what it posted (no message when
-// nothing was posted) with the keyboard rows the message was sent with. No row, or a row with no content and Silent off, is the default through
-// sendSuccess (today's call); Silent posts and schedules nothing; otherwise the custom message is
-// sent as a reply to the command and queued under bot:punish_manual, the default's kind (D-15). A
-// custom message Telegram definitely refuses (eventMessageRefused) is replaced by the default, sent
-// once; any other send error is returned, as the default's send error always was.
-func (c *moderationCtx) replyEventGroup(r eventReply, msgs *eventmsg.Messages) (eventGroupPost, error) {
+// postEventGroup is the group step of an event reply and returns what it posted (no message when
+// nothing was posted) with the keyboard rows the message was sent with. No row, or a row with no
+// content and Silent off, is the default through the site's own send; Silent posts and schedules
+// nothing; otherwise the custom message is sent where the site's default goes (site.ReplyTo,
+// site.ThreadID) and queued under site.Kind, the default's kind (D-15). A custom message Telegram
+// definitely refuses (eventMessageRefused) is replaced by the default, sent once; any other send error
+// is returned, as the default's send error always was.
+func postEventGroup(site eventSite, r eventReply, msgs *eventmsg.Messages) (eventGroupPost, error) {
 	row, ok := msgs.Lookup(r.Event, eventmsg.DestGroup)
 	if ok && row.Silent {
-		log.Debugf("[EventMessage] the %s message of chat %d is silent, nothing was posted", r.Event, c.Chat.Id)
+		log.Debugf("[EventMessage] the %s message of chat %d is silent, nothing was posted", r.Event, site.Chat.Id)
 		return eventGroupPost{}, nil
 	}
 	if !ok || !row.HasContent() {
-		return c.sendDefaultPost(r)
+		return sendDefaultPost(site, r)
 	}
 
-	actor := eventActor{User: c.User, Anonymous: actorIsAnonymous(c.Ctx)}
-	msg := composeEventMessage(c.Bot, c.Chat, c.Tr, r, row, actor)
-	msg.ReplyMsgID = c.Msg.MessageId
-	if c.Msg.IsTopicMessage {
-		msg.ThreadID = c.Msg.MessageThreadId
-	}
-	sent, err := media.SendGreetingMessage(c.Bot, c.Chat.Id, msg)
+	msg := composeEventMessage(site.Bot, site.Chat, site.Tr, r, row, site.Actor)
+	msg.ReplyMsgID = site.ReplyTo
+	msg.ThreadID = site.ThreadID
+	sent, err := media.SendGreetingMessage(site.Bot, site.Chat.Id, msg)
 	if err != nil {
 		if eventMessageRefused(err) {
-			log.Warnf("[EventMessage] the custom %s message of chat %d was refused, the default was sent", r.Event, c.Chat.Id)
-			return c.sendDefaultPost(r)
+			log.Warnf("[EventMessage] the custom %s message of chat %d was refused, the default was sent", r.Event, site.Chat.Id)
+			return sendDefaultPost(site, r)
 		}
 		return eventGroupPost{}, err
 	}
-	scheduleBotMessage(sent, deletion.KindBotManual)
+	scheduleBotMessage(sent, site.Kind)
 	post := eventGroupPost{Msg: sent}
 	if msg.Keyboard != nil {
 		post.Rows = msg.Keyboard.InlineKeyboard
@@ -289,13 +372,14 @@ func (c *moderationCtx) replyEventGroup(r eventReply, msgs *eventmsg.Messages) (
 	return post, nil
 }
 
-// sendDefaultPost sends the default reply through sendSuccess (today's call, byte for byte) and returns it with
-// the bot's own rows it carries.
-func (c *moderationCtx) sendDefaultPost(r eventReply) (eventGroupPost, error) {
-	sent, err := c.sendSuccess(r.Default, r.Opts)
+// sendDefaultPost sends the default reply through the site's own send (today's call, byte for byte),
+// queues it under site.Kind and returns it with the bot's own rows it carries.
+func sendDefaultPost(site eventSite, r eventReply) (eventGroupPost, error) {
+	sent, err := site.SendDefault(r.Default, r.Opts)
 	if err != nil {
 		return eventGroupPost{}, err
 	}
+	scheduleBotMessage(sent, site.Kind)
 	return eventGroupPost{Msg: sent, Rows: eventBotRows(r.Opts)}, nil
 }
 
@@ -303,13 +387,13 @@ func (c *moderationCtx) sendDefaultPost(r eventReply) (eventGroupPost, error) {
 // nothing for an event without a spec or a private copy whose switch is off (Resolve: no pm row, or a
 // pm row whose switch was never turned on, reads as Silent) and for a target that can never receive one
 // (pmCopySkipTarget, checked before the render). The copy is composed here, in the group's language and
-// with the group step's actor, together with the default private text a refused custom copy falls back
+// with the site's actor, together with the default private text a refused custom copy falls back
 // to, and sent by a job (offerEventPM), so the handler returns at once. The offer also carries the group's
 // private copy options, the group message the group step posted (none when it was Silent or failed) with its
 // rows, and the Details button's label in the group's language, for the Details button of a copy that is not
 // delivered, and the member's first name with the group's translator (only while the log option is on) for its log
 // line.
-func (c *moderationCtx) offerReplyPM(r eventReply, msgs *eventmsg.Messages, post eventGroupPost) {
+func offerReplyPM(site eventSite, r eventReply, msgs *eventmsg.Messages, post eventGroupPost) {
 	spec, ok := eventPMSpecFor(r.Event)
 	if !ok {
 		return
@@ -318,16 +402,15 @@ func (c *moderationCtx) offerReplyPM(r eventReply, msgs *eventmsg.Messages, post
 	if row.Silent {
 		return
 	}
-	if pmCopySkipTarget(c.Bot, r.Target.Id) {
+	if pmCopySkipTarget(site.Bot, r.Target.Id) {
 		return
 	}
-	actor := eventActor{User: c.User, Anonymous: actorIsAnonymous(c.Ctx)}
 	offer := eventPMOffer{
-		Bot:        c.Bot,
-		Chat:       *c.Chat,
+		Bot:        site.Bot,
+		Chat:       *site.Chat,
 		Event:      r.Event,
 		UserID:     r.Target.Id,
-		Message:    composeEventPM(c.Bot, c.Chat, c.Tr, spec, r, row, actor),
+		Message:    composeEventPM(site.Bot, site.Chat, site.Tr, spec, r, row, site.Actor),
 		Custom:     row.HasContent(),
 		Options:    msgs.Options,
 		TargetName: r.Target.FirstName,
@@ -337,13 +420,13 @@ func (c *moderationCtx) offerReplyPM(r eventReply, msgs *eventmsg.Messages, post
 		offer.GroupRows = post.Rows
 	}
 	if offer.Options.PMDetails {
-		offer.DetailsLabel, _ = c.Tr.GetString("eventmsg_btn_details")
+		offer.DetailsLabel, _ = site.Tr.GetString("eventmsg_btn_details")
 	}
 	if offer.Options.PMLog {
-		offer.Tr = c.Tr
+		offer.Tr = site.Tr
 	}
 	if offer.Custom {
-		offer.Fallback = eventPMDefaultText(c.Tr, spec, c.Chat, r.Values, r.PMNote)
+		offer.Fallback = eventPMDefaultText(site.Tr, spec, site.Chat, r.Values, r.PMNote)
 	}
 	offerEventPM(offer)
 }
