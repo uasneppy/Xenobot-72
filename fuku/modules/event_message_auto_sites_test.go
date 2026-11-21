@@ -4,17 +4,25 @@ package modules
 
 import (
 	"encoding/json"
+	"fmt"
+	"html"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 
+	"github.com/uasneppy/fuku_robot/fuku/db"
+	"github.com/uasneppy/fuku_robot/fuku/db/antiflood"
+	dbcache "github.com/uasneppy/fuku_robot/fuku/db/cache"
 	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
 	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
+	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/db/warns"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
+	"github.com/uasneppy/fuku_robot/fuku/utils/formatting"
 )
 
 // The send sites of the Automatic family other than the warn (Phase 23 plan 23-04): the warn limit, the
@@ -149,4 +157,106 @@ func TestEventMessageWarnLimit(t *testing.T) {
 		}
 		s.wantNoRows(s.chat.Id)
 	})
+}
+
+// eventMsgAutoFloodText is the custom flood text: every event placeholder the flood fills.
+const eventMsgAutoFloodText = "{mention} {action} {count}/{limit}: {reason}"
+
+// eventMsgAutoRow is one keyboard row of a single callback button as eventMsgRows reports it.
+func eventMsgAutoRow(t *testing.T, tr *i18n.Translator, key, action string, id int64) string {
+	t.Helper()
+	text, _ := tr.GetString(key)
+	data := encodeCallbackData("unrestrict", map[string]string{"a": action, "u": strconv.FormatInt(id, 10)})
+	raw, err := json.Marshal([]map[string]string{{"callback_data": data, "text": text}})
+	if err != nil {
+		t.Fatalf("encode the %s row: %v", action, err)
+	}
+	return string(raw)
+}
+
+// eventMsgAutoFlood is noticeGoldenFlood with the target's messages in topic thread (0 for none): a flood
+// limit of 1 with action, and messages 101 and 102 through checkFlood, so the second one floods.
+func eventMsgAutoFlood(t *testing.T, s *botSite, action string, channel bool, thread int64) {
+	t.Helper()
+	resetAntifloodState(t)
+	t.Cleanup(func() {
+		db.DB.Where("chat_id = ?", s.chat.Id).Delete(&models.AntifloodSettings{})
+		dbcache.DeleteCache(dbcache.CacheKey("antiflood", s.chat.Id))
+		resetAntifloodState(t)
+	})
+	if err := antiflood.SetFlood(s.chat.Id, 1); err != nil {
+		t.Fatalf("SetFlood() error = %v", err)
+	}
+	if err := antiflood.SetFloodMode(s.chat.Id, action); err != nil {
+		t.Fatalf("SetFloodMode(%q) error = %v", action, err)
+	}
+	for _, id := range []int64{101, 102} {
+		ctx := noticeGoldenMessage(s, id, "flood "+strconv.FormatInt(id, 10), channel)
+		ctx.EffectiveMessage.MessageThreadId = thread
+		ctx.EffectiveMessage.IsTopicMessage = thread != 0
+		if err := antifloodModule.checkFlood(s.bot, ctx); err != ext.ContinueGroups {
+			t.Fatalf("checkFlood(message %d) error = %v, want ContinueGroups", id, err)
+		}
+	}
+}
+
+func TestEventMessageFlood(t *testing.T) {
+	withModerationGoldenLocales(t)
+	tr := i18n.MustNewTranslator("uk")
+	reason := html.EscapeString(floodEventReason(tr))
+
+	t.Run("custom mute", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		eventMsgStoreRow(t, s.chat.Id, eventmsg.EventFlood, eventMsgAutoFloodText, "", 0, []models.Button{eventMsgSiteButton})
+		eventMsgAutoFlood(t, s, "mute", false, 7)
+		if !eventMsgAutoDeleted(s, 102) {
+			t.Fatal("deleteMessage of message 102 not sent")
+		}
+		eventMsgAutoPunishedFirst(t, s, "restrictChatMember")
+		unmute := eventMsgAutoRow(t, tr, "button_unmute_admins", "unmute", noticeGoldenTarget.Id)
+		want := "@ann_lee " + eventActionWord(tr, "mute") + " 2/1: " + reason
+		eventMsgAutoCustom(t, s, want, []string{unmute, eventMsgSiteRow}, "", deletion.KindBotAuto)
+		params := rulesCallParams(t, s.client.callsFor("sendMessage")[0])
+		if got := fmt.Sprint(params["message_thread_id"]); got != "7" {
+			t.Fatalf("message_thread_id = %s, want the flooding message's topic 7", got)
+		}
+	})
+
+	t.Run("channel ban", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		eventMsgStoreRow(t, s.chat.Id, eventmsg.EventFlood, eventMsgAutoFloodText, "", 0, []models.Button{eventMsgSiteButton})
+		eventMsgAutoFlood(t, s, "ban", true, 0)
+		eventMsgAutoPunishedFirst(t, s, "banChatSenderChat")
+		unban := eventMsgAutoRow(t, tr, "antiflood_button_unban_admins", "unban", noticeGoldenChannel.Id)
+		want := formatting.MentionHtml(noticeGoldenChannel.Id, noticeGoldenChannel.Title) + " " + eventActionWord(tr, "ban") + " 2/1: " + reason
+		eventMsgAutoCustom(t, s, want, []string{unban, eventMsgSiteRow}, "", deletion.KindBotAuto)
+	})
+
+	t.Run("inert stays", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		eventMsgStore(t, s.chat.Id, eventmsg.EventFlood, eventMsgAutoFloodText)
+		noticeGoldenFlood(t, s, "warn", false)
+		eventMsgAutoGolden(t, s, 1, goldenNoticeFloodInert)
+		s.wantRow(s.chat.Id, 9001, deletion.KindBotAuto, 600*time.Second)
+	})
+
+	t.Run("refused", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		eventMsgStore(t, s.chat.Id, eventmsg.EventFlood, eventMsgAutoFloodText)
+		eventMsgRefuseOnce(s, "sendMessage", &gotgbot.TelegramError{Method: "sendMessage", Code: 400, Description: "Bad Request: can't parse entities"})
+		noticeGoldenFlood(t, s, "mute", false)
+		eventMsgAutoPunishedFirst(t, s, "restrictChatMember")
+		eventMsgAutoGolden(t, s, 2, goldenNoticeFloodMute)
+		s.wantRow(s.chat.Id, 9001, deletion.KindBotAuto, 600*time.Second)
+	})
+}
+
+// eventMsgAutoDeleted reports whether the site deleted message id.
+func eventMsgAutoDeleted(s *botSite, id int64) bool {
+	for _, call := range s.client.callsFor("deleteMessage") {
+		if fmt.Sprint(call.Params["message_id"]) == strconv.FormatInt(id, 10) {
+			return true
+		}
+	}
+	return false
 }

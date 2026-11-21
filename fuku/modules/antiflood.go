@@ -18,6 +18,7 @@ import (
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/antiflood"
 	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/lang"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
@@ -265,10 +266,7 @@ func (m *moduleStruct) checkFlood(b *gotgbot.Bot, ctx *ext.Context) error {
 		return ext.ContinueGroups
 	}
 
-	var (
-		fmode    string
-		keyboard [][]gotgbot.InlineKeyboardButton
-	)
+	var keyboard [][]gotgbot.InlineKeyboardButton
 	userId := user.Id()
 
 	if antifloodModule.userIsFloodExempt(b, chatId, userId) {
@@ -348,7 +346,6 @@ func (m *moduleStruct) checkFlood(b *gotgbot.Bot, ctx *ext.Context) error {
 		if !user.IsUser() {
 			return ext.ContinueGroups
 		}
-		fmode = "muted"
 		keyboard = [][]gotgbot.InlineKeyboardButton{
 			{
 				{
@@ -370,14 +367,12 @@ func (m *moduleStruct) checkFlood(b *gotgbot.Bot, ctx *ext.Context) error {
 		if !user.IsUser() {
 			return ext.ContinueGroups
 		}
-		fmode = "kicked"
 		keyboard = nil
 		if err := kickMember(b, chat.Id, userId); err != nil {
 			log.Errorf(" checkFlood: %d (%d) - %v", chatId, user.Id(), err)
 			return err
 		}
 	case "ban":
-		fmode = "banned"
 		if user.IsUser() {
 			_, err := chat.BanMember(b, userId, nil)
 			if err != nil {
@@ -400,28 +395,51 @@ func (m *moduleStruct) checkFlood(b *gotgbot.Bot, ctx *ext.Context) error {
 			}
 		}
 	}
-	sent, err := helpers.SendMessageWithErrorHandling(b, chatId,
-		func() string {
-			temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_checkflood_perform_action")
-			return fmt.Sprintf(temp, formatting.MentionHtml(userId, user.Name()), fmode)
-		}(),
-		&gotgbot.SendMessageOpts{
-			ParseMode: formatting.HTML,
-			ReplyMarkup: gotgbot.InlineKeyboardMarkup{
-				InlineKeyboard: keyboard,
-			},
-			MessageThreadId: msg.MessageThreadId,
-		},
-	)
-	if err != nil {
+	if err := floodNotice(b, chat, msg, tr, user, flood, floodCrc.messageCount, keyboard); err != nil {
 		log.Error(err)
 		return err
 	}
-	// The notice is an automatic punishment message (D-11); the helper answers nil for a chat it
-	// cannot post in, and scheduleBotMessage ignores that.
-	scheduleBotMessage(sent, deletion.KindBotAuto)
-
 	return ext.ContinueGroups
+}
+
+// floodNotice posts the flood notice after the punishment (D-03). A mute, a kick or a ban is the flood
+// event (postEvent): a group's stored flood message replaces the default, keeping the bot's Unmute or
+// Unban row first (the rows of the default's options, D-15), with {action} the translated word, {reason}
+// the fixed flood reason, {count} the messages of the burst and {limit} the flood limit. A stored inert
+// action (warn, tban, tmute) applies nothing and is not an event: its notice is today's, sent as is. The
+// default is today's request byte for byte: no reply, the message's topic, sent through
+// helpers.SendMessageWithErrorHandling (which answers no message for a chat the bot cannot post in) and
+// queued as an automatic punishment message (D-11, D-17).
+func floodNotice(b *gotgbot.Bot, chat *gotgbot.Chat, msg *gotgbot.Message, tr *i18n.Translator, sender *gotgbot.Sender,
+	flood *models.AntifloodSettings, count int, rows [][]gotgbot.InlineKeyboardButton) error {
+	target := eventSenderTarget(sender)
+	text, opts := floodDefaultReply(tr, eventDefaultInput{Target: target, Action: flood.Action, Rows: rows})
+	opts.MessageThreadId = msg.MessageThreadId
+	site := eventSite{
+		Bot:       b,
+		Chat:      chat,
+		Tr:        tr,
+		ThreadID:  msg.MessageThreadId,
+		Kind:      deletion.KindBotAuto,
+		Automatic: true,
+		SendDefault: func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			return helpers.SendMessageWithErrorHandling(b, chat.Id, text, opts)
+		},
+	}
+	r := eventReply{
+		Event:  eventmsg.EventFlood,
+		Target: target,
+		Values: eventValues{
+			Reason: floodEventReason(tr), Count: count, Limit: flood.Limit, Action: eventActionWord(tr, flood.Action),
+		},
+		Default: text,
+		Opts:    opts,
+	}
+	if _, acts := floodWords[flood.Action]; !acts {
+		_, err := sendDefaultPost(site, r)
+		return err
+	}
+	return postEvent(site, r)
 }
 
 // floodOffWords are the arguments /setflood reads as "turn antiflood off".

@@ -3621,9 +3621,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`warnPostLimit`, D-10), and a refused limit action posts nothing as before. `{action}` is a translated word in the group's language,
   `eventActionWord(tr, action)` (`event_message_auto.go`): `eventmsg_action_warn`, `_mute`, `_kick` and `_ban`, short
   participles that read after the member's name or after a label, and the empty string for any other action (an inert
-  mode); the warn fills it with the warn word. The flood's `{reason}` will be `floodEventReason(tr)`
-  (`eventmsg_reason_flood`; its first production caller is plan 23-04's flood site). The default texts never use these
-  words: the flood's default keeps its untranslated English `muted`, `kicked` or `banned` (D-13, D-14). The Automatic
+  mode); the warn fills it with the warn word. The flood's `{reason}` is `floodEventReason(tr)`
+  (`eventmsg_reason_flood`). The flood (plan 23-04, the `flood` event, EVT-03) is the next site: `checkFlood` keeps its
+  exemptions, deletes and punishment switch and hands the notice to `floodNotice` (`antiflood.go`), whose site has no
+  reply, the flooding message's topic (`ThreadID` and the default's `MessageThreadId`), `bot:punish_auto`, `Automatic`,
+  no actor ("an admin") and the default through `helpers.SendMessageWithErrorHandling` (its restricted-chat skip
+  included); the target is `eventSenderTarget` of the sender (a user's names, or a sender chat's ID and title), the
+  default `floodDefaultReply` with the switch's rows, the values the flood reason, the burst's message count, the flood
+  limit and the action word, and `KeepRows` nil, so a custom flood message keeps the Unmute or Unban row first (D-15).
+  Only a mute, a kick or a ban is the event; a stored inert action (`warn`, `tban`, `tmute`) applies nothing and keeps
+  today's notice through `sendDefaultPost` (D-10). `checkFlood` logs a send error and returns it as before. The default
+  texts never use these words: the flood's default keeps its untranslated English `muted`, `kicked` or `banned` (D-13, D-14). The Automatic
   family's default replies all live in `event_message_auto.go` (D-22), each an `eventDefaultReply` that returns the text
   and options its site sent before custom messages, byte for byte: `warnDefaultReply` (the warn, with the site's rows),
   `warnLimitDefaultReply` (`warns_limit_kicked`, `_muted` or `_banned` by `Action`, none for an inert mode, then each
@@ -3634,7 +3642,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   page (plan 23-03) and the sites switch (plans 23-04 and 23-05). `warnThisUser` logs a send error and returns it as before
   (`TestLegacyPunishmentNoticeRequests` pins every warn byte for a group with nothing stored, `TestEventMessageWarn` the
   custom warn, `TestEventMessageWarnLimit` in `event_message_auto_sites_test.go` the custom warn limit, the automatic one,
-  the inert mode and Silent).
+  the inert mode and Silent, `TestEventMessageFlood` a custom mute in a topic, a sender chat's ban, the inert action and
+  a refused custom message).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
@@ -3722,8 +3731,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   each a sentinel: none reaches a line, and each failure line names the chat and the event), `TestPMCopyCallers`
   (`pm_copy_callers_test.go`, D-33: a `go/parser` walk of the package's non-test files; `offerEventPM` is used only by
   `event_message.go`, `registerEventPM` only by `event_message_pm.go` and `postEvent` (plan 23-02) only by `event_message.go`
-  (`replyEvent`, the moderation pipeline's site) and `warns.go` (`warnThisUser`, after the warn is stored and any limit
-  action applied), each allow-list entry with its reason and a stale entry failing, and no file whose name starts with
+  (`replyEvent`, the moderation pipeline's site), `warns.go` (`warnThisUser`, after the warn is stored and any limit
+  action applied) and `antiflood.go` (`floodNotice`, after the flood's mute, kick or ban), each allow-list entry with its reason and a stale entry failing, and no file whose name starts with
   `staff`, `lockdown` or `raid` names `offerEventPM`, `registerEventPM`, `offerReplyPM`, `replyEvent`, `postEvent` or any
   `pmCopy` identifier, so a lockdown's joiner bans, "Ban N recent joiners" and Staff
   Group actions can never send a copy, PMSG-05; a later phase adds its caller to the list with a reason) and `TestEventMsgLocaleKeys` (`fuku/i18n/eventmsg_locale_test.go`, whose

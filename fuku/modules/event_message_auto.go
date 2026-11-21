@@ -142,9 +142,25 @@ func eventActionWord(tr *i18n.Translator, action string) string {
 
 // floodEventReason is the reason {reason} takes for a flood notice in the translator's language: the
 // flood has no reason of its own today, so the custom message gets this fixed phrase (D-14).
-//
-//nolint:unused // first production caller arrives in plan 23-04
 func floodEventReason(tr *i18n.Translator) string {
 	reason, _ := tr.GetString("eventmsg_reason_flood")
 	return reason
+}
+
+// eventSenderTarget is the punished sender of an automatic notice (the flood, the blacklist and the
+// forward blocklist) as the member a custom message names: a user with their names and username, or,
+// for a sender chat, its ID and title as the first name. The default notices mention the same ID and
+// full name (Sender.Name), so the two can never name different senders.
+func eventSenderTarget(sender *gotgbot.Sender) gotgbot.User {
+	switch {
+	case sender == nil:
+		return gotgbot.User{}
+	case sender.Chat != nil:
+		return gotgbot.User{Id: sender.Chat.Id, FirstName: sender.Chat.Title}
+	case sender.User != nil:
+		return gotgbot.User{
+			Id: sender.User.Id, FirstName: sender.User.FirstName, LastName: sender.User.LastName, Username: sender.User.Username,
+		}
+	}
+	return gotgbot.User{}
 }
