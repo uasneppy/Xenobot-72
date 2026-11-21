@@ -42,16 +42,16 @@ func settingsMsgAllCustom(t *testing.T, silent bool) *eventmsg.Messages {
 	return msgs
 }
 
-// settingsMsgEveryPMOn is settingsMsgAllCustom with the private copy of every event that has one switched on (a pm row
-// with a text and Silent false) and both options off, so the hub draws the private copy mark on every such event line
-// beside the block's Off words.
+// settingsMsgEveryPMOn is settingsMsgAllCustom with every event's private copy switched on (a pm row with a text and
+// Silent false) and both options off, so the hub draws the private copy mark on every event line beside the block's Off
+// words. Since plan 23-05 every event of both families has a private copy spec.
 func settingsMsgEveryPMOn(t *testing.T) *eventmsg.Messages {
 	t.Helper()
 	msgs := settingsMsgAllCustom(t, false)
 	for _, fam := range settingsMsgFamilies {
 		for _, ev := range fam.Events {
 			if _, spec := eventPMSpecFor(ev.Key); !spec {
-				continue
+				t.Fatalf("the %s event has no private copy spec", ev.Key)
 			}
 			msgs.Rows[ev.Key+"|"+eventmsg.DestPM] = eventmsg.Message{Event: ev.Key, Dest: eventmsg.DestPM, Text: "custom"}
 			if !settingsMsgPMOn(msgs, ev) {
@@ -140,11 +140,11 @@ func settingsMsgScreens(t *testing.T, view settingsView, notices []string) map[s
 			if !ok {
 				t.Fatalf("no private copy definition for the %s event", ev.Key)
 			}
-			// The event screen has the private copy row only for an event with a private copy spec (Phase 22, D-22).
-			emptyEvent, fullEvent := "[1 1 1 1 1 2]", "[2 2 2 2 2 1 2]"
-			if _, spec := eventPMSpecFor(ev.Key); spec {
-				emptyEvent, fullEvent = "[1 1 1 1 1 1 2]", "[2 2 2 2 2 1 1 2]"
+			// Every event screen has its private copy row (Phase 22, D-22; every event has a spec since plan 23-05).
+			if _, spec := eventPMSpecFor(ev.Key); !spec {
+				t.Fatalf("the %s event has no private copy spec", ev.Key)
 			}
+			emptyEvent, fullEvent := "[1 1 1 1 1 1 2]", "[2 2 2 2 2 1 1 2]"
 			for i, notice := range notices {
 				opts := settingsEditScreenOpts{Notice: notice, BotUsername: "FukuTestBot"}
 				add(fmt.Sprintf("event %s empty notice %d", ev.Code, i), renderSettingsMsgEvent(view, fam, ev, def, settingsMsgEmptyState(), opts), emptyEvent)
@@ -245,22 +245,17 @@ func TestSettingsMessagesCallbackBytes(t *testing.T) {
 			sizes[fields["a"]] = max(sizes[fields["a"]], len(button.CallbackData))
 		}
 	}
-	// Every event screen of an event with a private copy spec has exactly one button carrying d, its private copy row
-	// (every manual event has a spec); the screen of an event with no spec yet has none.
+	// Every event screen has exactly one button carrying d: its private copy row (every event of both families has a
+	// spec since plan 23-05).
 	for name := range screensOf {
 		if !strings.HasPrefix(name, "event ") {
 			continue
 		}
-		_, ev, ok := settingsMsgEventByCode(strings.Fields(name)[1])
-		if !ok {
+		if _, _, ok := settingsMsgEventByCode(strings.Fields(name)[1]); !ok {
 			t.Fatalf("%s names no event of the page", name)
 		}
-		want := 0
-		if _, spec := eventPMSpecFor(ev.Key); spec {
-			want = 1
-		}
-		if pmRows[name] != want {
-			t.Errorf("%s has %d buttons carrying d, want %d (the private copy row of an event with a spec)", name, pmRows[name], want)
+		if pmRows[name] != 1 {
+			t.Errorf("%s has %d buttons carrying d, want the one private copy row", name, pmRows[name])
 		}
 	}
 	for code, want := range map[string]int{

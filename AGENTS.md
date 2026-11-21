@@ -5806,8 +5806,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the warn stored on its group row and read Custom on the hub; the flood's Silent press stored and read Silent; and, with the real
   locales, Full preview of the default warn limit (the presser's mention, 3/3 and the sample reason, no keyboard) and of a stored
   flood text (the translated mute word, 6/5 and the flood reason, no bot row), with nothing sent to the group. The page's earlier
-  families cover both families through `settingsMsgScreens`, whose expected widths follow the table (`settingsMsgFamilyWidths`, and an
-  event screen without the private copy row while its event has no spec).
+  families cover both families through `settingsMsgScreens`, whose expected widths follow the table (`settingsMsgFamilyWidths`; since
+  plan 23-05 every event of both families must have a private copy spec, so every event screen carries its private copy row, and
+  `settingsMsgEveryPMOn` and `TestSettingsMessagesCallbackBytes` fail on an event without one).
   `TestEventMessageWarnLimit`, `TestEventMessageFlood`, `TestEventMessageBlacklist` and `TestEventMessageForwardBlock`
   (`event_message_auto_sites_test.go`, plan 23-04) run the four other sites, one `newNoticeGoldenSite` per subtest (one
   `newFwdWatchEnv` for the real forward through the watcher): each custom message is checked for its exact text, keyboard
@@ -5815,6 +5816,18 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the inert warn mode, the inert flood action, nothing stored and a refused custom flood message each equal their golden
   (toolkit `eventMsgAutoWarnSettings`, `eventMsgAutoSilent`, `eventMsgAutoCustom`, `eventMsgAutoGolden`,
   `eventMsgAutoFlood`, a flood driver with a topic, `eventMsgAutoRow`, `eventMsgAutoDeleted`).
+  `TestEventPMAutoEvents` and `TestEventPMAutoCap` (`event_message_pm_auto_test.go`, plan 23-05) run the five events' private copies
+  through their real sites on `newEventPMAutoSite` (`newNoticeGoldenSite` with miniredis, a fast private copy pacer and the Phase 22
+  `eventPMTestClient`), the copy switched on and nothing stored: `/warn` sends its default copy (1 of 3 and the reason line) even with
+  the cap's Redis client taken away, the blacklist's warn sends its copy with Redis and none without (a rule-raised warn is capped, fail
+  closed, while the warn is stored and posted), the flood, blacklist and forward blocklist copies follow the punishment and the group
+  notice with the translated action word and the reason line, a sender chat's flood ban sends no copy (`pmCopySkipTarget` refuses its
+  negative ID), and the forward blocklist's copy names neither a sentinel source nor a sentinel Staff Group. `TestEventPMAutoCap` mutes
+  five blacklist offenders in one stopped minute with the cap at 2: every one is muted and gets a group notice, exactly two copies are
+  sent, and a `/warn` in the same minute still sends its copy (toolkit `eventPMAutoDefault`, `eventPMAutoWant`, `eventPMAutoNone`,
+  `eventPMAutoNoRedis`, `eventPMAutoOffender`). `TestEventPMDefaultTexts` gains the warn limit's default (3 of 3, the ban word, the reason
+  line). `TestSettingsMessagesAutoPM` (`settings_messages_auto_test.go`) checks every Automatic event screen's private copy row and line
+  and the warn's private copy screen with its switch Off and no row written.
 
 ## Commits
 

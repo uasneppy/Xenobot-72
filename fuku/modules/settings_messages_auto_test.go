@@ -4,6 +4,7 @@ package modules
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -188,4 +189,46 @@ func TestSettingsMessagesAutoFamily(t *testing.T) {
 			t.Errorf("the previews sent %d messages into the group, want none: %+v", len(calls), calls)
 		}
 	})
+}
+
+// TestSettingsMessagesAutoPM proves the private copies of the Automatic family on the real private menu (plan 23-05):
+// every event screen offers its private copy row, full width above Back and Close, with the private copy line reading
+// Off, and the warn's private copy screen opens with its switch Off and writes nothing.
+func TestSettingsMessagesAutoPM(t *testing.T) {
+	env := newSettingsMsgEnv(t)
+	listEditAdmin(env.settingsEnv, env.chat, env.admin, true)
+	m := settingsMsgPrivateMenu(env, env.chat, env.admin)
+	group := strconv.FormatInt(env.chat.Id, 10)
+
+	for _, ev := range settingsMsgAutoEvents {
+		text, keyboard := m.press("a", settingsActMsgEvent, settingsMsgEventField, ev.Code)
+		if !strings.Contains(text, settingsMsgPMLine(false)) {
+			t.Errorf("the %s screen %q lacks the private copy line reading Off", ev.Code, text)
+		}
+		want := encodeCallbackData(settingsCallbackNamespace, map[string]string{
+			"a": settingsActMsgEvent, "c": group, settingsMsgDestField: settingsMsgDestPMCode, settingsMsgEventField: ev.Code,
+		})
+		if row := keyboard[len(keyboard)-2]; len(row) != 1 || row[0].CallbackData != want || !containsMarker(row[0].Text, "settings_btn_msg_pm_open") {
+			t.Errorf("the %s screen has no full-width private copy row above Back and Close: %+v", ev.Code, keyboard)
+		}
+		settingsMsgWantWidths(t, "the empty "+ev.Code+" screen", keyboard, 1, 1, 1, 1, 1, 1, 2)
+	}
+
+	text, keyboard := settingsMsgOpenPM(t, m, "wn")
+	for _, key := range []string{"settings_msg_pm_title", "settings_msg_ev_warn", "settings_msg_pm_intro", "settings_msg_hint_auto", "settings_msg_hint_pm"} {
+		if !containsMarker(text, key) {
+			t.Errorf("the warn's private copy screen %q lacks %s", text, key)
+		}
+	}
+	if !strings.Contains(text, settingsMsgPMLine(false)) {
+		t.Errorf("the warn's private copy screen %q lacks its line reading Off", text)
+	}
+	settingsMsgWantWidths(t, "the warn's private copy screen", keyboard, 1, 1, 1, 1, 1, 2)
+	toggle, fields := settingsMsgPMSwitch(t, keyboard)
+	if toggle.Text != staffMarker("settings_btn_msg_pm")+" ❌" || fields[settingsMsgEventField] != "wn" || fields["v"] != "1" {
+		t.Errorf("the warn's private copy switch is %q with %v, want it reading Off with k=wn and v=1", toggle.Text, fields)
+	}
+	if _, ok := settingsMsgStoredPM(t, env.chat.Id, eventmsg.EventWarn); ok {
+		t.Error("opening the warn's private copy screen wrote a pm row")
+	}
 }
