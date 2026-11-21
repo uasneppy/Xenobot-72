@@ -187,7 +187,7 @@ func settingsMsgCheckDest(t *testing.T, name, label string, fields map[string]st
 		t.Errorf("%s: button %q carries d=%q, want only p", name, label, d)
 	case hasD && pmScreen && !editor:
 		t.Errorf("%s: button %q (%s) carries d, which only the editor buttons of a private copy screen carry", name, label, fields["a"])
-	case hasD && !pmScreen && !(strings.HasPrefix(name, "event ") && fields["a"] == settingsActMsgEvent):
+	case hasD && !pmScreen && (!strings.HasPrefix(name, "event ") || fields["a"] != settingsActMsgEvent):
 		t.Errorf("%s: button %q (%s) carries d outside the private copy row and the private copy screens", name, label, fields["a"])
 	case !hasD && pmScreen && editor:
 		t.Errorf("%s: the editor button %q (%s) of a private copy screen has no d, so it would edit the group message", name, label, fields["a"])
