@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 
 Phase: 22 of 30 (PM Copies), milestone v1.2 (Phase 20 Conversations shipped in v2.26.0; this milestone's phases were renumbered 20-29 to 21-30 on 2026-11-21)
 Plan: Phase 22's 9 plans are done and verified (no code gaps, human_needed: live checks, five provisional defaults and a PostgreSQL run in `22-VERIFICATION.md`); Phase 21's 11 plans likewise (`21-VERIFICATION.md`). Next: plan Phase 23
-Status: Ready to plan Phase 23
-Last activity: 2026-11-21 - Finished and verified Phase 22 (PM copies)
+Status: Executing Phase 23 (7 plans)
+Last activity: 2026-11-21 - Planned Phase 23 (7 plans in 7 waves)
 
 Progress: [████░░░░░░] 4 of 11 phases done or verified
 
