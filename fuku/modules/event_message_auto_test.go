@@ -153,3 +153,84 @@ func TestEventActionWords(t *testing.T) {
 		})
 	}
 }
+
+// autoDefaultRequest sends a default reply's text and options to chat 0 through a recording client and
+// returns the request as Telegram receives it, the form the goldens record.
+func autoDefaultRequest(t *testing.T, text string, opts *gotgbot.SendMessageOpts) string {
+	t.Helper()
+	client := newModuleBotClient()
+	if _, err := newModuleTestBot(client).SendMessage(0, text, opts); err != nil {
+		t.Fatalf("SendMessage error = %v", err)
+	}
+	sends := client.callsFor("sendMessage")
+	if len(sends) != 1 {
+		t.Fatalf("sendMessage calls = %d, want 1", len(sends))
+	}
+	return legacyRequestJSON(t, sends[0])
+}
+
+func TestAutoEventDefaults(t *testing.T) {
+	withRealLocales(t)
+	tr := i18n.MustNewTranslator("uk")
+	target := noticeGoldenTarget
+	channel := gotgbot.User{Id: noticeGoldenChannel.Id, FirstName: noticeGoldenChannel.Title}
+	removeText, _ := tr.GetString("warns_remove_button")
+	rulesText, _ := tr.GetString("common_rules_button_emoji")
+	removeWarn := gotgbot.InlineKeyboardButton{Text: removeText, CallbackData: encodeCallbackData("rmWarn", map[string]string{"u": "42"})}
+	rulesButton := gotgbot.InlineKeyboardButton{Text: rulesText, Url: "t.me/FukuTestBot?start=rules_0"}
+	unmute := [][]gotgbot.InlineKeyboardButton{{{
+		Text:         trS(tr, "button_unmute_admins"),
+		CallbackData: encodeCallbackData("unrestrict", map[string]string{"a": "unmute", "u": "42"}),
+	}}}
+	unban := [][]gotgbot.InlineKeyboardButton{{{
+		Text:         trS(tr, "antiflood_button_unban_admins"),
+		CallbackData: encodeCallbackData("unrestrict", map[string]string{"a": "unban", "u": strconv.FormatInt(noticeGoldenChannel.Id, 10)}),
+	}}}
+	listed, _ := tr.GetString("staff_fwdblock_reason")
+	const blacklisted = "Blacklisted word: 'spam'"
+
+	cases := []struct {
+		name    string
+		build   eventDefaultReply
+		in      eventDefaultInput
+		replyTo bool // the warn and the warn limit sites add the reply to the triggering message
+		golden  string
+	}{
+		{"warn_reason", warnDefaultReply, eventDefaultInput{Target: target, Reason: "spam & <b>", Count: 1, Limit: 3,
+			Rows: [][]gotgbot.InlineKeyboardButton{{removeWarn}}}, true, goldenNoticeWarnReason},
+		{"warn_rules", warnDefaultReply, eventDefaultInput{Target: target, Count: 1, Limit: 3,
+			Rows: [][]gotgbot.InlineKeyboardButton{{removeWarn, rulesButton}}}, true, goldenNoticeWarnRules},
+		{"warnlimit_mute", warnLimitDefaultReply, eventDefaultInput{Target: target, Count: 2, Limit: 2, Action: "mute",
+			Reasons: []string{"first", "second"}}, true, goldenNoticeWarnLimitMute},
+		{"warnlimit_kick", warnLimitDefaultReply, eventDefaultInput{Target: target, Count: 1, Limit: 1, Action: "kick",
+			Reasons: []string{"reason"}}, true, goldenNoticeWarnLimitKick},
+		{"warnlimit_ban", warnLimitDefaultReply, eventDefaultInput{Target: target, Count: 1, Limit: 1, Action: "ban",
+			Reasons: []string{"reason"}}, true, goldenNoticeWarnLimitBan},
+		{"warnlimit_inert", warnLimitDefaultReply, eventDefaultInput{Target: target, Count: 1, Limit: 1, Action: "tban",
+			Reasons: []string{"reason"}}, true, goldenNoticeWarnLimitInert},
+		{"flood_mute", floodDefaultReply, eventDefaultInput{Target: target, Action: "mute", Rows: unmute}, false, goldenNoticeFloodMute},
+		{"flood_kick", floodDefaultReply, eventDefaultInput{Target: target, Action: "kick"}, false, goldenNoticeFloodKick},
+		{"flood_ban", floodDefaultReply, eventDefaultInput{Target: target, Action: "ban"}, false, goldenNoticeFloodBan},
+		{"flood_ban_channel", floodDefaultReply, eventDefaultInput{Target: channel, Action: "ban", Rows: unban}, false, goldenNoticeFloodBanChannel},
+		{"flood_inert", floodDefaultReply, eventDefaultInput{Target: target, Action: "warn"}, false, goldenNoticeFloodInert},
+		{"blacklist_mute", blacklistNoticeDefaultReply, eventDefaultInput{Target: target, Action: "mute", Reason: blacklisted}, false, goldenNoticeBlacklistMute},
+		{"blacklist_kick", blacklistNoticeDefaultReply, eventDefaultInput{Target: target, Action: "kick", Reason: blacklisted}, false, goldenNoticeBlacklistKick},
+		{"blacklist_ban", blacklistNoticeDefaultReply, eventDefaultInput{Target: target, Action: "ban", Reason: blacklisted}, false, goldenNoticeBlacklistBan},
+		{"blacklist_ban_channel", blacklistNoticeDefaultReply, eventDefaultInput{Target: channel, Action: "ban", Reason: blacklisted}, false, goldenNoticeBlacklistBanChannel},
+		{"forward_block_mute", blacklistNoticeDefaultReply, eventDefaultInput{Target: target, Action: "mute", Reason: listed}, false, goldenNoticeForwardBlockMute},
+		{"forward_block_kick", blacklistNoticeDefaultReply, eventDefaultInput{Target: target, Action: "kick", Reason: listed}, false, goldenNoticeForwardBlockKick},
+		{"forward_block_ban", blacklistNoticeDefaultReply, eventDefaultInput{Target: target, Action: "ban", Reason: listed}, false, goldenNoticeForwardBlockBan},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text, opts := tc.build(tr, tc.in)
+			if tc.replyTo {
+				opts.ReplyParameters = &gotgbot.ReplyParameters{MessageId: 101, AllowSendingWithoutReply: true}
+			}
+			want := strings.ReplaceAll(tc.golden, "<chat>", "0")
+			if got := autoDefaultRequest(t, text, opts); got != want {
+				t.Fatalf("default request\n got %q\nwant %q", got, want)
+			}
+		})
+	}
+}

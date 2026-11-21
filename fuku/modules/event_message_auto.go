@@ -3,6 +3,7 @@ package modules
 import (
 	"fmt"
 	"html"
+	"strings"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
@@ -35,8 +36,94 @@ func warnDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgb
 	}
 }
 
-// warnDefaultReply is held to the eventDefaultReply shape at compile time.
-var _ eventDefaultReply = warnDefaultReply
+// warnLimitKeys are the warn limit's texts by limit action.
+var warnLimitKeys = map[string]string{
+	"kick": "warns_limit_kicked",
+	"mute": "warns_limit_muted",
+	"ban":  "warns_limit_banned",
+}
+
+// warnLimitDefaultReply is the default warn limit message: the limit action's text (warns_limit_kicked,
+// _muted or _banned by in.Action, with the count, the limit and the mention of the member's first name;
+// none for a mode the code applies nothing for), then "\n - " and each stored reason, escaped. The
+// options carry an empty keyboard, which Telegram receives as an empty reply_markup; the site adds the
+// reply to the triggering message. It returns today's request byte for byte.
+//
+//nolint:unused // first production caller arrives in plan 23-03
+func warnLimitDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	var text string
+	if key, ok := warnLimitKeys[in.Action]; ok {
+		temp, _ := tr.GetString(key)
+		text = fmt.Sprintf(temp, in.Count, in.Limit, formatting.MentionHtml(in.Target.Id, in.Target.FirstName))
+	}
+	var sb strings.Builder
+	for _, reason := range in.Reasons {
+		fmt.Fprintf(&sb, "\n - %s", html.EscapeString(reason))
+	}
+	return text + sb.String(), &gotgbot.SendMessageOpts{
+		ParseMode:          formatting.HTML,
+		LinkPreviewOptions: &gotgbot.LinkPreviewOptions{IsDisabled: true},
+		ReplyMarkup:        &gotgbot.InlineKeyboardMarkup{},
+	}
+}
+
+// floodWords are the untranslated words the flood's default notice splices in by flood action (D-13:
+// the default keeps them; a custom text's {action} is translated instead).
+var floodWords = map[string]string{
+	"mute": "muted",
+	"kick": "kicked",
+	"ban":  "banned",
+}
+
+// floodDefaultReply is the default flood notice: antiflood_checkflood_perform_action with the mention
+// of the sender's full name (a sender chat's title) and today's English word for in.Action (none for
+// an inert action). The keyboard is the bot's rows the site computed (the Unmute row of a mute, the
+// Unban row of a banned sender chat, none otherwise), sent by value; the site adds the topic. It
+// returns today's request byte for byte.
+//
+//nolint:unused // first production caller arrives in plan 23-03
+func floodDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	temp, _ := tr.GetString("antiflood_checkflood_perform_action")
+	name := formatting.GetFullName(in.Target.FirstName, in.Target.LastName)
+	text := fmt.Sprintf(temp, formatting.MentionHtml(in.Target.Id, name), floodWords[in.Action])
+	return text, &gotgbot.SendMessageOpts{
+		ParseMode:   formatting.HTML,
+		ReplyMarkup: gotgbot.InlineKeyboardMarkup{InlineKeyboard: in.Rows},
+	}
+}
+
+// blacklistNoticeKeys are the punishment notices of the blacklist and the forward blocklist by action.
+var blacklistNoticeKeys = map[string]string{
+	"mute": "blacklists_bl_watcher_muted_user",
+	"kick": "blacklists_bl_watcher_kicked_user",
+	"ban":  "blacklists_bl_watcher_banned_user",
+}
+
+// blacklistNoticeDefaultReply is the default punishment notice of the blacklist and the forward
+// blocklist, which send one template with a different reason: blacklists_bl_watcher_muted_user,
+// _kicked_user or _banned_user by in.Action with the mention of the sender's full name (a sender chat's
+// title) and in.Reason spliced as today, unescaped (the blacklist's filled reason, or the forward
+// blocklist's staff_fwdblock_reason). The options are formatting.Shtml(). An action with no notice has
+// no text. It returns today's request byte for byte.
+//
+//nolint:unused // first production caller arrives in plan 23-03
+func blacklistNoticeDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	key, ok := blacklistNoticeKeys[in.Action]
+	if !ok {
+		return "", formatting.Shtml()
+	}
+	temp, _ := tr.GetString(key)
+	name := formatting.GetFullName(in.Target.FirstName, in.Target.LastName)
+	return fmt.Sprintf(temp, formatting.MentionHtml(in.Target.Id, name), in.Reason), formatting.Shtml()
+}
+
+// The default replies are held to the eventDefaultReply shape at compile time.
+var (
+	_ eventDefaultReply = warnDefaultReply
+	_ eventDefaultReply = warnLimitDefaultReply
+	_ eventDefaultReply = floodDefaultReply
+	_ eventDefaultReply = blacklistNoticeDefaultReply
+)
 
 // eventActionWords maps an action's mode word to the locale key of its translated word.
 var eventActionWords = map[string]string{

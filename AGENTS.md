@@ -3602,7 +3602,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   participles that read after the member's name or after a label, and the empty string for any other action (an inert
   mode); the warn fills it with the warn word. The flood's `{reason}` will be `floodEventReason(tr)`
   (`eventmsg_reason_flood`; its first production caller is plan 23-04's flood site). The default texts never use these
-  words: the flood's default keeps its untranslated English `muted`, `kicked` or `banned` (D-13, D-14). `warnThisUser` logs a send error and returns it as before
+  words: the flood's default keeps its untranslated English `muted`, `kicked` or `banned` (D-13, D-14). The Automatic
+  family's default replies all live in `event_message_auto.go` (D-22), each an `eventDefaultReply` that returns the text
+  and options its site sent before custom messages, byte for byte: `warnDefaultReply` (the warn, with the site's rows),
+  `warnLimitDefaultReply` (`warns_limit_kicked`, `_muted` or `_banned` by `Action`, none for an inert mode, then each
+  escaped reason; an empty keyboard), `floodDefaultReply` (`antiflood_checkflood_perform_action` with the full name and
+  the English word, the site's Unmute or Unban row by value, the site adds the topic) and `blacklistNoticeDefaultReply`
+  (shared by the blacklist and the forward blocklist: `blacklists_bl_watcher_{muted,kicked,banned}_user` with the full
+  name and `Reason` spliced unescaped, `formatting.Shtml()`). The last three have no production caller until the Messages
+  page (plan 23-03) and the sites switch (plans 23-04 and 23-05). `warnThisUser` logs a send error and returns it as before
   (`TestLegacyPunishmentNoticeRequests` pins every warn byte for a group with nothing stored, `TestEventMessageWarn` the
   custom warn).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
@@ -5727,6 +5735,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   followed by exactly the golden default (toolkit `eventMsgStoreWarn`, `eventMsgWarnCustom`, `eventMsgWarnRemoveRow`).
   `TestEventActionWords` is a pure sweep over the 8 languages with the real locales: each action word and the flood reason
   is the translated, non-empty, plain text of its key, the four words differ, and an inert action has no word.
+  `TestAutoEventDefaults` (pure: the real locales once and an in-memory recording client, no database) sends each of the
+  four default builders' text and options through `SendMessage` to chat 0 (`autoDefaultRequest`, with the warn's and the
+  warn limit's reply added as their site adds it) and compares the request byte for byte with the 18 goldens of the warn,
+  the warn limit, the flood, the blacklist and the forward blocklist notices.
 
 ## Commits
 
