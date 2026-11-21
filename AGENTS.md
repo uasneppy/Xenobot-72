@@ -1716,12 +1716,16 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settingsMsgOpenPrivate`, `settingsMsgPrivateMenu`). The page's limits are measured (plan 21-10, D-23; Phase 22 plan
   22-04 for the private copy): at a 14-character chat ID the hub's family cell and the family list's Back are 37 bytes, an event cell 38, the
   private copy row 42, Set, Remove and Cancel 42 (46 with `d=p`), Preview 42 (46 with `d=p`) and Silent 42, the private copy switch 42, the
-  hub's option toggle `ho` 41, Full preview 38 (42 with `d=p`), Back to Main and Close 33, Main's cell 37 private and 33 group, with no field outside `a c u p t k d v` (`TestSettingsMessagesCallbackBytes`); every
+  hub's option toggle `ho` 41, Full preview 38 (42 with `d=p`), Back to Main and Close 33, Main's cell 37 private and 33 group, with no field outside `a c u p t k d v`, and `d` only `p`, only on the private copy row and on the editor buttons of the private copy's screens, prompts and
+  refusals, every one of which carries it (`TestSettingsMessagesCallbackBytes`, plan 22-08); every
   screen fits 3800 UTF-16 units in 8 languages with a 64-rune title, cells 20 code points, in the rows hub `[1 1 1 2]`, family list
   `[2 2 2 1 2]`, event screen `[1 1 1 1 1 1 2]` empty and `[2 2 2 2 2 1 1 2]` full, private copy screen `[1 1 1 1 1 2]` empty and
   `[2 2 2 2 2 1 2]` full, group note `[1 2]` (`[2]` without a bot username)
-  (`TestSettingsMessagesPageFitsEveryLocale`, over `settingsMsgScreens` in `settings_messages_screens_test.go`); every forged press of the
-  eight codes is refused in step 1, no draw creates a row or a cache key, a draw costs the pipeline's calls and one read, and no log line
+  (`TestSettingsMessagesPageFitsEveryLocale`, over `settingsMsgScreens` in `settings_messages_screens_test.go`, which also draws the hub with
+  every private copy on, the event screen whose private copy line reads On and the private copy screen with its switch on); every forged press
+  of the ten codes, the `d=p` forms of `he hs hr hc hv hf` included (an unknown option, `v=2`, `d=x` and `d=g` among them), is refused in step
+  1, no draw (a private copy screen and its Full preview included) creates a row, an options row or a cache key, a draw costs the pipeline's
+  calls and one read, and no log line
   carries content (`TestSettingsMessagesForged`, `TestSettingsMessagesReadsCreateNothing`, `TestSettingsMessagesCost`,
   `TestSettingsMessagesLogsCarryIDsOnly`, `settings_messages_safety_test.go`). A refused preview's 403 logs nothing (the presser never
   started the bot); any other refused preview logs the user and chat with Telegram's error only.
@@ -5639,7 +5643,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`pmCopyNow`, `pmCopyAutoCapPerMinute`, `pmCopyRedisClient`) after it registers one more `t.Cleanup(pmCopyJobs.wait)` after the swap,
   because cleanups run last in, first out; a held job is released in `t.Cleanup` before that wait; the `fuku:pmcopy:*` keys are removed by
   `eventPMCleanup`; and a test reads the recorded requests under the fake's lock (`eventPMAllCalls`, `eventPMCalls`), never through
-  `callsFor("")`, which matches no method.
+  `callsFor("")`, which matches no method. The safeguards of plan 22-08 (`event_message_pm_safety_test.go`): `TestEventPMTextsFitEveryLocale`
+  (every event's default private text with a 64-rune markup-heavy title, a 200-character reason and, for a timed event, an end, with and
+  without the unmute lockdown note, at most 4096 UTF-16 units with no unfilled placeholder in 8 languages; the log line of every outcome at
+  most 1000 with a 64-rune markup-heavy name that appears once, escaped, only inside the mention; the Details label at most 20 code points,
+  the neutral reply at most 120), `TestEventPMCost` (`/ban` with the copy off makes exactly the golden site's requests; with the copy on and
+  its send held the handler returns with exactly those requests, a job still in flight, and one request reaches the member after the
+  release) and `TestEventPMPrivacy` (a group linked to a Staff Group with a sentinel title, a second group of the same Staff Group: every
+  default and custom private copy with every Welcome and event placeholder, the Details record and the log line in 8 languages, and every
+  request of a blocked `/ban` with both options on and its Details view, name neither, and an anonymous admin's `{admin}` is never the
+  tapper); `TestEventPMLogsCarryIDsOnly` also covers the Details record, a refused Details edit, the deep link's view, refused view and
+  refusals (a Redis error names the opener's user ID, the only ID it has) and a refused log post (`eventPMRefuseLogClient`), with every
+  Details token forbidden in a line; `TestSettingsStaffPrivacy` renders the private texts through `settingsPrivacyPhase22Screens` and runs
+  `settingsPrivacyPhase22Run` (a private menu of an administrator who is not the creator through both options, the event screen, the private
+  copy screen, a typed private text, the switch and a Full preview).
 
 ## Commits
 

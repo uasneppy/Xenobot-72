@@ -20,6 +20,7 @@ import (
 	dbcache "github.com/uasneppy/fuku_robot/fuku/db/cache"
 	"github.com/uasneppy/fuku_robot/fuku/db/chatconv"
 	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/logchannels"
 	"github.com/uasneppy/fuku_robot/fuku/db/memberreq"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
@@ -354,6 +355,13 @@ func TestSettingsStaffPrivacy(t *testing.T) {
 				for name, screen := range settingsPrivacyPhase21Screens(t, tr, map[string]settingsView{"group": groupView, "private admin": privateAdminView}) {
 					screens[name] = screen
 				}
+				// Phase 22: the texts the private copies send outside the menu (each event's default private text with and
+				// without the lockdown note, the log line of both reasons, the Details label and neutral reply and the private
+				// copy's preview header), once per language. The private copy screens and the hub's private copies block are
+				// screens of settingsMsgScreens, so the Phase 21 sweep above already searches them.
+				for name, screen := range settingsPrivacyPhase22Screens(tr, link.GroupChatID) {
+					screens[name] = screen
+				}
 				// The Conversations page (Phase 20): every state, the card and the refusal notices,
 				// drawn for the private menu the page exists in; none may name the Staff Group.
 				for _, on := range []bool{false, true} {
@@ -671,6 +679,12 @@ func TestSettingsStaffPrivacy(t *testing.T) {
 	})
 	t.Run("a group menu Phase 19 run by an admin who is not the creator never names the Staff Group", func(t *testing.T) {
 		settingsPrivacyPhase19Run(t, false)
+	})
+
+	// Phase 22: the same administrator drives the Messages page's private copy in the private menu: the hub's two options,
+	// an event screen, its private copy screen, a typed private text, the copy's switch and its Full preview.
+	t.Run("a private Phase 22 run by an admin who is not the creator never names the Staff Group", func(t *testing.T) {
+		settingsPrivacyPhase22Run(t)
 	})
 
 	t.Run("a group menu run never names a Staff Group", func(t *testing.T) {
@@ -1671,6 +1685,102 @@ func settingsPrivacyPhase19Run(t *testing.T, private bool) {
 	} {
 		if strings.Contains(everything, leak) {
 			t.Errorf("a Phase 19 run of an admin who is not the creator received %q: %q", leak, everything)
+		}
+	}
+}
+
+// settingsPrivacyPhase22Screens renders, for one language, the texts a private copy job and the Details deep link send:
+// every event's default private text (with a reason and an end, and again with the unmute lockdown note), the log line of
+// a blocked and of a failed copy, the Details button's label, the neutral Details reply and the private copy's preview
+// header, each as a text-only screen. chatID is the group the texts are about; it carries no Staff Group.
+func settingsPrivacyPhase22Screens(tr *i18n.Translator, chatID int64) map[string]settingsScreen {
+	screens := make(map[string]settingsScreen)
+	chat := gotgbot.Chat{Id: chatID, Type: "supergroup", Title: "Test Group"}
+	note, _ := tr.GetString("eventmsg_pm_unmute_lockdown")
+	values := eventValues{Reason: "spam", Duration: "2 hours", Until: time.Now().Add(2 * time.Hour)}
+	for event, spec := range eventPMSpecs {
+		screens["phase 22 default "+event] = settingsScreen{Text: eventPMDefaultText(tr, spec, &chat, values, "")}
+		screens["phase 22 default with the note "+event] = settingsScreen{Text: eventPMDefaultText(tr, spec, &chat, values, note)}
+		offer := eventPMOffer{Chat: chat, Event: event, UserID: 42, TargetName: "Ann"}
+		screens["phase 22 log line blocked "+event] = settingsScreen{Text: pmCopyLogText(tr, offer, pmCopyBlocked)}
+		screens["phase 22 log line failed "+event] = settingsScreen{Text: pmCopyLogText(tr, offer, pmCopyUnknown)}
+	}
+	for _, key := range []string{"eventmsg_btn_details", "eventmsg_pm_details_none", "settings_msg_preview_header_pm"} {
+		screens["phase 22 "+key] = settingsScreen{Text: settingsText(tr, key)}
+	}
+	return screens
+}
+
+// settingsPrivacyPhase22Run is the Phase 22 run of an administrator who is not the creator (with can_change_info, so every
+// press writes) in the private menu of a group linked to a Staff Group: the hub, both private copy options, the ban's event
+// screen, its private copy screen, a typed private text, the copy's switch and its Full preview. Nothing the bot produced
+// for them (every edit, message and answer) names the Staff Group.
+func settingsPrivacyPhase22Run(t *testing.T) {
+	t.Helper()
+	env := newSettingsMsgEnv(t)
+	settingsEditFakeSends(env.settingsEnv)
+	staffChat := settingsStaffTestOwnedStaffGroup(env.settingsEnv, settingsStaffPrivacyTitle)
+	linkLockdownGroupTo(env.lockdownEnv, staffChat)
+	moderator := gotgbot.User{Id: uniqueLinkOwnerID(), FirstName: "Moderator"}
+	t.Cleanup(func() {
+		db.DB.Where("user_id = ?", moderator.Id).Delete(&models.User{})
+		dbcache.DeleteCache(dbcache.CacheKey("user", moderator.Id))
+		dbcache.ResetLocalForTest()
+	})
+	env.fake.setMemberRaw(env.chat.Id, moderator.Id, settingsPrivacyPhase19AdminJSON(moderator.Id))
+	env.fake.listAdministrator(env.chat.Id, moderator.Id)
+
+	m := settingsMsgPrivateMenu(env, env.chat, moderator)
+	pm := []string{settingsMsgEventField, "bn", settingsMsgDestField, settingsMsgDestPMCode}
+	m.press("a", settingsActOpen, "p", settingsPageMessages)
+	for _, opt := range settingsMsgPMOptions {
+		m.press("a", settingsActMsgPMOption, "t", opt.Code, "v", "1")
+	}
+	m.press("a", settingsActMsgEvent, settingsMsgEventField, "bn")
+	m.press(append([]string{"a", settingsActMsgEvent}, pm...)...)
+	m.press(append([]string{"a", settingsActMsgSet, "t", settingsEditPartText}, pm...)...)
+	sendPrivateMessage(env.settingsEnv, moderator, gotgbot.Message{Text: "{first}, you were banned: {reason}"})
+	m.press("a", settingsActMsgPM, settingsMsgEventField, "bn", "v", "1")
+	m.press(append([]string{"a", settingsActMsgFull}, pm...)...)
+
+	if row, ok := settingsMsgStoredPM(t, env.chat.Id, eventmsg.EventBan); !ok || row.Text == "" || row.Silent {
+		t.Errorf("the run left the ban's private copy %+v (row %v), want the typed text and the copy on", row, ok)
+	}
+	if msgs, err := eventmsg.GetFresh(context.Background(), env.chat.Id); err != nil || !msgs.Options.PMDetails || !msgs.Options.PMLog {
+		t.Errorf("the run left the options %+v (%v), want both on", msgs, err)
+	}
+
+	var seen []string
+	collect := func(params map[string]any) {
+		seen = append(seen, fmt.Sprint(params["text"]), fmt.Sprint(params["caption"]))
+		for _, button := range settingsAllButtons(staffKeyboardOf(params["reply_markup"])) {
+			seen = append(seen, button.Text, button.CallbackData, button.Url)
+		}
+	}
+	for _, edit := range env.edits(moderator.Id, m.msgID) {
+		collect(edit.Params)
+	}
+	for _, sent := range env.fake.sentTo(moderator.Id) {
+		collect(sent.Params)
+	}
+	for _, answer := range env.fake.callsFor("answerCallbackQuery") {
+		seen = append(seen, fmt.Sprint(answer.Params["text"]))
+	}
+	everything := strings.Join(seen, "\n")
+	if n := len(env.edits(moderator.Id, m.msgID)); n < 5 {
+		t.Fatalf("the run edited the menu only %d times", n)
+	}
+	for _, want := range []string{"settings_msg_pm_title", "settings_msg_pm_intro", "settings_msg_preview_header_pm", "settings_edit_saved_text"} {
+		if !containsMarker(everything, want) {
+			t.Errorf("the run never produced %s: %q", want, everything)
+		}
+	}
+	for _, leak := range []string{
+		"ZZ Staff", settingsStaffPrivacyTitle, html.EscapeString(settingsStaffPrivacyTitle),
+		strings.TrimPrefix(strconv.FormatInt(staffChat.Id, 10), "-"), settingsStaffPrivacyDigits,
+	} {
+		if strings.Contains(everything, leak) {
+			t.Errorf("a Phase 22 run of an admin who is not the creator received %q: %q", leak, everything)
 		}
 	}
 }

@@ -3,6 +3,7 @@
 package modules
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
 	"slices"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
+	"github.com/uasneppy/fuku_robot/fuku/db/models"
+	"github.com/uasneppy/fuku_robot/fuku/db/staff"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
 	"github.com/uasneppy/fuku_robot/fuku/utils/formatting"
 	"github.com/uasneppy/fuku_robot/fuku/utils/media"
@@ -221,6 +224,131 @@ func TestEventPMCost(t *testing.T) {
 		}
 		if toMember != 1 {
 			t.Fatalf("requests to the member's private chat after the release = %d, want the one copy", toMember)
+		}
+	})
+}
+
+// The sentinels of the privacy sweep: the linked Staff Group's title, another group of the same owner (linked to the same
+// Staff Group) and an anonymous admin who tapped the proof button. They carry no digit, so a search for one is unambiguous;
+// the Staff Group's chat ID is searched by its digits.
+const (
+	eventPMPrivacyStaffTitle = "ZZ PM Staff & <Marker>"
+	eventPMPrivacyOtherTitle = "ZZ PM Other Group Marker"
+	eventPMPrivacyTapper     = "ZZ PM Tapper Marker"
+)
+
+// eventPMPrivacyCustom is a private copy text with every Welcome and every event placeholder.
+const eventPMPrivacyCustom = "{first} {last} {fullname} {username} {mention} {id} {chatname} {rules} " +
+	"{reason} {admin} {duration} {until} {action} {count} {limit} {window}"
+
+func TestEventPMPrivacy(t *testing.T) {
+	withModerationGoldenLocales(t)
+	s := newEventPMSite(t)
+	staffChatID, otherChatID := uniqueModuleChatID(), uniqueModuleChatID()
+	staffCleanup(t, staffChatID, s.chat.Id, otherChatID)
+	if _, err := staff.CreateStaffGroup(staffChatID, botSiteAdmin.Id, eventPMPrivacyStaffTitle); err != nil {
+		t.Fatalf("create the Staff Group: %v", err)
+	}
+	for chatID, title := range map[int64]string{s.chat.Id: s.chat.Title, otherChatID: eventPMPrivacyOtherTitle} {
+		if err := staff.CreateLink(&models.StaffGroupLink{GroupChatID: chatID, StaffChatID: staffChatID, OwnerUserID: botSiteAdmin.Id, GroupTitle: title}); err != nil {
+			t.Fatalf("link chat %d: %v", chatID, err)
+		}
+	}
+	leaks := []string{
+		eventPMPrivacyStaffTitle, html.EscapeString(eventPMPrivacyStaffTitle), "ZZ PM Staff",
+		strings.TrimPrefix(strconv.FormatInt(staffChatID, 10), "-"), eventPMPrivacyOtherTitle,
+		strings.TrimPrefix(strconv.FormatInt(otherChatID, 10), "-"),
+	}
+	wantClean := func(t *testing.T, label, text string) {
+		t.Helper()
+		for _, leak := range leaks {
+			if strings.Contains(text, leak) {
+				t.Errorf("%s names the Staff Group or another group (%q): %q", label, leak, text)
+			}
+		}
+	}
+
+	t.Run("every text in every language", func(t *testing.T) {
+		target := gotgbot.User{Id: eventPMMember, FirstName: "Ann", LastName: "Lee", Username: "ann_lee"}
+		tapper := eventActor{User: &gotgbot.User{Id: 77, FirstName: eventPMPrivacyTapper}, Anonymous: true}
+		values := eventValues{Reason: "spam", Duration: "2 hours", Until: time.Now().Add(2 * time.Hour)}
+		for _, code := range memberReqScreenLanguages {
+			tr := i18n.MustNewTranslator(code)
+			anon, _ := tr.GetString("eventmsg_admin_anon")
+			note, _ := tr.GetString("eventmsg_pm_unmute_lockdown")
+			for _, event := range eventPMSpecEvents() {
+				spec, _ := eventPMSpecFor(event)
+				label := code + " " + event
+				r := eventReply{Event: event, Target: target, Values: values, PMNote: note}
+				def := composeEventPM(s.bot, &s.chat, tr, spec, r, eventmsg.Message{}, tapper)
+				custom := composeEventPM(s.bot, &s.chat, tr, spec, r, eventmsg.Message{
+					Text: eventPMPrivacyCustom, Buttons: models.ButtonArray{{Name: "Site", Url: "https://example.com"}},
+				}, tapper)
+				wantClean(t, label+" default copy", def.Text)
+				wantClean(t, label+" custom copy", custom.Text)
+				if strings.Contains(custom.Text, eventPMPrivacyTapper) || !strings.Contains(custom.Text, anon) {
+					t.Errorf("%s custom copy %q names the anonymous admin's tapper or lacks %q", label, custom.Text, anon)
+				}
+				if strings.Contains(def.Text, eventPMPrivacyTapper) {
+					t.Errorf("%s default copy %q names the admin", label, def.Text)
+				}
+				offer := eventPMOffer{Chat: s.chat, Event: event, UserID: eventPMMember, TargetName: target.FirstName}
+				for _, msg := range []media.GreetingMessage{def, custom} {
+					record, err := json.Marshal(pmCopyDetailsRecordOf(offer, msg))
+					if err != nil {
+						t.Fatalf("encode the Details record: %v", err)
+					}
+					wantClean(t, label+" Details record", string(record))
+				}
+				for _, outcome := range []pmCopyOutcome{pmCopyBlocked, pmCopyUnknown} {
+					wantClean(t, label+" log line", pmCopyLogText(tr, offer, outcome))
+				}
+			}
+			for _, key := range []string{"eventmsg_btn_details", "eventmsg_pm_details_none", "settings_msg_preview_header_pm"} {
+				text, _ := tr.GetString(key)
+				wantClean(t, code+" "+key, text)
+			}
+		}
+	})
+
+	t.Run("a blocked ban with both options on", func(t *testing.T) {
+		channel := eventPMLogLink(t, s)
+		storeEventPM(t, s.chat.Id, eventmsg.EventBan, eventPMPrivacyCustom, true)
+		eventPMDetailsOn(t, s.chat.Id)
+		eventPMLogOn(t, s.chat.Id)
+		eventPMRefuse(t, s, eventPMTelegramError(403, "Forbidden: bot was blocked by the user", 0))
+		eventPMBanCommand(t, s, "spam")
+		eventPMWantBan(t, s)
+		waitEventPM(t)
+		if edits := eventPMDetailsEdits(t, s); len(edits) != 1 {
+			t.Fatalf("Details edits = %d, want one", len(edits))
+		}
+		if posts := eventPMLogPosts(t, s, channel); len(posts) != 1 {
+			t.Fatalf("#PM_COPY posts = %d, want one", len(posts))
+		}
+		// The person opens the Details record.
+		tokens := eventPMDetailsTokens(t)
+		if len(tokens) != 1 {
+			t.Fatalf("Details records = %d, want one", len(tokens))
+		}
+		from := gotgbot.User{Id: eventPMMember, FirstName: "Ann"}
+		ctx := newModuleMessageContext(s.bot, gotgbot.Chat{Id: eventPMMember, Type: "private", FirstName: "Ann"}, from, "/start "+pmCopyDetailsPrefix+tokens[0])
+		if err := HandleDeepLink(s.bot, ctx, &from, pmCopyDetailsPrefix+tokens[0]); err == nil {
+			t.Fatal("the Details deep link returned nil, want EndGroups")
+		}
+		toMember := 0
+		for _, call := range eventPMAllCalls(s) {
+			raw, err := json.Marshal(call.Params)
+			if err != nil {
+				t.Fatalf("encode a request: %v", err)
+			}
+			wantClean(t, call.Method, string(raw))
+			if fmt.Sprint(call.Params["chat_id"]) == strconv.FormatInt(eventPMMember, 10) && strings.HasPrefix(call.Method, "send") {
+				toMember++
+			}
+		}
+		if toMember != 2 {
+			t.Fatalf("sends to the member's private chat = %d, want the blocked copy and the Details view", toMember)
 		}
 	})
 }
