@@ -5676,6 +5676,16 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `/ban` fan-out to a linked group whose ban copy is on bans and sends the target nothing), `two replicas` (the switch turned off on one
   replica stops the next copy on the other) and `no redis` (the switch and the option work, a manual copy is sent, a blocked copy adds no
   Details button). The `owner sets` and `default text` subtests use the real locales; the others the marker locale.
+- Phase 23 test families (the warn, warn limit, flood, blacklist and forward blocklist messages). The golden
+  `TestLegacyPunishmentNoticeRequests` (`punishment_notice_legacy_request_test.go`, one subtest per case, the constants `goldenNotice*`) was
+  recorded alone, on the code before any of these send sites changed, and is never re-recorded or weakened: it pins the `sendMessage`
+  request, the punishment call and the queue row of the warn (`/warn` with a reason and with the rules' button, `/dwarn`, `/swarn`, the
+  blacklist's and the forward blocklist's warn actions), the warn limit at mute, kick, ban and an inert `tban`, the flood notice at mute,
+  kick, ban, a banned sender chat and an inert `warn`, the blacklist notice at mute, kick, ban and a banned sender chat, and the forward
+  blocklist notice at mute, kick and ban, in Ukrainian with the real locales. Its toolkit (`noticeGoldenTarget`, `noticeGoldenChannel`,
+  `noticeGoldenClient`, `newNoticeGoldenSite`, which stores a 600 s rule of the case's kind and a 900 s rule of the other bot punishment kind,
+  and the drivers `noticeGoldenWarn`, `noticeGoldenFlood`, `noticeGoldenBlacklist`, `noticeGoldenForwardBlock`) is reused by name and the
+  file is never edited.
 
 ## Commits
 
