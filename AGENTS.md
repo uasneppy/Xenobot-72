@@ -5828,6 +5828,18 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `eventPMAutoNoRedis`, `eventPMAutoOffender`). `TestEventPMDefaultTexts` gains the warn limit's default (3 of 3, the ban word, the reason
   line). `TestSettingsMessagesAutoPM` (`settings_messages_auto_test.go`) checks every Automatic event screen's private copy row and line
   and the warn's private copy screen with its switch Off and no row written.
+  The page's safeguards over the Automatic family (plan 23-06): `settingsMsgValidPresses` holds a valid press of the list (`hl&t=a`)
+  and of every code on the five events (`wn wl fl bl fb`), in the group message's and the private copy's (`d=p`) form, the private copy
+  switch `hp` of every one included, so `TestSettingsMessagesForged` refuses every generated forged form of them in step 1 (with
+  `settingsMsgAutoForged`: `hp` with `v=x`, `hq` with `v=2`, an unknown part, an extra key, `d=x` and a group menu's `hl`), and
+  `TestSettingsMessagesReadsCreateNothing` and `TestSettingsMessagesCost` also open the Automatic list, the forward blocklist's event
+  screen and its private copy screen. `TestSettingsAuthorityMessagesAuto` (`settings_messages_auto_test.go`, one environment): a typist
+  demoted between Set on the forward blocklist's text and the typed message stores nothing; without `can_change_info` the Automatic list,
+  the warn's screen, the forward blocklist's private copy screen and the warn's Full preview open, while Set (both forms), Silent and the
+  private copy switch of all five events, Remove of a stored flood text and of a stored blacklist private text are each the
+  `settings_no_change_info` alert with no edit, no wait and every row unchanged. `TestSettingsStaffPrivacy` gains
+  `settingsPrivacyPhase23Run` (the Automatic list, the forward blocklist's event and private copy screens, a typed text, Silent and Full
+  preview by an administrator who is not the creator, through the shared `settingsPrivacyMsgRunClean`).
 
 ## Commits
 

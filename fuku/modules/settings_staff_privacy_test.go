@@ -687,6 +687,12 @@ func TestSettingsStaffPrivacy(t *testing.T) {
 		settingsPrivacyPhase22Run(t)
 	})
 
+	// Phase 23: the same administrator drives the Automatic family: its list, the forward blocklist's event and private
+	// copy screens, a typed text, the Silent switch and a Full preview.
+	t.Run("a private Phase 23 run by an admin who is not the creator never names the Staff Group", func(t *testing.T) {
+		settingsPrivacyPhase23Run(t)
+	})
+
 	t.Run("a group menu run never names a Staff Group", func(t *testing.T) {
 		env := newSettingsEnv(t)
 		titles := []string{"ZZ Zero & <Ö>", "ZZ One & <Ö>", "ZZ Two & <Ö>"}
@@ -1721,14 +1727,7 @@ func settingsPrivacyPhase22Run(t *testing.T) {
 	settingsEditFakeSends(env.settingsEnv)
 	staffChat := settingsStaffTestOwnedStaffGroup(env.settingsEnv, settingsStaffPrivacyTitle)
 	linkLockdownGroupTo(env.lockdownEnv, staffChat)
-	moderator := gotgbot.User{Id: uniqueLinkOwnerID(), FirstName: "Moderator"}
-	t.Cleanup(func() {
-		db.DB.Where("user_id = ?", moderator.Id).Delete(&models.User{})
-		dbcache.DeleteCache(dbcache.CacheKey("user", moderator.Id))
-		dbcache.ResetLocalForTest()
-	})
-	env.fake.setMemberRaw(env.chat.Id, moderator.Id, settingsPrivacyPhase19AdminJSON(moderator.Id))
-	env.fake.listAdministrator(env.chat.Id, moderator.Id)
+	moderator := settingsPrivacyMsgModerator(t, env)
 
 	m := settingsMsgPrivateMenu(env, env.chat, moderator)
 	pm := []string{settingsMsgEventField, "bn", settingsMsgDestField, settingsMsgDestPMCode}
@@ -1750,6 +1749,15 @@ func settingsPrivacyPhase22Run(t *testing.T) {
 		t.Errorf("the run left the options %+v (%v), want both on", msgs, err)
 	}
 
+	settingsPrivacyMsgRunClean(t, env, moderator, m.msgID, staffChat, "Phase 22",
+		"settings_msg_pm_title", "settings_msg_pm_intro", "settings_msg_preview_header_pm", "settings_edit_saved_text")
+}
+
+// settingsPrivacyMsgRunClean collects everything the bot produced for moderator in a Messages page run (every edit of the
+// menu message msgID, every message sent to the moderator and every callback answer), fails unless the menu was edited at
+// least five times and every key of wants was produced, and fails when any of it names the Staff Group staffChat.
+func settingsPrivacyMsgRunClean(t *testing.T, env *settingsMsgEnv, moderator gotgbot.User, msgID int64, staffChat gotgbot.Chat, phase string, wants ...string) {
+	t.Helper()
 	var seen []string
 	collect := func(params map[string]any) {
 		seen = append(seen, fmt.Sprint(params["text"]), fmt.Sprint(params["caption"]))
@@ -1757,7 +1765,7 @@ func settingsPrivacyPhase22Run(t *testing.T) {
 			seen = append(seen, button.Text, button.CallbackData, button.Url)
 		}
 	}
-	for _, edit := range env.edits(moderator.Id, m.msgID) {
+	for _, edit := range env.edits(moderator.Id, msgID) {
 		collect(edit.Params)
 	}
 	for _, sent := range env.fake.sentTo(moderator.Id) {
@@ -1767,10 +1775,10 @@ func settingsPrivacyPhase22Run(t *testing.T) {
 		seen = append(seen, fmt.Sprint(answer.Params["text"]))
 	}
 	everything := strings.Join(seen, "\n")
-	if n := len(env.edits(moderator.Id, m.msgID)); n < 5 {
+	if n := len(env.edits(moderator.Id, msgID)); n < 5 {
 		t.Fatalf("the run edited the menu only %d times", n)
 	}
-	for _, want := range []string{"settings_msg_pm_title", "settings_msg_pm_intro", "settings_msg_preview_header_pm", "settings_edit_saved_text"} {
+	for _, want := range wants {
 		if !containsMarker(everything, want) {
 			t.Errorf("the run never produced %s: %q", want, everything)
 		}
@@ -1780,7 +1788,49 @@ func settingsPrivacyPhase22Run(t *testing.T) {
 		strings.TrimPrefix(strconv.FormatInt(staffChat.Id, 10), "-"), settingsStaffPrivacyDigits,
 	} {
 		if strings.Contains(everything, leak) {
-			t.Errorf("a Phase 22 run of an admin who is not the creator received %q: %q", leak, everything)
+			t.Errorf("a %s run of an admin who is not the creator received %q: %q", phase, leak, everything)
 		}
 	}
+}
+
+// settingsPrivacyMsgModerator is an administrator who is not the creator, with can_change_info, listed in the env's group;
+// its users row goes when the test ends.
+func settingsPrivacyMsgModerator(t *testing.T, env *settingsMsgEnv) gotgbot.User {
+	t.Helper()
+	moderator := gotgbot.User{Id: uniqueLinkOwnerID(), FirstName: "Moderator"}
+	t.Cleanup(func() {
+		db.DB.Where("user_id = ?", moderator.Id).Delete(&models.User{})
+		dbcache.DeleteCache(dbcache.CacheKey("user", moderator.Id))
+		dbcache.ResetLocalForTest()
+	})
+	env.fake.setMemberRaw(env.chat.Id, moderator.Id, settingsPrivacyPhase19AdminJSON(moderator.Id))
+	env.fake.listAdministrator(env.chat.Id, moderator.Id)
+	return moderator
+}
+
+// settingsPrivacyPhase23Run is the Phase 23 run of an administrator who is not the creator (with can_change_info) in the
+// private menu of a group linked to a Staff Group: the Automatic list, the forward blocklist's event screen, its private
+// copy screen, a typed text, the Silent switch and a Full preview. Nothing the bot produced for them names the Staff Group.
+func settingsPrivacyPhase23Run(t *testing.T) {
+	t.Helper()
+	env := newSettingsMsgEnv(t)
+	settingsEditFakeSends(env.settingsEnv)
+	staffChat := settingsStaffTestOwnedStaffGroup(env.settingsEnv, settingsStaffPrivacyTitle)
+	linkLockdownGroupTo(env.lockdownEnv, staffChat)
+	moderator := settingsPrivacyMsgModerator(t, env)
+
+	m := settingsMsgPrivateMenu(env, env.chat, moderator)
+	m.press("a", settingsActMsgFamily, "t", "a")
+	m.press("a", settingsActMsgEvent, settingsMsgEventField, "fb", settingsMsgDestField, settingsMsgDestPMCode)
+	m.press("a", settingsActMsgEvent, settingsMsgEventField, "fb")
+	m.press("a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, "fb")
+	sendPrivateMessage(env.settingsEnv, moderator, gotgbot.Message{Text: "{mention}: {action}, {reason} in {chatname}"})
+	m.press("a", settingsActMsgSilent, settingsMsgEventField, "fb", "v", "1")
+	m.press("a", settingsActMsgFull, settingsMsgEventField, "fb")
+
+	if row, ok := settingsMsgStored(t, env.chat.Id, eventmsg.EventForwardBlock); !ok || row.Text == "" || !row.Silent {
+		t.Errorf("the run left the forward blocklist's message %+v (row %v), want the typed text and Silent on", row, ok)
+	}
+	settingsPrivacyMsgRunClean(t, env, moderator, m.msgID, staffChat, "Phase 23",
+		"settings_msg_fam_auto_intro", "settings_msg_pm_intro", "settings_msg_ev_fwdblock", "settings_msg_preview_header", "settings_edit_saved_text")
 }

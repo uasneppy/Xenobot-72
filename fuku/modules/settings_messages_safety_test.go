@@ -40,6 +40,40 @@ var settingsMsgValidPresses = map[string][]string{
 	settingsActMsgCancel + " d=p":  {"a", settingsActMsgCancel, "t", settingsEditPartText, settingsMsgEventField, "bn", settingsMsgDestField, settingsMsgDestPMCode},
 	settingsActMsgPreview + " d=p": {"a", settingsActMsgPreview, "t", settingsEditPartText, settingsMsgEventField, "bn", settingsMsgDestField, settingsMsgDestPMCode},
 	settingsActMsgFull + " d=p":    {"a", settingsActMsgFull, settingsMsgEventField, "bn", settingsMsgDestField, settingsMsgDestPMCode},
+	// Phase 23: the Automatic family's list and its five events (wn wl fl bl fb), each in the group message's and the
+	// private copy's form, the private copy's switch of every one included.
+	settingsActMsgFamily + " a":       {"a", settingsActMsgFamily, "t", "a"},
+	settingsActMsgEvent + " wn":       {"a", settingsActMsgEvent, settingsMsgEventField, "wn"},
+	settingsActMsgEvent + " fb d=p":   {"a", settingsActMsgEvent, settingsMsgEventField, "fb", settingsMsgDestField, settingsMsgDestPMCode},
+	settingsActMsgSet + " wn":         {"a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, "wn"},
+	settingsActMsgSet + " wl d=p":     {"a", settingsActMsgSet, "t", settingsEditPartMedia, settingsMsgEventField, "wl", settingsMsgDestField, settingsMsgDestPMCode},
+	settingsActMsgRemove + " fl":      {"a", settingsActMsgRemove, "t", settingsEditPartButtons, settingsMsgEventField, "fl"},
+	settingsActMsgRemove + " bl d=p":  {"a", settingsActMsgRemove, "t", settingsEditPartText, settingsMsgEventField, "bl", settingsMsgDestField, settingsMsgDestPMCode},
+	settingsActMsgCancel + " fb":      {"a", settingsActMsgCancel, "t", settingsEditPartText, settingsMsgEventField, "fb"},
+	settingsActMsgCancel + " wn d=p":  {"a", settingsActMsgCancel, "t", settingsEditPartText, settingsMsgEventField, "wn", settingsMsgDestField, settingsMsgDestPMCode},
+	settingsActMsgPreview + " wl":     {"a", settingsActMsgPreview, "t", settingsEditPartText, settingsMsgEventField, "wl"},
+	settingsActMsgPreview + " fl d=p": {"a", settingsActMsgPreview, "t", settingsEditPartText, settingsMsgEventField, "fl", settingsMsgDestField, settingsMsgDestPMCode},
+	settingsActMsgFull + " bl":        {"a", settingsActMsgFull, settingsMsgEventField, "bl"},
+	settingsActMsgFull + " fb d=p":    {"a", settingsActMsgFull, settingsMsgEventField, "fb", settingsMsgDestField, settingsMsgDestPMCode},
+	settingsActMsgSilent + " fl":      {"a", settingsActMsgSilent, settingsMsgEventField, "fl", "v", "1"},
+	settingsActMsgSilent + " wl":      {"a", settingsActMsgSilent, settingsMsgEventField, "wl", "v", "0"},
+	settingsActMsgPM + " wn":          {"a", settingsActMsgPM, settingsMsgEventField, "wn", "v", "1"},
+	settingsActMsgPM + " wl":          {"a", settingsActMsgPM, settingsMsgEventField, "wl", "v", "0"},
+	settingsActMsgPM + " fl":          {"a", settingsActMsgPM, settingsMsgEventField, "fl", "v", "1"},
+	settingsActMsgPM + " bl":          {"a", settingsActMsgPM, settingsMsgEventField, "bl", "v", "1"},
+	settingsActMsgPM + " fb":          {"a", settingsActMsgPM, settingsMsgEventField, "fb", "v", "0"},
+}
+
+// settingsMsgAutoForged are the forged presses of the Automatic family that the generated forms of settingsMsgForgedPresses
+// do not already make: a private copy switch whose target is not a digit, a Silent switch of 2, an unknown part and a Full
+// preview with an extra key, each on one of the five events (Phase 23, D-26).
+var settingsMsgAutoForged = []settingsMsgForgedPress{
+	{name: "hp of fl with v=x", kv: []string{"a", settingsActMsgPM, settingsMsgEventField, "fl", "v", "x"}},
+	{name: "hq of wl with v=2", kv: []string{"a", settingsActMsgSilent, settingsMsgEventField, "wl", "v", "2"}},
+	{name: "hs of wn with t=z", kv: []string{"a", settingsActMsgSet, "t", "z", settingsMsgEventField, "wn"}},
+	{name: "hf of bl with an extra key", kv: []string{"a", settingsActMsgFull, settingsMsgEventField, "bl", "x", "1"}},
+	{name: "he of fb with d=x", kv: []string{"a", settingsActMsgEvent, settingsMsgEventField, "fb", settingsMsgDestField, "x"}},
+	{name: "hl of a from a group menu", group: true, kv: []string{"a", settingsActMsgFamily, "t", "a"}},
 }
 
 // settingsMsgForgedPress is one forged press: in a group menu (the opener u in place of c) or in a private menu, with the
@@ -66,7 +100,7 @@ func settingsMsgWith(kv []string, key, value string) []string {
 // place of c, an unknown event (or family for hl, option for ho), an unknown part for the part actions, a target other than 0
 // or 1 for the switches, an extra field and, for the d=p forms, a destination other than p (Phase 22, D-26).
 func settingsMsgForgedPresses() []settingsMsgForgedPress {
-	var forged []settingsMsgForgedPress
+	forged := append([]settingsMsgForgedPress{}, settingsMsgAutoForged...)
 	for name, kv := range settingsMsgValidPresses {
 		code := kv[1]
 		forged = append(forged,
@@ -214,6 +248,10 @@ func TestSettingsMessagesReadsCreateNothing(t *testing.T) {
 					// Phase 22: the event's private copy screen.
 					open("a", settingsActMsgEvent, settingsMsgEventField, ev.Code, settingsMsgDestField, settingsMsgDestPMCode)
 				}
+				// Phase 23: the Automatic family's list, the forward blocklist's event screen and its private copy screen.
+				open("a", settingsActMsgFamily, "t", "a")
+				open("a", settingsActMsgEvent, settingsMsgEventField, "fb")
+				open("a", settingsActMsgEvent, settingsMsgEventField, "fb", settingsMsgDestField, settingsMsgDestPMCode)
 				if text, _ := env.lastEdit(env.admin.Id, msgID); !containsMarker(text, "settings_msg_pm_intro") {
 					t.Errorf("the run's last edit is %q, want the last event's private copy screen", text)
 				}
@@ -299,6 +337,10 @@ func TestSettingsMessagesCost(t *testing.T) {
 		"an event screen": {"a", settingsActMsgEvent, settingsMsgEventField, "bn"},
 		// Phase 22: a private copy screen.
 		"a private copy screen": {"a", settingsActMsgEvent, settingsMsgEventField, "bn", settingsMsgDestField, settingsMsgDestPMCode},
+		// Phase 23: the Automatic family's list, an automatic event screen and its private copy screen.
+		"the Automatic list":               {"a", settingsActMsgFamily, "t", "a"},
+		"an automatic event screen":        {"a", settingsActMsgEvent, settingsMsgEventField, "fb"},
+		"an automatic private copy screen": {"a", settingsActMsgEvent, settingsMsgEventField, "fb", settingsMsgDestField, settingsMsgDestPMCode},
 	}
 	pipeline := map[string]int{"getChatMember": 1, "getChat": 1, "editMessageText": 1, "answerCallbackQuery": 1}
 
