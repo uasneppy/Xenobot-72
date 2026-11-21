@@ -42,14 +42,17 @@ func settingsMsgAllCustom(t *testing.T, silent bool) *eventmsg.Messages {
 	return msgs
 }
 
-// settingsMsgEveryPMOn is settingsMsgAllCustom with every event's private copy switched on (a pm row with a text and
-// Silent false) and both options off, so the hub draws the private copy mark on every event line beside the block's Off
-// words.
+// settingsMsgEveryPMOn is settingsMsgAllCustom with the private copy of every event that has one switched on (a pm row
+// with a text and Silent false) and both options off, so the hub draws the private copy mark on every such event line
+// beside the block's Off words.
 func settingsMsgEveryPMOn(t *testing.T) *eventmsg.Messages {
 	t.Helper()
 	msgs := settingsMsgAllCustom(t, false)
 	for _, fam := range settingsMsgFamilies {
 		for _, ev := range fam.Events {
+			if _, spec := eventPMSpecFor(ev.Key); !spec {
+				continue
+			}
 			msgs.Rows[ev.Key+"|"+eventmsg.DestPM] = eventmsg.Message{Event: ev.Key, Dest: eventmsg.DestPM, Text: "custom"}
 			if !settingsMsgPMOn(msgs, ev) {
 				t.Fatalf("the hand-built messages do not switch the %s private copy on", ev.Key)
@@ -78,6 +81,10 @@ func settingsMsgEmptyState() settingsEditState {
 func settingsMsgPMOffState() settingsEditState {
 	return settingsEditState{Kind: settingsEditEvent, TextIsDefault: true, Silent: true}
 }
+
+// settingsMsgFamilyWidths are the row widths of each family's list: its event cells two to a row (an odd last one
+// alone), then Back and Close.
+var settingsMsgFamilyWidths = map[string]string{"m": "[2 2 2 1 2]", "a": "[2 2 1 2]"}
 
 // settingsMsgNamedScreen is one rendered screen of the page with the row widths its keyboard must have ("" for a screen
 // whose shape a test does not fix, such as the plain reply of a refusal, which always has its one Cancel).
@@ -110,12 +117,16 @@ func settingsMsgScreens(t *testing.T, view settingsView, notices []string) map[s
 	stored["every private copy on"] = settingsMsgEveryPMOn(t)
 	for i, notice := range notices {
 		for name, msgs := range stored {
-			add(fmt.Sprintf("hub %s notice %d", name, i), renderSettingsMsgHub(view, msgs, notice), "[1 1 1 2]")
+			add(fmt.Sprintf("hub %s notice %d", name, i), renderSettingsMsgHub(view, msgs, notice), "[2 1 1 2]")
 			for _, fam := range settingsMsgFamilies {
 				if len(fam.Events) == 0 {
 					continue
 				}
-				add(fmt.Sprintf("family %s %s notice %d", fam.Code, name, i), renderSettingsMsgFamily(view, fam, msgs, notice), "[2 2 2 1 2]")
+				widths, ok := settingsMsgFamilyWidths[fam.Code]
+				if !ok {
+					t.Fatalf("no expected list widths for the %s family", fam.Code)
+				}
+				add(fmt.Sprintf("family %s %s notice %d", fam.Code, name, i), renderSettingsMsgFamily(view, fam, msgs, notice), widths)
 			}
 		}
 	}
@@ -129,13 +140,18 @@ func settingsMsgScreens(t *testing.T, view settingsView, notices []string) map[s
 			if !ok {
 				t.Fatalf("no private copy definition for the %s event", ev.Key)
 			}
+			// The event screen has the private copy row only for an event with a private copy spec (Phase 22, D-22).
+			emptyEvent, fullEvent := "[1 1 1 1 1 2]", "[2 2 2 2 2 1 2]"
+			if _, spec := eventPMSpecFor(ev.Key); spec {
+				emptyEvent, fullEvent = "[1 1 1 1 1 1 2]", "[2 2 2 2 2 1 1 2]"
+			}
 			for i, notice := range notices {
 				opts := settingsEditScreenOpts{Notice: notice, BotUsername: "FukuTestBot"}
-				add(fmt.Sprintf("event %s empty notice %d", ev.Code, i), renderSettingsMsgEvent(view, fam, ev, def, settingsMsgEmptyState(), opts), "[1 1 1 1 1 1 2]")
+				add(fmt.Sprintf("event %s empty notice %d", ev.Code, i), renderSettingsMsgEvent(view, fam, ev, def, settingsMsgEmptyState(), opts), emptyEvent)
 				add(fmt.Sprintf("pm %s empty notice %d", ev.Code, i), renderSettingsMsgPM(view, fam, ev, pmDef, settingsMsgPMOffState(), opts), "[1 1 1 1 1 2]")
 				for kind, mediaType := range map[string]int{"photo": db.PHOTO, "sticker": db.STICKER} {
 					add(fmt.Sprintf("event %s full %s notice %d", ev.Code, kind, i),
-						renderSettingsMsgEvent(view, fam, ev, def, settingsMsgFullState(mediaType), opts), "[2 2 2 2 2 1 1 2]")
+						renderSettingsMsgEvent(view, fam, ev, def, settingsMsgFullState(mediaType), opts), fullEvent)
 					add(fmt.Sprintf("pm %s full %s notice %d", ev.Code, kind, i),
 						renderSettingsMsgPM(view, fam, ev, pmDef, settingsMsgFullState(mediaType), opts), "[2 2 2 2 2 1 2]")
 				}
@@ -143,7 +159,7 @@ func settingsMsgScreens(t *testing.T, view settingsView, notices []string) map[s
 				// stored and its switch on (Silent false), the state a copy that is sent is drawn in.
 				pmOn := settingsMsgFullState(db.PHOTO)
 				pmOn.PMOn = true
-				add(fmt.Sprintf("event %s full pm on notice %d", ev.Code, i), renderSettingsMsgEvent(view, fam, ev, def, pmOn, opts), "[2 2 2 2 2 1 1 2]")
+				add(fmt.Sprintf("event %s full pm on notice %d", ev.Code, i), renderSettingsMsgEvent(view, fam, ev, def, pmOn, opts), fullEvent)
 				pmSent := settingsMsgFullState(db.PHOTO)
 				pmSent.Silent = false
 				add(fmt.Sprintf("pm %s full switch on notice %d", ev.Code, i), renderSettingsMsgPM(view, fam, ev, pmDef, pmSent, opts), "[2 2 2 2 2 1 2]")
@@ -229,10 +245,22 @@ func TestSettingsMessagesCallbackBytes(t *testing.T) {
 			sizes[fields["a"]] = max(sizes[fields["a"]], len(button.CallbackData))
 		}
 	}
-	// Every event screen has exactly one button carrying d: its private copy row (every manual event has a spec).
+	// Every event screen of an event with a private copy spec has exactly one button carrying d, its private copy row
+	// (every manual event has a spec); the screen of an event with no spec yet has none.
 	for name := range screensOf {
-		if strings.HasPrefix(name, "event ") && pmRows[name] != 1 {
-			t.Errorf("%s has %d buttons carrying d, want the one private copy row", name, pmRows[name])
+		if !strings.HasPrefix(name, "event ") {
+			continue
+		}
+		_, ev, ok := settingsMsgEventByCode(strings.Fields(name)[1])
+		if !ok {
+			t.Fatalf("%s names no event of the page", name)
+		}
+		want := 0
+		if _, spec := eventPMSpecFor(ev.Key); spec {
+			want = 1
+		}
+		if pmRows[name] != want {
+			t.Errorf("%s has %d buttons carrying d, want %d (the private copy row of an event with a spec)", name, pmRows[name], want)
 		}
 	}
 	for code, want := range map[string]int{

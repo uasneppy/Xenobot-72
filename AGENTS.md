@@ -1600,36 +1600,45 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   twenty cells (`... d|t / u|z / o|y`), still twelve rows for the owner. `TestChatClock*`, `TestApplyTimezone`,
   `TestSettingsTimezone*`, `TestSettingsParityTimezone`, `TestSettingsAuthorityParityTimezone` and `TestDefaultTimezone` hold it.
 - The Messages page (`settings_messages.go`, page `h`, `Order` 74, icon 📨, `settings_page_msgs`, right after Reactions; Phase 21, plan
-  21-06, D-18, D-19) lists a group's custom event messages, the texts the bot posts in the group when someone is punished. It is
+  21-06, D-18, D-19) lists a group's custom event messages, the texts the bot posts in the group when someone is warned or punished. It is
   `PrivateOnly` with `PrivateNoteKey` `settings_msg_group_note` (a group menu's Main line reads `In private`, and opening the page draws
   that note with the Open in private row, Back and Close, with no page code and no read) and `Hidden` in a Staff Group
   (`settingsMsgHidden`: a definite Staff Group row read fresh through the page's own seam `settingsMsgStaffLookup`, never the Deletion page's `deletionStaffLookup`, whose reads `TestSettingsDeletionHidden` counts; an unreadable row shows the page), because
   nothing is set at Staff Group level (D-01). It is drawn from one table, `settingsMsgFamilies` (`settingsMsgFamily{Code, Icon, NameKey,
   IntroKey, WaitTextKey, HintKey, Events}`, a variable only so a test can draw more families), whose events are `settingsMsgEvent{Key, Code, Icon, NameKey,
-  DescKey, ReservedButtons, Default, Timed}` (`Default` the send site's own `eventDefaultReply` builder, `Timed` true for the events whose
-  preview fills `{duration}` and `{until}`); only the manual family (`m`, 🔨, Admin actions) has events now, `settingsMsgManualEvents`: ban
+  DescKey, ReservedButtons, Default, Timed, Sample}` (`Default` the send site's own `eventDefaultReply` builder, `Timed` true for the events whose
+  preview fills `{duration}` and `{until}`, `Sample` a `settingsMsgSample{Count, Limit int; Action, ReasonKey string}` of the values a preview
+  of an automatic event fills in, zero for a manual event). Two families have events: the manual family (`m`, 🔨, Admin actions),
+  `settingsMsgManualEvents`: ban
   `bn` 🚫 (reserved 1, the Unban row, `banDefaultReply`), tban `tb` ⏳ (`tbanDefaultReply`, timed), kick `kk` 👢 (`kickDefaultReply`), mute
   `mu` 🔇 (reserved 1, the Unmute row, `muteDefaultReply`), tmute `tm` 🔕 (`tmuteDefaultReply`, timed), unban `ub` 🔓 (`unbanDefaultReply`),
-  unmute `um` 🔊 (`unmuteDefaultReply`). A family with no events is not drawn anywhere and no renderer branches on a family's or an event's code. Screens: the hub
+  unmute `um` 🔊 (`unmuteDefaultReply`); and the Automatic family (`a`, 🤖, `settings_msg_fam_auto` Automatic actions, intro
+  `settings_msg_fam_auto_intro`, prompt `settings_msg_wait_text_auto`, hint `settings_msg_hint_auto`; Phase 23 plan 23-03, D-24), drawn after
+  it, `settingsMsgAutoEvents`: warn `wn` 🚩 (reserved 1, the Remove warn row, `warnDefaultReply`, sample 1 of 3, action warn), warn limit
+  `wl` ⛔ (`warnLimitDefaultReply`, sample 3 of 3, mute), flood `fl` 🌊 (reserved 1, the admin row, `floodDefaultReply`, sample 6 messages of 5,
+  mute, reason `eventmsg_reason_flood`), blacklist `bl` 🔤 (`blacklistNoticeDefaultReply`, mute) and forward blocklist `fb` 🚷
+  (`blacklistNoticeDefaultReply`, mute, reason `staff_fwdblock_reason`), none timed, each with the name and description keys
+  `settings_msg_ev_<event>` and `settings_msg_desc_<event>`, and no new action code, field or right (the family reuses `hl he hs hr hc hv hf
+  hq hp ho` with its own `t` and `k` values). A family with no events is not drawn anywhere and no renderer branches on a family's or an event's code. Screens: the hub
   (`a=op&p=h`: the intro, then for each family a blank line, its icon and bold name and one `settings_main_state_line` per event with
   its state word, followed by the code-side mark ` · 📩` (`settingsMsgPMSuffix`, an icon and no words) while the event's private copy is on
   (`settingsMsgPMOn`: a spec and `msgs.Resolve(event, eventmsg.DestPM).Silent` false, Phase 22 plan 22-05, D-24), then, while some event
   has a private copy spec (`settingsMsgAnyPM`), the private copies block (Phase 22 plan 22-06, D-24): a blank line, `📩 <b>`
   `settings_msg_pm_title` `</b>`, one line per option of `settingsMsgPMOptions` with its state word (`settings_msg_line_pm_details`,
   `settings_msg_line_pm_log`), a blank line, `settings_msg_hint_pm_options` and `settings_msg_hint_pm_log` (plan 22-07); one cell per family,
-  two to a row, then one full-width toggle per option, then Back to Main and Close, rows `[1 1 1 2]`), a family's list (`a=hl&t=<family>`: its intro, the event lines (with the same mark) and
+  two to a row, then one full-width toggle per option, then Back to Main and Close, rows `[2 1 1 2]` with the two families), a family's list (`a=hl&t=<family>`: its intro, the event lines (with the same mark) and
   `settings_msg_list_hint`; one cell per event, two to a row, then Back to the hub and Close, rows
-  `[2 2 2 1 2]`) and an event's screen (`a=he&k=<code>`: the event's icon and bold name, its description, then the editor's part lines
+  `[2 2 2 1 2]` for the manual family and `[2 2 1 2]` for the Automatic one) and an event's screen (`a=he&k=<code>`: the event's icon and bold name, its description, then the editor's part lines
   `settings_edit_line_text`, `_media` and `_buttons` with `settingsEditStateWord`, the no-caption note for a sticker or a video
   note, then `settings_msg_line_silent` with `settingsStateWord`, for an event with a private copy spec (`eventPMSpecFor`) the private copy
   line `settings_msg_line_pm` (`settingsStateWord` of `settingsEditState.PMOn`, Phase 22) and, after a blank line each, the family's hint
-  (`settings_msg_hint_manual`) and `settings_msg_hint_silent`; the keyboard opens with the editor's part rows (`settingsEditPartRows`: `[Set]` while a part is not set,
+  (`settings_msg_hint_manual` or `settings_msg_hint_auto`) and `settings_msg_hint_silent`; the keyboard opens with the editor's part rows (`settingsEditPartRows`: `[Set]` while a part is not set,
   `[Set | Remove]` while it is, text, media and buttons in that order, each button carrying `k`), then the editor's preview rows
   (`settingsEditPreviewRows`: Preview of each part that is set, then Full preview, always last, two to a row), then the full-width
   Silent toggle `settings_btn_msg_silent` with `settingsStateIcon`, then, for an event with a private copy spec, the full-width row
   `settings_btn_msg_pm_open` that opens the private copy's screen (`a=he&k=<code>&d=p`, Phase 22), then Back to the family and Close:
   seven rows with nothing stored (`[1 1 1 1 1 1 2]`) and at most eight, `[2 2 2 2 2 1 1 2]` with every part set, the private content-page
-  budget). An event's state (`settingsMsgStateOf`) is Silent when its Silent switch is on, Custom when it
+  budget; an event with no private copy spec has no private copy row, `[1 1 1 1 1 2]` and `[2 2 2 2 2 1 2]`). An event's state (`settingsMsgStateOf`) is Silent when its Silent switch is on, Custom when it
   has a text, a media or a button, else Default (no row, or a row with nothing left, reads as the send path reads it); Main reads
   `settings_state_default` when every event is Default with its private copy off and `settings_state_msg_n` (`{n} custom`) for the n events
   whose group message is not Default or whose private copy is on, each event counted once (`settingsMsgCountChanged`, plan 22-05, D-24;
@@ -1655,7 +1664,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settingsRightChangeInfo`, Cancel only `settingsRightAdmin`. Set writes the owner's one wait (page `h` + code + `g`, part `x`, `m` or
   `b`) and edits the message into the part's prompt: the text part's is the family's (`settings_msg_wait_text_manual`, which lists the
   Welcome placeholders the event fills for the punished member and the group, the event's `{admin}`, `{reason}`, `{duration}` and `{until}`,
-  and says the default's reason line is not added to a custom text, D-11) with "Up to" 4096, or 1024 while a media is stored; media and
+  and says the default's reason line is not added to a custom text, D-11; the Automatic family's `settings_msg_wait_text_auto` lists `{admin}`,
+  `{reason}`, `{action}`, `{count}` and `{limit}` and says the bot adds the Remove warn button itself) with "Up to" 4096, or 1024 while a media is stored; media and
   buttons show the editor's own prompts. Cancel ends that wait as on Welcome. Remove clears its part at once with no card through the part's
   apply function (an empty text, no file and type 0, or no buttons); a row with nothing left and Silent off reads Default and the send path
   sends today's reply. The typed reply runs the editor branch of the typed-reply door (no new door, D-23): `authorize(def.EditRight)` (the
@@ -1682,12 +1692,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settings_msg_preview_header` in the presser's language, then the `Preview` hook, and answers as on Welcome (empty in a private menu, a
   403 `settings_edit_preview_need_start`, any other failure `settings_edit_preview_failed`). Full preview is built by
   `composeEventMessage`, the send path's own composer, from the screen's stored parts and `settingsMsgPreviewReply`: the presser is the
-  punished member and the admin (`{admin}` their full name, never "an admin"), the reason is `settings_msg_sample_reason` and, for
+  punished member and the admin (`{admin}` their full name, never "an admin"), the reason is `settings_msg_sample_reason` (or the event's own
+  fixed reason, `Sample.ReasonKey`: the flood's and the forward blocklist's) and, for
   `/tban` and `/tmute` (`Timed`), the duration is `settingsMsgSampleDuration` (`2 hours`, the untranslated form a timed reply shows) and
-  `{until}` `settingsMsgSampleSpan` (2 h) from now in the chat's zone, the default text is the event's own `Default` builder, all in the
+  `{until}` `settingsMsgSampleSpan` (2 h) from now in the chat's zone; an automatic event also fills its sample `{count}` and `{limit}` and
+  `{action}` (`eventActionWord` of `Sample.Action`), and its default input carries the same count and limit, the mode word and the reason as
+  the one stored reason, with no `Rows`, so a preview's default has no keyboard (D-27); the default text is the event's own `Default` builder, all in the
   group's language (`lang.GetGroupLanguage`), and it is sent by `media.SendGreetingMessage` to `query.From.Id` only, with no reply target
-  and no topic. The reply carries no options, so no bot action button is composed (the Unban and Unmute buttons are live callbacks that
-  must never reach a private chat: the one stated difference from the group's message), and an unmute preview has no lockdown note.
+  and no topic. The reply carries no options, so no bot action button is composed (the Unban, Unmute and Remove warn buttons and the flood's
+  admin row are live callbacks that must never reach a private chat: the one stated difference from the group's message), and an unmute preview has no lockdown note.
   Preview text is the stored text filled the same way (`renderEventText`) with no keyboard; Preview media and Preview buttons are the
   editor's own (`settingsEditPreviewMediaAlone`, `settingsEditPreviewButtonsAlone` with the stored buttons alone). A preview ignores Silent
   (it shows the message the event would post), never posts in the group, writes no row, queues no deletion and makes no wait; a `{rules}`
@@ -1718,8 +1731,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   private copy row 42, Set, Remove and Cancel 42 (46 with `d=p`), Preview 42 (46 with `d=p`) and Silent 42, the private copy switch 42, the
   hub's option toggle `ho` 41, Full preview 38 (42 with `d=p`), Back to Main and Close 33, Main's cell 37 private and 33 group, with no field outside `a c u p t k d v`, and `d` only `p`, only on the private copy row and on the editor buttons of the private copy's screens, prompts and
   refusals, every one of which carries it (`TestSettingsMessagesCallbackBytes`, plan 22-08); every
-  screen fits 3800 UTF-16 units in 8 languages with a 64-rune title, cells 20 code points, in the rows hub `[1 1 1 2]`, family list
-  `[2 2 2 1 2]`, event screen `[1 1 1 1 1 1 2]` empty and `[2 2 2 2 2 1 1 2]` full, private copy screen `[1 1 1 1 1 2]` empty and
+  screen fits 3800 UTF-16 units in 8 languages with a 64-rune title, cells 20 code points, in the rows hub `[2 1 1 2]`, family list
+  `[2 2 2 1 2]` (manual) and `[2 2 1 2]` (Automatic), event screen `[1 1 1 1 1 1 2]` empty and `[2 2 2 2 2 1 1 2]` full (`[1 1 1 1 1 2]` and
+  `[2 2 2 2 2 1 2]` for an event with no private copy spec, whose screen carries no `d`), private copy screen `[1 1 1 1 1 2]` empty and
   `[2 2 2 2 2 1 2]` full, group note `[1 2]` (`[2]` without a bot username)
   (`TestSettingsMessagesPageFitsEveryLocale`, over `settingsMsgScreens` in `settings_messages_screens_test.go`, which also draws the hub with
   every private copy on, the event screen whose private copy line reads On and the private copy screen with its switch on); every forged press
@@ -1800,7 +1814,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `event_messages:<chat>`, which is in `skipLocal`, so the send path reads the new option at the very next command on every replica.
   The three tests run every case for both option rows from one table (`settingsMsgOptionCases`): `TestSettingsMessagesPMOptions` (the
   block, the toggle and its bytes, a press that writes its own option and no other and a second press with what the send path's cached
-  `eventMessagesLookup` reads at once, a failed write, the `[1 1 1 2]` rows), `TestSettingsDriftMessagesPMOptions` (an option stored through
+  `eventMessagesLookup` reads at once, a failed write, the `[2 1 1 2]` rows), `TestSettingsDriftMessagesPMOptions` (an option stored through
   the repository is drawn by the hub; with the option off a blocked copy of `/ban` does nothing for it, and after the hub's drawn toggle is
   pressed the next `/ban`'s blocked copy adds the Details button or posts the `#PM_COPY` line) and `TestSettingsAuthorityMessagesPMOptions` (an administrator without
   `can_change_info` sees the hub and the toggle but the press is the `settings_no_change_info` alert with nothing written, an administrator the

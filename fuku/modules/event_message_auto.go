@@ -48,8 +48,6 @@ var warnLimitKeys = map[string]string{
 // none for a mode the code applies nothing for), then "\n - " and each stored reason, escaped. The
 // options carry an empty keyboard, which Telegram receives as an empty reply_markup; the site adds the
 // reply to the triggering message. It returns today's request byte for byte.
-//
-//nolint:unused // first production caller arrives in plan 23-03
 func warnLimitDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
 	var text string
 	if key, ok := warnLimitKeys[in.Action]; ok {
@@ -80,8 +78,6 @@ var floodWords = map[string]string{
 // an inert action). The keyboard is the bot's rows the site computed (the Unmute row of a mute, the
 // Unban row of a banned sender chat, none otherwise), sent by value; the site adds the topic. It
 // returns today's request byte for byte.
-//
-//nolint:unused // first production caller arrives in plan 23-03
 func floodDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
 	temp, _ := tr.GetString("antiflood_checkflood_perform_action")
 	name := formatting.GetFullName(in.Target.FirstName, in.Target.LastName)
@@ -105,8 +101,6 @@ var blacklistNoticeKeys = map[string]string{
 // title) and in.Reason spliced as today, unescaped (the blacklist's filled reason, or the forward
 // blocklist's staff_fwdblock_reason). The options are formatting.Shtml(). An action with no notice has
 // no text. It returns today's request byte for byte.
-//
-//nolint:unused // first production caller arrives in plan 23-03
 func blacklistNoticeDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
 	key, ok := blacklistNoticeKeys[in.Action]
 	if !ok {

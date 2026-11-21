@@ -74,11 +74,23 @@ const (
 	settingsMsgSampleSpan = 2 * time.Hour
 )
 
+// settingsMsgSample is the sample values a preview of an automatic event fills in (D-27): the warn or message
+// count, the limit, the action's mode word (warn, mute, kick or ban; the preview fills {action} with its translated
+// word and hands the mode word to the default builder) and the locale key of the event's own fixed reason (empty
+// means the sample reason). A manual event has the zero value, so its previews fill none of them.
+type settingsMsgSample struct {
+	Count     int
+	Limit     int
+	Action    string
+	ReasonKey string
+}
+
 // settingsMsgEvent is one event of a family: the eventmsg event it edits, its two-letter code (the k
 // value), its icon, its name and description keys, the buttons the bot itself adds to its message (the
-// Unban or Unmute row), counted against Telegram's keyboard limit, the send site's own default reply
-// builder (which a preview fills in) and whether the event is timed (its preview fills {duration} and
-// {until}).
+// Unban or Unmute row, the warn's Remove warn row, the flood's admin row), counted against Telegram's
+// keyboard limit, the send site's own default reply builder (which a preview fills in), whether the event
+// is timed (its preview fills {duration} and {until}) and the sample values a preview of an automatic event
+// fills in.
 type settingsMsgEvent struct {
 	Key             string
 	Code            string
@@ -88,6 +100,7 @@ type settingsMsgEvent struct {
 	ReservedButtons int
 	Default         eventDefaultReply
 	Timed           bool
+	Sample          settingsMsgSample
 }
 
 // settingsMsgFamily is one family of events (D-19): its code (the t value of hl), icon, name, the intro of
@@ -135,13 +148,46 @@ var settingsMsgManualEvents = []settingsMsgEvent{
 	},
 }
 
-// settingsMsgFamilies are the families of the hub in page order. Only the manual family has events now;
-// later phases add the automatic, lockdown and requirement families. It is a variable only so a test can
-// draw more families; production code never reassigns it.
+// settingsMsgAutoEvents are the Automatic family's events (Phase 23, D-24), each with the icon of its settings page:
+// the warn, the warn limit, the flood notice, the blacklist notice and the forward blocklist notice. The warn keeps its
+// Remove warn row and the flood its admin row on a custom message, so each reserves one button; none is timed. The
+// samples are the values a preview fills in (D-27): warn 1 of 3, warn limit 3 of 3 with mute, flood 6 messages of 5
+// with mute and the flood reason, blacklist and forward blocklist mute, the forward blocklist with its own reason.
+var settingsMsgAutoEvents = []settingsMsgEvent{
+	{
+		Key: eventmsg.EventWarn, Code: "wn", Icon: "🚩", NameKey: "settings_msg_ev_warn", DescKey: "settings_msg_desc_warn",
+		ReservedButtons: 1, Default: warnDefaultReply, Sample: settingsMsgSample{Count: 1, Limit: 3, Action: "warn"},
+	},
+	{
+		Key: eventmsg.EventWarnLimit, Code: "wl", Icon: "⛔", NameKey: "settings_msg_ev_warnlimit", DescKey: "settings_msg_desc_warnlimit",
+		Default: warnLimitDefaultReply, Sample: settingsMsgSample{Count: 3, Limit: 3, Action: "mute"},
+	},
+	{
+		Key: eventmsg.EventFlood, Code: "fl", Icon: "🌊", NameKey: "settings_msg_ev_flood", DescKey: "settings_msg_desc_flood",
+		ReservedButtons: 1, Default: floodDefaultReply,
+		Sample: settingsMsgSample{Count: 6, Limit: 5, Action: "mute", ReasonKey: "eventmsg_reason_flood"},
+	},
+	{
+		Key: eventmsg.EventBlacklist, Code: "bl", Icon: "🔤", NameKey: "settings_msg_ev_blacklist", DescKey: "settings_msg_desc_blacklist",
+		Default: blacklistNoticeDefaultReply, Sample: settingsMsgSample{Action: "mute"},
+	},
+	{
+		Key: eventmsg.EventForwardBlock, Code: "fb", Icon: "🚷", NameKey: "settings_msg_ev_fwdblock", DescKey: "settings_msg_desc_fwdblock",
+		Default: blacklistNoticeDefaultReply, Sample: settingsMsgSample{Action: "mute", ReasonKey: "staff_fwdblock_reason"},
+	},
+}
+
+// settingsMsgFamilies are the families of the hub in page order: the manual family, then the Automatic family
+// (Phase 23); later phases add events to the Automatic family and the lockdown and requirement families. It is a
+// variable only so a test can draw more families; production code never reassigns it.
 var settingsMsgFamilies = []settingsMsgFamily{
 	{
 		Code: "m", Icon: "🔨", NameKey: "settings_msg_fam_manual", IntroKey: "settings_msg_fam_manual_intro",
 		WaitTextKey: "settings_msg_wait_text_manual", HintKey: "settings_msg_hint_manual", Events: settingsMsgManualEvents,
+	},
+	{
+		Code: "a", Icon: "🤖", NameKey: "settings_msg_fam_auto", IntroKey: "settings_msg_fam_auto_intro",
+		WaitTextKey: "settings_msg_wait_text_auto", HintKey: "settings_msg_hint_auto", Events: settingsMsgAutoEvents,
 	},
 }
 
@@ -743,18 +789,30 @@ func settingsMsgWrite(ev settingsMsgEvent, dest string) func(context.Context, in
 	}
 }
 
-// settingsMsgPreviewReply is the reply a preview of ev builds, as the send site builds it for a real command:
-// the presser is the punished member, the reason is the sample reason in the group's language and, for a timed
-// event, the duration is settingsMsgSampleDuration and the end settingsMsgSampleSpan from now; the default text
-// is the event's own builder in the group's language. The reply carries no options, so composeEventMessage adds
-// no bot row: the Unban and Unmute buttons are live callbacks that must never reach a private chat.
+// settingsMsgPreviewReply is the reply a preview of ev builds, as the send site builds it for a real event:
+// the presser is the punished member, the reason is the sample reason in the group's language (or the event's
+// own fixed reason, Sample.ReasonKey) and, for a timed event, the duration is settingsMsgSampleDuration and the
+// end settingsMsgSampleSpan from now; an automatic event also fills its sample count, limit and action (the
+// translated word in {action}, the mode word and the reason as the one stored reason for the default builder).
+// The default text is the event's own builder in the group's language, with no bot rows. The reply carries no
+// options, so composeEventMessage adds no bot row: the Unban, Unmute and Remove warn buttons are live callbacks
+// that must never reach a private chat (D-27).
 func settingsMsgPreviewReply(p *settingsPress, groupTr *i18n.Translator, ev settingsMsgEvent) eventReply {
 	target := p.query.From
 	values := eventValues{Reason: settingsText(groupTr, "settings_msg_sample_reason")}
+	sample := ev.Sample
+	if sample.ReasonKey != "" {
+		values.Reason = settingsText(groupTr, sample.ReasonKey)
+	}
 	if ev.Timed {
 		values.Duration, values.Until = settingsMsgSampleDuration, time.Now().Add(settingsMsgSampleSpan)
 	}
-	text, _ := ev.Default(groupTr, eventDefaultInput{Target: target, Reason: values.Reason, TimeVal: values.Duration})
+	in := eventDefaultInput{Target: target, Reason: values.Reason, TimeVal: values.Duration}
+	if sample != (settingsMsgSample{}) {
+		values.Count, values.Limit, values.Action = sample.Count, sample.Limit, eventActionWord(groupTr, sample.Action)
+		in.Count, in.Limit, in.Action, in.Reasons = sample.Count, sample.Limit, sample.Action, []string{values.Reason}
+	}
+	text, _ := ev.Default(groupTr, in)
 	return eventReply{Event: ev.Key, Target: target, Values: values, Default: text}
 }
 
@@ -871,8 +929,8 @@ func settingsMsgEventLines(tr *i18n.Translator, fam settingsMsgFamily, msgs *eve
 // (D-24): a blank line, the bold private copy title with its icon, one line per option of settingsMsgPMOptions with
 // its state word, a blank line and the options hints (the Details button's, then the log line's). The keyboard is one
 // cell per family with events, two to a row, then one full-width toggle per option (the state icon, sending the
-// opposite of the stored value as an absolute target, a=ho), then Back (Main) and Close: [1 1 1 2] with the one family
-// and the two options. It is pure.
+// opposite of the stored value as an absolute target, a=ho), then Back (Main) and Close: [2 1 1 2] with the manual and
+// Automatic families and the two options. It is pure.
 func renderSettingsMsgHub(v settingsView, msgs *eventmsg.Messages, notice string) settingsScreen {
 	tr := v.Tr
 	body := []string{settingsText(tr, "settings_msg_intro")}
