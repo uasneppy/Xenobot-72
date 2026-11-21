@@ -58,7 +58,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 20: Conversations** - 8/8 plans, shipped in v2.26.0 (the bot answers members in groups through Anthropic or Google; its brief is `.planning/research/xenobot-chat/PLAN.md` and its phase folder `phases/20-conversations/`)
 - [ ] **Phase 21: Message Engine, Messages Page and Manual Punishments** - 11/11 plans, verified, awaiting live checks. Storage, one renderer with default fallback, goldens of today's replies, a private Messages page on the editor, and custom messages for ban, kick, mute, unban and unmute
 - [ ] **Phase 22: PM Copies** - 9/9 plans, verified, awaiting live checks. An optional private copy to the punished person on its own pacing, with a Details button fallback and a log line
-- [ ] **Phase 23: Warn, Flood, Blacklist and Forward Blocklist Messages** - Custom messages for warn, warn limit and the three automatic actions
+- [ ] **Phase 23: Warn, Flood, Blacklist and Forward Blocklist Messages** - 7/7 plans, verified, awaiting live checks. Custom messages for warn, warn limit and the three automatic actions
 - [ ] **Phase 24: Captcha, AI Spam and Member Requirement Notices** - Custom messages for a failed captcha and requirement notices, and a new rate-limited AI spam notice
 - [ ] **Phase 25: Lockdown Messages** - Custom messages for a manual lockdown, each automatic trigger and the lift, with every alert and raid-scale path unchanged
 - [ ] **Phase 26: Timed Punishments, Escalation and Warn Expiry** - Working timed bans and mutes for warn limit, blacklist and flood, an escalation ladder, and expiring warns
@@ -173,7 +173,7 @@ Plans:
   3. A flood, blacklist or forward blocklist punishment posts its custom message with `{action}` and `{reason}`. The forward blocklist message names neither the blocked source nor the Staff Group.
   4. A group with nothing stored gets today's text for all five, byte for byte. A refused custom message falls back to the default. The message is deleted on the same timer as the default, and the punishment is never delayed.
   5. PM copies for these events follow Phase 22's rules, including the per-group cap. A flood of offenders produces at most the capped number of PM copies a minute, and every punishment still happens.
-**Plans**: 7 plans
+**Plans**: 7 plans (all done, verified 2026-11-21 with no code gaps; awaiting the owner's live checks in `23-VERIFICATION.md`)
 Plans:
 - [ ] 23-01-PLAN.md — goldens of the warn, warn limit, flood, blacklist and forward blocklist sends, committed alone (wave 1)
 - [ ] 23-02-PLAN.md — tracer: the generic event engine and the warn message end to end; event keys, action words, default builders (wave 2)
