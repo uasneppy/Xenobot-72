@@ -5851,6 +5851,27 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   nothing stored: the member is muted once, the group notice, the Details edit and record and the `#PM_COPY` post exist, and no send
   or edit, the Details record read from Redis or any log line names either title or either chat ID. `TestEventPMTextsFitEveryLocale`
   already fills count 100, limit 100 and the longest action word for every spec since plan 23-05.
+  `TestAutoMessagesEndToEnd` (`auto_messages_e2e_test.go`, plan 23-07, about 6 s) is the phase's end-to-end proof through the real
+  dispatcher with only Telegram faked, one environment per subtest on the toolkit `autoMessagesE2E` (`newAutoMessagesE2E(t, real)`:
+  Phase 22's `pmCopiesE2E` with `LoadWarns` and `LoadBlacklists` added (the settings environment already loads Antiflood), a 900 s
+  `bot:punish_auto` timer beside the 600 s manual one, and the chat's blacklist and antiflood state removed; `autoMember` (a member named
+  first and Lee with no username, the goldens' shape), `openAuto` and `openAutoPM` (Main, Messages, Automatic actions, the event's cell and
+  its private copy screen, each a press of the drawn button), `setAutoPart`, `setAutoText`, `setAutoButton`, `switchAutoPM`, `memberSays`,
+  `wantQueuedAs`, `wantPunishedFirst`, `flood`, `warnLimit`). The messages are set only on the page; the warn limit, antiflood and the
+  blacklist word through their repositories. Subtests: `owner sets a warn message` (a typed text and a link button; the hub reads Custom;
+  `/warn spam & co` posts the filled, escaped text with the custom row then the Remove warn row, queued under `bot:punish_manual`, and the
+  admin's tap on the kept Remove warn removes the warn), `blacklist warn and warn limit` (the word on warn, the limit 2 on ban: the first
+  word posts the custom warn with "an admin" under `bot:punish_auto`, the second bans first and then posts the custom warn limit with the
+  ban word and 2/2), `flood` (limit 3 on mute with the burst deleted: four messages deleted, one mute, then the custom message with the
+  Unmute row first, the mute word, 4/3 and the flood reason), `blacklist mute` (the message deleted, the member muted, the escaped reason),
+  `forward blocklist` (on `newFwdWatchEnv`, stored through the repository: a real forward mutes once, the group text and the delivered
+  private copy fill every placeholder and name neither the source nor the Staff Group), `nothing stored` (real locales: `/warn`, a
+  blacklist mute and a flood mute equal `goldenNoticeWarnReason`, `goldenNoticeBlacklistMute` and `goldenNoticeFloodMute` with the case's
+  IDs put in, each queued under its kind), `refused` (real locales: a custom flood photo refused with a 400 comes after the mute and is
+  followed by the golden default once), `silent` (the warn's Silent and its private copy switched on from the page: `/warn` stores the
+  warn, posts nothing and the member still receives the copy) and `pm copies and the cap` (the blacklist's and the warn's copies switched
+  on from their private copy screens, the cap at 2 in a stopped minute: four offenders are muted with a notice each, exactly two copies
+  are sent, and a `/warn` in the same minute still sends its copy).
 
 ## Commits
 
