@@ -13,6 +13,7 @@ import (
 
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/db/modtuning"
+	"github.com/uasneppy/fuku_robot/fuku/utils/content"
 )
 
 // modTuningOutcome is the typed outcome of a manual command tuning apply helper.
@@ -73,10 +74,12 @@ var modTuningWrites = struct {
 	SetDefaultBanSecs  func(ctx context.Context, chatID int64, secs int, by int64) error
 	SetDefaultMuteSecs func(ctx context.Context, chatID int64, secs int, by int64) error
 	SetReasonRequired  func(ctx context.Context, chatID int64, on bool, by int64) error
+	SetAppealURL       func(ctx context.Context, chatID int64, rawURL string, by int64) error
 }{
 	SetDefaultBanSecs:  modtuning.SetDefaultBanSecs,
 	SetDefaultMuteSecs: modtuning.SetDefaultMuteSecs,
 	SetReasonRequired:  modtuning.SetReasonRequired,
+	SetAppealURL:       modtuning.SetAppealURL,
 }
 
 // reasonShortcutWrites holds the shortcut repository operations; swapped by tests to stage failures.
@@ -125,6 +128,58 @@ func applyReasonRequired(ctx context.Context, chatID int64, on bool, by int64) m
 		return modTuningFailed
 	}
 	return modTuningSaved
+}
+
+// validateAppealURL validates a group's appeal button URL (TUNE-06). Empty string clears the link;
+// whitespace-only non-empty strings are rejected; non-empty values are trimmed and must be at most
+// models.ManualAppealURLMaxRunes (2048) runes, contain no internal whitespace, and pass
+// content.ValidButtonURL (strict http/https scheme with a non-empty host).
+func validateAppealURL(raw string) (string, bool) {
+	if raw == "" {
+		return "", true
+	}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", false
+	}
+	if utf8.RuneCountInString(trimmed) > models.ManualAppealURLMaxRunes {
+		return "", false
+	}
+	if strings.IndexFunc(trimmed, unicode.IsSpace) >= 0 {
+		return "", false
+	}
+	if !content.ValidButtonURL(trimmed) {
+		return "", false
+	}
+	return trimmed, true
+}
+
+// applyAppealURL validates and stores a group's appeal link (empty clears it). Logs IDs only,
+// never the URL or raw error text (T-27-11).
+func applyAppealURL(ctx context.Context, chatID int64, raw string, by int64) modTuningOutcome {
+	cleaned, ok := validateAppealURL(raw)
+	if !ok {
+		return modTuningInvalid
+	}
+	if err := modTuningWrites.SetAppealURL(ctx, chatID, cleaned, by); err != nil {
+		log.Warnf("[ModTuning] appeal URL of chat %d could not be saved (by=%d)", chatID, by)
+		return modTuningFailed
+	}
+	return modTuningSaved
+}
+
+// manualAppealURLFor returns the chat's stored appeal URL if present and still valid under
+// validateAppealURL (defensive re-check on read, T-27-09). Returns "" when unset or invalid.
+func manualAppealURLFor(chatID int64) string {
+	raw := manualDefaultsFor(chatID).AppealURL
+	if raw == "" {
+		return ""
+	}
+	cleaned, ok := validateAppealURL(raw)
+	if !ok {
+		return ""
+	}
+	return cleaned
 }
 
 // manualDefaultsFor loads a chat's manual defaults under a bounded timeout. On error it logs one

@@ -928,6 +928,7 @@ eventmsg_pm_mreqkick: "👢 Has sido expulsado de <b>{group}</b> porque no cumpl
 eventmsg_pm_mreqban: "⛔ Has sido baneado de <b>{group}</b> porque no cumples sus requisitos."
 eventmsg_pm_mreqmute: "🔇 Has sido silenciado en <b>{group}</b> porque no cumples sus requisitos. Corrige lo indicado y pulsa “Ya lo arreglé” bajo mi mensaje en el grupo."
 eventmsg_btn_details: "📩 Detalles"
+eventmsg_btn_appeal: "Apelar"
 eventmsg_pm_details_none: "No hay nada que mostrar aquí."
 eventmsg_pm_log: "📩 La copia privada del mensaje «{event}» no llegó a {user}: {why}."
 eventmsg_pm_why_blocked: "nunca inició un chat conmigo o me bloqueó"

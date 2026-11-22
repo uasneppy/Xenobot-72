@@ -757,6 +757,7 @@ eventmsg_pm_mreqkick: "👢 Вас удалили из группы <b>{group}</
 eventmsg_pm_mreqban: "⛔ Вы забанены в группе <b>{group}</b>, потому что не выполняете её требования."
 eventmsg_pm_mreqmute: "🔇 Вам выдан мут в группе <b>{group}</b>, потому что вы не выполняете её требования. Исправьте указанное и нажмите «Исправлено» под моим сообщением в группе."
 eventmsg_btn_details: "📩 Подробнее"
+eventmsg_btn_appeal: "Обжаловать"
 eventmsg_pm_details_none: "Здесь нечего показать."
 eventmsg_pm_log: "📩 Личная копия сообщения «{event}» не дошла до {user}: {why}."
 eventmsg_pm_why_blocked: "человек не начинал со мной чат или заблокировал меня"

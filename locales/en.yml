@@ -295,6 +295,7 @@ eventmsg_pm_mreqkick: "👢 You were removed from <b>{group}</b> because you do 
 eventmsg_pm_mreqban: "⛔ You were banned from <b>{group}</b> because you do not meet its requirements."
 eventmsg_pm_mreqmute: "🔇 You are muted in <b>{group}</b>: you do not meet its requirements. Fix what is listed, then tap “I fixed it” under my notice in the group."
 eventmsg_btn_details: "📩 Details"
+eventmsg_btn_appeal: "Appeal"
 eventmsg_pm_details_none: "There is nothing to show here."
 eventmsg_pm_log: "📩 The private copy of the \"{event}\" message did not reach {user}: {why}."
 eventmsg_pm_why_blocked: "they have not started a chat with me, or they blocked me"

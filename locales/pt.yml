@@ -910,6 +910,7 @@ eventmsg_pm_mreqkick: "👢 Você foi removido de <b>{group}</b> porque não cum
 eventmsg_pm_mreqban: "⛔ Você foi banido de <b>{group}</b> porque não cumpre os requisitos do grupo."
 eventmsg_pm_mreqmute: "🔇 Você foi silenciado em <b>{group}</b> porque não cumpre os requisitos do grupo. Corrija o que foi listado e toque em “Já corrigi” abaixo da minha mensagem no grupo."
 eventmsg_btn_details: "📩 Detalhes"
+eventmsg_btn_appeal: "Recorrer"
 eventmsg_pm_details_none: "Não há nada para mostrar aqui."
 eventmsg_pm_log: "📩 A cópia privada da mensagem \"{event}\" não chegou a {user}: {why}."
 eventmsg_pm_why_blocked: "a pessoa nunca iniciou uma conversa comigo ou me bloqueou"

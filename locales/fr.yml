@@ -95,6 +95,7 @@ eventmsg_pm_mreqkick: "👢 Vous avez été retiré de <b>{group}</b> car vous n
 eventmsg_pm_mreqban: "⛔ Vous avez été banni de <b>{group}</b> car vous ne respectez pas ses exigences."
 eventmsg_pm_mreqmute: "🔇 Vous avez été rendu muet dans <b>{group}</b> car vous ne respectez pas ses exigences. Corrigez ce qui est indiqué, puis touchez « J'ai corrigé » sous mon message dans le groupe."
 eventmsg_btn_details: "📩 Détails"
+eventmsg_btn_appeal: "Faire appel"
 eventmsg_pm_details_none: "Il n'y a rien à afficher ici."
 eventmsg_pm_log: "📩 La copie privée du message « {event} » n'a pas atteint {user} : {why}."
 eventmsg_pm_why_blocked: "il n'a jamais lancé de discussion avec moi ou m'a bloqué"

@@ -1765,6 +1765,7 @@ eventmsg_pm_mreqkick: "👢 आपको <b>{group}</b> से हटा दि�
 eventmsg_pm_mreqban: "⛔ आपको <b>{group}</b> से बैन कर दिया गया है, क्योंकि आप उसकी शर्तें पूरी नहीं करते।"
 eventmsg_pm_mreqmute: "🔇 आपको <b>{group}</b> में म्यूट कर दिया गया है, क्योंकि आप उसकी शर्तें पूरी नहीं करते। जो सूचीबद्ध है उसे ठीक करें, फिर ग्रुप में मेरे संदेश के नीचे “मैंने ठीक कर लिया” दबाएँ।"
 eventmsg_btn_details: "📩 विवरण"
+eventmsg_btn_appeal: "अपील करें"
 eventmsg_pm_details_none: "यहाँ दिखाने के लिए कुछ नहीं है।"
 eventmsg_pm_log: "📩 \"{event}\" संदेश की निजी कॉपी {user} तक नहीं पहुँची: {why}।"
 eventmsg_pm_why_blocked: "उन्होंने मुझसे कभी चैट शुरू नहीं की या मुझे ब्लॉक कर दिया"

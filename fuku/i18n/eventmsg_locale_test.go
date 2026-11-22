@@ -45,6 +45,7 @@ var eventMsgLocaleLimits = map[string]eventMsgLimit{
 	"eventmsg_pm_mreqban":         {140, 200},
 	"eventmsg_pm_mreqmute":        {140, 200},
 	"eventmsg_btn_details":        {20, 28},
+	"eventmsg_btn_appeal":         {20, 28},
 	"eventmsg_pm_details_none":    {60, 90},
 	"eventmsg_pm_log":             {140, 200},
 	"eventmsg_pm_why_blocked":     {70, 100},

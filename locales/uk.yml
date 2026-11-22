@@ -278,6 +278,7 @@ eventmsg_pm_mreqkick: "👢 Вас вилучено з групи <b>{group}</b>
 eventmsg_pm_mreqban: "⛔ Вас забанено в групі <b>{group}</b>, бо ви не виконуєте її вимог."
 eventmsg_pm_mreqmute: "🔇 Вам видано мут у групі <b>{group}</b>, бо ви не виконуєте її вимог. Виправте вказане і натисніть «Виправлено» під моїм повідомленням у групі."
 eventmsg_btn_details: "📩 Подробиці"
+eventmsg_btn_appeal: "Оскаржити"
 eventmsg_pm_details_none: "Тут немає чого показати."
 eventmsg_pm_log: "📩 Приватна копія повідомлення «{event}» не дійшла до {user}: {why}."
 eventmsg_pm_why_blocked: "людина не починала зі мною чат або заблокувала мене"
