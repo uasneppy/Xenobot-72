@@ -160,6 +160,7 @@ func moderationTmute(m *moduleStruct) *moderationCommand {
 			if manualApplyReasonRequired(c, t.reason, c.manualDefaults()) {
 				return errManualReasonRequired
 			}
+			t.reason = expandManualReason(c.Chat.Id, t.reason)
 			_, err := c.Chat.RestrictMember(c.Bot, t.userID, MutedPermissions,
 				&gotgbot.RestrictChatMemberOpts{UntilDate: _time},
 			)

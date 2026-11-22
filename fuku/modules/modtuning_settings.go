@@ -5,10 +5,13 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/db/modtuning"
 )
 
@@ -21,6 +24,37 @@ const (
 	modTuningFailed
 )
 
+// reasonWordOutcome classifies a normalized reason shortcut word.
+type reasonWordOutcome int
+
+const (
+	reasonWordOK reasonWordOutcome = iota
+	reasonWordBlank
+	reasonWordMultiWord
+	reasonWordLeadingSlash
+	reasonWordTooLong
+)
+
+// reasonShortcutAddOutcome is the typed outcome of applyReasonShortcutAdd.
+type reasonShortcutAddOutcome int
+
+const (
+	reasonShortcutSaved reasonShortcutAddOutcome = iota
+	reasonShortcutExists
+	reasonShortcutCap
+	reasonShortcutInvalid
+	reasonShortcutFailed
+)
+
+// reasonShortcutRemoveOutcome is the typed outcome of applyReasonShortcutRemoveByID.
+type reasonShortcutRemoveOutcome int
+
+const (
+	reasonShortcutRemoved reasonShortcutRemoveOutcome = iota
+	reasonShortcutGone
+	reasonShortcutRemoveFailed
+)
+
 const manualDefaultsReadTimeout = 2 * time.Second
 
 // errManualReasonRequired is returned internally when a manual punishment command is refused for
@@ -29,6 +63,10 @@ var errManualReasonRequired = errors.New("manual punishment reason required")
 
 // manualDefaultsLookup reads a chat's manual defaults; swapped by tests to stage read failures.
 var manualDefaultsLookup = modtuning.GetDefaults
+
+// manualShortcutsLookup reads a chat's reason shortcuts map; swapped by tests to stage read
+// failures or assert zero lookups on empty/multi-word reasons.
+var manualShortcutsLookup = modtuning.GetShortcuts
 
 // modTuningWrites holds the repository write functions; swapped by tests to stage write failures.
 var modTuningWrites = struct {
@@ -39,6 +77,19 @@ var modTuningWrites = struct {
 	SetDefaultBanSecs:  modtuning.SetDefaultBanSecs,
 	SetDefaultMuteSecs: modtuning.SetDefaultMuteSecs,
 	SetReasonRequired:  modtuning.SetReasonRequired,
+}
+
+// reasonShortcutWrites holds the shortcut repository operations; swapped by tests to stage failures.
+var reasonShortcutWrites = struct {
+	CountFresh  func(ctx context.Context, chatID int64) (int, error)
+	ExistsFresh func(ctx context.Context, chatID int64, word string) (bool, error)
+	Add         func(ctx context.Context, chatID int64, word, reason string, by int64) (bool, error)
+	RemoveByID  func(ctx context.Context, chatID, id int64) (string, bool, error)
+}{
+	CountFresh:  modtuning.CountShortcutsFresh,
+	ExistsFresh: modtuning.ExistsShortcutFresh,
+	Add:         modtuning.AddShortcut,
+	RemoveByID:  modtuning.RemoveShortcutByID,
 }
 
 // applyDefaultBanSecs validates and stores a chat's default manual ban duration (0 = permanent, or
@@ -149,4 +200,115 @@ func manualMuteMember(c *moderationCtx, t *target) error {
 	}
 	_, err := c.Chat.RestrictMember(c.Bot, t.userID, MutedPermissions, nil)
 	return err
+}
+
+// normaliseReasonShortcutWord trims Unicode whitespace and lower-cases a shortcut word (TUNE-05,
+// P27-03).
+func normaliseReasonShortcutWord(raw string) string {
+	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+// checkReasonShortcutWord validates an already-normalized reason shortcut word: non-empty, single
+// word with no whitespace, no leading '/', and at most models.ReasonShortcutWordMaxRunes (32) runes.
+func checkReasonShortcutWord(word string) reasonWordOutcome {
+	if word == "" {
+		return reasonWordBlank
+	}
+	if strings.IndexFunc(word, unicode.IsSpace) >= 0 {
+		return reasonWordMultiWord
+	}
+	if strings.HasPrefix(word, "/") {
+		return reasonWordLeadingSlash
+	}
+	if utf8.RuneCountInString(word) > models.ReasonShortcutWordMaxRunes {
+		return reasonWordTooLong
+	}
+	return reasonWordOK
+}
+
+// checkReasonShortcutText trims raw and checks that it is non-empty and at most
+// models.ReasonShortcutTextMaxRunes (500) runes.
+func checkReasonShortcutText(raw string) (trimmed string, ok bool, tooLong bool) {
+	trimmed = strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", false, false
+	}
+	if utf8.RuneCountInString(trimmed) > models.ReasonShortcutTextMaxRunes {
+		return "", false, true
+	}
+	return trimmed, true, false
+}
+
+// applyReasonShortcutAdd validates word and text, checks fresh duplicate and per-chat cap (50), and
+// inserts the shortcut with ON CONFLICT DO NOTHING so an existing word is never overwritten. Logs
+// IDs only, never user text.
+func applyReasonShortcutAdd(ctx context.Context, chatID int64, word, text string, by int64) reasonShortcutAddOutcome {
+	norm := normaliseReasonShortcutWord(word)
+	if checkReasonShortcutWord(norm) != reasonWordOK {
+		return reasonShortcutInvalid
+	}
+	trimmed, ok, _ := checkReasonShortcutText(text)
+	if !ok {
+		return reasonShortcutInvalid
+	}
+	exists, err := reasonShortcutWrites.ExistsFresh(ctx, chatID, norm)
+	if err != nil {
+		log.Warnf("[ModTuning] reason shortcut existence check for chat %d failed (by=%d)", chatID, by)
+		return reasonShortcutFailed
+	}
+	if exists {
+		return reasonShortcutExists
+	}
+	count, err := reasonShortcutWrites.CountFresh(ctx, chatID)
+	if err != nil {
+		log.Warnf("[ModTuning] reason shortcut count for chat %d failed (by=%d)", chatID, by)
+		return reasonShortcutFailed
+	}
+	if count >= models.ReasonShortcutsCapMax {
+		return reasonShortcutCap
+	}
+	added, err := reasonShortcutWrites.Add(ctx, chatID, norm, trimmed, by)
+	if err != nil {
+		log.Warnf("[ModTuning] reason shortcut for chat %d could not be saved (by=%d)", chatID, by)
+		return reasonShortcutFailed
+	}
+	if !added {
+		return reasonShortcutExists
+	}
+	return reasonShortcutSaved
+}
+
+// applyReasonShortcutRemoveByID deletes one reason shortcut scoped to chatID, returning the stored
+// word (for the UI notice) and typed outcome. Logs IDs only, never user text.
+func applyReasonShortcutRemoveByID(ctx context.Context, chatID, id int64) (string, reasonShortcutRemoveOutcome) {
+	word, removed, err := reasonShortcutWrites.RemoveByID(ctx, chatID, id)
+	if err != nil {
+		log.Warnf("[ModTuning] reason shortcut %d of chat %d could not be removed", id, chatID)
+		return "", reasonShortcutRemoveFailed
+	}
+	if !removed {
+		return "", reasonShortcutGone
+	}
+	return word, reasonShortcutRemoved
+}
+
+// expandManualReason expands a single-word manual punishment reason matching a saved shortcut in
+// chatID (case-insensitive) to its stored full plain text. Empty or multi-word reasons return
+// immediately without touching DB or cache. Read errors fail open with one IDs-only Warn.
+func expandManualReason(chatID int64, reason string) string {
+	trimmed := strings.TrimSpace(reason)
+	if trimmed == "" || strings.IndexFunc(trimmed, unicode.IsSpace) >= 0 {
+		return reason
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), manualDefaultsReadTimeout)
+	defer cancel()
+	shortcuts, err := manualShortcutsLookup(ctx, chatID)
+	if err != nil {
+		log.Warnf("[ModTuning] reason shortcuts of chat %d could not be read; failing open", chatID)
+		return reason
+	}
+	if full := shortcuts[strings.ToLower(trimmed)]; full != "" {
+		return full
+	}
+	return reason
 }

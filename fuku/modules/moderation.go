@@ -327,12 +327,14 @@ func (cmd *moderationCommand) run(b *gotgbot.Bot, ctx *ext.Context) error {
 		}
 	}
 
-	// Enforce reason-required before deleting any message or punishing (non-temporal commands;
-	// /tban and /tmute check after duration extraction inside execute; channel /ban is exempt).
+	// Enforce reason-required and expand single-word reason shortcuts before deleting any message
+	// or punishing (non-temporal commands; /tban and /tmute check and expand after duration
+	// extraction inside execute; channel /ban is exempt).
 	if cmd.reasonChecked && !tgt.isChannel {
 		if manualApplyReasonRequired(mc, tgt.reason, mc.manualDefaults()) {
 			return ext.EndGroups
 		}
+		tgt.reason = expandManualReason(mc.Chat.Id, tgt.reason)
 	}
 
 	// Execute the moderation action.

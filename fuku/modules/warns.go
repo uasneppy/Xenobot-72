@@ -613,6 +613,7 @@ func (m moduleStruct) dispatchWarn(b *gotgbot.Bot, ctx *ext.Context, warnType st
 	if manualApplyReasonRequired(mc, reason, mc.manualDefaults()) {
 		return ext.EndGroups
 	}
+	reason = expandManualReason(chat.Id, reason)
 
 	return m.warnThisUser(b, ctx, userId, reason, warnType, warnSourceManual)
 }

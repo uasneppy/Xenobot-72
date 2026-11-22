@@ -115,6 +115,7 @@ func moderationTban(m *moduleStruct) *moderationCommand {
 			if manualApplyReasonRequired(c, t.reason, c.manualDefaults()) {
 				return errManualReasonRequired
 			}
+			t.reason = expandManualReason(c.Chat.Id, t.reason)
 			_, err := c.Chat.BanMember(c.Bot, t.userID, &gotgbot.BanChatMemberOpts{UntilDate: _time})
 			return err
 		},
