@@ -2555,6 +2555,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - `warns_settings.warn_mode` is checked only by `chk_warn_mode` (NULL, empty or one of ban, kick, mute, tban, tmute, NOT VALID)
   since migration 20261116120000 dropped the legacy `chk_warns_mode` of 20250805204145, which refused the empty mode on a
   chain-built PostgreSQL database (quick task 261116-wh3).
+- The durations of the timed automatic punishments (migration 20261122120000, Phase 26) are three columns, each `INTEGER NOT
+  NULL DEFAULT 0` under its inline named CHECK of 0 to 31622400 (366 days): `warns_settings.warn_mode_secs`
+  (`chk_warns_settings_mode_secs`, the warn limit's action), `antiflood_settings.action_secs` (`chk_antiflood_action_secs`) and
+  `blacklists.action_secs` (`chk_blacklists_action_secs`, one per word, like the action). The bounds are defined once in
+  `fuku/db/models/punish.go` (`models.PunishMinSecs` 60, `models.PunishMaxSecs`, `models.PunishDurationValid`). A plain action
+  (mute, kick, ban) stores 0, and a timed mode (`tmute`, `tban`) stored with 0, which every row written before the migration and every
+  timed mode the code wrote before reads as, is inert: it applies nothing, exactly as before. The models (`WarnSettings.WarnModeSecs`,
+  `AntifloodSettings.ActionSecs`, `BlacklistSettings.ActionSecs`) carry no `default:` tag (a Go 0 is always written) and JSON
+  `omitempty`, so a backup export of a group with no duration is byte-identical (`TestLegacyPunishmentExport`). The columns live in
+  rows that are already cached (`warn_settings`, `antiflood`, `blacklist`), so a value an earlier build cached decodes the duration as
+  0, inert. `warns.SetWarnModeContext(ctx, chat, mode, secs)` writes `warn_mode` and `warn_mode_secs` in one upsert (a missing row is
+  created with limit 3; an existing row has only those two columns updated, so a concurrent `SetWarnLimit` is never clobbered) and drops
+  `warn_settings:<chat>`; the two-argument `warns.SetWarnMode` is that write with seconds 0.
 - `chat_settings_access` (migration 20261104120000) is the owner switch "Admins can change settings", one row per chat; a
   chat without a row means owner only. It is read only through `menuaccess.AdminsAllowedFresh`, a fresh query that is never
   cached (so no `DeleteCache` applies, and a cache added later needs `skipLocal` and a `DeleteCache` on every write), and an
@@ -5558,6 +5571,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`./fuku/db/eventmsg`, SQLite in `make test`) holds the rest of the storage: `pm` is a destination, `Resolve` with no row
   reads a private copy off and a group message not silent, a part written alone never switches a copy on, the options are
   read with the messages under one key that both option writers drop, and a failed options read is an error.
+  The timed punishment guarantees (Phase 26) are `TestTimedPunishmentMigrationDefaults` (`./fuku/db/migrations`: the three
+  statements run twice without error, a row with only its required columns reads each duration 0, the three named checks exist, and
+  31622401 is refused with SQLSTATE 23514 naming the check while 31622400 is accepted; PostgreSQL only, it skips locally;
+  `TestTimedPunishmentMigrationStatements` is its database-free half and runs in `make test`) and `TestSetWarnModeDuration`
+  (`./fuku/db/warns`: the mode and its seconds stored in one upsert with the limit kept, the two-argument wrapper storing 0, a limit
+  write and a mode write never clobbering each other, and each write dropping `warn_settings:<chat>`; it also runs on SQLite in
+  `make test`).
   The pattern is anchored with `$`, so list the real top-level test function names and add the test's package to the
   target. Add a test there when a new guarantee rests on a partial unique index, a `CHECK` or a conditional update.
 - In CI, keep the migration-chain step before `make test-rest`; its `schema_migrations` rows back the checksum test.
@@ -6406,6 +6426,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   run with its card report and `#LOCKDOWN_BAN` post, the alert's lift and the close of both copies carry none of them, only the start reply
   and the lift notice do in the group, and nothing goes to a private chat after the page) and `two replicas` (a start text posted by replica
   B; the owner silences it through replica A; B's next `/lockdown` locks and posts nothing).
+- Phase 26 test families (timed punishments, the escalation ladder and warn expiry). The two goldens of plan 26-01 were recorded alone,
+  in one commit (92f29f1), on the code before any production change of the phase, and are never re-recorded, edited or weakened:
+  `TestLegacyTimedPunishmentRequests` (`timed_punishment_legacy_request_test.go`, 35 subtests, the constants `goldenTimed*`, toolkit
+  `timedGoldenRun`, `timedGoldenRow`, `timedGoldenTokens` and the seed helpers, all on `newNoticeGoldenSite` with the real locales)
+  pins the exact request and the named stored fields of `/setfloodmode`, `/flood`, `/setwarnmode tmute` alone, `/warnings`,
+  `/blacklistaction` (`tmute` and `tban` alone, the current mode with a stored `tmute`), `/warns`, `/rmwarn`, the Remove warn button and
+  `/resetwarns`, and what the warn limit, the flood, the blacklist and a member requirement warn do at a timed setting stored with no
+  duration (inert); `TestLegacyPunishmentExport` (`fuku/db/backup/punish_export_legacy_test.go`, the constants `goldenExportWarns`,
+  `goldenExportAntiflood`, `goldenExportBlacklists`) pins the backup export JSON of the warns, antiflood and blacklists modules for
+  today's rows, which is why every new column is `omitempty`. Every plan of the phase checks
+  `git diff --exit-code 92f29f1 -- fuku/modules/timed_punishment_legacy_request_test.go fuku/db/backup/punish_export_legacy_test.go`.
+  The repository and migration families of plan 26-02 are `TestSetWarnModeDuration` (`fuku/db/warns/timed_mode_test.go`),
+  `TestTimedPunishmentMigrationStatements` and `TestTimedPunishmentMigrationDefaults`
+  (`fuku/db/migrations/timed_punishment_migration_test.go`).
 
 ## Commits
 

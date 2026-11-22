@@ -275,17 +275,26 @@ func SetWarnLimit(chatId int64, warnLimit int) error {
 	return nil
 }
 
+// SetWarnMode stores the action at the warn limit with no duration (warn_mode_secs 0). It is
+// SetWarnModeContext with seconds 0, kept for its callers.
 func SetWarnMode(chatId int64, warnMode string) error {
-	// Single-statement upsert: see SetWarnLimit.
-	err := db.DB.Clauses(clause.OnConflict{
+	return SetWarnModeContext(context.Background(), chatId, warnMode, 0)
+}
+
+// SetWarnModeContext stores the action at the warn limit and its duration in seconds (0 for a
+// plain action) in one single-statement upsert: a chat with no row gets one with limit 3, and an
+// existing row has only warn_mode and warn_mode_secs updated, so a concurrent limit write is never
+// clobbered (see SetWarnLimit). It validates nothing (the caller does) and drops warn_settings:<chat>.
+func SetWarnModeContext(ctx context.Context, chatID int64, mode string, secs int) error {
+	err := db.DB.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "chat_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"warn_mode"}),
-	}).Create(&models.WarnSettings{ChatId: chatId, WarnLimit: 3, WarnMode: warnMode}).Error
+		DoUpdates: clause.AssignmentColumns([]string{"warn_mode", "warn_mode_secs"}),
+	}).Create(&models.WarnSettings{ChatId: chatID, WarnLimit: 3, WarnMode: mode, WarnModeSecs: secs}).Error
 	if err != nil {
 		log.Errorf("[Database] SetWarnMode: %v", err)
 		return err
 	}
-	cache.DeleteCache(cache.CacheKey("warn_settings", chatId))
+	cache.DeleteCache(cache.CacheKey("warn_settings", chatID))
 	return nil
 }
 
