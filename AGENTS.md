@@ -3838,6 +3838,26 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   lift notes (a manual change and 99999 joiners), each after its line break, fit it in every language (`TestLockdownNoteFitsReserve`;
   a translation that exceeds it is shortened, never the reserve raised). Until the Messages page uses them (plan 25-03) these
   identifiers carry `//nolint:unused // first production caller arrives in plan 25-03`, which that plan removes.
+  `TestEventEngineCallers` (`event_engine_callers_test.go`, D-33, EVT-10) is the structural guard over every caller of the engine:
+  a `go/parser` walk of the package's non-test files that holds the set of functions outside `event_message.go` and
+  `event_message_pm.go` naming an engine entry (`postEvent`, `postEventSent`, `postEventGroup`, `replyEvent`,
+  `composeEventMessage`, `renderEventText`, `composeEventPM`, `offerEventPM`, `offerReplyPM`, `eventMessagesLookup`) or a
+  `postLockdown*` adapter of `event_message_lockdown.go` exactly equal to `eventEngineCallers` (`file.go: Function`, a method keyed
+  with its receiver type as `repliesGuardDeclKey` builds it, each entry with its reason; a new caller and a stale entry both fail),
+  and the callers of the adapters exactly equal to `eventLockdownAdapterCallers` (today `lockdown.go: moduleStruct.lockdown`). It
+  then walks from each never-reach root (`runLockdownCycle`, `raidWarnCannotLock`, `lockdownPostInlineTally`, the alert's Lift ask,
+  Ban, Revoke and Cancel handlers, `handleStaffAction`, `staffActionConfirm`, `staffActionCancel`, `staffUndoAsk`,
+  `staffUndoConfirm`, `startStaffRun`, `runStaffActionInGroup`, `sendStaffLogPost`, `buildStaffPanel`, `SendCaptcha` and
+  `aispamMirrorDeletion`; each must exist), following the same-package functions a body names, called or used as a value, and the
+  methods it names on its own receiver, function literals included, and fails when an engine entry or an adapter is reachable.
+  `eventEngineRootStops` names, per root, the functions the walk does not enter because what lies behind them is a different,
+  sanctioned event: today only `SendCaptcha`'s `handleCaptchaTimeout` (the challenge schedules the attempt's timeout, whose failure
+  posts the captcha event, not the challenge). Its limit: a call through a function value held in a variable or field, an interface or
+  another type's method is not followed; a log post through `fuku/utils/actionlog` cannot reach the engine at all, because that
+  package cannot import `fuku/modules`. `TestEventEngineCallersGuardFails` proves on a synthetic file set that a root reaching
+  `postEvent` through a helper, a function literal, an adapter or its own receiver's method is reported. A later phase that gives a
+  send site a custom message adds its caller there with a reason, never from an alert, reminder, raid-scale, staff or captcha
+  challenge path.
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
@@ -6204,7 +6224,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   automatic and lift goldens by name through `lockdownGoldenWant`; it also holds that an unknown trigger kind builds nothing, that
   the defaults end with the very notes a custom text gets, and that `{percent}` fills 80 and renders empty at 0.
   `TestLockdownNoteFitsReserve` (pure, 8 languages) holds the worst notes to `lockdownNoteReserve`, which leaves at least 600 units
-  of a 1024-unit caption.
+  of a 1024-unit caption. `TestEventEngineCallers` and its self-check `TestEventEngineCallersGuardFails`
+  (`event_engine_callers_test.go`, about 0.6 s, a parse of the package's files) hold EVT-10 structurally: the exact caller map of the
+  engine and of the `postLockdown*` adapters, and that no never-reach root can reach either (the Event messages bullet).
 
 ## Commits
 
