@@ -82,7 +82,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   plus grace). It waits for the public notice and the cannot-lock warning of an automatic lockdown that are in flight
   (`raidPosts`, a counter and not a `sync.WaitGroup`, because the drain gives up after its wait while a new post can still
   start). A post is best effort: the lockdown it announces is already in place and its alert is driven by the database,
-  so a post still running when the 2 s are up is cut off with the process and only that notice is lost.
+  so a post still running when the 2 s are up is cut off with the process and only that notice is lost. Since Phase 25
+  the notice, the group's custom message or the default, is sent inside that same tracked post (`raidPostNotice` calls
+  `postLockdownAutoEvent` inside `raidPostAsync`), so the drain covers a custom send too and no drain, handler or second was
+  added (`TestEventMessageLockdownAuto`'s `drain`).
 - `DrainAISpamChecks` is the `/aispam` pool's drain, a plain shutdown handler (`RegisterHandler`, the 10 s default) that
   `main.go` registers right after `RegisterRaidAIDrain`, so LIFO runs it before `StopRaidAI`. It sets `aispamDraining`
   for good (a late update is shed, never started; nothing resets it), cancels the pool's root context first
@@ -2288,7 +2291,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `raidPosts.wait()`; the fake's read helpers (`sentTo`, `sentChats`, `callsFor`) do it themselves. The call of `raidFire` that
   got `lockdownStartStarted` posts one public notice in the locked group (`raidPostNotice`, the group's language: the
   trigger and its numbers, `lockdown_note_approved_muted`, and the no-delete and no-invite notes `/lockdown` adds),
-  and no other outcome does. When the bot cannot lock a group (`lockdownStartNotSupergroup`,
+  and no other outcome does. Since Phase 25 (plan 25-04, EVT-07) that notice is the trigger's event message (`lockjoin`,
+  `lockflood` or `lockai`) through `postLockdownAutoEvent` in `event_message_lockdown.go`, the one call `raidPostNotice` makes:
+  a group's stored message with `{count}`, `{window}`, the flood's `{percent}` and the trigger sentence as `{reason}`, followed
+  after one line break by the technical notes, or with nothing stored the default through `raidSend`, today's request byte for
+  byte; Silent posts nothing and the lockdown stands. A custom send is one `lockdownPaced` unit whose wait derives from its own
+  `raidPostTimeout` context, and its request goes through `media.SendGreetingMessage`, which takes no context, so once in flight
+  `postLockdownAutoEvent`'s custom request is bounded only by the bot's HTTP client timeout (30 s); `StopRaidPosts` gives up
+  after `raidPostStopWait` whatever the post is doing. No notice, custom or default, is queued for deletion. The cannot-lock warning below is not an event and never reaches
+  the engine. When the bot cannot lock a group (`lockdownStartNotSupergroup`,
   `lockdownStartBotCannotRestrict` or a definitively refused lock, `lockdownStartLockFailed`) nothing is started and
   `raidWarnCannotLock` warns the group's Staff Group (`staff.GetLinkOfGroupFresh`, the Staff Group's language) and its
   log channel (`actionlog.Destination` under the admin category, the group's language, starting with the usual header),
@@ -3839,6 +3850,21 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   default and the notes share `lockdownStartNoteLines`, so they cannot drift. Silent posts nothing and the lockdown, the worker
   and the alert are unchanged (D-20); a refused custom message is replaced by the default once; a send error is logged with
   today's `[Lockdown] reply: %v` (`TestEventMessageLockdownStart`).
+  The automatic notice (plan 25-04, EVT-07, the `lockjoin`, `lockflood` and `lockai` events) is
+  `postLockdownAutoEvent(b, chat, trig, res)`, the one call of `raidPostNotice` (`raid_trigger.go`), which `raidFire` runs inside
+  `raidPostAsync` only for `lockdownStartStarted`, so the post is counted in `raidPosts` and drained by `StopRaidPosts` (D-09). An
+  unknown trigger kind posts nothing. Its site is the trigger's chat (its title fills `{chatname}`), `staffChatTranslator` of it, no
+  actor (`{admin}` reads "an admin"), no reply and no topic, `Automatic`, the do-nothing `Schedule`, the default through `raidSend`
+  (today's paced call, the builder's options ignored, so the request is the golden's) and a custom message through `SendCustom`, one
+  `lockdownPaced` unit whose wait derives from its own `raidPostTimeout` context and whose request goes through
+  `media.SendGreetingMessage`, which takes no context, so once in flight it is bounded only by the bot's HTTP client timeout (30 s).
+  The person placeholders name the bot (`lockdownEventPerson`, D-13); the values are `{reason}` the trigger sentence
+  (`lockdownTriggerSentence`), `{count}`, `{window}` (`strconv.Itoa` of the seconds) and `{percent}` (the flood's share, empty for the
+  other two); the default is `lockdownAutoDefaultReply(kind)` with the trigger's numbers and the bot's rights, and a custom text is
+  followed by `lockdownStartNotes` of `res.BotMember`, the notes the page's Full preview shows. Silent posts nothing while the
+  lockdown, the worker and the alert stand; a refused custom message is replaced by the default once; a send error is logged with
+  today's `[RaidDetection] the notice of the automatic lockdown in chat %d was not delivered: %v`. The cannot-lock warning
+  (`raidWarnCannotLock`) shares `raidSend` and is not an event (a never-reach root of `TestEventEngineCallers`).
   The engine's vocabulary grew for the lockdown messages only (D-14, D-24): `eventValues.Percent` and the event placeholder
   `{percent}` (after `{window}` in `eventTokenNames`; 0 renders as nothing, so it is empty for every event but the flood trigger's
   notice, and a stored `{percent}` of an earlier event, which showed raw before, now renders empty), and three fields of
@@ -3862,7 +3888,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `composeEventMessage`, `renderEventText`, `composeEventPM`, `offerEventPM`, `offerReplyPM`, `eventMessagesLookup`) or a
   `postLockdown*` adapter of `event_message_lockdown.go` exactly equal to `eventEngineCallers` (`file.go: Function`, a method keyed
   with its receiver type as `repliesGuardDeclKey` builds it, each entry with its reason; a new caller and a stale entry both fail),
-  and the callers of the adapters exactly equal to `eventLockdownAdapterCallers` (today `lockdown.go: moduleStruct.lockdown`). It
+  and the callers of the adapters exactly equal to `eventLockdownAdapterCallers` (today `lockdown.go: moduleStruct.lockdown` and
+  `raid_trigger.go: raidPostNotice`). It
   then walks from each never-reach root (`runLockdownCycle`, `raidWarnCannotLock`, `lockdownPostInlineTally`, the alert's Lift ask,
   Ban, Revoke and Cancel handlers, `handleStaffAction`, `staffActionConfirm`, `staffActionCancel`, `staffUndoAsk`,
   `staffUndoConfirm`, `startStaffRun`, `runStaffActionInGroup`, `sendStaffLogPost`, `buildStaffPanel`, `SendCaptcha` and
@@ -6259,6 +6286,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   a line break and the approved-muted note; Full preview of `lu` with nothing stored is the lift default naming the presser with no
   note; nothing is sent to the group). The page's earlier families cover the Lockdown family through `settingsMsgScreens`, where
   `settingsMsgFamilyPM` requires a private copy spec on every event of `m`, `a` and `r` and forbids one on every `l` event.
+  `TestEventMessageLockdownAuto` (`event_message_lockdown_auto_test.go`, plan 25-04, about 2 s, one lockdown environment per subtest
+  with every deletion rule of the group at its shortest delay, `raidFire` called directly except in `real surge`) holds the automatic
+  notice's site: `join surge` (a stored `{count} joined in {window} s: {reason} ({admin}, {mention})`: the lock first, then one new
+  message with no reply or topic, `15 joined in 60 s: `, the escaped trigger sentence, "an admin" and the bot's mention, then the
+  approved-muted note; no queue row, nothing private), `flood notes` (`30/30/80`, then the approved-muted and no-delete notes),
+  `ai burst notes` (the text, then the approved-muted and no-invite notes), `real surge` (fifteen self joins through the dispatcher post
+  the custom notice once; more joins after the latch is dropped post nothing more), `silent` (a Silent `lockflood`: the lockdown is
+  confirmed, nothing is posted in the group, the next worker cycle posts the alert to the linked Staff Group), `refused` (real locales:
+  a custom message refused with a 400 is followed by exactly `goldenLockdownAutoJoinSurge`) and `drain` (the custom send held with
+  `gateSends`: with `raidPostStopWait` at 20 ms `StopRaidPosts` reports not done, and done once the gate opens, with the custom notice
+  posted).
 
 ## Commits
 

@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
 	"github.com/uasneppy/fuku_robot/fuku/utils/formatting"
+	"github.com/uasneppy/fuku_robot/fuku/utils/media"
 )
 
 // The lockdown's public messages (Phase 25) reach the event message engine only through this file.
@@ -253,5 +255,75 @@ func postLockdownStartEvent(
 	})
 	if err != nil {
 		log.Errorf("[Lockdown] reply: %v", err)
+	}
+}
+
+// lockdownAutoEvents are the event keys of the automatic notice, by trigger kind.
+var lockdownAutoEvents = map[string]string{
+	models.LockdownTriggerJoinSurge: eventmsg.EventLockJoinSurge,
+	models.LockdownTriggerFlood:     eventmsg.EventLockFlood,
+	models.LockdownTriggerAIBurst:   eventmsg.EventLockAIBurst,
+}
+
+// postLockdownAutoEvent posts the public notice of a lockdown a trigger started automatically (EVT-07),
+// for raidPostNotice, which raidFire runs inside raidPostAsync only after startLockdownRow answered
+// lockdownStartStarted, so the post is counted in raidPosts and drained by StopRaidPosts (D-09). The
+// message is the group's stored message of the trigger's event (lockjoin, lockflood or lockai), or the
+// default (lockdownAutoDefaultReply) when none is stored; any other kind posts nothing. It is a new
+// message in the group's language with no reply and no topic, never queued for deletion (D-08). {admin}
+// reads "an admin" (no actor, MSG-03) and the person placeholders name the bot (D-13); {count}, {window},
+// the flood's {percent} and {reason}, the trigger sentence, are filled and escaped; a custom text is
+// followed, after one line break, by the technical notes of the bot's rights (lockdownStartNotes of
+// res.BotMember). Silent posts nothing; the lockdown stands either way.
+//
+// The bound (D-19): the default is raidSend, today's call, whose pacer wait derives from its own
+// raidPostTimeout context and whose request keeps lockdownCallTimeout (10 s). A custom message is sent in
+// one lockdownPaced unit whose wait derives from its own raidPostTimeout context; the request goes through
+// media.SendGreetingMessage, which takes no context, so once in flight it is bounded only by the bot's
+// HTTP client timeout (30 s). StopRaidPosts gives up on any post after raidPostStopWait whatever it is
+// doing. A send error is logged with today's line and changes nothing else.
+func postLockdownAutoEvent(b *gotgbot.Bot, chat *gotgbot.Chat, trig raidTrigger, res lockdownStartResult) {
+	event, ok := lockdownAutoEvents[trig.Kind]
+	if !ok {
+		return
+	}
+	tr := staffChatTranslator(chat.Id)
+	facts := lockdownStartFacts(res.BotMember)
+	text, opts := lockdownAutoDefaultReply(trig.Kind)(tr, eventDefaultInput{
+		Count:    trig.Count,
+		Window:   trig.Window,
+		Percent:  trig.Percent,
+		Lockdown: facts,
+	})
+	site := lockdownEventSite(b, chat, tr, eventActor{}, 0, 0, true,
+		func(text string, _ *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			return nil, raidSend(b, chat.Id, text)
+		})
+	site.SendCustom = func(msg media.GreetingMessage) (*gotgbot.Message, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), raidPostTimeout)
+		defer cancel()
+		var sent *gotgbot.Message
+		err := lockdownPaced(ctx, func(context.Context) error {
+			var sendErr error
+			sent, sendErr = media.SendGreetingMessage(b, chat.Id, msg)
+			return sendErr
+		})
+		return sent, err
+	}
+	err := postEvent(site, eventReply{
+		Event:  event,
+		Target: lockdownEventPerson(b, b.Id, "", false),
+		Values: eventValues{
+			Reason:  lockdownTriggerSentence(tr, trig.Kind, trig.Count, trig.Window, trig.Percent),
+			Count:   trig.Count,
+			Window:  strconv.Itoa(trig.Window),
+			Percent: trig.Percent,
+		},
+		Default: text,
+		Opts:    opts,
+		Note:    lockdownStartNotes(tr, facts),
+	})
+	if err != nil {
+		log.Warnf("[RaidDetection] the notice of the automatic lockdown in chat %d was not delivered: %v", chat.Id, err)
 	}
 }

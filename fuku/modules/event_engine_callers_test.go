@@ -160,12 +160,17 @@ var eventEngineCallers = map[string]string{
 	"event_message_lockdown.go: postLockdownStartEvent": "the adapter of the manual lockdown's reply, posted after the lockdown " +
 		"started (Phase 25)",
 	"lockdown.go: moduleStruct.lockdown": "calls postLockdownStartEvent after startLockdownRow answered lockdownStartStarted (Phase 25)",
+	"event_message_lockdown.go: postLockdownAutoEvent": "the adapter of the automatic lockdown's public notice, posted after a " +
+		"trigger's lockdown started, inside the post raidPostAsync counts (Phase 25)",
+	"raid_trigger.go: raidPostNotice": "calls postLockdownAutoEvent, run by raidFire through raidPostAsync only for " +
+		"lockdownStartStarted (Phase 25)",
 }
 
 // eventLockdownAdapterCallers is exactly every function that names a postLockdown* adapter: the sites the
 // phase chose for the lockdown messages. Plans 25-04 and 25-05 add the automatic notice and the lifts.
 var eventLockdownAdapterCallers = map[string]string{
 	"lockdown.go: moduleStruct.lockdown": "the reply of a /lockdown that started a lockdown (EVT-06)",
+	"raid_trigger.go: raidPostNotice":    "the public notice of a lockdown a join surge, a flood or an AI burst started (EVT-07)",
 }
 
 // eventEngineNeverRoots are the roots that must never reach the engine (D-33): the lockdown worker's cycle
