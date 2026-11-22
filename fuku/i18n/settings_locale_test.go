@@ -632,7 +632,7 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	// seven event names and descriptions, the two state words and the group note.
 	"settings_page_msgs":            {14, 18},
 	"settings_state_msg_n":          {16, 22},
-	"settings_msg_intro":            {330, 400},
+	"settings_msg_intro":            {360, 440},
 	"settings_msg_fam_manual":       {16, 18},
 	"settings_msg_fam_manual_intro": {230, 270},
 	"settings_msg_list_hint":        {45, 63},
@@ -720,6 +720,22 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_btn_msg_notice":     {20, 26},
 	"settings_msg_line_notice":    {20, 28},
 	"settings_msg_hint_notice":    {200, 280},
+	// The Lockdown family (Phase 25, plan 25-03): its name, intro, text prompt and hint, then the five event names and
+	// descriptions.
+	"settings_msg_fam_lockdown":       {18, 18},
+	"settings_msg_fam_lockdown_intro": {400, 480},
+	"settings_msg_wait_text_lockdown": {900, 1100},
+	"settings_msg_hint_lockdown":      {400, 480},
+	"settings_msg_ev_lockdown":        {18, 18},
+	"settings_msg_ev_lockjoin":        {18, 18},
+	"settings_msg_ev_lockflood":       {18, 18},
+	"settings_msg_ev_lockai":          {18, 18},
+	"settings_msg_ev_locklift":        {18, 18},
+	"settings_msg_desc_lockdown":      {200, 280},
+	"settings_msg_desc_lockjoin":      {200, 280},
+	"settings_msg_desc_lockflood":     {200, 280},
+	"settings_msg_desc_lockai":        {200, 280},
+	"settings_msg_desc_locklift":      {200, 280},
 }
 
 // settingsAlertKeys are shown as answerCallbackQuery alerts: plain text, no tag, at most
@@ -1068,6 +1084,10 @@ func TestSettingsLabelLengths(t *testing.T) {
 		{"🛂", "settings_msg_fam_mreq"},
 		{"❗", "settings_msg_ev_mreqwarn"}, {"👢", "settings_msg_ev_mreqkick"}, {"⛔", "settings_msg_ev_mreqban"},
 		{"🔇", "settings_msg_ev_mreqmute"},
+		// Phase 25 (plan 25-03): the Lockdown family's cell and its five event cells.
+		{"🚨", "settings_msg_fam_lockdown"},
+		{"🔒", "settings_msg_ev_lockdown"}, {"👥", "settings_msg_ev_lockjoin"}, {"💬", "settings_msg_ev_lockflood"},
+		{"🧠", "settings_msg_ev_lockai"}, {"🔓", "settings_msg_ev_locklift"},
 	}
 
 	for _, lang := range staffLocales {
@@ -1295,7 +1315,7 @@ func TestSettingsReusedKeyPlaceholders(t *testing.T) {
 					// text as copyable code; it is never filled in (TestSettingsEditLocaleTokens
 					// holds it byte-identical), so it cannot name anyone.
 					if name == "id" && (key == settingsEditWaitTextKey || key == settingsMsgWaitTextManualKey || key == settingsMsgWaitTextAutoKey ||
-						key == settingsMsgWaitTextMreqKey) {
+						key == settingsMsgWaitTextMreqKey || key == settingsMsgWaitTextLockdownKey) {
 						continue
 					}
 					if name == "staff" || name == "id" {
@@ -1412,6 +1432,16 @@ var settingsMsgMreqLiteralTokens = []string{
 	"<code>{reason}</code>", "<code>{action}</code>", "<code>{count}</code>", "<code>{limit}</code>", "<code>{rules}</code>",
 }
 
+// settingsMsgWaitTextLockdownKey is the text prompt of the Lockdown family's event messages (Phase 25).
+const settingsMsgWaitTextLockdownKey = "settings_msg_wait_text_lockdown"
+
+// settingsMsgLockdownLiteralTokens are the placeholders the Lockdown family's text prompt shows as copyable code (D-30).
+var settingsMsgLockdownLiteralTokens = []string{
+	"<code>{first}</code>", "<code>{last}</code>", "<code>{fullname}</code>", "<code>{username}</code>",
+	"<code>{mention}</code>", "<code>{id}</code>", "<code>{chatname}</code>", "<code>{admin}</code>",
+	"<code>{reason}</code>", "<code>{count}</code>", "<code>{window}</code>", "<code>{percent}</code>", "<code>{rules}</code>",
+}
+
 // settingsEditLiteralTokens are the welcome-text placeholders and the button syntax the
 // editor's prompts show as copyable code. They are never translated, in any language, and
 // the translator leaves unknown {name} tokens alone, so each must reach the owner unchanged.
@@ -1448,6 +1478,7 @@ func TestSettingsEditLocaleTokens(t *testing.T) {
 		{settingsMsgWaitTextManualKey, settingsMsgManualLiteralTokens},
 		{settingsMsgWaitTextAutoKey, settingsMsgAutoLiteralTokens},
 		{settingsMsgWaitTextMreqKey, settingsMsgMreqLiteralTokens},
+		{settingsMsgWaitTextLockdownKey, settingsMsgLockdownLiteralTokens},
 	}
 
 	parameters := []tokenKey{
@@ -1487,6 +1518,7 @@ func TestSettingsEditLocaleTokens(t *testing.T) {
 		{settingsMsgWaitTextManualKey, []string{"{max}"}},
 		{settingsMsgWaitTextAutoKey, []string{"{max}"}},
 		{settingsMsgWaitTextMreqKey, []string{"{max}"}},
+		{settingsMsgWaitTextLockdownKey, []string{"{max}"}},
 		{"settings_msg_line_notice", []string{"{state}"}},
 		{"settings_btn_msg_notice", []string{"{state}"}},
 	}
