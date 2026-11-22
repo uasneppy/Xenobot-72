@@ -302,6 +302,9 @@ func memberReqRenderedFailures(t *testing.T, lang string, data map[string]any) [
 var memberReqQuotingKeys = []string{
 	"mreq_notice_mute", "settings_mreq_actions_hint", "settings_mreq_hint_mute", "settings_mreq_confirm_mute",
 	"settings_mreq_confirm_ai_mute", "settings_del_hint_punish_auto", "eventmsg_pm_mreqmute",
+	// The Messages page's Member requirements family (Phase 24, plan 24-04): its intro, the mute event's description and
+	// the family's text prompt name the button the bot keeps on a mute notice.
+	"settings_msg_fam_mreq_intro", "settings_msg_desc_mreqmute", "settings_msg_wait_text_mreq",
 }
 
 // memberReqLetterKeys are the texts that show the four Russian letters literally, in every

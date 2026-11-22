@@ -699,6 +699,27 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_msg_desc_fwdblock":  {140, 196},
 	"settings_msg_wait_text_auto": {900, 1100},
 	"settings_msg_hint_auto":      {400, 480},
+	// The screening events (Phase 24, plan 24-04): the failed captcha and the AI spam notice in the Automatic family, the
+	// Member requirements family with its four events, and the AI spam notice's Notice switch.
+	"settings_msg_ev_captcha":     {18, 18},
+	"settings_msg_desc_captcha":   {200, 280},
+	"settings_msg_ev_aispam":      {18, 18},
+	"settings_msg_desc_aispam":    {200, 280},
+	"settings_msg_fam_mreq":       {18, 18},
+	"settings_msg_fam_mreq_intro": {400, 480},
+	"settings_msg_wait_text_mreq": {900, 1100},
+	"settings_msg_hint_mreq":      {400, 480},
+	"settings_msg_ev_mreqwarn":    {18, 18},
+	"settings_msg_ev_mreqkick":    {18, 18},
+	"settings_msg_ev_mreqban":     {18, 18},
+	"settings_msg_ev_mreqmute":    {18, 18},
+	"settings_msg_desc_mreqwarn":  {200, 280},
+	"settings_msg_desc_mreqkick":  {200, 280},
+	"settings_msg_desc_mreqban":   {200, 280},
+	"settings_msg_desc_mreqmute":  {200, 280},
+	"settings_btn_msg_notice":     {20, 26},
+	"settings_msg_line_notice":    {20, 28},
+	"settings_msg_hint_notice":    {200, 280},
 }
 
 // settingsAlertKeys are shown as answerCallbackQuery alerts: plain text, no tag, at most
@@ -991,7 +1012,11 @@ func TestSettingsLabelLengths(t *testing.T) {
 	phase18Toggles := []string{"settings_btn_sw_reports", "settings_btn_sw_aispam", "settings_btn_sw_approve", "settings_btn_anon_toggle"}
 	// The full-width toggles that carry the state icon alone in place of {state} (Phase 21, plan 21-07: an event
 	// screen's Silent switch).
-	iconToggles := []string{"settings_btn_msg_silent", "settings_btn_msg_pm", "settings_btn_msg_pm_details", "settings_btn_msg_pm_log"}
+	iconToggles := []string{
+		"settings_btn_msg_silent", "settings_btn_msg_pm", "settings_btn_msg_pm_details", "settings_btn_msg_pm_log",
+		// The AI spam notice's Notice switch (Phase 24, plan 24-04).
+		"settings_btn_msg_notice",
+	}
 	// The full-width buttons whose label is the whole button (Phase 22, plan 22-04: the event screen's row that
 	// opens the private copy), at most 40 code points.
 	fullWidthLabels := []string{"settings_btn_msg_pm_open"}
@@ -1037,6 +1062,12 @@ func TestSettingsLabelLengths(t *testing.T) {
 		{"🤖", "settings_msg_fam_auto"},
 		{"🚩", "settings_msg_ev_warn"}, {"⛔", "settings_msg_ev_warnlimit"}, {"🌊", "settings_msg_ev_flood"},
 		{"🔤", "settings_msg_ev_blacklist"}, {"🚷", "settings_msg_ev_fwdblock"},
+		// Phase 24 (plan 24-04): the failed captcha and the AI spam notice in the Automatic family, then the Member
+		// requirements family's cell and its four event cells.
+		{"🧩", "settings_msg_ev_captcha"}, {"🧠", "settings_msg_ev_aispam"},
+		{"🛂", "settings_msg_fam_mreq"},
+		{"❗", "settings_msg_ev_mreqwarn"}, {"👢", "settings_msg_ev_mreqkick"}, {"⛔", "settings_msg_ev_mreqban"},
+		{"🔇", "settings_msg_ev_mreqmute"},
 	}
 
 	for _, lang := range staffLocales {
@@ -1263,7 +1294,8 @@ func TestSettingsReusedKeyPlaceholders(t *testing.T) {
 					// The editor's text prompt lists the literal {id} placeholder of a welcome
 					// text as copyable code; it is never filled in (TestSettingsEditLocaleTokens
 					// holds it byte-identical), so it cannot name anyone.
-					if name == "id" && (key == settingsEditWaitTextKey || key == settingsMsgWaitTextManualKey || key == settingsMsgWaitTextAutoKey) {
+					if name == "id" && (key == settingsEditWaitTextKey || key == settingsMsgWaitTextManualKey || key == settingsMsgWaitTextAutoKey ||
+						key == settingsMsgWaitTextMreqKey) {
 						continue
 					}
 					if name == "staff" || name == "id" {
@@ -1366,6 +1398,18 @@ var settingsMsgAutoLiteralTokens = []string{
 	"<code>{first}</code>", "<code>{last}</code>", "<code>{fullname}</code>", "<code>{username}</code>",
 	"<code>{mention}</code>", "<code>{id}</code>", "<code>{chatname}</code>", "<code>{admin}</code>",
 	"<code>{reason}</code>", "<code>{action}</code>", "<code>{count}</code>", "<code>{limit}</code>", "<code>{rules}</code>",
+	// The end of a captcha mute (Phase 24, plan 24-04).
+	"<code>{until}</code>",
+}
+
+// settingsMsgWaitTextMreqKey is the text prompt of the Member requirements family's event messages (Phase 24).
+const settingsMsgWaitTextMreqKey = "settings_msg_wait_text_mreq"
+
+// settingsMsgMreqLiteralTokens are the placeholders the Member requirements family's text prompt shows as copyable code.
+var settingsMsgMreqLiteralTokens = []string{
+	"<code>{first}</code>", "<code>{last}</code>", "<code>{fullname}</code>", "<code>{username}</code>",
+	"<code>{mention}</code>", "<code>{id}</code>", "<code>{chatname}</code>", "<code>{admin}</code>",
+	"<code>{reason}</code>", "<code>{action}</code>", "<code>{count}</code>", "<code>{limit}</code>", "<code>{rules}</code>",
 }
 
 // settingsEditLiteralTokens are the welcome-text placeholders and the button syntax the
@@ -1403,6 +1447,7 @@ func TestSettingsEditLocaleTokens(t *testing.T) {
 		{"settings_edit_refuse_buttons_syntax", []string{settingsEditSyntaxExample}},
 		{settingsMsgWaitTextManualKey, settingsMsgManualLiteralTokens},
 		{settingsMsgWaitTextAutoKey, settingsMsgAutoLiteralTokens},
+		{settingsMsgWaitTextMreqKey, settingsMsgMreqLiteralTokens},
 	}
 
 	parameters := []tokenKey{
@@ -1441,6 +1486,9 @@ func TestSettingsEditLocaleTokens(t *testing.T) {
 		{"settings_btn_msg_pm_log", []string{"{state}"}},
 		{settingsMsgWaitTextManualKey, []string{"{max}"}},
 		{settingsMsgWaitTextAutoKey, []string{"{max}"}},
+		{settingsMsgWaitTextMreqKey, []string{"{max}"}},
+		{"settings_msg_line_notice", []string{"{state}"}},
+		{"settings_btn_msg_notice", []string{"{state}"}},
 	}
 
 	english := loadStaffLocale(t, "en")
