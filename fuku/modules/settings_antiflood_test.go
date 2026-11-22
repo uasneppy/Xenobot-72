@@ -58,8 +58,8 @@ func settingsAntifloodOpen(t *testing.T, env *settingsEnv) int64 {
 func settingsAntifloodStepper(t *testing.T, env *settingsEnv, msgID int64) []gotgbot.InlineKeyboardButton {
 	t.Helper()
 	_, keyboard := env.lastEdit(env.chat.Id, msgID)
-	if len(keyboard) != 4 {
-		t.Fatalf("Antiflood page has %d keyboard rows, want stepper, choice, toggle and navigation", len(keyboard))
+	if len(keyboard) != 5 {
+		t.Fatalf("Antiflood page has %d keyboard rows, want stepper, choice, timed row, toggle and navigation", len(keyboard))
 	}
 	if len(keyboard[0]) != 5 {
 		t.Fatalf("Antiflood page stepper row has %d buttons, want 5", len(keyboard[0]))
@@ -135,8 +135,8 @@ func TestSettingsAntifloodPage(t *testing.T) {
 			t.Errorf("Antiflood page %q carries the legacy action note for a settable action", text)
 		}
 
-		if len(keyboard) != 4 {
-			t.Fatalf("keyboard has %d rows, want 4", len(keyboard))
+		if len(keyboard) != 5 {
+			t.Fatalf("keyboard has %d rows, want 5", len(keyboard))
 		}
 		stepper := keyboard[0]
 		if len(stepper) != 5 {
@@ -173,13 +173,13 @@ func TestSettingsAntifloodPage(t *testing.T) {
 				map[string]string{"a": "st", "u": admin, "p": "f", "t": "m", "v": want.v})
 		}
 
-		toggle := keyboard[2]
+		toggle := keyboard[3]
 		if len(toggle) != 1 || !strings.Contains(toggle[0].Text, staffMarker("settings_btn_antiflood_delete")) {
 			t.Fatalf("toggle row = %+v, want the Delete flood messages switch", toggle)
 		}
 		settingsAntifloodWantFields(t, "delete toggle", toggle[0], map[string]string{"a": "tg", "u": admin, "p": "f", "t": "d", "v": "1"})
 
-		nav := keyboard[3]
+		nav := keyboard[4]
 		if len(nav) != 2 {
 			t.Fatalf("navigation row = %+v, want [Back | Close]", nav)
 		}
@@ -812,6 +812,33 @@ func TestSettingsAntifloodCallbackBytes(t *testing.T) {
 						settingsAntifloodCheckBytes(t, name, screen)
 					}
 				}
+				for _, timed := range []struct {
+					action string
+					secs   int
+				}{{"tmute", 2592000}, {"tban", 600}, {"tban", punishMaxSecs}} {
+					name := fmt.Sprintf("limit %d action %s %d", limit, timed.action, timed.secs)
+					screen := renderSettingsAntiflood(variant.view,
+						&models.AntifloodSettings{Limit: limit, Action: timed.action, ActionSecs: timed.secs}, "")
+					settingsAntifloodCheckBytes(t, name, screen)
+				}
+			}
+			// The duration screen of the timed row: its largest button is the 30-day preset of Timed ban,
+			// a=ft&k=b&v=2592000 with the owner field, 47 bytes in a private menu and 43 in a group menu.
+			largest := 0
+			for _, k := range []string{settingsFloodTimedMute, settingsFloodTimedBan} {
+				mode, _ := settingsFloodTimedMode(k)
+				press := func(secs int) map[string]string {
+					return map[string]string{"a": settingsActFloodTimed, "k": k, "v": fmt.Sprint(secs)}
+				}
+				screen := renderSettingsDuration(variant.view, "settings_page_antiflood", mode, 2592000, press,
+					map[string]string{"a": settingsActOpen, "p": settingsPageAntiflood}, "")
+				settingsAntifloodCheckBytes(t, "duration screen "+mode, screen)
+				for _, button := range settingsAllButtons(screen.Keyboard.InlineKeyboard) {
+					largest = max(largest, len(button.CallbackData))
+				}
+			}
+			if want := map[bool]int{true: 47, false: 43}[variant.view.Private]; largest != want {
+				t.Errorf("the largest duration screen button is %d bytes, want %d", largest, want)
 			}
 		})
 	}
@@ -829,11 +856,14 @@ func TestSettingsAntifloodPageFitsEveryLocale(t *testing.T) {
 			notices := []string{
 				settingsNoticeWarn(fmt.Sprintf(settingsText(tr, "antiflood_setfloodmode_unknown_type"), strings.Repeat("a", settingsFloodModeMaxLen))),
 				settingsNoticeWarn(settingsText(tr, "settings_antiflood_now_on", i18n.TranslationParams{"n": 100})),
+				settingsNoticeWarn(settingsText(tr, "antiflood_setfloodmode_bad_duration")),
 			}
 			for _, s := range []*models.AntifloodSettings{
 				{Limit: 100, Action: "tmute", DeleteAntifloodMessage: true},
 				{Limit: 0, Action: "tban"},
 				{Limit: 5, Action: "mute"},
+				{Limit: 100, Action: "tmute", ActionSecs: punishMaxSecs, DeleteAntifloodMessage: true},
+				{Limit: 100, Action: "tban", ActionSecs: 5400},
 			} {
 				for _, notice := range notices {
 					screen := renderSettingsAntiflood(view, s, notice)

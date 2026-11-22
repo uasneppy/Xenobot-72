@@ -1227,9 +1227,28 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   check of every press of a preset. `settingsTimedWord(tr, action, secs)` is the one word of an effective timed action on every
   page (`settings_opt_timed`, `{action}, {duration}`, with the `settings_opt_tmute` or `_tban` word); its `ok` is false for
   anything else, so a caller keeps its own word for an untimed or inert action. The Warnings page is its first user (plan
-  26-03); the Antiflood page, the Blacklist action screen and the escalation ladder reuse it. `TestSettingsDurationScreen` holds
+  26-03), the Antiflood page its second (plan 26-04, below); the Blacklist action screen and the escalation ladder reuse it. `TestSettingsDurationScreen` holds
   the parser, the shape and the mark, the timed word and the fit in 8 languages (cells at most 20 code points with the mark,
   3800 UTF-16 units with a 64-rune title, the largest button 47 bytes private and 43 group).
+- The Antiflood page (`settings_antiflood.go`, page `f`, `Order` 40, icon 🌊) has a timed row since plan 26-04 (D-21, D-22):
+  the keyboard is the limit stepper, the choice `[Mute | Ban | Kick]` (control `m`, which passes seconds 0 to `applyFloodMode`), the
+  timed row `[Timed mute | Timed ban]`, the delete switch and Back and Close, widths `[5 3 2 1 2]`. A timed cell presses the page
+  action `fd` (exactly `k`, `m` or `b`, `settingsFloodDurationFields`; right `settingsRightAdmin`, it writes nothing), which draws the
+  shared duration screen titled with the Antiflood page, the stored preset marked only while that timed action is stored and
+  effective, Back `{"a": "op", "p": "f"}`; a preset presses `ft` (exactly `k` and `v`, `v` a preset's canonical decimal through
+  `settingsDurationPreset`, `settingsFloodTimedFields`, so a forged `k` or `v`, a missing field or an extra key is an invalid request
+  in step 1 before any lookup; right `settingsRightAdminFloodBot`, the right of `/setfloodmode`), which stores through
+  `applyFloodMode(ctx, p.group.Id, mode, secs)`, the function `/setfloodmode` calls, and redraws through `settingsFloodRedraw` with
+  its side-effect flag, so the first timed write on a chat with no row shows `settings_antiflood_now_on` like the action press
+  (D-27, D-34). `settingsFloodSettable(action, secs)` is `autoActionEffective`: the read-only note
+  `settings_antiflood_action_note` shows only for a stored warn or a timed action with no duration, an effective timed action's
+  line reads `settingsTimedWord` ("Timed ban, 1 day(s)", `settingsFloodPageActionWord`) and marks its timed cell, and a plain action
+  is marked in the choice row; `settingsFloodActionWord` is unchanged (the Warnings page shares it). A command's duration that is
+  no preset (`/setfloodmode tmute 90m`) is drawn in the action line with no preset marked. `settingsFloodNotice` maps
+  `floodBadDuration` to `antiflood_setfloodmode_bad_duration` (unreachable from a valid press). Main's Antiflood line shows the
+  limit only, so it has no timed word. The largest button of the duration screen is the 30-day preset, 47 bytes private and 43
+  group. `TestSettingsAntifloodTimed`, `TestSettingsParityFloodTimed`, `TestSettingsDriftFloodTimed`,
+  `TestSettingsAuthorityParityFloodTimed` and `TestSettingsAntifloodTimedForged` (`settings_antiflood_timed_test.go`) hold it.
 - The Switches page (`settings_switches.go`, page `t`, `Order` 86, icon 🔘, `settings_page_switches`, between Deletion and Access,
   Phase 18, plan 18-06) registers from its own file through `registerSettingsPage`, with no `Hidden`, so a Staff Group's own
   menu shows it too. It has three full-width toggles, each `tg` only (`Actions`, so an `st` is an invalid request before any
@@ -2094,7 +2113,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `chat_status_bot_not_admin` (`/captcha`). `settingsRightAdminFloodBot` also needs `chat_status.IsUserAdmin(b, chat, b.Id)`
   and refuses with the notice `connections_is_user_connected_bot_not_admin` (`/setflood`, `/setfloodmode`, `/delflood`; also the
   Warnings page's controls and its timed preset press `nt`, as `/setwarnlimit` and `/setwarnmode`, while the duration screen's
-  `nd` needs only `settingsRightAdmin`).
+  `nd` needs only `settingsRightAdmin`; and the Antiflood page's timed preset press `ft`, as `/setfloodmode`, while its `fd` needs
+  only `settingsRightAdmin`).
   `settingsRightRestrict` needs the creator or an administrator with `can_restrict_members` from the same member record
   (`staffIssuerSkipReason`) and refuses with the alert `settings_no_restrict` (lockdown lift and triggers). The user check
   is live, so it is stricter than the commands' cached one; the bot check uses the commands' own predicate, never a live
@@ -2609,7 +2629,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   rows that are already cached (`warn_settings`, `antiflood`, `blacklist`), so a value an earlier build cached decodes the duration as
   0, inert. `warns.SetWarnModeContext(ctx, chat, mode, secs)` writes `warn_mode` and `warn_mode_secs` in one upsert (a missing row is
   created with limit 3; an existing row has only those two columns updated, so a concurrent `SetWarnLimit` is never clobbered) and drops
-  `warn_settings:<chat>`; the two-argument `warns.SetWarnMode` is that write with seconds 0.
+  `warn_settings:<chat>`; the two-argument `warns.SetWarnMode` is that write with seconds 0. `antiflood.SetFloodActionContext(ctx,
+  chat, mode, secs)` (plan 26-04) writes `action` and `action_secs` through `upsertChatField` (only those two columns, so a concurrent
+  limit or delete write is never clobbered; a missing row is created with the model's limit 5, D-27), writes nothing when the cached
+  settings already hold both values, and drops `antiflood:<chat>`; `SetFloodModeContext` and `SetFloodMode` are that write with
+  seconds 0. `GetAntifloodSettingsContext`'s explicit `Select` reads `action_secs` (`TestSetFloodActionDuration`).
 - `chat_settings_access` (migration 20261104120000) is the owner switch "Admins can change settings", one row per chat; a
   chat without a row means owner only. It is read only through `menuaccess.AdminsAllowedFresh`, a fresh query that is never
   cached (so no `DeleteCache` applies, and a cache added later needs `skipLocal` and a `DeleteCache` on every write), and an
@@ -3095,14 +3119,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   channel's posts (`IsLinkedChannel` or `IsAutomaticForward`) from every lock but `anonchannel` and `comments`, which keep
   their own rules (`lockSenderExempt`). `anonchannel` matches anonymous channels only (`IsAnonymousChannel`), never the
   linked channel; an anonymous channel's posts and every member's stay subject to every lock.
-- Antiflood first write (D-27): on a chat with no `antiflood_settings` row, the first `/setfloodmode` (pinned for ban) or
-  `/delflood` stores `flood_limit` 5, the model's `default:5`, because the repository's `FirstOrCreate` insert leaves
+- Antiflood first write (D-27): on a chat with no `antiflood_settings` row, the first `/setfloodmode` (pinned for ban; a timed
+  `/setfloodmode tmute 30m` and the page's timed preset alike) or `/delflood` stores `flood_limit` 5, the model's `default:5`, because the repository's `FirstOrCreate` insert leaves
   the limit at its Go zero value; an admin who only picks an action or turns message deleting on therefore also turns
   antiflood on at 5 messages. `TestSetFloodModeOnFreshChatStoredLimit` and `TestSetFloodMsgDelOnFreshChatStoredLimit`
   (`fuku/db/antiflood`) pin it, and a Mute press on an unconfigured chat writes no row at all (the cached default is
   already mute). The menu's action and delete presses call the same `applyFlood*` functions, so it keeps this on
   purpose and draws the stored row from their database read-back, never a guess. Because a tap in a menu is easier to
-  hit by accident than a typed command, the menu's action and delete presses also show the notice
+  hit by accident than a typed command, the menu's action, timed preset (`ft`, plan 26-04) and delete presses also show the notice
   `settings_antiflood_now_on` (menu only, with the stored limit) when the limit read before the write was 0 and the
   read-back is not (`settingsFloodTurnedOn`, D-34); a limit press never shows it, and the commands' replies are unchanged. A repository fix (insert with limit 0
   on the first write) would change `/setfloodmode` and `/delflood` too, so it is a separate follow-up and must update
@@ -6556,7 +6580,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestSettingsMessagesAutoFamily` gains `timed sample` (a stored flood text previews `{duration}` as `1 год` in the group's Ukrainian and
   `{until}` one hour after a fixed `punishNow`; the warn limit's default preview and the flood's default private copy preview stay
   untimed), and `TestSettingsEditLocaleTokens` holds `<code>{duration}</code>` and `<code>{until}</code>` in `settings_msg_wait_text_auto`. The earlier Warnings tests
-  took the timed row as a width edit only (`[5 3 2]` to `[5 3 2 2]`, the navigation row's index 2 to 3).
+  took the timed row as a width edit only (`[5 3 2]` to `[5 3 2 2]`, the navigation row's index 2 to 3). Plan 26-04's families are
+  `TestSetFloodActionDuration` (`fuku/db/antiflood/timed_action_test.go`, SQLite: both columns stored and read, the first write's
+  limit 5, `SetFloodMode` clearing the seconds, no write for unchanged values, the key dropped by every write),
+  `TestApplyFloodModeTimed` and `TestSetFloodModeTimedCommand` (`antiflood_timed_test.go`: the apply outcomes; `/setfloodmode tmute
+  30m` answering `tmute 30m`, `TBAN 1d`, three bad durations writing nothing, `ban x` storing ban and 0, `/flood` reading `muted for
+  30m` and `banned for 1d`), `TestFloodTimed` (same file, `punishNow` fixed, on `newNoticeGoldenSite` with the real locales: `tmute`
+  restricts until now plus 1800 and posts the timed default with the Unmute row under `bot:punish_auto`, `tban` bans until now plus
+  86400 with no row, `sender_chat_tban` sends nothing and posts nothing, `inert_no_duration` equals `goldenTimedFloodInertTmute`,
+  `custom_text` fills `{action}`, `{duration}` and `{until}`, `pm_until` adds the private copy's Until line; toolkit
+  `floodTimedFlood`, `floodTimedNotice`) and the Antiflood page's five families above. The earlier Antiflood page tests took the
+  timed row as a width edit only (4 rows to 5, the toggle's index 2 to 3 and the navigation row's 3 to 4), and
+  `TestSettingsAntifloodCallbackBytes` and `TestSettingsAntifloodPageFitsEveryLocale` gained timed states, the duration screen and the
+  bad-duration notice.
 
 ## Commits
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"slices"
 	"strconv"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
@@ -23,6 +24,15 @@ const (
 	settingsFloodLimitKey  = "l"
 	settingsFloodModeKey   = "m"
 	settingsFloodDeleteKey = "d"
+	// settingsActFloodDuration is the action code of a Timed mute or Timed ban cell: it opens the shared
+	// duration screen (field k, settingsFloodTimedMute or settingsFloodTimedBan).
+	settingsActFloodDuration = "fd"
+	// settingsActFloodTimed is the action code of a preset of that screen: it stores the timed action with
+	// the preset's seconds (fields k and v, a preset of settingsDurationPresets).
+	settingsActFloodTimed = "ft"
+	// settingsFloodTimedMute and settingsFloodTimedBan are the k values of the timed row.
+	settingsFloodTimedMute = "m"
+	settingsFloodTimedBan  = "b"
 )
 
 // The limit control is Off (0), then settingsFloodMinLimit to settingsFloodMaxLimit, the range
@@ -54,7 +64,47 @@ func init() {
 			settingsFloodModeKey:   {Right: settingsRightAdminFloodBot, Set: settingsFloodSetMode},
 			settingsFloodDeleteKey: {Right: settingsRightAdminFloodBot, Set: settingsFloodSetDelete},
 		},
+		// The timed row (Phase 26, D-21): a cell opens the shared duration screen with the live admin check
+		// alone; a preset stores the timed action through applyFloodMode with the right /setfloodmode needs.
+		Actions: map[string]settingsPageAction{
+			settingsActFloodDuration: {
+				Fields: []string{"k"}, Right: settingsRightAdmin,
+				Validate: settingsFloodDurationFields, Run: settingsFloodOpenDuration,
+			},
+			settingsActFloodTimed: {
+				Fields: []string{"k", "v"}, Right: settingsRightAdminFloodBot,
+				Validate: settingsFloodTimedFields, Run: settingsFloodSetTimed,
+			},
+		},
 	})
+}
+
+// settingsFloodTimedMode is the timed action of a k value of the timed row: tmute for m, tban for b. ok is
+// false for anything else.
+func settingsFloodTimedMode(k string) (string, bool) {
+	switch k {
+	case settingsFloodTimedMute:
+		return "tmute", true
+	case settingsFloodTimedBan:
+		return "tban", true
+	}
+	return "", false
+}
+
+// settingsFloodDurationFields is the strict check of an fd press: k is m or b.
+func settingsFloodDurationFields(fields map[string]string) bool {
+	_, ok := settingsFloodTimedMode(fields["k"])
+	return ok
+}
+
+// settingsFloodTimedFields is the strict check of an ft press: k is m or b and v is a preset's canonical
+// decimal seconds, so a forged action or duration is refused before any I/O.
+func settingsFloodTimedFields(fields map[string]string) bool {
+	if _, ok := settingsFloodTimedMode(fields["k"]); !ok {
+		return false
+	}
+	_, ok := settingsDurationPreset(fields["v"])
+	return ok
 }
 
 // settingsFloodMainState is the Antiflood button's state: "Limit {n}", or Off.
@@ -106,18 +156,43 @@ func settingsFloodActionWord(tr *i18n.Translator, action string) string {
 	return html.EscapeString(action)
 }
 
-// settingsFloodSettable reports whether the menu can write the action, which is what
-// /setfloodmode accepts. A stored warn, tban or tmute is shown read-only.
-func settingsFloodSettable(action string) bool {
-	switch action {
-	case "mute", "ban", "kick":
-		return true
+// settingsFloodSettable reports whether the menu can write the stored action, which is what
+// /setfloodmode accepts: mute, ban, kick, and a tmute or tban with a duration (autoActionEffective). A
+// stored warn, or a tban or tmute with no duration, is shown read-only.
+func settingsFloodSettable(action string, secs int) bool {
+	return autoActionEffective(action, secs)
+}
+
+// settingsFloodTimedSelected is the k value of the timed row's cell to mark: the stored timed action while
+// it is effective (a valid duration), else empty.
+func settingsFloodTimedSelected(s *models.AntifloodSettings) string {
+	if !autoActionEffective(s.Action, s.ActionSecs) {
+		return ""
 	}
-	return false
+	switch s.Action {
+	case "tmute":
+		return settingsFloodTimedMute
+	case "tban":
+		return settingsFloodTimedBan
+	}
+	return ""
+}
+
+// settingsFloodPageActionWord is the word of the stored action on the page: the timed word
+// (settingsTimedWord, "Timed mute, 30 minute(s)") for an effective timed action, else
+// settingsFloodActionWord, which keeps an inert timed action's own word.
+func settingsFloodPageActionWord(tr *i18n.Translator, s *models.AntifloodSettings) string {
+	if word, ok := settingsTimedWord(tr, s.Action, s.ActionSecs); ok {
+		return word
+	}
+	return settingsFloodActionWord(tr, s.Action)
 }
 
 // renderSettingsAntiflood draws the Antiflood page: the limit (or the off line), the action
-// with a note when it cannot be set from the menu, the delete switch, and the controls.
+// with a note when it cannot be set from the menu, the delete switch, and the controls: the
+// stepper, the choice of a plain action, the timed row, the delete switch and the navigation
+// row (widths 5, 3, 2, 1 and 2). A plain action is marked in the choice row, an effective timed
+// action in the timed row.
 func renderSettingsAntiflood(v settingsView, s *models.AntifloodSettings, notice string) settingsScreen {
 	var body []string
 	if s.Limit == 0 {
@@ -126,9 +201,9 @@ func renderSettingsAntiflood(v settingsView, s *models.AntifloodSettings, notice
 		body = append(body, settingsText(v.Tr, "settings_antiflood_limit", i18n.TranslationParams{"n": s.Limit}))
 	}
 	body = append(body, settingsText(v.Tr, "settings_antiflood_action", i18n.TranslationParams{
-		"action": settingsFloodActionWord(v.Tr, s.Action),
+		"action": settingsFloodPageActionWord(v.Tr, s),
 	}))
-	if !settingsFloodSettable(s.Action) {
+	if !settingsFloodSettable(s.Action, s.ActionSecs) {
 		body = append(body, settingsText(v.Tr, "settings_antiflood_action_note"))
 	}
 	state := settingsStateWord(v.Tr, s.DeleteAntifloodMessage)
@@ -138,7 +213,7 @@ func renderSettingsAntiflood(v settingsView, s *models.AntifloodSettings, notice
 	k.row(settingsFloodLimitRow(k, s.Limit)...)
 
 	selected := ""
-	if settingsFloodSettable(s.Action) {
+	if slices.Contains(floodModes, s.Action) {
 		selected = s.Action
 	}
 	k.row(settingsChoiceRow(k, settingsPageAntiflood, settingsFloodModeKey, []settingsOption{
@@ -146,11 +221,31 @@ func renderSettingsAntiflood(v settingsView, s *models.AntifloodSettings, notice
 		{Value: "ban", Label: settingsText(v.Tr, "settings_opt_ban")},
 		{Value: "kick", Label: settingsText(v.Tr, "settings_opt_kick")},
 	}, selected)...)
+	k.row(settingsFloodTimedRow(k, settingsFloodTimedSelected(s))...)
 
 	toggleLabel := settingsText(v.Tr, "settings_btn_antiflood_delete", i18n.TranslationParams{"state": state})
 	k.row(settingsToggleButton(k, settingsPageAntiflood, settingsFloodDeleteKey, toggleLabel, s.DeleteAntifloodMessage)...)
 	k.navRow(false)
 	return k.screen(settingsCompose(v, "settings_page_antiflood", body, notice, false))
+}
+
+// settingsFloodTimedRow builds the timed row [Timed mute | Timed ban]: each cell opens the shared duration
+// screen of its action, and the cell of the stored effective timed action (timed) is marked.
+func settingsFloodTimedRow(k *settingsKeyboard, timed string) []gotgbot.InlineKeyboardButton {
+	var row []gotgbot.InlineKeyboardButton
+	for _, cell := range []struct{ k, key string }{
+		{settingsFloodTimedMute, "settings_opt_tmute"},
+		{settingsFloodTimedBan, "settings_opt_tban"},
+	} {
+		label := settingsText(k.view.Tr, cell.key)
+		if cell.k == timed {
+			label = settingsSelectedPrefix + label
+		}
+		if button, ok := k.button(label, map[string]string{"a": settingsActFloodDuration, "k": cell.k}); ok {
+			row = append(row, button)
+		}
+	}
+	return row
 }
 
 // settingsFloodStepTarget is the absolute value a step to n lands on: below the lowest limit
@@ -220,6 +315,9 @@ func settingsFloodNotice(p *settingsPress, result floodApplyResult, word string)
 		// The locale text is the command's printf template; the word is escaped because the
 		// page is sent as HTML.
 		return settingsNoticeWarn(fmt.Sprintf(settingsText(p.tr, "antiflood_setfloodmode_unknown_type"), html.EscapeString(word)))
+	case floodBadDuration:
+		// Unreachable from a valid press: an ft press carries a preset, which applyFloodMode accepts.
+		return settingsNoticeWarn(settingsText(p.tr, "antiflood_setfloodmode_bad_duration"))
 	case floodSaveFailed:
 		log.Errorf("[Settings] antiflood write for chat %d failed: %v", p.group.Id, result.Err)
 		return settingsNoticeWarn(settingsText(p.tr, "common_settings_save_failed"))
@@ -231,8 +329,8 @@ func settingsFloodNotice(p *settingsPress, result floodApplyResult, word string)
 // On a chat with no row the repository's first insert stores the model default limit (D-27),
 // so a tap meant for the action or the switch turns antiflood on at that default. The
 // commands behave the same and the repository is unchanged; the menu says so instead of
-// letting a browsing tap pass in silence (D-34). Only the action and the delete switch ask
-// (sideEffect of settingsFloodRedraw): a limit press names the limit itself.
+// letting a browsing tap pass in silence (D-34). Only the action, a timed preset and the delete
+// switch ask (sideEffect of settingsFloodRedraw): a limit press names the limit itself.
 func settingsFloodTurnedOn(result floodApplyResult, before *models.AntifloodSettings) bool {
 	return result.Outcome == floodApplied && before != nil && before.Limit == 0 &&
 		result.Stored != nil && result.Stored.Limit > 0
@@ -359,4 +457,55 @@ func settingsFloodSetDelete(p *settingsPress, value string) *settingsScreen {
 		return nil
 	}
 	return settingsFloodRedraw(ctx, p, applyFloodDelete(ctx, p.group.Id, value == "1"), before, "", true)
+}
+
+// settingsFloodOpenDuration draws the shared duration screen of the timed action an fd press names: its
+// presets press ft with the same k, the stored preset is marked only while that timed action is stored and
+// effective, and Back returns to the Antiflood page. An unreadable setting is the cannot-open edit.
+func settingsFloodOpenDuration(p *settingsPress) *settingsScreen {
+	k := p.fields["k"]
+	mode, ok := settingsFloodTimedMode(k)
+	if !ok {
+		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
+	defer cancel()
+
+	before, ok := settingsFloodReadBefore(ctx, p)
+	if !ok {
+		return nil
+	}
+	selected := 0
+	if before.Action == mode && autoActionEffective(before.Action, before.ActionSecs) {
+		selected = before.ActionSecs
+	}
+	press := func(secs int) map[string]string {
+		return map[string]string{"a": settingsActFloodTimed, "k": k, "v": strconv.Itoa(secs)}
+	}
+	back := map[string]string{"a": settingsActOpen, "p": settingsPageAntiflood}
+	screen := renderSettingsDuration(p.view(), "settings_page_antiflood", mode, selected, press, back, "")
+	return &screen
+}
+
+// settingsFloodSetTimed stores the timed action of an ft press with its preset's seconds through
+// applyFloodMode, the function /setfloodmode calls, and redraws the Antiflood page from its read-back (its
+// action line confirms the choice). Like the action press, a first write on a chat with no row stores the
+// default limit and says antiflood is now on (D-27, D-34). A press of the stored preset writes nothing and
+// shows no notice.
+func settingsFloodSetTimed(p *settingsPress) *settingsScreen {
+	mode, okMode := settingsFloodTimedMode(p.fields["k"])
+	secs, okSecs := settingsDurationPreset(p.fields["v"])
+	if !okMode || !okSecs {
+		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
+	defer cancel()
+
+	before, ok := settingsFloodReadBefore(ctx, p)
+	if !ok {
+		return nil
+	}
+	return settingsFloodRedraw(ctx, p, applyFloodMode(ctx, p.group.Id, mode, secs), before, mode, true)
 }
