@@ -33,9 +33,9 @@ func settingsMainStateLine(text, titleKey string) (string, bool) {
 // private shape ends with the Groups and Close row; the hand-built subtests of
 // TestSettingsMainGrid keep their own literals.
 const (
-	settingsMainShapeGroup   = "s|l / c|f / n|j / k|b / i|w / g|r / e|x / h|m / d|t / u|z / o|y / p / a / close"
-	settingsMainShapePrivate = "s|l / c|f / n|j / k|b / i|w / g|r / e|x / h|m / d|t / u|z / o|y / p / a / groups|close"
-	settingsMainOwnerRows    = 14
+	settingsMainShapeGroup   = "s|l / c|f / q|n / j|k / b|i / w|g / r|e / x|h / m|d / t|u / z|o / y / p / a / close"
+	settingsMainShapePrivate = "s|l / c|f / q|n / j|k / b|i / w|g / r|e / x|h / m|d / t|u / z|o / y / p / a / groups|close"
+	settingsMainOwnerRows    = 15
 	// settingsMainOwnerOnlyRows is the number of owner-only rows (Conversations and Access) an
 	// administrator's Main lacks.
 	settingsMainOwnerOnlyRows = 2
@@ -572,7 +572,7 @@ func settingsMainLines(text string) []string {
 // owner: the twenty-one grid pages in grid order, then Access.
 var settingsMainTitleKeys = []string{
 	"settings_page_staff", "settings_page_lockdown", "settings_page_captcha", "settings_page_antiflood",
-	"settings_page_warns", "settings_page_esc", "settings_page_locks", "settings_page_blacklist", "settings_page_filters", "settings_page_welcome", "settings_page_goodbye",
+	"settings_page_moddefaults", "settings_page_warns", "settings_page_esc", "settings_page_locks", "settings_page_blacklist", "settings_page_filters", "settings_page_welcome", "settings_page_goodbye",
 	"settings_page_rules", "settings_page_notes", "settings_page_reactions", "settings_page_msgs", "settings_page_mreq", "settings_page_del", "settings_page_switches",
 	"settings_page_lang", "settings_page_tz", "settings_page_log", "settings_page_anon", "settings_page_chat", "settings_page_access",
 }
