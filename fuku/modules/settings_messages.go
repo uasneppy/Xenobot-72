@@ -147,11 +147,11 @@ type settingsMsgFamily struct {
 var settingsMsgManualEvents = []settingsMsgEvent{
 	{
 		Key: eventmsg.EventBan, Code: "bn", Icon: "🚫", NameKey: "settings_msg_ev_ban", DescKey: "settings_msg_desc_ban",
-		ReservedButtons: 1, Default: banDefaultReply,
+		ReservedButtons: 2, Default: banDefaultReply,
 	},
 	{
 		Key: eventmsg.EventTimedBan, Code: "tb", Icon: "⏳", NameKey: "settings_msg_ev_tban", DescKey: "settings_msg_desc_tban",
-		Default: tbanDefaultReply, Timed: true,
+		ReservedButtons: 1, Default: tbanDefaultReply, Timed: true,
 	},
 	{
 		Key: eventmsg.EventKick, Code: "kk", Icon: "👢", NameKey: "settings_msg_ev_kick", DescKey: "settings_msg_desc_kick",
@@ -234,7 +234,8 @@ var settingsMsgReqEvents = []settingsMsgEvent{
 	},
 	{
 		Key: eventmsg.EventReqBan, Code: "rb", Icon: "⛔", NameKey: "settings_msg_ev_mreqban", DescKey: "settings_msg_desc_mreqban",
-		Default: memberReqNoticeDefault(models.RequirementActionBan), Appended: memberReqNoticeAppended(models.RequirementActionBan),
+		ReservedButtons: 1,
+		Default:         memberReqNoticeDefault(models.RequirementActionBan), Appended: memberReqNoticeAppended(models.RequirementActionBan),
 		Sample: settingsMsgSample{Action: "ban", Rules: memberReqRuleBits("un")},
 	},
 	{
@@ -465,6 +466,9 @@ func settingsMsgPMEditDef(fam settingsMsgFamily, ev settingsMsgEvent) settingsEd
 	def.Key, def.Kind, def.Icon, def.TitleKey = settingsMsgPMWaitPage(ev), settingsEditEvent, settingsMsgPMIcon, "settings_msg_pm_title"
 	def.Parts = settingsMsgPartsOf(fam)
 	def.Fields = map[string]string{settingsMsgEventField: ev.Code, settingsMsgDestField: settingsMsgDestPMCode}
+	if ev.Key == eventmsg.EventBan || ev.Key == eventmsg.EventTimedBan || ev.Key == eventmsg.EventReqBan {
+		def.ReservedButtons = 1
+	}
 	def.Hooks = &settingsEditHooks{
 		Load: settingsMsgLoad(ev, eventmsg.DestPM), Draw: settingsMsgPMDraw(fam, ev),
 		Remove: settingsMsgRemove(ev, eventmsg.DestPM), Write: settingsMsgWrite(ev, eventmsg.DestPM),
@@ -1005,6 +1009,9 @@ func settingsMsgPreview(ev settingsMsgEvent) func(*settingsPress, settingsEditPa
 			_, err := media.SendGreeting(p.b, p.query.From.Id, text, "", db.TEXT, &gotgbot.InlineKeyboardMarkup{}, 0)
 			return err
 		}
+		if eventSupportsAppeal(r) {
+			r.AppealURL = manualAppealURLFor(p.group.Id)
+		}
 		row := eventmsg.Message{
 			Event: ev.Key, Dest: eventmsg.DestGroup, Text: st.Text, FileID: st.FileID, MediaType: st.MediaType, Buttons: st.Buttons,
 		}
@@ -1060,6 +1067,9 @@ func settingsMsgPMPreview(ev settingsMsgEvent) func(*settingsPress, settingsEdit
 			// The default private text of the sample's untimed action carries no Until line, so the default
 			// preview stays as the site sends it; only a custom text shows the sample duration.
 			r.Values.Duration, r.Values.Until = "", time.Time{}
+		}
+		if part == "" && eventSupportsAppeal(r) {
+			r.AppealURL = manualAppealURLFor(p.group.Id)
 		}
 		msg := composeEventPM(p.b, p.group, groupTr, spec, r, row, eventActor{User: &presser})
 		if part == settingsEditPartText {

@@ -295,6 +295,7 @@ func listNoticeReply(tr *i18n.Translator, event string, target gotgbot.User, p a
 		Values:  values,
 		Default: text,
 		Opts:    opts,
+		Appeal:  p.Action == "ban" || (p.Action == "tban" && timed),
 	}
 }
 
@@ -360,5 +361,12 @@ func postCaptchaFailureNotice(bot *gotgbot.Bot, chatID int64, tr *i18n.Translato
 		},
 		Schedule: captchaFailureNoticeDelete(bot, chatID),
 	}
-	return postEvent(site, eventReply{Event: eventmsg.EventCaptcha, Target: target, Values: values, Default: text, Opts: opts})
+	return postEvent(site, eventReply{
+		Event:   eventmsg.EventCaptcha,
+		Target:  target,
+		Values:  values,
+		Default: text,
+		Opts:    opts,
+		Appeal:  action == "ban" || action == "tban",
+	})
 }

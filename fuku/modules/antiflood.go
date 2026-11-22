@@ -494,6 +494,7 @@ func floodNotice(b *gotgbot.Bot, chat *gotgbot.Chat, msg *gotgbot.Message, tr *i
 		Values:  values,
 		Default: text,
 		Opts:    opts,
+		Appeal:  p.Action == "ban" || (p.Action == "tban" && timed),
 	}
 	if _, acts := floodWords[p.Action]; !acts && !timed {
 		_, err := sendDefaultPost(site, r)

@@ -527,6 +527,7 @@ func warnLimitEventReply(tr *i18n.Translator, replyTo int64, u gotgbot.User, rea
 		Values:  values,
 		Default: text,
 		Opts:    opts,
+		Appeal:  res.Mode == "ban" || (res.Mode == "tban" && res.Secs > 0 && res.Until > 0),
 	}
 }
 

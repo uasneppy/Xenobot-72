@@ -163,6 +163,7 @@ type eventPMOffer struct {
 	Message      media.GreetingMessage
 	Custom       bool
 	Fallback     string
+	AppealRow    []gotgbot.InlineKeyboardButton
 	Options      eventmsg.Options
 	GroupMsgID   int64
 	GroupRows    [][]gotgbot.InlineKeyboardButton
@@ -347,6 +348,11 @@ func runEventPM(ctx context.Context, o eventPMOffer) {
 	if outcome == pmCopyRefused && o.Custom {
 		log.Warnf("[EventMessage] the custom private %s copy of user %d in chat %d was refused (code %d), the default was sent", o.Event, o.UserID, o.Chat.Id, code)
 		tried = media.GreetingMessage{Text: o.Fallback, MsgType: db.TEXT}
+		if len(o.AppealRow) > 0 {
+			tried.Keyboard = &gotgbot.InlineKeyboardMarkup{
+				InlineKeyboard: [][]gotgbot.InlineKeyboardButton{append([]gotgbot.InlineKeyboardButton(nil), o.AppealRow...)},
+			}
+		}
 		outcome, code = pmCopySend(ctx, o, tried)
 	}
 	switch outcome {
@@ -398,7 +404,9 @@ func composeEventPM(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator, spe
 	if row.FileID == "" || row.MediaType == 0 {
 		msg.FileID, msg.MsgType = "", db.TEXT
 	}
-	if rows := keyboard.BuildKeyboard(buttons); len(rows) > 0 {
+	rows := keyboard.BuildKeyboard(buttons)
+	rows = eventAppendAppealRow(rows, eventAppealRow(tr, r.AppealURL))
+	if len(rows) > 0 {
 		msg.Keyboard = &gotgbot.InlineKeyboardMarkup{InlineKeyboard: rows}
 	}
 	return msg

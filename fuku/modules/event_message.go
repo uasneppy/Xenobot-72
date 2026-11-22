@@ -103,6 +103,9 @@ type eventDefaultReply func(tr *i18n.Translator, in eventDefaultInput) (string, 
 // Required makes the group message ignore a stored Silent switch (a notice that carries the member's only
 // way out, the requirement mute's "I fixed it", is always posted), and TextOnly ignores a stored media file
 // (an event whose custom message is text and buttons only). Both are set by the site.
+// Appeal marks an automatic event whose applied action is a ban (ban or tban) so postEventSent attaches
+// the group's stored appeal button (TUNE-06, P27-04). AppealURL is populated once by postEventSent (or a
+// Messages preview) when eventSupportsAppeal holds and is never read for non-ban events.
 type eventReply struct {
 	Event        string
 	Target       gotgbot.User
@@ -115,6 +118,53 @@ type eventReply struct {
 	KeepRowsLast bool
 	Required     bool
 	TextOnly     bool
+	Appeal       bool
+	AppealURL    string
+}
+
+// eventSupportsAppeal reports whether r is a user ban event eligible for the group's appeal button
+// (TUNE-06, P27-04): EventBan, EventTimedBan, EventReqBan, or an automatic event with r.Appeal set.
+// Channel bans (negative target ID) never carry an appeal button.
+func eventSupportsAppeal(r eventReply) bool {
+	if r.Target.Id < 0 {
+		return false
+	}
+	if r.Appeal {
+		return true
+	}
+	switch r.Event {
+	case eventmsg.EventBan, eventmsg.EventTimedBan, eventmsg.EventReqBan:
+		return true
+	}
+	return false
+}
+
+// eventAppealRow builds the single-button URL row for the group's appeal link, or nil when unset or
+// invalid (re-checked defensively on read, T-27-09).
+func eventAppealRow(tr *i18n.Translator, appealURL string) []gotgbot.InlineKeyboardButton {
+	cleaned, ok := validateAppealURL(appealURL)
+	if !ok || cleaned == "" {
+		return nil
+	}
+	label := trS(tr, "eventmsg_btn_appeal")
+	if label == "" {
+		return nil
+	}
+	return []gotgbot.InlineKeyboardButton{{Text: label, Url: cleaned}}
+}
+
+// eventAppendAppealRow appends appealRow as the final row of a fresh copy of rows when non-empty and
+// adding it stays within Telegram's 100-button keyboard limit (settingsEditMaxButtons, T-27-10).
+func eventAppendAppealRow(rows [][]gotgbot.InlineKeyboardButton, appealRow []gotgbot.InlineKeyboardButton) [][]gotgbot.InlineKeyboardButton {
+	if len(appealRow) == 0 || pmCopyButtonCount(rows)+len(appealRow) > settingsEditMaxButtons {
+		return rows
+	}
+	out := make([][]gotgbot.InlineKeyboardButton, 0, len(rows)+1)
+	for _, row := range rows {
+		out = append(out, append([]gotgbot.InlineKeyboardButton(nil), row...))
+	}
+	out = append(out, append([]gotgbot.InlineKeyboardButton(nil), appealRow...))
+	return out
 }
 
 // eventSite is where and how one send site posts an event's reply: the bot, the group and its
@@ -318,6 +368,7 @@ func composeEventMessage(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator
 	} else {
 		rows = append(append(rows, kept...), custom...)
 	}
+	rows = eventAppendAppealRow(rows, eventAppealRow(tr, r.AppealURL))
 	if len(rows) > 0 {
 		msg.Keyboard = &gotgbot.InlineKeyboardMarkup{InlineKeyboard: rows}
 	}
@@ -384,6 +435,9 @@ func postEvent(site eventSite, r eventReply) error {
 // (postEventGroup), and then, whatever it did, the private copy is offered (offerReplyPM), which never
 // blocks. The error is the group step's.
 func postEventSent(site eventSite, r eventReply) (eventGroupPost, error) {
+	if eventSupportsAppeal(r) && r.AppealURL == "" {
+		r.AppealURL = manualAppealURLFor(site.Chat.Id)
+	}
 	readCtx, cancel := context.WithTimeout(context.Background(), eventMessageReadTimeout)
 	msgs, err := eventMessagesLookup(readCtx, site.Chat.Id)
 	cancel()
@@ -480,16 +534,31 @@ func postEventGroup(site eventSite, r eventReply, msgs *eventmsg.Messages) (even
 	return post, nil
 }
 
-// sendDefaultPost sends the default reply through the site's own send (today's call, byte for byte),
-// hands it to the site's schedule (by default queued under site.Kind) and returns it with the bot's
-// own rows it carries.
+// sendDefaultPost sends the default reply through the site's own send (today's call, byte for byte
+// when no appeal link is set), hands it to the site's schedule (by default queued under site.Kind)
+// and returns it with the rows it was sent with. When r.AppealURL is set and fits within Telegram's
+// 100-button limit, a shallow copy of r.Opts carries the appeal button row after the bot's own rows
+// so r.Opts is never mutated and pmCopyAddDetails preserves the appeal button.
 func sendDefaultPost(site eventSite, r eventReply) (eventGroupPost, error) {
-	sent, err := site.SendDefault(r.Default, r.Opts)
+	opts := r.Opts
+	if appealRow := eventAppealRow(site.Tr, r.AppealURL); len(appealRow) > 0 {
+		baseRows := eventBotRows(r.Opts)
+		rows := eventAppendAppealRow(baseRows, appealRow)
+		if len(rows) > len(baseRows) {
+			var copied gotgbot.SendMessageOpts
+			if r.Opts != nil {
+				copied = *r.Opts
+			}
+			copied.ReplyMarkup = gotgbot.InlineKeyboardMarkup{InlineKeyboard: rows}
+			opts = &copied
+		}
+	}
+	sent, err := site.SendDefault(r.Default, opts)
 	if err != nil {
 		return eventGroupPost{}, err
 	}
 	site.schedule(sent)
-	return eventGroupPost{Msg: sent, Rows: eventBotRows(r.Opts)}, nil
+	return eventGroupPost{Msg: sent, Rows: eventBotRows(opts)}, nil
 }
 
 // offerReplyPM offers the private copy of an event reply after the group step (D-11). It offers
@@ -522,6 +591,7 @@ func offerReplyPM(site eventSite, r eventReply, msgs *eventmsg.Messages, post ev
 		UserID:     r.Target.Id,
 		Message:    composeEventPM(site.Bot, site.Chat, site.Tr, spec, r, row, site.Actor),
 		Custom:     row.HasContent(),
+		AppealRow:  eventAppealRow(site.Tr, r.AppealURL),
 		Options:    msgs.Options,
 		TargetName: r.Target.FirstName,
 		ByRule:     site.Automatic,
