@@ -42,6 +42,8 @@ func TestPMCopyCallers(t *testing.T) {
 				"for captcha.go, which stays free of the engine",
 			"aispam_notice.go": "postAISpamNotice posts the AI spam notice after the message was deleted, behind its per-member " +
 				"and per-group cap (off by default)",
+			"event_message_lockdown.go": "the lockdown and lift messages, posted after the lockdown or the lift took effect, for the " +
+				"lockdown files, which stay free of the engine; the lockdown events have no private copy spec, so no copy is ever offered",
 		},
 		"postEventSent": {
 			"event_message.go": "postEvent wraps it; a site that needs what the group step posted calls it after the punishment",

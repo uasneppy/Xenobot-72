@@ -2931,9 +2931,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`EventForwardBlock`), in that order in `Events`, then Phase 24's six screening notices, `captcha` (`EventCaptcha`, the
   notice of a failed captcha), `aispam` (`EventAISpam`, the notice of an AI spam deletion), `mreqwarn` (`EventReqWarn`, the
   requirement warn and its warn-limit variants), `mreqkick` (`EventReqKick`), `mreqban` (`EventReqBan`) and `mreqmute`
-  (`EventReqMute`), and the destinations `group` and `pm`, the private copy sent to the
-  punished person, Phase 22) and never by a CHECK, so Phases 23 and 24 added theirs with no migration and Phase 25 adds
-  its own the same way; an unknown one is `ErrUnknownEvent` or `ErrUnknownDest` before any write. It is read through `cache.GetFromCacheOrLoad` as one
+  (`EventReqMute`), then Phase 25's lockdown messages, `lockdown` (`EventLockdown`, the reply of a `/lockdown` that started
+  a lockdown), and the destinations `group` and `pm`, the private copy sent to the
+  punished person, Phase 22) and never by a CHECK, so Phases 23, 24 and 25 added theirs with no migration; an unknown one is `ErrUnknownEvent` or `ErrUnknownDest` before any write. It is read through `cache.GetFromCacheOrLoad` as one
   `eventmsg.Messages` per chat (a map keyed `event|dest`, `Lookup(event, dest)`, plus the chat's `Options`, read from
   `chat_event_message_options` below) under `event_messages:<chat>` (`eventmsg.Get`; `eventmsg.GetFresh` is the same two
   queries without the cache, for the settings page), a read creates nothing and a failed read of either table is returned,
@@ -3801,6 +3801,26 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   Debug line with the chat and user IDs and the Telegram code. Every spam message is deleted whatever becomes of the notice.
   The `/aispam` help (`aispam_help_msg`, 8 languages) and its frozen doc page (`commands/aispam/index.md`, edited by hand) say the
   filter only deletes unless the group owner turns the notice on from the Messages page, with its two limits (D-42).
+  The lockdown messages (Phase 25) reach the engine only through the adapter file `event_message_lockdown.go` (D-26): the
+  lockdown and raid files name no engine entry (`TestPMCopyCallers` forbids it), so they call the `postLockdown*Event` adapters
+  there, the way `forwardblock_notice.go` serves the forward blocklist watcher. A lockdown site (`lockdownEventSite`) has a
+  `Schedule` that does nothing, so a lockdown message is never queued for deletion, custom or default (D-08), and no lockdown
+  event has a private copy spec, so no copy is ever offered (D-04). The manual start (plan 25-02, EVT-06, the `lockdown` event)
+  is `postLockdownStartEvent(b, ctx, msg, tr, actor, name, row, botMember)`, the one call `lockdown` makes after
+  `startLockdownRow` answered `lockdownStartStarted` (every refusal and "already active" answer keeps its own text). Its site is
+  the command's chat and translator, a reply to the command (its topic for a topic message), not `Automatic`, and the default
+  through today's `msg.Reply` with `formatting.Shtml()`, not paced; a custom message goes through `media.SendGreetingMessage`, which
+  takes no context, so its request is bounded only by the bot's HTTP client timeout. The default is
+  `lockdownStartDefaultReply` (the started line, the approved-muted note, "Locked by" with the recorded starter's mention, the
+  reason line, the no-delete and no-invite notes, byte for byte the reply before Phase 25, which still names the tapper after an
+  anonymous admin's proof). `{admin}` is the starter's recorded name, or "an admin" for an anonymous admin (`actorIsAnonymous`);
+  the person placeholders name the starter as the row records them (`lockdownEventPerson`: the capped name, no last name or
+  username), or the bot itself for an anonymous admin, never the tapper (D-13); `{reason}` is the stored reason. A custom text is
+  followed, after one line break, by the technical notes `lockdownStartNotes` (approved users muted too, then the no-delete and
+  no-invite notes when the bot lacks the right, read from the live membership `startLockdownRow` returned, D-07, D-16); the
+  default and the notes share `lockdownStartNoteLines`, so they cannot drift. Silent posts nothing and the lockdown, the worker
+  and the alert are unchanged (D-20); a refused custom message is replaced by the default once; a send error is logged with
+  today's `[Lockdown] reply: %v` (`TestEventMessageLockdownStart`).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
@@ -3906,7 +3926,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   action applied), `antiflood.go` (`floodNotice`, after the flood's mute, kick or ban), `blacklists.go`
   (`blacklistNotice`, after the blacklist's mute, kick or ban) and `forwardblock_notice.go` (`forwardBlockNotice`, the
   forward blocklist's notice of the linked group, the watcher's only way to the engine besides `warns.go`) and
-  `event_message_auto.go` (`postCaptchaFailureNotice`, Phase 24), `postEventSent` only by `event_message.go` (`postEvent`) and
+  `event_message_auto.go` (`postCaptchaFailureNotice`, Phase 24) and `event_message_lockdown.go` (the lockdown and lift
+  messages for the lockdown files, which stay free of the engine, Phase 25), `postEventSent` only by `event_message.go` (`postEvent`) and
   `memberreq_notice.go` (`memberReqPostEventNotice`, the requirement notice after the punishment, plan 24-05), each allow-list entry with its reason and a stale entry failing, and no file whose name starts with
   `staff`, `lockdown` or `raid` names `offerEventPM`, `registerEventPM`, `offerReplyPM`, `replyEvent`, `postEvent` or any
   `pmCopy` identifier, so a lockdown's joiner bans, "Ban N recent joiners" and Staff
@@ -3968,7 +3989,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   which D-27 counts as an automatic punishment message because it is aispam's only group message (the owner can narrow it
   when confirming the phase). A delete verdict of aispam posts nothing in the group unless the group turned its AI spam notice
   on (Phase 24, off by default); the notice is then queued under `bot:punish_auto` through its site (`postAISpamNotice`). The
-  owner-log dump post of `aispamMirrorDeletion` is never a kind. The antiflood and aispam sends go through
+  owner-log dump post of `aispamMirrorDeletion` is never a kind. No lockdown message is a named site (Phase 25, D-08): a
+  lockdown site's `Schedule` (`lockdownEventSite`) does nothing, so a `/lockdown` reply, custom or default, is never queued.
+  The antiflood and aispam sends go through
   `helpers.SendMessageWithErrorHandling`, which answers no message for a chat the bot cannot post in: the hook keeps the
   returned message and `scheduleBotMessage` ignores nil. Every hook is additive around the existing send (no request, error
   path or return changes) and runs only after a send succeeded (`TestBotAutoPunishmentNotices`, `TestMemberReqNoticeScheduled`,
@@ -6139,6 +6162,25 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   with a 400 comes after the kick and is followed by the golden default once) and `pm copies` (the requirement mute's private copy
   switched on from its private copy screen sends the default copy with the broken rule on the reason line; the captcha's copy on and the
   cap at 2 in a stopped minute: three joiners fail the captcha, all kicked and noticed, exactly two copies).
+- Phase 25 test families (the lockdown messages). The golden `TestLegacyLockdownMessageRequests`
+  (`lockdown_message_legacy_request_test.go`, one subtest per case, the constants `goldenLockdown*`) was recorded alone, on the code
+  before any lockdown send site changed, and is never re-recorded or weakened: it pins the `sendMessage` request of the `/lockdown`
+  success reply (all rights; a reason with markup and the delete and invite rights missing; after an anonymous admin's proof tap), of
+  the automatic lockdown's public notice (join surge; flood without the delete right; AI burst without the invite right), of the
+  cannot-lock warning's Staff Group and log channel copies and of the lift notice from `/unlockdown` (finished; a manual change and two
+  joiners being unbanned), from the alert's Lift Confirm and from a private settings menu, and that a lift from a group menu posts
+  nothing beyond the menu's edits, each with no deletion queue row although every rule of the group is at its shortest delay, in
+  Ukrainian with the real locales. The chat and user IDs are replaced by `<chat>`, `<admin>`, `<tapper>`, `<staff>` and `<log>`
+  (`lockdownGoldenTokens`). Its toolkit (`newLockdownGoldenEnv`, `newLockdownGoldenSettingsEnv`, `lockdownGoldenRequest`,
+  `lockdownGoldenWant`, `lockdownGoldenWantSends`, `lockdownGoldenNoQueue`, `lockdownGoldenNoPrivate`, `lockdownGoldenSettingsButton`,
+  `lockdownGoldenWantLifted`) is reused by name and the file is never edited. `TestEventMessageLockdownStart`
+  (`event_message_lockdown_test.go`, plan 25-02, about 2 s, one lockdown environment per subtest with every deletion rule of the group
+  at its shortest delay) holds the manual start's site through the real dispatcher: `custom` (a stored text with `{admin}`,
+  `{chatname}`, `{reason}` and `{mention}`; `/lockdown raid & co` locks first, then one reply to the command with every value escaped
+  and the approved-muted note after it; no queue row), `custom notes` (the bot without the delete and invite rights: the three notes in
+  order), `silent` (the lockdown is active with the locked set, nothing is posted in the group, the next worker cycle posts the alert to
+  the linked Staff Group), `refused` (real locales: a custom message refused with a 400 is followed by exactly `goldenLockdownStart`)
+  and `anonymous` (after the proof tap `{admin}` reads "an admin" and `{mention}` and `{id}` name the bot, never the tapper).
 
 ## Commits
 

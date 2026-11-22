@@ -216,7 +216,7 @@ func TestEventMessages(t *testing.T) {
 
 	t.Run("the event and destination tables", func(t *testing.T) {
 		want := []string{"ban", "tban", "kick", "mute", "tmute", "unban", "unmute", "warn", "warnlimit", "flood", "blacklist", "fwdblock", "captcha",
-			"aispam", "mreqwarn", "mreqkick", "mreqban", "mreqmute"}
+			"aispam", "mreqwarn", "mreqkick", "mreqban", "mreqmute", "lockdown"}
 		if len(Events) != len(want) {
 			t.Fatalf("Events = %v, want %v", Events, want)
 		}

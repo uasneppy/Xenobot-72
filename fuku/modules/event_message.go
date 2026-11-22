@@ -65,16 +65,19 @@ type eventActor struct {
 // count and the limit, the action's mode word (warn, mute, kick or ban, never translated), the stored
 // reasons of a warn limit and the bot's own keyboard rows the site computed, so a builder stays pure.
 // Rules is the mask of the broken member requirement rules, read only by the requirement builders.
+// Lockdown is what a lockdown message's default says beside its person (the bot's missing rights for a
+// start), read only by the lockdown builders (event_message_lockdown.go).
 type eventDefaultInput struct {
-	Target  gotgbot.User
-	Reason  string
-	TimeVal string
-	Count   int
-	Limit   int
-	Action  string
-	Reasons []string
-	Rows    [][]gotgbot.InlineKeyboardButton
-	Rules   int
+	Target   gotgbot.User
+	Reason   string
+	TimeVal  string
+	Count    int
+	Limit    int
+	Action   string
+	Reasons  []string
+	Rows     [][]gotgbot.InlineKeyboardButton
+	Rules    int
+	Lockdown lockdownFacts
 }
 
 // eventDefaultReply builds an event's default reply: the text and the options the send site sent

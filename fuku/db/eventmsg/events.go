@@ -1,6 +1,7 @@
 // Package eventmsg stores the custom event messages of a group: one message per event (a manual
 // punishment such as ban or mute, an automatic action such as a warn or a flood notice, or a screening
-// notice such as a failed captcha, a member requirement or an AI spam deletion) and
+// notice such as a failed captcha, a member requirement or an AI spam deletion, or a lockdown's public
+// message) and
 // destination (the group itself, or the private copy sent to the punished person), each with a text, at most one media item, URL buttons and a Silent switch,
 // plus the group's two options of the private copies. A chat's messages and options are read as
 // one struct per chat through the cache key event_messages:<chat>, which is listed in skipLocal,
@@ -61,6 +62,9 @@ const (
 	// EventReqMute is the notice posted after a member requirement muted a member. It carries the
 	// member's "I fixed it" button, so the send path never silences it.
 	EventReqMute = "mreqmute"
+	// EventLockdown is the reply of a /lockdown that started a lockdown, also after an anonymous admin's
+	// proof tap. Every refusal and "already active" answer keeps its own text and is not this event.
+	EventLockdown = "lockdown"
 )
 
 // The destinations a message can be stored for.
@@ -74,7 +78,7 @@ const (
 
 // Events lists every event a message can be stored for, in the order the settings page shows
 // them: the manual punishments, then the automatic actions (Phase 23), then the screening notices
-// (Phase 24). Phase 25 appends the lockdown events.
+// (Phase 24), then the lockdown messages (Phase 25).
 var Events = []string{
 	EventBan,
 	EventTimedBan,
@@ -94,6 +98,7 @@ var Events = []string{
 	EventReqKick,
 	EventReqBan,
 	EventReqMute,
+	EventLockdown,
 }
 
 // Dests lists every destination a message can be stored for.

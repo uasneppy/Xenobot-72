@@ -382,27 +382,8 @@ func (m moduleStruct) lockdown(b *gotgbot.Bot, ctx *ext.Context) error {
 	case lockdownStartLiftedMeanwhile:
 		return refuse("lockdown_already_lifted")
 	}
-	row, botMember := res.Row, res.BotMember
-
-	parts := []string{
-		lockdownText(tr, "lockdown_started"),
-		lockdownText(tr, "lockdown_note_approved_muted"),
-		lockdownSplice(
-			lockdownText(tr, "lockdown_started_by", i18n.TranslationParams{"name": lockdownNameToken}),
-			lockdownNameToken, lockdownMention(actor.Id, name),
-		),
-	}
-	if line := lockdownReasonLine(tr, row.Reason); line != "" {
-		parts = append(parts, line)
-	}
-	// A missing delete or invite right never blocks the lock; it only adds a note.
-	if !botMember.CanDeleteMessages {
-		parts = append(parts, lockdownText(tr, "lockdown_note_no_delete"))
-	}
-	if !botMember.CanInviteUsers {
-		parts = append(parts, lockdownText(tr, "lockdown_note_no_invite"))
-	}
-	return reply(strings.TrimSpace(strings.Join(parts, "\n")))
+	postLockdownStartEvent(b, ctx, msg, tr, actor, name, res.Row, res.BotMember)
+	return ext.EndGroups
 }
 
 // lockdownDefinitiveRefusal reports whether err is Telegram's own refusal of a request:
