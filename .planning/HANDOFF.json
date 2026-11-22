@@ -1,137 +1,141 @@
 {
   "version": "1.0",
-  "timestamp": "2026-11-22T14:23:42.901Z",
-  "phase": "26",
-  "phase_name": "Timed Punishments, Escalation and Warn Expiry",
-  "phase_dir": ".planning/phases/26-timed-punishments-escalation-and-warn-expiry",
-  "plan": 12,
-  "task": 2,
-  "total_tasks": 3,
+  "timestamp": "2026-11-22T21:12:01.612Z",
+  "phase": "27",
+  "phase_name": "Manual Command Defaults, Reason Shortcuts and Appeal Button",
+  "phase_dir": ".planning/phases/27-manual-command-defaults-reason-shortcuts-and-appeal-button",
+  "plan": 6,
+  "task": 1,
+  "total_tasks": 7,
   "status": "paused",
   "completed_tasks": [
     {
-      "id": "26-01..26-07",
-      "name": "goldens, timed warn limit, flood, blacklist, warn expiry storage and page",
+      "id": "phase-20",
+      "name": "Phase 20 UAT (8/8), retroactive STRIDE security audit (18/18), goal verification (8/8), and transition to Phase 21",
       "status": "done",
-      "commit": "92f29f1..f7bb78f"
+      "commit": "64373e71..a1150aa8"
     },
     {
-      "id": "26-08",
-      "name": "ladder storage, migration 20261122140000",
+      "id": "defer-21-26",
+      "name": "Deferred live verification for Phases 21-26 in STATE.md (owner choice) and started autonomous run from Phase 27",
       "status": "done",
-      "commit": "70c1bbfe"
+      "commit": "49a7d135"
     },
     {
-      "id": "26-09",
-      "name": "escalate resolver at flood, blacklist, forward blocklist",
+      "id": "27-plan",
+      "name": "Auto-generated 27-CONTEXT.md, mapped 23/23 analogs in 27-PATTERNS.md, and planned 7 plans (27-01..27-07) with unique threat IDs T-27-01..T-27-19",
       "status": "done",
-      "commit": "3b0b6f66"
+      "commit": "b7393953, 580c08e5"
     },
     {
-      "id": "26-10",
-      "name": "escalation apply functions and the private Escalation page j",
+      "id": "27-01",
+      "name": "MSG-11 characterization goldens committed alone (moderation_phase27_legacy_request_test.go, 17/17 subtests PASS)",
       "status": "done",
-      "commit": "3c85708d, a6c71491"
+      "commit": "71dbf865, c4ae041a"
     },
     {
-      "id": "26-11",
-      "name": "safety and privacy sweep",
+      "id": "27-02",
+      "name": "Tracer: migration 20261122150000_add_manual_command_tuning.sql, fuku/db/modtuning repo + skipLocal + backup exclusion, default ban/mute durations & reason_required in bans.go/mute.go/warns.go",
       "status": "done",
-      "commit": "d7a5496c, 5046db0a"
+      "commit": "537258e4..fa95390e"
     },
     {
-      "id": "26-12 task 1",
-      "name": "TestTimedPunishmentsEndToEnd, 8 subtests pass (about 1.3 s)",
+      "id": "27-03",
+      "name": "Reason shortcuts validation, apply helpers, and single-word expansion into manual punishments (group, PM, warns, logs; HTML-escaped)",
       "status": "done",
-      "commit": "d6793499"
+      "commit": "7ee9f123..7f76543d"
     },
     {
-      "id": "26-12 task 2",
-      "name": "goldens and gates",
-      "status": "in_progress",
-      "progress": "goldens: each 26-01 golden has 1 commit, the Phase 21-25 goldens have no diff since b7662c7, all pass; test-shard-check passes (from a path without spaces); check-docs, check-translations, go vet ./... pass; Phase 26 fuku/db packages pass with -race; full fuku/modules -race run: 82 failures, the identical set on 78648d16 (before this session), 247 s. TZ=UTC full run (236 s): only TestChatClockReadsTheGroup, TestApplyTimezone and TestSettingsTimezoneTyped fail, all three also failing on 78648d16."
+      "id": "27-04",
+      "name": "Appeal URL validation (content.ValidButtonURL), eventmsg_btn_appeal in 8 locales, attachment to ban messages/PM copies/previews + 100-button cap",
+      "status": "done",
+      "commit": "44ac320f..7400cb52"
+    },
+    {
+      "id": "27-05",
+      "name": "WaitEndedKey fix on settingsTypedPage, private Manual defaults page (q, Order 41, codes md/mt/mr/ma/mc/mx), 8 locales, Main grid & authority tests (9/9 subtests PASS)",
+      "status": "done",
+      "commit": "d69471ee..c1f6633a"
     }
   ],
   "remaining_tasks": [
     {
-      "id": "26-12 task 2",
-      "name": "finish: record the TZ=UTC full run, lint and gosec gates, write 26-12-SUMMARY.md",
-      "status": "in_progress"
-    },
-    {
-      "id": "26-12 task 3",
-      "name": "PostgreSQL integrity run, or record it as human-needed",
+      "id": "27-06",
+      "name": "Plain-text Step 2 hook on settings_list_input.go + private Reason shortcuts list page (rs, Order 45, codes sg/sx/sy/sa/sc) + 8 locales & tests (executor killed before any file edits)",
       "status": "not_started"
     },
     {
-      "id": "26-verify",
-      "name": "Phase 26 verifier, then STATE.md and ROADMAP.md",
+      "id": "27-07",
+      "name": "Phase 27 safeguard tests (settings_phase27_test.go), E2E dispatcher proof (modtuning_e2e_test.go), AGENTS.md update, and local phase gates",
       "status": "not_started"
     },
     {
-      "id": "27-30",
-      "name": "plan and execute Phases 27 to 30",
+      "id": "27-verify",
+      "name": "Phase 27 security audit (27-SECURITY.md), goal verification (27-VERIFICATION.md), and transition",
+      "status": "not_started"
+    },
+    {
+      "id": "28-30",
+      "name": "Discuss/plan/execute Phases 28 (Advanced Thresholds), 29 (Plain Tone and Copy Settings), and 30 (Backup Page and Custom Messages in Backups), then milestone audit/complete",
       "status": "not_started"
     }
   ],
   "blockers": [
     {
-      "description": "No PostgreSQL, Docker daemon, golangci-lint or gosec on this machine",
-      "type": "external",
-      "workaround": "record make lint, gosec and make test-postgres-integrity as human-needed for the verifier; TestOffenceCountConcurrent and the three *MigrationDefaults tests have never run"
+      "description": "Project-local .claude/gsd-core/bin/gsd-tools.cjs fails with MODULE_NOT_FOUND './vendor/re2js.cjs'",
+      "type": "technical",
+      "workaround": "Always invoke global CLI: node /Users/denyspetrenko/.agents/gsd-core/bin/gsd-tools.cjs"
     },
     {
-      "description": "The local full fuku/modules run fails 82 tests, the same set as before this session",
-      "type": "technical",
-      "workaround": "about 80 are captcha tests failing chk_captcha_expires_at because the machine's zone is +02:00 (they pass with TZ=UTC); TestApplyTimezone and TestSettingsTimezoneTyped fail even with TZ=UTC, apparently because macOS loads lower-case zone names (case-insensitive filesystem). Not caused by Phase 26."
+      "description": "No PostgreSQL, Docker daemon, golangci-lint, or gosec installed locally",
+      "type": "external",
+      "workaround": "PostgreSQL-only migration tests skip cleanly without DATABASE_URL; run go vet -tags testtools ./... and gofmt locally; track CI gates as human_needed"
+    },
+    {
+      "description": "Sandbox blocks localhost TCP binds for miniredis/httptest tests; macOS APFS case-insensitive zoneinfo causes pre-existing TestSettingsTimezoneTyped / TestChatClockReadsTheGroup mismatch",
+      "type": "external",
+      "workaround": "Run targeted non-miniredis unit/fake-client tests sandboxed; run full/networked Go tests only if needed or in CI"
     }
   ],
   "async_jobs": [],
   "human_actions_pending": [
     {
-      "action": "Run make lint, gosec and make test-postgres-integrity on a machine with the tools and a PostgreSQL",
-      "context": "Phase 26 gates D-43, D-46, D-49",
-      "blocking": true
-    },
-    {
-      "action": "Push the branch claude/sharp-goodall-f23ang",
-      "context": "commits 70c1bbfe..d6793499 are local only; pushing was not asked for",
+      "action": "Push local commits on branch claude/sharp-goodall-f23ang to origin when ready (currently 26 commits ahead before pause commit)",
+      "context": "All work since 3173b0db (Phase 26 finish, Phase 20 UAT/Security/Verification/Transition, Phase 27 plans 27-01..27-05) is local only",
       "blocking": false
     },
     {
-      "action": "Live Telegram checks of Phases 21 to 25 (each NN-VERIFICATION.md)",
-      "context": "human_needed",
+      "action": "Live Telegram, PostgreSQL, lint, and gosec checks deferred for Phases 21-26 (recorded in STATE.md Deferred Verification)",
+      "context": "Owner opted to defer live checks for Phases 21-26 and continue building Phases 27-30 autonomously",
       "blocking": false
     },
     {
-      "action": "Confirm or change provisional decisions: Phase 22 defaults, 23 P1-P10, 24 P1-P16, 25 P1-P15, 26 P-01..P-24",
-      "context": "recorded in each CONTEXT.md",
+      "action": "Review Phase 27 provisional owner decisions P27-01..P27-05 once Phase 27 completes",
+      "context": "Default durations on /dban,/sban,/dmute,/smute; reason_required command scope; single-word case-insensitive shortcut cap 50; appeal button on manual + automatic bans; settingsRightRestrict on pages q and rs",
       "blocking": false
     }
   ],
   "decisions": [
     {
-      "decision": "Telegram's own refusal text is not treated as a log leak in TestTimedPunishmentLogsCarryIDsOnly",
-      "rationale": "the untimed punishments have always logged it; it is server wording, never a member's",
-      "phase": "26"
+      "decision": "Deferred Phases 21-26 live verification in STATE.md and started /gsd-autonomous from Phase 27",
+      "rationale": "Owner selected this option at Phase 21 human_needed pause so autonomous build proceeds through Phases 27-30",
+      "phase": "27"
     },
     {
-      "decision": "The blacklist action write and the warn settings page log escalationErrClass instead of the raw error",
-      "rationale": "found by the 26-11 log sweep",
-      "phase": "26"
+      "decision": "P27-01..P27-05 provisional defaults for Phase 27",
+      "rationale": "workflow.skip_discuss=true; conservative reversible defaults matching Phases 21-26 conventions and EVT-10/MSG-11 invariants",
+      "phase": "27"
     },
     {
-      "decision": "French settings_btn_esc_remove shortened to \"Retirer dernière\"",
-      "rationale": "the 20-code-point cell limit",
-      "phase": "26"
-    },
-    {
-      "decision": "The Escalation page writes need settingsRightRestrict; viewing needs settingsRightAdmin",
-      "rationale": "a ladder decides what the bot does to members",
-      "phase": "26"
+      "decision": "Page keys q (Order 41, Manual defaults) and rs (Order 45, Reason shortcuts), list action codes sg/sx/sy/sa/sc",
+      "rationale": "25/26 single-letter page keys were already taken; verified zero collisions and <=64-byte Telegram callbacks",
+      "phase": "27"
     }
   ],
-  "uncommitted_files": [],
-  "next_action": "Write 26-12-SUMMARY.md with the gate results (TZ=UTC full run leaves only the three timezone tests, all failing before this session too) and the PostgreSQL/lint/gosec runs as human-needed, then run the Phase 26 verifier.",
-  "context_notes": "The worktree path holds spaces; /tmp/xeno72 is a symlink to it so make test-shard-check works. STATE.md and ROADMAP.md are still stale (STATE says 28 plans; ROADMAP leaves Phases 21-25 unchecked)."
+  "uncommitted_files": [
+    " M .planning/state.json",
+    "?? .planning/phases/27-manual-command-defaults-reason-shortcuts-and-appeal-button/27-PATTERNS.md"
+  ],
+  "next_action": "Run /gsd-execute-phase 27 (resumes cleanly at Wave 5 / Plan 27-06, then 27-07, then Phase 27 verification), or /gsd-autonomous --from 27 to finish Phase 27 and continue through Phases 28-30.",
+  "context_notes": "Phase 27 Plans 27-01 through 27-05 are fully implemented, tested, and committed with zero regressions and immutable MSG-11 goldens intact. Plan 27-06 executor had just started thinking and was killed cleanly before making any edits. Branch is claude/sharp-goodall-f23ang."
 }
