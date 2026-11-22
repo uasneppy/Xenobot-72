@@ -5,16 +5,16 @@ milestone_name: Conversations, Custom Messages and Tuning
 current_phase: 27
 current_phase_name: Manual Command Defaults, Reason Shortcuts and Appeal Button
 status: executing
-stopped_at: Completed 27-03-PLAN.md
-last_updated: "2026-11-22T20:12:56.669Z"
+stopped_at: Completed 27-04-PLAN.md
+last_updated: "2026-11-22T20:45:09.701Z"
 last_activity: 2026-11-22
 last_activity_desc: Phase 27 execution started
-state_head: a3e1e3ed2782815503da163960b3edd7982f9625
+state_head: 3d159a70a41ad094ab17626d774dcec9105302e1
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 63
-  completed_plans: 59
+  completed_plans: 60
   percent: 9
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 27 (Manual Command Defaults, Reason Shortcuts and Appeal Button) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-11-22 — Phase 27 execution started
 
@@ -199,6 +199,7 @@ Progress: [█░░░░░░░░░] 9%
 | Phase 27 P01 | 6min | 2 tasks | 1 files |
 | Phase 27 P02 | 16min | 3 tasks | 26 files |
 | Phase 27 P03 | 6min | 2 tasks | 6 files |
+| Phase 27-manual-command-defaults-reason-shortcuts-and-appeal-button P04 | 30min | 3 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -314,6 +315,7 @@ Recent decisions affecting current work:
 - [Phase 27]: 27-01: Phase 27 MSG-11 manual command characterization goldens frozen in fuku/modules/moderation_phase27_legacy_request_test.go (17 subtests, 15 goldenP27* constants, commit 71dbf865); /swarn sends a warn reply after deleting command 101 and no-reason warns store localized fallback reason on unchanged b7393953.
 - [Phase 27]: TUNE-05 reason shortcut apply helpers check existence before the 50-entry cap, treat ON CONFLICT DO NOTHING races as exists, and log IDs only without raw error strings.
 - [Phase 27]: expandManualReason uses a zero-I/O fast-path for empty/multi-word reasons and is wired after reason-required in moderation.go, bans.go (/tban), mute.go (/tmute), and warns.go (dispatchWarn only).
+- [Phase 27]: P27-04 implemented: appeal button attaches to EventBan, EventTimedBan, EventReqBan, and automatic ban/tban outcomes (EventWarnLimit, EventFlood, EventBlacklist, EventForwardBlock, EventCaptcha) on group messages, PM copies, refused-custom PM fallbacks, and Messages Full previews, respecting the 100-button Telegram cap and skipping channel bans, silent bans, non-ban events, lockdowns, and Staff Group actions.
 
 ### Pending Todos
 
@@ -435,8 +437,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-22T20:12:56.074Z
-Stopped at: Completed 27-03-PLAN.md
+Last session: 2026-11-22T20:45:09.086Z
+Stopped at: Completed 27-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
