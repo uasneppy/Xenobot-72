@@ -715,6 +715,12 @@ func TestSettingsStaffPrivacy(t *testing.T) {
 		settingsPrivacyPhase24Run(t)
 	})
 
+	// Phase 25: the same administrator drives the Lockdown family: its list, the lift's screen, a typed text, the Silent
+	// switch and a Full preview.
+	t.Run("a private Phase 25 run by an admin who is not the creator never names the Staff Group", func(t *testing.T) {
+		settingsPrivacyPhase25Run(t)
+	})
+
 	t.Run("a group menu run never names a Staff Group", func(t *testing.T) {
 		env := newSettingsEnv(t)
 		titles := []string{"ZZ Zero & <Ö>", "ZZ One & <Ö>", "ZZ Two & <Ö>"}
@@ -1887,5 +1893,33 @@ func settingsPrivacyPhase24Run(t *testing.T) {
 	}
 	settingsPrivacyMsgRunClean(t, env, moderator, m.msgID, staffChat, "Phase 24",
 		"settings_msg_fam_mreq_intro", "settings_msg_ev_mreqmute", "settings_msg_pm_intro", "settings_msg_line_notice",
+		"settings_msg_preview_header", "settings_edit_saved_text")
+}
+
+// settingsPrivacyPhase25Run is the Phase 25 run of an administrator who is not the creator (with can_change_info) in the
+// private menu of a group linked to a Staff Group: the Lockdown list, the lift's event screen, a typed lift text with the
+// person and group placeholders, the Silent switch and a Full preview. Nothing the bot produced for them names the Staff
+// Group (D-36).
+func settingsPrivacyPhase25Run(t *testing.T) {
+	t.Helper()
+	env := newSettingsMsgEnv(t)
+	settingsEditFakeSends(env.settingsEnv)
+	staffChat := settingsStaffTestOwnedStaffGroup(env.settingsEnv, settingsStaffPrivacyTitle)
+	linkLockdownGroupTo(env.lockdownEnv, staffChat)
+	moderator := settingsPrivacyMsgModerator(t, env)
+
+	m := settingsMsgPrivateMenu(env, env.chat, moderator)
+	m.press("a", settingsActMsgFamily, "t", "l")
+	m.press("a", settingsActMsgEvent, settingsMsgEventField, "lu")
+	m.press("a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, "lu")
+	sendPrivateMessage(env.settingsEnv, moderator, gotgbot.Message{Text: "{admin} opened {chatname} ({mention}, {id})"})
+	m.press("a", settingsActMsgSilent, settingsMsgEventField, "lu", "v", "1")
+	m.press("a", settingsActMsgFull, settingsMsgEventField, "lu")
+
+	if row, ok := settingsMsgStored(t, env.chat.Id, eventmsg.EventLockLift); !ok || row.Text == "" || !row.Silent {
+		t.Errorf("the run left the lift's message %+v (row %v), want the typed text and Silent on", row, ok)
+	}
+	settingsPrivacyMsgRunClean(t, env, moderator, m.msgID, staffChat, "Phase 25",
+		"settings_msg_fam_lockdown_intro", "settings_msg_ev_locklift", "settings_msg_hint_lockdown",
 		"settings_msg_preview_header", "settings_edit_saved_text")
 }

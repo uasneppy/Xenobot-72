@@ -72,6 +72,35 @@ var settingsMsgValidPresses = map[string][]string{
 	settingsActMsgSet + " rw":       {"a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, "rw"},
 	settingsActMsgPM + " rb":        {"a", settingsActMsgPM, settingsMsgEventField, "rb", "v", "1"},
 	settingsActMsgFull + " cf":      {"a", settingsActMsgFull, settingsMsgEventField, "cf"},
+	// Phase 25: the Lockdown family's list, the manual start's screen, Set of the join surge's text, Remove of the flood's
+	// media, Cancel of the AI burst's buttons, Preview of the lift's text, the manual start's Full preview and the Silent
+	// switch of the join surge and of the lift. The family has no private copy, so no d=p form is valid.
+	settingsActMsgFamily + " l":   {"a", settingsActMsgFamily, "t", "l"},
+	settingsActMsgEvent + " ld":   {"a", settingsActMsgEvent, settingsMsgEventField, "ld"},
+	settingsActMsgSet + " lj":     {"a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, "lj"},
+	settingsActMsgRemove + " lf":  {"a", settingsActMsgRemove, "t", settingsEditPartMedia, settingsMsgEventField, "lf"},
+	settingsActMsgCancel + " la":  {"a", settingsActMsgCancel, "t", settingsEditPartButtons, settingsMsgEventField, "la"},
+	settingsActMsgPreview + " lu": {"a", settingsActMsgPreview, "t", settingsEditPartText, settingsMsgEventField, "lu"},
+	settingsActMsgFull + " ld":    {"a", settingsActMsgFull, settingsMsgEventField, "ld"},
+	settingsActMsgSilent + " lj":  {"a", settingsActMsgSilent, settingsMsgEventField, "lj", "v", "1"},
+	settingsActMsgSilent + " lu":  {"a", settingsActMsgSilent, settingsMsgEventField, "lu", "v", "0"},
+}
+
+// settingsMsgLockdownForged are the forged presses of the Lockdown family that the generated forms of
+// settingsMsgForgedPresses do not already make (Phase 25, D-04, D-31): the list from a group menu, every private copy form
+// on a lockdown event (the event screen, Set, Preview and Full preview with d=p, and the private copy switch with either
+// target), a destination other than p and a Silent target of 2. No lockdown event has a private copy spec, so every d=p
+// form and every hp press is refused in step 1.
+var settingsMsgLockdownForged = []settingsMsgForgedPress{
+	{name: "hl of l from a group menu", group: true, kv: []string{"a", settingsActMsgFamily, "t", "l"}},
+	{name: "he of ld with d=p", kv: []string{"a", settingsActMsgEvent, settingsMsgEventField, "ld", settingsMsgDestField, settingsMsgDestPMCode}},
+	{name: "hs of lj with d=p", kv: []string{"a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, "lj", settingsMsgDestField, settingsMsgDestPMCode}},
+	{name: "hv of lf with d=p", kv: []string{"a", settingsActMsgPreview, "t", settingsEditPartText, settingsMsgEventField, "lf", settingsMsgDestField, settingsMsgDestPMCode}},
+	{name: "hf of la with d=p", kv: []string{"a", settingsActMsgFull, settingsMsgEventField, "la", settingsMsgDestField, settingsMsgDestPMCode}},
+	{name: "hp of lu with v=1", kv: []string{"a", settingsActMsgPM, settingsMsgEventField, "lu", "v", "1"}},
+	{name: "hp of ld with v=0", kv: []string{"a", settingsActMsgPM, settingsMsgEventField, "ld", "v", "0"}},
+	{name: "he of lu with d=x", kv: []string{"a", settingsActMsgEvent, settingsMsgEventField, "lu", settingsMsgDestField, "x"}},
+	{name: "hq of lf with v=2", kv: []string{"a", settingsActMsgSilent, settingsMsgEventField, "lf", "v", "2"}},
 }
 
 // settingsMsgScreeningForged are the forged presses of the Phase 24 events that the generated forms of
@@ -129,6 +158,7 @@ func settingsMsgWith(kv []string, key, value string) []string {
 // or 1 for the switches, an extra field and, for the d=p forms, a destination other than p (Phase 22, D-26).
 func settingsMsgForgedPresses() []settingsMsgForgedPress {
 	forged := append(append([]settingsMsgForgedPress{}, settingsMsgAutoForged...), settingsMsgScreeningForged...)
+	forged = append(forged, settingsMsgLockdownForged...)
 	for name, kv := range settingsMsgValidPresses {
 		code := kv[1]
 		forged = append(forged,
@@ -286,6 +316,13 @@ func TestSettingsMessagesReadsCreateNothing(t *testing.T) {
 				open("a", settingsActMsgEvent, settingsMsgEventField, "ai")
 				open("a", settingsActMsgEvent, settingsMsgEventField, "rm")
 				open("a", settingsActMsgEvent, settingsMsgEventField, "rm", settingsMsgDestField, settingsMsgDestPMCode)
+				// Phase 25: the Lockdown list and the manual start's screen.
+				open("a", settingsActMsgFamily, "t", "l")
+				open("a", settingsActMsgEvent, settingsMsgEventField, "ld")
+				if text, _ := env.lastEdit(env.admin.Id, msgID); !containsMarker(text, "settings_msg_ev_lockdown") {
+					t.Errorf("the run's last edit is %q, want the manual start's screen", text)
+				}
+				open("a", settingsActMsgEvent, settingsMsgEventField, "rm", settingsMsgDestField, settingsMsgDestPMCode)
 				if text, _ := env.lastEdit(env.admin.Id, msgID); !containsMarker(text, "settings_msg_pm_intro") {
 					t.Errorf("the run's last edit is %q, want the last event's private copy screen", text)
 				}
@@ -381,6 +418,9 @@ func TestSettingsMessagesCost(t *testing.T) {
 		"a requirement event screen":        {"a", settingsActMsgEvent, settingsMsgEventField, "rm"},
 		"a requirement private copy screen": {"a", settingsActMsgEvent, settingsMsgEventField, "rm", settingsMsgDestField, settingsMsgDestPMCode},
 		"the AI spam screen":                {"a", settingsActMsgEvent, settingsMsgEventField, "ai"},
+		// Phase 25: the Lockdown list and the manual start's screen.
+		"the Lockdown list":         {"a", settingsActMsgFamily, "t", "l"},
+		"the manual start's screen": {"a", settingsActMsgEvent, settingsMsgEventField, "ld"},
 	}
 	pipeline := map[string]int{"getChatMember": 1, "getChat": 1, "editMessageText": 1, "answerCallbackQuery": 1}
 

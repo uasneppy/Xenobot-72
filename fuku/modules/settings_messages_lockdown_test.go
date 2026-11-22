@@ -236,3 +236,159 @@ func settingsMsgSilentToggleOf(t *testing.T, keyboard [][]gotgbot.InlineKeyboard
 	}
 	return button
 }
+
+// TestSettingsAuthorityMessagesLockdown holds MSG-08 for the Lockdown family (Phase 25, D-31): it has no command, so this test
+// and TestSettingsDriftMessagesLockdown stand in for a parity test. A typist demoted between Set on the lift and the typed
+// message stores nothing; without can_change_info an administrator opens the list, the manual start's screen and its Full
+// preview, while Set of the join surge's text, Remove of a stored flood text and Silent of the AI burst are each the
+// settings_no_change_info alert with nothing edited, no wait and every row unchanged; an administrator the owner gate
+// refuses is refused at the press; the live creator's Set and typed text store the row.
+func TestSettingsAuthorityMessagesLockdown(t *testing.T) {
+	resetSettingsOwnerMemo(t)
+	env := newSettingsMsgEnv(t)
+	admin := env.admin
+
+	listEditAdmin(env.settingsEnv, env.chat, admin, true)
+	settingsMsgSetWait(t, env, admin, "lu", settingsEditPartText)
+	listEditAdmin(env.settingsEnv, env.chat, admin, false)
+	before := settingsEditSentCount(env.settingsEnv, admin)
+	sendPrivateMessage(env.settingsEnv, admin, gotgbot.Message{Text: "Typed after the demotion {admin}"})
+	settingsEditWantReply(t, env.settingsEnv, admin, before, "settings_no_change_info", "settings_edit_wait_stopped")
+	settingsEditWaitGone(t, env.settingsEnv, admin)
+	if row, ok := settingsMsgStored(t, env.chat.Id, eventmsg.EventLockLift); ok {
+		t.Errorf("the typed text of a demoted typist was stored: %+v", row)
+	}
+
+	// Viewing and previewing need no can_change_info.
+	m := settingsMsgPrivateMenu(env, env.chat, admin)
+	for _, view := range []struct {
+		kv  []string
+		key string
+	}{
+		{[]string{"a", settingsActMsgFamily, "t", "l"}, "settings_msg_fam_lockdown_intro"},
+		{[]string{"a", settingsActMsgEvent, settingsMsgEventField, "ld"}, "settings_msg_ev_lockdown"},
+	} {
+		if text, _ := m.press(view.kv...); !containsMarker(text, view.key) {
+			t.Errorf("%v did not open for an administrator without can_change_info: %q", view.kv, text)
+		}
+	}
+	sent := len(env.fake.sentTo(admin.Id))
+	m.press("a", settingsActMsgFull, settingsMsgEventField, "ld")
+	if got := len(env.fake.sentTo(admin.Id)) - sent; got < 2 {
+		t.Errorf("the manual start's Full preview sent %d messages to an administrator without can_change_info, want the header and the message", got)
+	}
+
+	// Every change is refused: the stored flood text gives Remove something to remove.
+	settingsMsgSeed(t, env.chat.Id, eventmsg.EventLockFlood, "Stored flood text", false)
+	rows := settingsMsgAllRows(t, env.chat.Id)
+	refused := func(user gotgbot.User, key string, kv ...string) {
+		t.Helper()
+		msgID := env.updateID()
+		env.pressPrivate(user, msgID, env.privateFields(env.chat.Id, kv...))
+		if answer, alert := env.lastAnswer(); !alert || !containsMarker(answer, key) {
+			t.Errorf("%v answered %q (alert %v), want the %s alert", kv, answer, alert, key)
+		}
+		if got := len(env.edits(user.Id, msgID)); got != 0 {
+			t.Errorf("the refused %v made %d edits, want none", kv, got)
+		}
+		if env.redis.Exists(settingsInputKey(user.Id)) {
+			t.Errorf("the refused %v left a wait", kv)
+		}
+	}
+	for _, kv := range [][]string{
+		{"a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, "lj"},
+		{"a", settingsActMsgRemove, "t", settingsEditPartText, settingsMsgEventField, "lf"},
+		{"a", settingsActMsgSilent, settingsMsgEventField, "la", "v", "1"},
+	} {
+		refused(admin, "settings_no_change_info", kv...)
+	}
+
+	// With can_change_info back, an administrator the owner gate refuses is refused at the press.
+	owner := env.newOwner(env.chat)
+	listEditAdmin(env.settingsEnv, env.chat, admin, true)
+	env.setAdminsAllowed(env.chat.Id, false)
+	refused(admin, "settings_gate_owner_only", "a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, "lj")
+
+	after := settingsMsgAllRows(t, env.chat.Id)
+	if len(after) != len(rows) {
+		t.Errorf("the refused presses changed the rows from %d to %d", len(rows), len(after))
+	}
+	for key, row := range rows {
+		got, ok := after[key]
+		if !ok || got.Text != row.Text || got.Silent != row.Silent || !got.UpdatedAt.Equal(row.UpdatedAt) {
+			t.Errorf("the refused presses changed the %s row from %+v to %+v", key, row, got)
+		}
+	}
+
+	// The live creator sets and types the join surge's text.
+	settingsMsgSetWait(t, env, owner, "lj", settingsEditPartText)
+	sendPrivateMessage(env.settingsEnv, owner, gotgbot.Message{Text: "Raid of {count}"})
+	if row, ok := settingsMsgStored(t, env.chat.Id, eventmsg.EventLockJoinSurge); !ok || row.Text != "Raid of {count}" || row.UpdatedBy != owner.Id {
+		t.Errorf("the creator's typed text left %+v (row %v), want the text stored by %d", row, ok, owner.Id)
+	}
+}
+
+// TestSettingsDriftMessagesLockdown holds that the page and the lockdown sites read one store (Phase 25, D-31): a lockdown
+// text stored through the repository is drawn by the manual start's screen and counted Custom on the hub; a typed text and a
+// Silent press on the page are what the send path's cached read returns at once, with no cache reset; the next /lockdown
+// posts the typed text followed by the approved-muted note; and opening every lockdown screen writes nothing.
+func TestSettingsDriftMessagesLockdown(t *testing.T) {
+	env := newSettingsMsgEnv(t)
+	// The owner is the live creator: can_change_info for the page, and the restrict right /lockdown asks for.
+	owner := env.newOwner(env.chat)
+	env.fake.setBotMember(env.chat.Id, lockdownBotAdminJSON(true, true, true))
+	m := settingsMsgPrivateMenu(env, env.chat, owner)
+
+	const stored = "Stored {reason}"
+	settingsMsgSeed(t, env.chat.Id, eventmsg.EventLockdown, stored, false)
+	text, _ := m.press("a", settingsActMsgEvent, settingsMsgEventField, "ld")
+	if want := staffMarker("settings_edit_state_text_len") + " " + fmt.Sprint(len(stored)); !strings.Contains(text, want) {
+		t.Errorf("the manual start's screen %q lacks the stored text's length", text)
+	}
+	hub, _ := m.press("a", settingsActOpen, "p", settingsPageMessages)
+	settingsMsgWantLockdownStates(t, hub, map[string]string{eventmsg.EventLockdown: "settings_msg_state_custom"})
+
+	// A typed text is what the send path reads at once, after it had cached the stored one.
+	if got := settingsMsgSendPathText(t, env.chat.Id, eventmsg.EventLockdown); got != stored {
+		t.Fatalf("the send path reads %q before the typed text, want the stored one", got)
+	}
+	settingsMsgSetWait(t, env, owner, "ld", settingsEditPartText)
+	sendPrivateMessage(env.settingsEnv, owner, gotgbot.Message{Text: "Typed: {reason}"})
+	if got := settingsMsgSendPathText(t, env.chat.Id, eventmsg.EventLockdown); got != "Typed: {reason}" {
+		t.Errorf("after the typed save the send path reads %q, want the new text", got)
+	}
+
+	// A Silent press is what the send path reads at once.
+	if settingsMsgSendPathSilent(t, env.chat.Id, eventmsg.EventLockAIBurst) {
+		t.Fatal("the send path reads the AI burst's message as silent before any press")
+	}
+	m.press("a", settingsActMsgSilent, settingsMsgEventField, "la", "v", "1")
+	if !settingsMsgSendPathSilent(t, env.chat.Id, eventmsg.EventLockAIBurst) {
+		t.Error("after the page turned Silent on, the send path still reads the AI burst's message as not silent")
+	}
+
+	// The next /lockdown replies with the typed text, filled, then the approved-muted note.
+	env.send(owner, "/lockdown raid & co")
+	lockdownEventWantStarted(t, env.lockdownEnv, owner.Id)
+	sent := env.fake.sentTo(env.chat.Id)
+	if len(sent) != 1 {
+		t.Fatalf("the group received %d messages after /lockdown, want the one reply", len(sent))
+	}
+	if got, want := fmt.Sprint(sent[0].Params["text"]), "Typed: raid &amp; co\n"+staffMarker("lockdown_note_approved_muted"); got != want {
+		t.Errorf("the /lockdown reply = %q, want %q", got, want)
+	}
+
+	// Opening every lockdown screen of another chat writes nothing.
+	other := env.addChat()
+	o := settingsMsgPrivateMenu(env, other, env.admin)
+	o.press("a", settingsActOpen, "p", settingsPageMessages)
+	o.press("a", settingsActMsgFamily, "t", "l")
+	for _, ev := range settingsMsgLockdownEvents {
+		if text, _ := o.press("a", settingsActMsgEvent, settingsMsgEventField, ev.Code); !containsMarker(text, ev.NameKey) {
+			t.Errorf("the %s screen of another chat did not open: %q", ev.Code, text)
+		}
+	}
+	if n := settingsMsgRows(t, other.Id); n != 0 {
+		t.Errorf("opening every lockdown screen wrote %d event message rows, want none", n)
+	}
+}

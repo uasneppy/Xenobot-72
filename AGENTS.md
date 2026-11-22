@@ -1664,7 +1664,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   screens have no private copy line or row and every `d=p` form and `hp` naming a lockdown code is refused in step 1
   (`settingsMsgDefByFields` and `settingsMsgPMFields` require a spec). Its `ReservedText` is `lockdownNoteReserve` (400, D-17), so the text
   prompt reads `Up to 3696`, and `Up to 624` while a media item is stored; the private copy definitions every event still registers (reached by no
-  press) hold back nothing. An event that is off by default (`eventmsg.OffByDefault`: the AI spam notice, D-21, D-30) draws a Notice switch in place of the
+  press) hold back nothing. The family has no command, so `TestSettingsAuthorityMessagesLockdown` and `TestSettingsDriftMessagesLockdown` stand in
+  for a parity test (D-31). An event that is off by default (`eventmsg.OffByDefault`: the AI spam notice, D-21, D-30) draws a Notice switch in place of the
   Silent one: the line `settings_msg_line_notice` with the state word of "not Silent", the toggle `settings_btn_msg_notice`
   (`settingsMsgNoticeRow`: the state icon of the notice, pressing the same `hq` with the Silent target, `v=1` turning the notice off and `v=0`
   on) and the hint `settings_msg_hint_notice` in place of `settings_msg_hint_silent`. A `NoSilent` event's screen has no Silent line, toggle or
@@ -6353,6 +6354,22 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`eventPMSpecFor` and `eventPMWouldOffer` are false for the five keys with their pm rows on, while a ban's is true), `manual
   start`, `automatic start`, `lift by command` and `lift by button` (each posts its stored group message and sends nothing in
   private, edits no keyboard and posts no `#PM_COPY` line).
+  The page's safeguards over the Lockdown family (plan 25-07): `settingsMsgValidPresses` holds a valid press of the Lockdown list
+  (`hl&t=l`), the `ld` screen and Full preview, Set of the `lj` text, Remove of the `lf` media, Cancel of the `la` buttons, Preview of the
+  `lu` text and the Silent switch of `lj` (`v=1`) and `lu` (`v=0`), and `settingsMsgLockdownForged` the forms the generated ones do not
+  make (the list from a group menu, `he`, `hs`, `hv` and `hf` with `d=p`, `hp` on `lu` and `ld` with either target, `he&k=lu&d=x`,
+  `hq&k=lf&v=2`), so `TestSettingsMessagesForged` refuses every one in step 1 with no member lookup; `TestSettingsMessagesReadsCreateNothing`
+  and `TestSettingsMessagesCost` also open the Lockdown list and the `ld` screen. `TestSettingsAuthorityMessagesLockdown`
+  (`settings_messages_lockdown_test.go`, one environment, about 0.05 s): a typist demoted between Set on the `lu` text and the typed message
+  stores nothing; without `can_change_info` the Lockdown list, the `ld` screen and its Full preview open, while Set of the `lj` text, Remove
+  of a stored `lf` text and Silent of `la` are each the `settings_no_change_info` alert with no edit, no wait and every row unchanged; an
+  administrator the owner gate refuses is refused at the press (`settings_gate_owner_only`); the live creator's Set and typed `lj` text store
+  the row. `TestSettingsDriftMessagesLockdown` (same file, one environment, about 0.1 s): a `lockdown` text stored through the repository
+  is drawn by the `ld` screen with its length and counted Custom on the hub, a typed `ld` text and a Silent press on `la` are what the send
+  path's cached `eventMessagesLookup` returns at once with no cache reset, the next `/lockdown raid & co` replies with the typed text filled
+  and the approved-muted note, and opening every lockdown screen of another chat writes nothing. `TestSettingsStaffPrivacy` gains
+  `settingsPrivacyPhase25Run` (the Lockdown list, the `lu` screen, a typed `lu` text, its Silent switch and its Full preview by an
+  administrator who is not the creator of a group linked to a Staff Group, through `settingsPrivacyMsgRunClean`).
 
 ## Commits
 
