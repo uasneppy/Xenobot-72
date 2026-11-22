@@ -42,8 +42,6 @@ type lockdownFacts struct {
 // lockdown event for the notes the bot appends after a custom text (D-17): the worst start notes and the
 // worst lift notes, each after its line break, fit it in every language (TestLockdownNoteFitsReserve), and
 // a translation that exceeds it is shortened, never the reserve raised.
-//
-//nolint:unused // first production caller arrives in plan 25-03
 const lockdownNoteReserve = 400
 
 // lockdownStartFacts reads a start's facts from the bot's live membership that startLockdownRow
@@ -72,10 +70,15 @@ func lockdownStartNotes(tr *i18n.Translator, f lockdownFacts) string {
 	return lockdownJoinLines(lockdownStartNoteLines(tr, f))
 }
 
+// lockdownStartAppended is what a start event's site appends after a custom text, as the Messages page's
+// Full preview shows it (settingsMsgEvent.Appended): the technical notes of in.Lockdown. A preview's facts
+// are zero (the sample bot holds both rights), so it shows the approved-muted note alone (D-32).
+func lockdownStartAppended(tr *i18n.Translator, in eventDefaultInput) string {
+	return lockdownStartNotes(tr, in.Lockdown)
+}
+
 // lockdownNoticeOpts are the options of a lockdown notice that is a new message (the automatic notice,
 // raidSend's): HTML with link previews off, no reply and no keyboard.
-//
-//nolint:unused // first production caller arrives in plan 25-03
 func lockdownNoticeOpts() *gotgbot.SendMessageOpts {
 	return &gotgbot.SendMessageOpts{
 		ParseMode:          formatting.HTML,
@@ -84,8 +87,6 @@ func lockdownNoticeOpts() *gotgbot.SendMessageOpts {
 }
 
 // lockdownAutoIntroKeys are the intro keys of the automatic notice, by trigger kind.
-//
-//nolint:unused // first production caller arrives in plan 25-03
 var lockdownAutoIntroKeys = map[string]string{
 	models.LockdownTriggerJoinSurge: "lockdown_auto_started_join_surge",
 	models.LockdownTriggerFlood:     "lockdown_auto_started_flood",
@@ -97,8 +98,6 @@ var lockdownAutoIntroKeys = map[string]string{
 // in.Window (and in.Percent for a flood), each passed as a string by name, then the start notes of
 // in.Lockdown, joined by lockdownJoinLines, in HTML with link previews off. Any other kind has no notice and
 // builds "".
-//
-//nolint:unused // first production caller arrives in plan 25-03
 func lockdownAutoDefaultReply(kind string) eventDefaultReply {
 	return func(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
 		key, ok := lockdownAutoIntroKeys[kind]
@@ -117,8 +116,6 @@ func lockdownAutoDefaultReply(kind string) eventDefaultReply {
 // lockdownLiftNoteLines are the facts of a lift that follow its first line, in today's order: the manual
 // change note when the permissions were changed by hand, then how many removed joiners are being unbanned
 // while the lift has not finished and there are any.
-//
-//nolint:unused // first production caller arrives in plan 25-03
 func lockdownLiftNoteLines(tr *i18n.Translator, f lockdownFacts) []string {
 	var lines []string
 	if f.ManualChange {
@@ -132,18 +129,21 @@ func lockdownLiftNoteLines(tr *i18n.Translator, f lockdownFacts) []string {
 
 // lockdownLiftNotes are the lift's facts the bot appends after a custom lift text (D-16), joined by line
 // breaks; empty when the lift has none.
-//
-//nolint:unused // first production caller arrives in plan 25-03
 func lockdownLiftNotes(tr *i18n.Translator, f lockdownFacts) string {
 	return lockdownJoinLines(lockdownLiftNoteLines(tr, f))
+}
+
+// lockdownLiftAppended is what the lift's site appends after a custom text, as the Messages page's Full
+// preview shows it (settingsMsgEvent.Appended): the lift's facts of in.Lockdown. A preview's lift has no
+// facts, so it shows no note (D-32).
+func lockdownLiftAppended(tr *i18n.Translator, in eventDefaultInput) string {
+	return lockdownLiftNotes(tr, in.Lockdown)
 }
 
 // lockdownLiftDefaultReply is the default public notice of a recorded lift, byte for byte the notice before
 // Phase 25: lockdownLiftedText for the lifter in.Target (the name capped at lockdownNameMaxRunes) and the
 // lift's facts of in.Lockdown, with formatting.Shtml(). The options are the reply's (/unlockdown's); a
 // button lift's site sends the same text with its own paced options, today's.
-//
-//nolint:unused // first production caller arrives in plan 25-03
 func lockdownLiftDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
 	name := lockdownCapRunes(staffFullName(&in.Target), lockdownNameMaxRunes)
 	text := lockdownLiftedText(tr, in.Target.Id, name, lockdownLiftResult{

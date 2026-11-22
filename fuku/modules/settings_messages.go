@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"strconv"
 	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
@@ -78,14 +79,21 @@ const (
 // count, the limit, the action's mode word (warn, mute, kick, ban or delete; the preview fills {action} with its
 // translated word and hands the mode word to the default builder), the locale key of the event's own fixed reason
 // (empty means the sample reason) and, for a member requirement event, the mask of the sample broken rules (Phase 24,
-// D-33: the preview's reason lists them and the bot's requirements line follows a custom text). A manual event has the
-// zero value, so its previews fill none of them.
+// D-33: the preview's reason lists them and the bot's requirements line follows a custom text). A lockdown event
+// (Phase 25, D-32) adds the window in seconds (Window, which {window} shows as a number), the share of new members
+// (Percent, {percent}), the trigger kind whose sentence, filled with the sample numbers, is the preview's {reason}
+// (Trigger, a models.LockdownTrigger* kind) and NoReason, which leaves {reason} empty (the lift has none). A manual
+// event has the zero value, so its previews fill none of them; the manual lockdown keeps the sample reason that way.
 type settingsMsgSample struct {
 	Count     int
 	Limit     int
 	Action    string
 	ReasonKey string
 	Rules     int
+	Window    int
+	Percent   int
+	Trigger   string
+	NoReason  bool
 }
 
 // settingsMsgEvent is one event of a family: the eventmsg event it edits, its two-letter code (the k
@@ -232,9 +240,44 @@ var settingsMsgReqEvents = []settingsMsgEvent{
 	},
 }
 
-// settingsMsgFamilies are the families of the hub in page order: the manual family, the Automatic family (Phase 23)
-// and the Member requirements family (Phase 24); a later phase adds the lockdown family. It is a variable only so a test
-// can draw more families; production code never reassigns it.
+// settingsMsgLockdownEvents are the Lockdown family's events (Phase 25, D-28): the start by an admin's /lockdown, the
+// three automatic starts (join surge, flood, AI burst) and the lift. Each default is the send site's own builder. A start
+// event appends the technical notes after a custom text (lockdownStartAppended) and the lift the lift's facts
+// (lockdownLiftAppended), which a Full preview of a custom text shows after it; a preview's sample bot holds both rights
+// and its lift has no facts, so a start preview shows the approved-muted note alone and a lift preview shows none
+// (D-32). No event reserves a button (no bot row) and none has a private copy spec (D-04). The samples (D-32): the
+// manual start keeps the sample reason; the join surge 15 joins in 60 s, the flood 30 messages in 30 s with 80 % new
+// members, the AI burst 5 verdicts in 120 s, each with its trigger sentence as {reason}; the lift no reason.
+var settingsMsgLockdownEvents = []settingsMsgEvent{
+	{
+		Key: eventmsg.EventLockdown, Code: "ld", Icon: "🔒", NameKey: "settings_msg_ev_lockdown", DescKey: "settings_msg_desc_lockdown",
+		Default: lockdownStartDefaultReply, Appended: lockdownStartAppended,
+	},
+	{
+		Key: eventmsg.EventLockJoinSurge, Code: "lj", Icon: "👥", NameKey: "settings_msg_ev_lockjoin", DescKey: "settings_msg_desc_lockjoin",
+		Default: lockdownAutoDefaultReply(models.LockdownTriggerJoinSurge), Appended: lockdownStartAppended,
+		Sample: settingsMsgSample{Count: 15, Window: 60, Trigger: models.LockdownTriggerJoinSurge},
+	},
+	{
+		Key: eventmsg.EventLockFlood, Code: "lf", Icon: "💬", NameKey: "settings_msg_ev_lockflood", DescKey: "settings_msg_desc_lockflood",
+		Default: lockdownAutoDefaultReply(models.LockdownTriggerFlood), Appended: lockdownStartAppended,
+		Sample: settingsMsgSample{Count: 30, Window: 30, Percent: 80, Trigger: models.LockdownTriggerFlood},
+	},
+	{
+		Key: eventmsg.EventLockAIBurst, Code: "la", Icon: "🧠", NameKey: "settings_msg_ev_lockai", DescKey: "settings_msg_desc_lockai",
+		Default: lockdownAutoDefaultReply(models.LockdownTriggerAIBurst), Appended: lockdownStartAppended,
+		Sample: settingsMsgSample{Count: 5, Window: 120, Trigger: models.LockdownTriggerAIBurst},
+	},
+	{
+		Key: eventmsg.EventLockLift, Code: "lu", Icon: "🔓", NameKey: "settings_msg_ev_locklift", DescKey: "settings_msg_desc_locklift",
+		Default: lockdownLiftDefaultReply, Appended: lockdownLiftAppended, Sample: settingsMsgSample{NoReason: true},
+	},
+}
+
+// settingsMsgFamilies are the families of the hub in page order: the manual family, the Automatic family (Phase 23),
+// the Member requirements family (Phase 24) and the Lockdown family (Phase 25, D-28), whose texts hold back
+// lockdownNoteReserve for the technical notes the bot appends after a custom text (D-17). It is a variable only so a
+// test can draw more families; production code never reassigns it.
 var settingsMsgFamilies = []settingsMsgFamily{
 	{
 		Code: "m", Icon: "🔨", NameKey: "settings_msg_fam_manual", IntroKey: "settings_msg_fam_manual_intro",
@@ -248,6 +291,11 @@ var settingsMsgFamilies = []settingsMsgFamily{
 		Code: "r", Icon: "🛂", NameKey: "settings_msg_fam_mreq", IntroKey: "settings_msg_fam_mreq_intro",
 		WaitTextKey: "settings_msg_wait_text_mreq", HintKey: "settings_msg_hint_mreq", NoMedia: true,
 		ReservedText: memberReqNoticeNoteReserve, Events: settingsMsgReqEvents,
+	},
+	{
+		Code: "l", Icon: "🚨", NameKey: "settings_msg_fam_lockdown", IntroKey: "settings_msg_fam_lockdown_intro",
+		WaitTextKey: "settings_msg_wait_text_lockdown", HintKey: "settings_msg_hint_lockdown",
+		ReservedText: lockdownNoteReserve, Events: settingsMsgLockdownEvents,
 	},
 }
 
@@ -877,7 +925,9 @@ func settingsMsgWrite(ev settingsMsgEvent, dest string) func(context.Context, in
 // translated word in {action}, the mode word and the reason as the one stored reason for the default builder).
 // A member requirement event's sample rules (Sample.Rules) are its reason (the broken rules' phrases) and go to the
 // default builder, and its Note is what the site appends after a custom text (ev.Appended: the requirements line and
-// the remedies, D-33). The default text is the event's own builder in the group's language, with no bot rows. The
+// the remedies, D-33). A lockdown event (D-32) fills {window} with its sample window as a number and {percent} with its
+// share, hands both to the default builder, and its reason is the trigger sentence of Sample.Trigger with the sample
+// numbers, or nothing for Sample.NoReason (the lift). The default text is the event's own builder in the group's language, with no bot rows. The
 // reply carries no options and no KeepRows, so composeEventMessage adds no bot row: the Unban, Unmute, Remove warn and
 // I fixed it buttons are live callbacks that must never reach a private chat (D-27).
 func settingsMsgPreviewReply(p *settingsPress, groupTr *i18n.Translator, ev settingsMsgEvent) eventReply {
@@ -889,6 +939,10 @@ func settingsMsgPreviewReply(p *settingsPress, groupTr *i18n.Translator, ev sett
 		values.Reason = memberReqRulesText(groupTr, sample.Rules)
 	case sample.ReasonKey != "":
 		values.Reason = settingsText(groupTr, sample.ReasonKey)
+	case sample.Trigger != "":
+		values.Reason = lockdownTriggerSentence(groupTr, sample.Trigger, sample.Count, sample.Window, sample.Percent)
+	case sample.NoReason:
+		values.Reason = ""
 	}
 	if ev.Timed {
 		values.Duration, values.Until = settingsMsgSampleDuration, time.Now().Add(settingsMsgSampleSpan)
@@ -898,6 +952,10 @@ func settingsMsgPreviewReply(p *settingsPress, groupTr *i18n.Translator, ev sett
 		values.Count, values.Limit, values.Action = sample.Count, sample.Limit, eventActionWord(groupTr, sample.Action)
 		in.Count, in.Limit, in.Action, in.Reasons, in.Rules = sample.Count, sample.Limit, sample.Action, []string{values.Reason}, sample.Rules
 	}
+	if sample.Window != 0 {
+		values.Window, in.Window = strconv.Itoa(sample.Window), sample.Window
+	}
+	values.Percent, in.Percent = sample.Percent, sample.Percent
 	text, _ := ev.Default(groupTr, in)
 	r := eventReply{Event: ev.Key, Target: target, Values: values, Default: text}
 	if ev.Appended != nil {

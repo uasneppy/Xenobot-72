@@ -51,11 +51,13 @@ func TestSettingsMessagesScreeningFamily(t *testing.T) {
 		}
 		settingsMsgWantAutoStates(t, text, nil)
 		settingsMsgWantReqStates(t, text)
-		settingsMsgWantWidths(t, "the hub", keyboard, 2, 1, 1, 1, 2)
+		settingsMsgWantWidths(t, "the hub", keyboard, 2, 2, 1, 1, 2)
 
+		// Since Phase 25 the Member requirements cell opens the second row, beside the Lockdown family's cell.
 		cell, ok := settingsMsgButtonWith(t, keyboard, "a", settingsActMsgFamily, "t", "r")
-		if !ok || !strings.HasPrefix(cell.Text, "🛂 ") || !containsMarker(cell.Text, "settings_msg_fam_mreq") || len(keyboard[1]) != 1 {
-			t.Fatalf("the hub has no 🛂 Member requirements cell alone on its row: %+v", keyboard)
+		if !ok || !strings.HasPrefix(cell.Text, "🛂 ") || !containsMarker(cell.Text, "settings_msg_fam_mreq") || len(keyboard[1]) != 2 ||
+			keyboard[1][0].CallbackData != cell.CallbackData {
+			t.Fatalf("the hub has no 🛂 Member requirements cell first on its row: %+v", keyboard)
 		}
 		list, listKeyboard := m.pressButton(cell)
 		if !containsMarker(list, "settings_msg_fam_mreq_intro") {

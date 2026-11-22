@@ -1619,10 +1619,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   nothing is set at Staff Group level (D-01). It is drawn from one table, `settingsMsgFamilies` (`settingsMsgFamily{Code, Icon, NameKey,
   IntroKey, WaitTextKey, HintKey, NoMedia, ReservedText, Events}`, a variable only so a test can draw more families), whose events are `settingsMsgEvent{Key, Code, Icon, NameKey,
   DescKey, ReservedButtons, Default, Timed, Sample, NoSilent, Appended}` (`Default` the send site's own `eventDefaultReply` builder, `Timed` true for the events whose
-  preview fills `{duration}` and `{until}`, `Sample` a `settingsMsgSample{Count, Limit int; Action, ReasonKey string; Rules int}` of the values a preview
-  of an automatic event fills in, zero for a manual event, `NoSilent` for an event that cannot be silenced, `Appended` what the send site appends
+  preview fills `{duration}` and `{until}`, `Sample` a `settingsMsgSample{Count, Limit int; Action, ReasonKey string; Rules, Window, Percent int; Trigger string;
+  NoReason bool}` of the values a preview of an automatic event fills in, zero for a manual event (a lockdown event's `Window` is its sample
+  window in seconds, shown by `{window}` as a number, `Percent` its share of new members, `Trigger` the trigger kind whose
+  `lockdownTriggerSentence` with the sample numbers is the preview's `{reason}`, and `NoReason` leaves `{reason}` empty, Phase 25), `NoSilent` for an event that cannot be silenced, `Appended` what the send site appends
   after a custom text; a family's `NoMedia` gives its events the text and buttons parts only and its `ReservedText` is copied to its group
-  definitions). Three families have events: the manual family (`m`, 🔨, Admin actions),
+  definitions). Four families have events: the manual family (`m`, 🔨, Admin actions),
   `settingsMsgManualEvents`: ban
   `bn` 🚫 (reserved 1, the Unban row, `banDefaultReply`), tban `tb` ⏳ (`tbanDefaultReply`, timed), kick `kk` 👢 (`kickDefaultReply`), mute
   `mu` 🔇 (reserved 1, the Unmute row, `muteDefaultReply`), tmute `tm` 🔕 (`tmuteDefaultReply`, timed), unban `ub` 🔓 (`unbanDefaultReply`),
@@ -1644,7 +1646,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`memberReqRuleBits("un", "ph")`, so its preview shows the photo remedy, D-33); the mute reserves 1 button (its "I fixed it" row) and is
   `NoSilent` (D-20). The family is `NoMedia` (its events have the parts `x b` only, P4) and its `ReservedText` is `memberReqNoticeNoteReserve`
   (600), held back by the editor from the text limit (the prompt reads `Up to 3496`), while its private copy definitions hold back nothing
-  (D-35). An event that is off by default (`eventmsg.OffByDefault`: the AI spam notice, D-21, D-30) draws a Notice switch in place of the
+  (D-35). The fourth is the Lockdown family (`l`, 🚨, `settings_msg_fam_lockdown`, intro `settings_msg_fam_lockdown_intro`, prompt
+  `settings_msg_wait_text_lockdown`, hint `settings_msg_hint_lockdown`; Phase 25 plan 25-03, D-28 to D-32), drawn after the Member
+  requirements one, `settingsMsgLockdownEvents`: the start by an admin `ld` 🔒 (`EventLockdown`, `lockdownStartDefaultReply`, the sample reason),
+  the join surge `lj` 👥 (`EventLockJoinSurge`, `lockdownAutoDefaultReply(models.LockdownTriggerJoinSurge)`, sample 15 joins in 60 s), the flood
+  `lf` 💬 (`lockdownAutoDefaultReply(models.LockdownTriggerFlood)`, 30 messages in 30 s with 80 %), the AI burst `la` 🧠
+  (`lockdownAutoDefaultReply(models.LockdownTriggerAIBurst)`, 5 verdicts in 120 s), each with its trigger sentence as the preview's `{reason}`,
+  and the lift `lu` 🔓 (`EventLockLift`, `lockdownLiftDefaultReply`, `NoReason`). The four starts take `lockdownStartAppended` as `Appended` (the
+  technical notes of `lockdownStartNotes`; a preview's sample bot holds both rights, so its Full preview of a custom text shows the approved-muted
+  note alone) and the lift `lockdownLiftAppended` (the lift's facts of `lockdownLiftNotes`; a preview's lift has none, so it shows no note). The
+  family has all three parts, a Silent switch on every event, no reserved button and no private copy spec on any event (D-04), so its event
+  screens have no private copy line or row and every `d=p` form and `hp` naming a lockdown code is refused in step 1
+  (`settingsMsgDefByFields` and `settingsMsgPMFields` require a spec). Its `ReservedText` is `lockdownNoteReserve` (400, D-17), so the text
+  prompt reads `Up to 3696`, and `Up to 624` while a media item is stored; the private copy definitions every event still registers (reached by no
+  press) hold back nothing. An event that is off by default (`eventmsg.OffByDefault`: the AI spam notice, D-21, D-30) draws a Notice switch in place of the
   Silent one: the line `settings_msg_line_notice` with the state word of "not Silent", the toggle `settings_btn_msg_notice`
   (`settingsMsgNoticeRow`: the state icon of the notice, pressing the same `hq` with the Silent target, `v=1` turning the notice off and `v=0`
   on) and the hint `settings_msg_hint_notice` in place of `settings_msg_hint_silent`. A `NoSilent` event's screen has no Silent line, toggle or
@@ -1655,9 +1670,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   has a private copy spec (`settingsMsgAnyPM`), the private copies block (Phase 22 plan 22-06, D-24): a blank line, `📩 <b>`
   `settings_msg_pm_title` `</b>`, one line per option of `settingsMsgPMOptions` with its state word (`settings_msg_line_pm_details`,
   `settings_msg_line_pm_log`), a blank line, `settings_msg_hint_pm_options` and `settings_msg_hint_pm_log` (plan 22-07); one cell per family,
-  two to a row, then one full-width toggle per option, then Back to Main and Close, rows `[2 1 1 1 2]` with the three families), a family's list (`a=hl&t=<family>`: its intro, the event lines (with the same mark) and
+  two to a row, then one full-width toggle per option, then Back to Main and Close, rows `[2 2 1 1 2]` with the four families), a family's list (`a=hl&t=<family>`: its intro, the event lines (with the same mark) and
   `settings_msg_list_hint`; one cell per event, two to a row, then Back to the hub and Close, rows
-  `[2 2 2 1 2]` for the manual and the Automatic families and `[2 2 2]` for the Member requirements one) and an event's screen (`a=he&k=<code>`: the event's icon and bold name, its description, then the editor's part lines
+  `[2 2 2 1 2]` for the manual and the Automatic families, `[2 2 2]` for the Member requirements one and `[2 2 1 2]` for the Lockdown one) and an event's screen (`a=he&k=<code>`: the event's icon and bold name, its description, then the editor's part lines
   `settings_edit_line_text`, `_media` and `_buttons` with `settingsEditStateWord`, the no-caption note for a sticker or a video
   note, then `settings_msg_line_silent` with `settingsStateWord`, for an event with a private copy spec (`eventPMSpecFor`) the private copy
   line `settings_msg_line_pm` (`settingsStateWord` of `settingsEditState.PMOn`, Phase 22) and, after a blank line each, the family's hint
@@ -1763,9 +1778,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   private copy row 42, Set, Remove and Cancel 42 (46 with `d=p`), Preview 42 (46 with `d=p`) and Silent 42, the private copy switch 42, the
   hub's option toggle `ho` 41, Full preview 38 (42 with `d=p`), Back to Main and Close 33, Main's cell 37 private and 33 group, with no field outside `a c u p t k d v`, and `d` only `p`, only on the private copy row and on the editor buttons of the private copy's screens, prompts and
   refusals, every one of which carries it (`TestSettingsMessagesCallbackBytes`, plan 22-08); every
-  screen fits 3800 UTF-16 units in 8 languages with a 64-rune title, cells 20 code points, in the rows hub `[2 1 1 1 2]`, family list
-  `[2 2 2 1 2]` (manual and Automatic) and `[2 2 2]` (Member requirements), event screen `[1 1 1 1 1 1 2]` empty and `[2 2 2 2 2 1 1 2]` full (`[1 1 1 1 1 2]` and
-  `[2 2 2 2 2 1 2]` for an event with no private copy spec, whose screen carries no `d`), private copy screen `[1 1 1 1 1 2]` empty and
+  screen fits 3800 UTF-16 units in 8 languages with a 64-rune title, cells 20 code points, in the rows hub `[2 2 1 1 2]`, family list
+  `[2 2 2 1 2]` (manual and Automatic), `[2 2 2]` (Member requirements) and `[2 2 1 2]` (Lockdown), event screen `[1 1 1 1 1 1 2]` empty and `[2 2 2 2 2 1 1 2]` full (`[1 1 1 1 1 2]` and
+  `[2 2 2 2 2 1 2]` for an event with no private copy spec, whose screen carries no `d`: since Phase 25 the test requires a spec, and the one
+  `d` button, on every event of the manual, Automatic and Member requirements families and forbids both on every lockdown event,
+  `settingsMsgFamilyPM`), private copy screen `[1 1 1 1 1 2]` empty and
   `[2 2 2 2 2 1 2]` full, group note `[1 2]` (`[2]` without a bot username)
   (`TestSettingsMessagesPageFitsEveryLocale`, over `settingsMsgScreens` in `settings_messages_screens_test.go`, which also draws the hub with
   every private copy on, the event screen whose private copy line reads On and the private copy screen with its switch on); every forged press
@@ -1846,7 +1863,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `event_messages:<chat>`, which is in `skipLocal`, so the send path reads the new option at the very next command on every replica.
   The three tests run every case for both option rows from one table (`settingsMsgOptionCases`): `TestSettingsMessagesPMOptions` (the
   block, the toggle and its bytes, a press that writes its own option and no other and a second press with what the send path's cached
-  `eventMessagesLookup` reads at once, a failed write, the `[2 1 1 1 2]` rows), `TestSettingsDriftMessagesPMOptions` (an option stored through
+  `eventMessagesLookup` reads at once, a failed write, the `[2 2 1 1 2]` rows), `TestSettingsDriftMessagesPMOptions` (an option stored through
   the repository is drawn by the hub; with the option off a blocked copy of `/ban` does nothing for it, and after the hub's drawn toggle is
   pressed the next `/ban`'s blocked copy adds the Details button or posts the `#PM_COPY` line) and `TestSettingsAuthorityMessagesPMOptions` (an administrator without
   `can_change_info` sees the hub and the toggle but the press is the `settings_no_change_info` alert with nothing written, an administrator the
@@ -3834,10 +3851,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   other kind builds "") and `lockdownLiftDefaultReply` (`lockdownLiftedText` for the lifter `in.Target` and the lift's facts, with
   `formatting.Shtml()`; a button lift's site sends the same text with today's paced options). `lockdownLiftNotes` (the manual change
   line, then the unbanning line while the lift has not finished) is what follows a custom lift text, and `lockdownNoteReserve`
-  (400 UTF-16 units) is the room the editor will hold back for the notes: the worst start notes (both rights missing) and the worst
-  lift notes (a manual change and 99999 joiners), each after its line break, fit it in every language (`TestLockdownNoteFitsReserve`;
-  a translation that exceeds it is shortened, never the reserve raised). Until the Messages page uses them (plan 25-03) these
-  identifiers carry `//nolint:unused // first production caller arrives in plan 25-03`, which that plan removes.
+  (400 UTF-16 units) is the room the editor holds back for the notes (the Lockdown family's `ReservedText`): the worst start notes (both
+  rights missing) and the worst lift notes (a manual change and 99999 joiners), each after its line break, fit it in every language
+  (`TestLockdownNoteFitsReserve`; a translation that exceeds it is shortened, never the reserve raised). Since plan 25-03 the Messages
+  page's Lockdown family uses every one of them (its defaults, its reserve, and `lockdownStartAppended` and `lockdownLiftAppended`, what
+  a Full preview of a custom text shows after it), so none carries a `//nolint:unused` marker.
   `TestEventEngineCallers` (`event_engine_callers_test.go`, D-33, EVT-10) is the structural guard over every caller of the engine:
   a `go/parser` walk of the package's non-test files that holds the set of functions outside `event_message.go` and
   `event_message_pm.go` naming an engine entry (`postEvent`, `postEventSent`, `postEventGroup`, `replyEvent`,
@@ -5100,7 +5118,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   Unban row) against Telegram's 100, and `ReservedText` (Phase 24 plan 24-04, D-29) the UTF-16 units the bot itself appends after a custom
   text (a requirement notice's requirements line and remedies): `settingsEditCheckGreetingText` and `settingsEditMediaCaptionRefusal` hold it
   back from the text and caption limits and `settingsEditPromptMax` subtracts it from the prompt's "Up to" number (the Member requirements
-  family's 600, so 3496), while every other definition has 0 and behaves exactly as before. `settingsEditResolvedActions(codes, fields, resolve)` builds Set, Remove, Cancel, Preview and Full
+  family's 600, so 3496; the Lockdown family's `lockdownNoteReserve`, 400, so 3696 and 624 with media, Phase 25 plan 25-03, for the technical
+  notes and the lift's facts), while every other definition has 0 and behaves exactly as before. `settingsEditResolvedActions(codes, fields, resolve)` builds Set, Remove, Cancel, Preview and Full
   preview of such a page: `resolve` turns a press's fields into the definition it names and is where the page requires its owner field,
   so a group menu's press is refused in step 1; the built-in pages build their actions through it with a resolve that answers the page
   itself. A hooked definition's typed reply runs the editor branch of the typed-reply door (no new door): the same `authorize`, the

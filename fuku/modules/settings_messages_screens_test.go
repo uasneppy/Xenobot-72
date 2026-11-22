@@ -42,16 +42,36 @@ func settingsMsgAllCustom(t *testing.T, silent bool) *eventmsg.Messages {
 	return msgs
 }
 
+// settingsMsgFamilyPM says whether the events of a family have a private copy: every event of the manual, Automatic and
+// Member requirements families has a spec (since plans 23-05 and 24-03), and no event of the Lockdown family has one
+// (Phase 25, D-04). A family the table does not list fails, so a new family states its answer here.
+var settingsMsgFamilyPM = map[string]bool{"m": true, "a": true, "r": true, "l": false}
+
+// settingsMsgWantFamilyPM returns whether ev, an event of fam, has a private copy, and fails when its spec disagrees with
+// settingsMsgFamilyPM: a missing spec in a family that has them, or any spec in the Lockdown family.
+func settingsMsgWantFamilyPM(t *testing.T, fam settingsMsgFamily, ev settingsMsgEvent) bool {
+	t.Helper()
+	want, ok := settingsMsgFamilyPM[fam.Code]
+	if !ok {
+		t.Fatalf("no expected private copy answer for the %s family", fam.Code)
+	}
+	if _, spec := eventPMSpecFor(ev.Key); spec != want {
+		t.Fatalf("the %s event of the %s family has a private copy spec %v, want %v", ev.Key, fam.Code, spec, want)
+	}
+	return want
+}
+
 // settingsMsgEveryPMOn is settingsMsgAllCustom with every event's private copy switched on (a pm row with a text and
-// Silent false) and both options off, so the hub draws the private copy mark on every event line beside the block's Off
-// words. Since plan 23-05 every event of both families has a private copy spec.
+// Silent false) and both options off, so the hub draws the private copy mark on every event line that has a private
+// copy beside the block's Off words. Every event of the manual, Automatic and Member requirements families has a spec,
+// and no lockdown event has one (settingsMsgWantFamilyPM), so a lockdown event gets no pm row.
 func settingsMsgEveryPMOn(t *testing.T) *eventmsg.Messages {
 	t.Helper()
 	msgs := settingsMsgAllCustom(t, false)
 	for _, fam := range settingsMsgFamilies {
 		for _, ev := range fam.Events {
-			if _, spec := eventPMSpecFor(ev.Key); !spec {
-				t.Fatalf("the %s event has no private copy spec", ev.Key)
+			if !settingsMsgWantFamilyPM(t, fam, ev) {
+				continue
 			}
 			msgs.Rows[ev.Key+"|"+eventmsg.DestPM] = eventmsg.Message{Event: ev.Key, Dest: eventmsg.DestPM, Text: "custom"}
 			if !settingsMsgPMOn(msgs, ev) {
@@ -84,8 +104,8 @@ func settingsMsgPMOffState() settingsEditState {
 
 // settingsMsgFamilyWidths are the row widths of each family's list: its event cells two to a row (an odd last one
 // alone), then Back and Close. Phase 24 gave the Automatic family its seventh event and added the Member requirements
-// family's four.
-var settingsMsgFamilyWidths = map[string]string{"m": "[2 2 2 1 2]", "a": "[2 2 2 1 2]", "r": "[2 2 2]"}
+// family's four; Phase 25 added the Lockdown family's five.
+var settingsMsgFamilyWidths = map[string]string{"m": "[2 2 2 1 2]", "a": "[2 2 2 1 2]", "r": "[2 2 2]", "l": "[2 2 1 2]"}
 
 // settingsMsgScreenWidths are the row widths of an event screen or a private copy screen of def in the state st: one
 // row per part of the definition ([Set] while the part is not set, [Set | Remove] while it is), the preview buttons two
@@ -150,7 +170,7 @@ func settingsMsgScreens(t *testing.T, view settingsView, notices []string) map[s
 	stored["every private copy on"] = settingsMsgEveryPMOn(t)
 	for i, notice := range notices {
 		for name, msgs := range stored {
-			add(fmt.Sprintf("hub %s notice %d", name, i), renderSettingsMsgHub(view, msgs, notice), "[2 1 1 1 2]")
+			add(fmt.Sprintf("hub %s notice %d", name, i), renderSettingsMsgHub(view, msgs, notice), "[2 2 1 1 2]")
 			for _, fam := range settingsMsgFamilies {
 				if len(fam.Events) == 0 {
 					continue
@@ -173,34 +193,45 @@ func settingsMsgScreens(t *testing.T, view settingsView, notices []string) map[s
 			if !ok {
 				t.Fatalf("no private copy definition for the %s event", ev.Key)
 			}
-			// Every event screen has its private copy row (Phase 22, D-22; every event has a spec since plan 23-05).
-			if _, spec := eventPMSpecFor(ev.Key); !spec {
-				t.Fatalf("the %s event has no private copy spec", ev.Key)
-			}
-			emptyEvent := settingsMsgScreenWidths(def, settingsMsgEmptyState(), !ev.NoSilent, true)
-			fullEvent := settingsMsgScreenWidths(def, settingsMsgFullState(db.PHOTO), !ev.NoSilent, true)
+			// Every event screen of the manual, Automatic and Member requirements families has its private copy row (Phase 22,
+			// D-22), and no lockdown event screen has one (Phase 25, D-04); a lockdown event's private copy screens are
+			// reached by no press (settingsMsgDefByFields refuses d=p without a spec), so they are not drawn.
+			hasPM := settingsMsgWantFamilyPM(t, fam, ev)
+			emptyEvent := settingsMsgScreenWidths(def, settingsMsgEmptyState(), !ev.NoSilent, hasPM)
+			fullEvent := settingsMsgScreenWidths(def, settingsMsgFullState(db.PHOTO), !ev.NoSilent, hasPM)
 			emptyPM := settingsMsgScreenWidths(pmDef, settingsMsgPMOffState(), true, false)
 			fullPM := settingsMsgScreenWidths(pmDef, settingsMsgFullState(db.PHOTO), true, false)
 			for i, notice := range notices {
 				opts := settingsEditScreenOpts{Notice: notice, BotUsername: "FukuTestBot"}
 				add(fmt.Sprintf("event %s empty notice %d", ev.Code, i), renderSettingsMsgEvent(view, fam, ev, def, settingsMsgEmptyState(), opts), emptyEvent)
-				add(fmt.Sprintf("pm %s empty notice %d", ev.Code, i), renderSettingsMsgPM(view, fam, ev, pmDef, settingsMsgPMOffState(), opts), emptyPM)
+				if hasPM {
+					add(fmt.Sprintf("pm %s empty notice %d", ev.Code, i), renderSettingsMsgPM(view, fam, ev, pmDef, settingsMsgPMOffState(), opts), emptyPM)
+				}
 				for kind, mediaType := range map[string]int{"photo": db.PHOTO, "sticker": db.STICKER} {
 					add(fmt.Sprintf("event %s full %s notice %d", ev.Code, kind, i),
 						renderSettingsMsgEvent(view, fam, ev, def, settingsMsgFullState(mediaType), opts), fullEvent)
-					add(fmt.Sprintf("pm %s full %s notice %d", ev.Code, kind, i),
-						renderSettingsMsgPM(view, fam, ev, pmDef, settingsMsgFullState(mediaType), opts), fullPM)
+					if hasPM {
+						add(fmt.Sprintf("pm %s full %s notice %d", ev.Code, kind, i),
+							renderSettingsMsgPM(view, fam, ev, pmDef, settingsMsgFullState(mediaType), opts), fullPM)
+					}
 				}
 				// Phase 22: the event screen whose private copy line reads On, and the private copy screen with every part
-				// stored and its switch on (Silent false), the state a copy that is sent is drawn in.
+				// stored and its switch on (Silent false), the state a copy that is sent is drawn in. A lockdown event's
+				// screen is drawn with PMOn too and must still have no private copy row.
 				pmOn := settingsMsgFullState(db.PHOTO)
 				pmOn.PMOn = true
 				add(fmt.Sprintf("event %s full pm on notice %d", ev.Code, i), renderSettingsMsgEvent(view, fam, ev, def, pmOn, opts), fullEvent)
-				pmSent := settingsMsgFullState(db.PHOTO)
-				pmSent.Silent = false
-				add(fmt.Sprintf("pm %s full switch on notice %d", ev.Code, i), renderSettingsMsgPM(view, fam, ev, pmDef, pmSent, opts), fullPM)
+				if hasPM {
+					pmSent := settingsMsgFullState(db.PHOTO)
+					pmSent.Silent = false
+					add(fmt.Sprintf("pm %s full switch on notice %d", ev.Code, i), renderSettingsMsgPM(view, fam, ev, pmDef, pmSent, opts), fullPM)
+				}
 			}
-			for name, d := range map[string]settingsEditPageDef{"": def, "pm ": pmDef} {
+			defs := map[string]settingsEditPageDef{"": def}
+			if hasPM {
+				defs["pm "] = pmDef
+			}
+			for name, d := range defs {
 				for _, part := range d.Parts {
 					add(fmt.Sprintf("%sprompt %s %s", name, ev.Code, part.Code),
 						renderSettingsEditPrompt(view, d, part.Code, time.Now(), settingsEditTextMax, true), "[1]")
@@ -281,17 +312,22 @@ func TestSettingsMessagesCallbackBytes(t *testing.T) {
 			sizes[fields["a"]] = max(sizes[fields["a"]], len(button.CallbackData))
 		}
 	}
-	// Every event screen has exactly one button carrying d: its private copy row (every event of both families has a
-	// spec since plan 23-05).
+	// Every event screen of the manual, Automatic and Member requirements families has exactly one button carrying d:
+	// its private copy row; a lockdown event screen has none (Phase 25, D-04).
 	for name := range screensOf {
 		if !strings.HasPrefix(name, "event ") {
 			continue
 		}
-		if _, _, ok := settingsMsgEventByCode(strings.Fields(name)[1]); !ok {
+		fam, ev, ok := settingsMsgEventByCode(strings.Fields(name)[1])
+		if !ok {
 			t.Fatalf("%s names no event of the page", name)
 		}
-		if pmRows[name] != 1 {
-			t.Errorf("%s has %d buttons carrying d, want the one private copy row", name, pmRows[name])
+		want := 0
+		if settingsMsgWantFamilyPM(t, fam, ev) {
+			want = 1
+		}
+		if pmRows[name] != want {
+			t.Errorf("%s has %d buttons carrying d, want %d", name, pmRows[name], want)
 		}
 	}
 	for code, want := range map[string]int{

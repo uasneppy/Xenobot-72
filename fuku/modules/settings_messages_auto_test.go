@@ -52,7 +52,7 @@ func TestSettingsMessagesAutoFamily(t *testing.T) {
 			t.Errorf("the hub %q has no bold 🤖 Automatic actions heading", text)
 		}
 		settingsMsgWantAutoStates(t, text, nil)
-		settingsMsgWantWidths(t, "the hub", keyboard, 2, 1, 1, 1, 2)
+		settingsMsgWantWidths(t, "the hub", keyboard, 2, 2, 1, 1, 2)
 
 		cell, ok := settingsMsgButtonWith(t, keyboard, "a", settingsActMsgFamily, "t", "a")
 		if !ok || !strings.HasPrefix(cell.Text, "🤖 ") || !containsMarker(cell.Text, "settings_msg_fam_auto") {
