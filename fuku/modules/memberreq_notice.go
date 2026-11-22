@@ -12,10 +12,12 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/memberreq"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
 	"github.com/uasneppy/fuku_robot/fuku/utils/formatting"
+	"github.com/uasneppy/fuku_robot/fuku/utils/media"
 	"github.com/uasneppy/fuku_robot/fuku/utils/ratelimit"
 )
 
@@ -148,7 +150,7 @@ func memberReqNoticeText(tr *i18n.Translator, user gotgbot.User, broken, action 
 // action (warn, kick, ban or mute): memberReqNoticeText for in.Target and the broken rules in.Rules,
 // with, for a warn, the warn count in.Count and the group's limit in.Limit, and in.Action naming the
 // limit action that took effect (kick, ban or mute: the warn-limit variant) or nothing for the plain
-// warn. The options are memberReqPostNotice's: HTML with link previews off, never a reply, and the
+// warn. The options are those of every requirement notice: HTML with link previews off, never a reply, and the
 // keyboard in.Rows only when it has rows (the mute's "I fixed it"), so a notice with no button sends
 // no reply_markup at all. It returns today's request byte for byte.
 func memberReqNoticeDefault(action int) eventDefaultReply {
@@ -238,15 +240,10 @@ func memberReqNoticeRemedies(key string, broken int) []string {
 	return keys
 }
 
-// memberReqPostNotice sends the notice as a new message (never a reply: the member's message
-// may be deleted) in HTML with link previews off, through the requirement pacer, and returns
-// its message ID. A keyboard with no rows sends none.
-//
-// A notice that carries the button (a mute) is never dropped by pacing: when the pacer gives
-// up with ratelimit.ErrRateLimited it waits memberReqNoticeRateLimitWait and tries again until
-// the context or memberReqMuteNoticeBudget ends. Any other failure (a Telegram refusal, a
-// timeout) is tried again once, for every notice; a notice without a button is not retried
-// after ErrRateLimited, because nobody is waiting on it.
+// memberReqPostNotice sends a notice that is not an event (today only the per-chat cap's pause
+// notice) as a new message (never a reply) in HTML with link previews off, through the paced retry
+// loop of every requirement notice (memberReqNoticeSend), queues it for deletion
+// (memberReqScheduleNotice) and returns its message ID. A keyboard with no rows sends none.
 func memberReqPostNotice(ctx context.Context, b *gotgbot.Bot, chatID int64, text string, keyboard gotgbot.InlineKeyboardMarkup) (int64, error) {
 	opts := &gotgbot.SendMessageOpts{
 		ParseMode:          formatting.HTML,
@@ -255,6 +252,28 @@ func memberReqPostNotice(ctx context.Context, b *gotgbot.Bot, chatID int64, text
 	withButton := len(keyboard.InlineKeyboard) > 0
 	if withButton {
 		opts.ReplyMarkup = keyboard
+	}
+	sent, err := memberReqNoticeSend(ctx, withButton, func(callCtx context.Context) (*gotgbot.Message, error) {
+		return b.SendMessageWithContext(callCtx, chatID, text, opts)
+	})
+	if err != nil {
+		return 0, err
+	}
+	memberReqScheduleNotice(sent, withButton)
+	return sent.MessageId, nil
+}
+
+// memberReqNoticeSend is the paced retry loop every requirement notice is sent through (the
+// requirement site's custom message and default, and the pause notice): each try goes through
+// the requirement pacer and is bounded by memberReqCallTimeout. It schedules nothing.
+//
+// A notice that carries the button (a mute) is never dropped by pacing: when the pacer gives
+// up with ratelimit.ErrRateLimited it waits memberReqNoticeRateLimitWait and tries again until
+// the context or memberReqMuteNoticeBudget ends. Any other failure (a Telegram refusal, a
+// timeout) is tried again once, for every notice; a notice without a button is not retried
+// after ErrRateLimited, because nobody is waiting on it.
+func memberReqNoticeSend(ctx context.Context, withButton bool, send func(context.Context) (*gotgbot.Message, error)) (*gotgbot.Message, error) {
+	if withButton {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, memberReqMuteNoticeBudget)
 		defer cancel()
@@ -264,24 +283,137 @@ func memberReqPostNotice(ctx context.Context, b *gotgbot.Bot, chatID int64, text
 		var sent *gotgbot.Message
 		err := memberReqPaced(ctx, func(callCtx context.Context) error {
 			var sendErr error
-			sent, sendErr = b.SendMessageWithContext(callCtx, chatID, text, opts)
+			sent, sendErr = send(callCtx)
 			return sendErr
 		})
 		if err == nil {
-			memberReqScheduleNotice(sent, withButton)
-			return sent.MessageId, nil
+			return sent, nil
 		}
 		switch {
 		case errors.Is(err, ratelimit.ErrRateLimited) && withButton:
 			if !memberReqSleep(ctx, memberReqNoticeRateLimitWait) {
-				return 0, err
+				return nil, err
 			}
 		case errors.Is(err, ratelimit.ErrRateLimited), retried:
-			return 0, err
+			return nil, err
 		default:
 			retried = true
 		}
 	}
+}
+
+// memberReqEventOf is the event of a requirement notice for the hold's punishment: the warn
+// (with its warn-limit variants), kick, ban or mute notice.
+func memberReqEventOf(action int) string {
+	switch action {
+	case models.RequirementActionKick:
+		return eventmsg.EventReqKick
+	case models.RequirementActionBan:
+		return eventmsg.EventReqBan
+	case models.RequirementActionMute:
+		return eventmsg.EventReqMute
+	}
+	return eventmsg.EventReqWarn
+}
+
+// memberReqEventTarget is the member as the engine sees them: a copy whose first and last names
+// and username are stripped of bidirectional controls (memberReqStripBidi) and cut to
+// memberReqNameCap runes, so a name cannot reorder a custom requirement text (D-15). The names the
+// rules judge are never touched.
+func memberReqEventTarget(u gotgbot.User) gotgbot.User {
+	clean := func(s string) string {
+		s = memberReqStripBidi(s)
+		if runes := []rune(s); len(runes) > memberReqNameCap {
+			s = string(runes[:memberReqNameCap])
+		}
+		return s
+	}
+	u.FirstName, u.LastName, u.Username = clean(u.FirstName), clean(u.LastName), clean(u.Username)
+	return u
+}
+
+// memberReqPostEventNotice posts the one notice of a requirement episode through the event
+// engine (postEventSent), after the punishment took effect, and returns the posted message's ID,
+// or 0 with no error when nothing was posted (a Silent warn, kick or ban notice). The site posts a
+// new message (never a reply: the member's message may be deleted) with no topic, and sends both
+// the custom message and the default through the paced retry loop (memberReqNoticeSend), so a
+// mute notice is never dropped by pacing; the default is today's request byte for byte. What was
+// posted, custom or default, is queued by memberReqScheduleNotice (the 24 hour cap for a mute).
+//
+// The reply is text only (a stored media file is ignored) and, for a mute, required (a stored
+// Silent is ignored) and keeps the "I fixed it" row below the custom buttons, because the notice is
+// the member's only way out of the mute. A custom text is followed by the requirements line and the
+// remedies of the default (memberReqNoticeAppended). {reason} is the broken rules' phrases,
+// {action} the punishment's word (for a warn whose limit action took effect, that action's word),
+// {count} and {limit} a warn's numbers. A refused custom message is replaced by the default; an
+// error means neither was delivered, which the caller handles as before.
+func memberReqPostEventNotice(ctx context.Context, b *gotgbot.Bot, c memberReqCase, tr *i18n.Translator, user gotgbot.User, hold *models.ChatRequirementHold, warn *warnApplyResult) (int64, error) {
+	rows := memberReqNoticeKeyboard(tr, hold.Action, hold.ID, user.Id).InlineKeyboard
+	withButton := len(rows) > 0
+	in := eventDefaultInput{Target: user, Rules: hold.Rules, Rows: rows}
+	values := eventValues{Reason: memberReqRulesText(tr, hold.Rules)}
+	switch hold.Action {
+	case models.RequirementActionKick:
+		values.Action = eventActionWord(tr, "kick")
+	case models.RequirementActionBan:
+		values.Action = eventActionWord(tr, "ban")
+	case models.RequirementActionMute:
+		values.Action = eventActionWord(tr, "mute")
+	default:
+		values.Action = eventActionWord(tr, "warn")
+		if warn != nil {
+			in.Count, in.Limit = warn.Count, warn.Limit
+			values.Count, values.Limit = warn.Count, warn.Limit
+			if warn.LimitReached && warn.LimitApplied {
+				switch warn.Mode {
+				case "kick", "ban", "mute":
+					in.Action = warn.Mode
+					values.Action = eventActionWord(tr, warn.Mode)
+				}
+			}
+		}
+	}
+	text, opts := memberReqNoticeDefault(hold.Action)(tr, in)
+	chatID := c.Chat.Id
+	site := eventSite{
+		Bot:       b,
+		Chat:      &c.Chat,
+		Tr:        tr,
+		Kind:      deletion.KindBotAuto,
+		Automatic: true,
+		SendDefault: func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			return memberReqNoticeSend(ctx, withButton, func(callCtx context.Context) (*gotgbot.Message, error) {
+				return b.SendMessageWithContext(callCtx, chatID, text, opts)
+			})
+		},
+		SendCustom: func(msg media.GreetingMessage) (*gotgbot.Message, error) {
+			return memberReqNoticeSend(ctx, withButton, func(context.Context) (*gotgbot.Message, error) {
+				return media.SendGreetingMessage(b, chatID, msg)
+			})
+		},
+		Schedule: func(sent *gotgbot.Message) { memberReqScheduleNotice(sent, withButton) },
+	}
+	reply := eventReply{
+		Event:    memberReqEventOf(hold.Action),
+		Target:   memberReqEventTarget(user),
+		Values:   values,
+		Default:  text,
+		Opts:     opts,
+		Note:     memberReqNoticeAppended(hold.Action)(tr, in),
+		TextOnly: true,
+		Required: hold.Action == models.RequirementActionMute,
+	}
+	if withButton {
+		reply.KeepRows, reply.KeepRowsLast = rows, true
+	}
+	post, err := postEventSent(site, reply)
+	if err != nil {
+		return 0, err
+	}
+	if post.Msg == nil {
+		return 0, nil
+	}
+	return post.Msg.MessageId, nil
 }
 
 // memberReqScheduleNotice queues a notice that was just sent for deletion by the automatic

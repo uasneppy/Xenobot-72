@@ -3274,12 +3274,21 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   translations and not by the key ceilings (at every ceiling the sum is 636; the worst real case is French mute at 506), and
   `mreq_warn_reason` with all eight phrases is at most 300; a translation that breaks the cap is shortened, never the cap
   raised; only a
-  mute carries the `mreq|v1` "I fixed it" button (`a=f`, `h`, `u`). A notice is queued for deletion by `memberReqPostNotice`
-  (as `bot:punish_auto`, a mute notice at the 24 hour cap) and the "I fixed it" edit reschedules it from the tap (see
-  "Scheduling the bot's own messages" under Subsystem traps). A mute notice is never dropped by pacing: `memberReqPostNotice` waits
-  `memberReqNoticeRateLimitWait` and sends again whenever the pacer gives up on it, until its context or
-  `memberReqMuteNoticeBudget` ends, and every notice whose send failed otherwise is retried once (a notice without a
-  button is not retried after `ErrRateLimited`). A mute whose notice still cannot be delivered is never left in place
+  mute carries the `mreq|v1` "I fixed it" button (`a=f`, `h`, `u`). Since Phase 24 (plan 24-05, EVT-09) the notice of an
+  episode is an event (`mreqwarn` with its warn-limit variants, `mreqkick`, `mreqban`, `mreqmute`): `memberReqAnnounce` calls
+  `memberReqPostEventNotice` (`memberreq_notice.go`, the requirement site of the event engine, see the Event messages bullet),
+  so a group's custom text replaces the default and is followed by a blank line, the requirements line and the default's remedy
+  sentences (`memberReqNoticeAppended`); with nothing stored the request is today's byte for byte (`TestLegacyScreeningNoticeRequests`).
+  A non-zero posted message ID (custom or default) is stored on the hold; a Silent warn, kick or ban notice posts nothing,
+  stores no notice ID and leaves the punishment in place, while the mute notice cannot be silenced and never carries a stored
+  media file. The pause notice is not an event and stays on `memberReqPostNotice`. A notice is queued for deletion by
+  `memberReqScheduleNotice` (as `bot:punish_auto`, a mute notice at the 24 hour cap) and the "I fixed it" edit reschedules it
+  from the tap (see "Scheduling the bot's own messages" under Subsystem traps). A mute notice is never dropped by pacing: every
+  requirement notice (the custom message, the default and the pause notice) is sent through one paced retry loop,
+  `memberReqNoticeSend`, which waits `memberReqNoticeRateLimitWait` and sends again whenever the pacer gives up on a mute
+  notice, until its context or `memberReqMuteNoticeBudget` ends, and retries every send that failed otherwise once (a notice
+  without a button is not retried after `ErrRateLimited`); a custom message still refused after its retry is replaced by the
+  default, so a refusal costs at most four requests. A mute whose notice (custom and default) still cannot be delivered is never left in place
   without its button: `memberReqUndeliveredMute` first makes one paced live `getChatMember` (`memberReqLiveMember`) and
   lifts only while `isMemberReqMute` still holds for the hold's marker, because a notice that waits out a rate limit can
   take up to 5 minutes and an admin may have restricted, unmuted or banned the member, or the member left, meanwhile:
@@ -3741,7 +3750,21 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `memberReqNoticeDefault`, `memberReqNoticeNote` (through `memberReqNoticeAppended`), `memberReqNoticeNoteReserve` (the Member
   requirements family's `ReservedText`) and `aispamNoticeDefaultReply`, so their markers are gone; `aispamEventReason` keeps
   `//nolint:unused // first production caller arrives in plan 24-06`, and plan 24-06 removes it. The page's event names are also the
-  names the `#PM_COPY` log line gives the six events (`eventPMEventName`).
+  names the `#PM_COPY` log line gives the six events (`eventPMEventName`). The requirement site (plan 24-05, EVT-09, D-15 to D-20) is
+  `memberReqPostEventNotice(ctx, b, c, tr, user, hold, warn) (int64, error)` in `memberreq_notice.go`, called only by
+  `memberReqAnnounce` after the punishment took effect, through `postEventSent`. Its site is the case's chat, the group's
+  translator, no actor ("an admin"), no reply and no topic (a new message: the member's message may be deleted), `bot:punish_auto`,
+  `Automatic`, `SendDefault` and `SendCustom` both inside the paced retry loop `memberReqNoticeSend` (the default is
+  `SendMessageWithContext` with `memberReqNoticeDefault`'s options, today's request; the custom message `media.SendGreetingMessage`), and
+  `Schedule` `memberReqScheduleNotice` (the 24 hour cap for a message with the button). The reply's event is `memberReqEventOf(hold.Action)`,
+  its target a copy of the live member whose names and username went through `memberReqStripBidi` and the `memberReqNameCap` cut
+  (`memberReqEventTarget`, D-15; the default still names the member through `memberReqMention`), its values `{reason}` the broken
+  rules' phrases (`memberReqRulesText`), `{action}` the punishment's word (for a warn whose limit action took effect, that action's
+  word) and, for a warn, `{count}` and `{limit}`; `Note` is `memberReqNoticeAppended(action)`, the same function the page's preview
+  uses; `TextOnly` is set for all four events, and for the mute `Required` and `KeepRows` the "I fixed it" row with `KeepRowsLast`,
+  so a custom mute notice always ends with the button. It returns the posted message's ID, or 0 when nothing was posted (Silent);
+  an error means neither the custom message nor the default was delivered (`TestEventMessageMemberReq` in `event_message_mreq_test.go`: a custom warn and warn limit, a Silent kick, a refused custom kick
+  replaced by the golden default, and the ban's private copy).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
@@ -3846,7 +3869,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`replyEvent`, the moderation pipeline's site), `warns.go` (`warnThisUser`, after the warn is stored and any limit
   action applied), `antiflood.go` (`floodNotice`, after the flood's mute, kick or ban), `blacklists.go`
   (`blacklistNotice`, after the blacklist's mute, kick or ban) and `forwardblock_notice.go` (`forwardBlockNotice`, the
-  forward blocklist's notice of the linked group, the watcher's only way to the engine besides `warns.go`), each allow-list entry with its reason and a stale entry failing, and no file whose name starts with
+  forward blocklist's notice of the linked group, the watcher's only way to the engine besides `warns.go`) and
+  `event_message_auto.go` (`postCaptchaFailureNotice`, Phase 24), `postEventSent` only by `event_message.go` (`postEvent`) and
+  `memberreq_notice.go` (`memberReqPostEventNotice`, the requirement notice after the punishment, plan 24-05), each allow-list entry with its reason and a stale entry failing, and no file whose name starts with
   `staff`, `lockdown` or `raid` names `offerEventPM`, `registerEventPM`, `offerReplyPM`, `replyEvent`, `postEvent` or any
   `pmCopy` identifier, so a lockdown's joiner bans, "Ban N recent joiners" and Staff
   Group actions can never send a copy, PMSG-05; a later phase adds its caller to the list with a reason) and `TestEventMsgLocaleKeys` (`fuku/i18n/eventmsg_locale_test.go`, whose
@@ -3888,12 +3913,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`TestBotManualRepliesNotCovered`). Anonymous-admin re-entry runs the same command, so the hooks need no special case.
   The automatic kind (`bot:punish_auto`, plan 16-06) has these named sites and no other: every member requirement notice
   (the warn, kick, ban and mute notices of Phases 13 to 15 and the per-chat cap's pause notice) through
-  `memberReqPostNotice`, the one site both callers (`memberReqAnnounce`, the cap) reach, right after a successful send and
+  `memberReqScheduleNotice`, which both senders call (`memberReqPostEventNotice` through the engine's `Schedule` hook, for whichever
+  message was posted, custom or default, and `memberReqPostNotice` for the pause notice), right after a successful send and
   from the sent message's own date, so a retried or rate-limit-waited notice counts from the message that went out
   (`memberReqScheduleNotice`; a notice without a button follows the timer directly, a failed send writes nothing); the
   mute notice, which carries the "I fixed it" button, is queued at the 24 hour cap (86400 s) whatever the timer says, so a
-  short timer never removes the member's only self-service way out, and with the kind Off no row is written (D-14, D-25);
-  after the member taps the button, `memberReqFixedEdit` (which takes the chat type and a `reschedule` flag, SEC-01: true
+  short timer never removes the member's only self-service way out, and with the kind Off no row is written (D-14, D-25); after the member taps the button, `memberReqFixedEdit` (which takes the chat type and a `reschedule` flag, SEC-01: true
   only when the hold's stored `notice_msg_id` is positive and equals the pressed message's ID, so the same button attached
   to any other message of the chat is edited as before but queues nothing for it, and a hold whose notice ID was never
   stored reschedules nothing, the 24 hour row staying) reschedules the edited

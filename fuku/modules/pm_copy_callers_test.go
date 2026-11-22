@@ -43,6 +43,8 @@ func TestPMCopyCallers(t *testing.T) {
 		},
 		"postEventSent": {
 			"event_message.go": "postEvent wraps it; a site that needs what the group step posted calls it after the punishment",
+			"memberreq_notice.go": "memberReqPostEventNotice posts the requirement notice of the episode after the punishment took effect " +
+				"and stores the posted message's ID on the hold (the mute notice's \"I fixed it\")",
 		},
 	}
 	forbiddenNames := map[string]bool{

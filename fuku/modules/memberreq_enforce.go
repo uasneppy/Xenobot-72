@@ -551,19 +551,24 @@ func memberReqApplyStep(ctx context.Context, b *gotgbot.Bot, c memberReqCase, tr
 	return memberReqNotApplied, nil
 }
 
-// memberReqAnnounce posts the one notice of the episode and stores its message ID on the hold.
+// memberReqAnnounce posts the one notice of the episode through the event engine
+// (memberReqPostEventNotice, so a group's custom requirement message applies) and stores its
+// message ID on the hold; a Silent notice posts nothing and stores no ID.
 // A failure is logged by IDs only and the punishment stays, except for a mute: a mute whose
 // notice could not be delivered even after its retry is lifted again (memberReqUndeliveredMute),
 // because no member may be left muted without the button. It reports whether such a lift
 // happened (Q4), so the caller counts the punishment as not applied.
 func memberReqAnnounce(ctx context.Context, b *gotgbot.Bot, c memberReqCase, tr *i18n.Translator, user gotgbot.User, hold *models.ChatRequirementHold, warn *warnApplyResult) (lifted bool) {
-	text := memberReqNoticeText(tr, user, hold.Rules, hold.Action, warn)
-	msgID, err := memberReqPostNotice(ctx, b, c.Chat.Id, text, memberReqNoticeKeyboard(tr, hold.Action, hold.ID, user.Id))
+	msgID, err := memberReqPostEventNotice(ctx, b, c, tr, user, hold, warn)
 	if err != nil {
 		if hold.Action == models.RequirementActionMute {
 			return memberReqUndeliveredMute(ctx, b, c, hold)
 		}
 		log.Warnf("[MemberReq] the notice for user %d in chat %d was not delivered: %s", c.User.Id, c.Chat.Id, memberReqErrText(err))
+		return false
+	}
+	if msgID == 0 {
+		// A Silent warn, kick or ban notice: nothing was posted and no notice ID is stored.
 		return false
 	}
 	recordCtx, cancel := memberReqRecordCtx(ctx)
