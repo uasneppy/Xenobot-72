@@ -132,19 +132,38 @@ var blacklistNoticeKeys = map[string]string{
 	"ban":  "blacklists_bl_watcher_banned_user",
 }
 
+// blacklistNoticeTimedKeys are the punishment notices of an applied timed action of the blacklist (and,
+// from plan 26-09, of a forward blocklist ladder step), which name the duration; they are read only when
+// in.Secs is set.
+var blacklistNoticeTimedKeys = map[string]string{
+	"tmute": "blacklists_bl_watcher_tmuted_user",
+	"tban":  "blacklists_bl_watcher_tbanned_user",
+}
+
 // blacklistNoticeDefaultReply is the default punishment notice of the blacklist and the forward
 // blocklist, which send one template with a different reason: blacklists_bl_watcher_muted_user,
 // _kicked_user or _banned_user by in.Action with the mention of the sender's full name (a sender chat's
 // title) and in.Reason spliced as today, unescaped (the blacklist's filled reason, or the forward
 // blocklist's staff_fwdblock_reason). The options are formatting.Shtml(). An action with no notice has
-// no text. It returns today's request byte for byte.
+// no text. It returns today's request byte for byte. An applied timed action (in.Action tmute or tban
+// with in.Secs set) reads blacklists_bl_watcher_tmuted_user or _tbanned_user instead, with the mention,
+// the duration in the translator's language and the reason HTML-escaped (D-15); a timed action with no
+// duration has no text.
 func blacklistNoticeDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	name := formatting.GetFullName(in.Target.FirstName, in.Target.LastName)
+	if key, ok := blacklistNoticeTimedKeys[in.Action]; ok && in.Secs > 0 {
+		text, _ := tr.GetString(key, i18n.TranslationParams{
+			"user":     formatting.MentionHtml(in.Target.Id, name),
+			"duration": punishDurationLabel(tr, in.Secs),
+			"reason":   html.EscapeString(in.Reason),
+		})
+		return text, formatting.Shtml()
+	}
 	key, ok := blacklistNoticeKeys[in.Action]
 	if !ok {
 		return "", formatting.Shtml()
 	}
 	temp, _ := tr.GetString(key)
-	name := formatting.GetFullName(in.Target.FirstName, in.Target.LastName)
 	return fmt.Sprintf(temp, formatting.MentionHtml(in.Target.Id, name), in.Reason), formatting.Shtml()
 }
 
@@ -255,16 +274,25 @@ func listNoticeSite(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator) eve
 	}
 }
 
-// listNoticeReply is the event of a blacklist or forward blocklist punishment notice: the default built
-// by blacklistNoticeDefaultReply (today's request, the reason spliced as is), and the values a custom
-// text fills, the same reason (which the engine escapes) and the action's translated word. Neither event
-// has a count, a limit or a bot row (D-11, D-15).
-func listNoticeReply(tr *i18n.Translator, event string, target gotgbot.User, action, reason string) eventReply {
-	text, opts := blacklistNoticeDefaultReply(tr, eventDefaultInput{Target: target, Action: action, Reason: reason})
+// listNoticeReply is the event of a blacklist or forward blocklist punishment notice p, as applied: the
+// default built by blacklistNoticeDefaultReply (today's request for an untimed action, the reason spliced as
+// is), and the values a custom text fills, the same reason (which the engine escapes) and the action's
+// translated word. A timed punishment (applied, so its Until is set) also fills {duration} (the duration in
+// the group's language) and {until} (the end date its request was sent with), and its default names the
+// duration (D-15, D-16). Neither event has a count, a limit or a bot row (D-11, D-15).
+func listNoticeReply(tr *i18n.Translator, event string, target gotgbot.User, p autoPunishment, reason string) eventReply {
+	timed := p.Timed() && p.Until > 0
+	in := eventDefaultInput{Target: target, Action: p.Action, Reason: reason}
+	values := eventValues{Reason: reason, Action: eventActionWord(tr, p.Action)}
+	if timed {
+		in.Secs = p.Secs
+		values.Duration, values.Until = punishDurationLabel(tr, p.Secs), time.Unix(p.Until, 0)
+	}
+	text, opts := blacklistNoticeDefaultReply(tr, in)
 	return eventReply{
 		Event:   event,
 		Target:  target,
-		Values:  eventValues{Reason: reason, Action: eventActionWord(tr, action)},
+		Values:  values,
 		Default: text,
 		Opts:    opts,
 	}

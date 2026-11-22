@@ -281,7 +281,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   source nor the Staff Group: the site holds only the fixed reason and the member, so no placeholder can add them (D-31,
   `TestEventMessageForwardBlock`).
   A sender_chat channel identity or an anonymous admin posting a blocked forward is exempt: a stated limit. The two action
-  vocabularies are one set (`TestForwardBlockVocabulary`); `blacklistWatcher`'s own inline switch is not edited.
+  vocabularies are one set (`TestForwardBlockVocabulary`); `blacklistWatcher`'s own action switch (since plan 26-05 in
+  `blacklistPunish`) is not shared with it. `forwardBlockNotice(b, ctx, userID, action)` hands the shared reply
+  `autoPunishment{Action: action}`, so its notices of a plain mute, kick or ban are byte-identical.
 - The `ServiceDeletion` module (priority 242, `deletion_service.go`) registers the service message deletion watcher
   at group `-5` (`serviceDeleteGroup`) through `handlers.NewMessage` with `SetAllowBot(true)`, the only handler of that
   group, so never add a second message handler there that ends an update. The watcher's result is a named value preset to
@@ -3855,10 +3857,23 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (plan 23-04, the `blacklist` event) and the forward blocklist (the `fwdblock` event) share one site and reply
   (`listNoticeSite`: no reply, no topic, `bot:punish_auto`, `Automatic`, no actor, the default through `b.SendMessage`;
   `listNoticeReply`: the default from `blacklistNoticeDefaultReply`, the values the reason and the action word, no count,
-  limit or kept row). `blacklistWatcher` applies its mute, kick or ban as before and then calls `blacklistNotice(b, ctx,
-  user, action, reason)` with the reason the default shows (the stored reason filled with the matched word), which the
-  engine escapes in `{reason}` while the default splices it as today (D-14); its warn action is the `warn` event, and
-  `none` and a stored inert action post nothing. A punishment or send error is logged and returned as before. The
+  limit or kept row). `blacklistWatcher` deletes the matching message, keeps its warn branch, and for any other action builds
+  `autoPunishment{Action, Secs}` from the matched word (`blacklists.action_secs`); an action `autoActionEffective` refuses
+  (`none`, a timed action stored with no duration, a stored value the watcher applies nothing for) posts nothing, as before
+  (D-08). Otherwise it calls `blacklistPunish(b, ctx, user, p)` (plan 26-05, the one place the blacklist's punishment is
+  decided; plan 26-09 adds the ladder there), whose mute, kick and ban branches are the old switch moved unchanged (a mute or a
+  kick of an anonymous channel sends nothing and posts nothing, a ban of one is `banChatSenderChat`), and whose effective
+  `tmute` or `tban` goes through `applyTimedPunishment` with the end date recorded on the punishment; a sender chat under a
+  timed action gets no request and no notice (D-13), and an end date refused locally (`errPunishTimeRanOut`) punishes nobody
+  and posts nothing, the blacklist's inert path, as the flood keeps its own inert path. The watcher adds no restrict-right
+  check of its own (it never had one; `IsBotAdmin` is its gate, as before). The timed request takes no context, so an
+  in-flight timed restrict or ban is bounded only by the bot's HTTP client timeout (30 s), like the untimed ones (D-12). It
+  then calls `blacklistNotice(b, ctx, user, applied, reason)` with the punishment as applied and the reason the default shows
+  (the stored reason filled with the matched word), which the engine escapes in `{reason}` while the untimed default splices
+  it as today (D-14); `listNoticeReply(tr, event, target, p, reason)` fills `{duration}` (`punishDurationLabel`) and `{until}`
+  (the end date the request carried) only for an applied timed punishment (`p.Until > 0`), and the blacklist's private copy
+  then adds its Until line (`UntilLine`). `blacklistWatcher`'s cyclomatic complexity went from 30 to 26 (`TestBlacklistTimed`).
+  Its warn action is the `warn` event. A punishment or send error is logged and returned as before. The
   forward blocklist's site is `forwardBlockNotice` (the forward blocklist watcher bullet). The default
   texts never use these words: the flood's default keeps its untranslated English `muted`, `kicked` or `banned` (D-13, D-14). The Automatic
   family's default replies all live in `event_message_auto.go` (D-22), each an `eventDefaultReply` that returns the text
@@ -3868,7 +3883,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the English word, the site's Unmute or Unban row by value, the site adds the topic; an applied timed action reads
   `floodTimedKeys` only when `Secs` is set) and `blacklistNoticeDefaultReply`
   (shared by the blacklist and the forward blocklist: `blacklists_bl_watcher_{muted,kicked,banned}_user` with the full
-  name and `Reason` spliced unescaped, `formatting.Shtml()`). Each is called by its send site and by the Messages page's event
+  name and `Reason` spliced unescaped, `formatting.Shtml()`; an applied timed action, `Action` `tmute` or `tban` with `Secs`
+  set, reads `blacklists_bl_watcher_tmuted_user` or `_tbanned_user` instead (`blacklistNoticeTimedKeys`: `{user}` the
+  mention, `{duration}` and `{reason}` HTML-escaped, unlike the untimed default's kept quirk), which also serve the forward
+  blocklist's ladder steps of plan 26-09). Each is called by its send site and by the Messages page's event
   table (the `Default` of `settingsMsgAutoEvents`, for the previews). `warnThisUser` logs a send error and returns it as before
   (`TestLegacyPunishmentNoticeRequests` pins every warn byte for a group with nothing stored, `TestEventMessageWarn` the
   custom warn, `TestEventMessageWarnLimit` in `event_message_auto_sites_test.go` the custom warn limit, the automatic one,

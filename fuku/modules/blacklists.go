@@ -789,11 +789,69 @@ func (m moduleStruct) blacklistWatcher(b *gotgbot.Bot, ctx *ext.Context) error {
 	}
 
 	_ = helpers.DeleteMessageWithErrorHandling(b, chat.Id, msg.MessageId)
-	var err error
-	switch matched.Action {
-	case "mute":
+	filled := fmt.Sprintf(reason, i)
+	if matched.Action == "warn" {
 		if user.IsAnonymousChannel() {
 			return ext.ContinueGroups
+		}
+
+		err := warnsModule.warnThisUser(b, ctx, user.Id(), filled, "warn", warnSourceAuto)
+		if err != nil {
+			if !errors.Is(err, ext.EndGroups) && !errors.Is(err, ext.ContinueGroups) {
+				log.Error(err)
+			}
+			return err
+		}
+		return ext.ContinueGroups
+	}
+	p := autoPunishment{Action: matched.Action, Secs: matched.ActionSecs}
+	if !autoActionEffective(p.Action, p.Secs) {
+		// none, a timed action stored with no duration and a stored action the watcher applies
+		// nothing for post nothing (D-08).
+		return ext.ContinueGroups
+	}
+	applied, notice, err := blacklistPunish(b, ctx, user, p)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	if !notice {
+		return ext.ContinueGroups
+	}
+	if err = blacklistNotice(b, ctx, user, applied, filled); err != nil {
+		log.Error(err)
+		return err
+	}
+	return ext.ContinueGroups
+}
+
+// blacklistPunish applies p, an effective action of the matched word, to the sender, the one place
+// the blacklist's punishment is decided (plan 26-09 adds the escalation ladder here). It returns the
+// punishment as applied (Until set for a timed one) and whether a notice is due; an error is a
+// punishment Telegram refused, which the watcher logs, after which nothing is posted.
+//   - mute, kick and ban send today's requests: a mute or a kick of an anonymous channel sends nothing
+//     and posts nothing, a ban of one bans the channel (banChatSenderChat);
+//   - an effective timed mute or ban (a duration of 1m to 366d) goes through applyTimedPunishment, and
+//     a sender chat gets nothing and no notice (D-13: a sender chat has no timed form, and
+//     banChatSenderChat would ban it for good). An end date refused locally (errPunishTimeRanOut,
+//     logged by the helper) punishes nobody and posts nothing, the blacklist's inert path (the message
+//     is already deleted).
+func blacklistPunish(b *gotgbot.Bot, ctx *ext.Context, user *gotgbot.Sender, p autoPunishment) (applied autoPunishment, notice bool, err error) {
+	chat := ctx.EffectiveChat
+	if p.Timed() {
+		if !user.IsUser() {
+			return p, false, nil
+		}
+		p.Until, err = applyTimedPunishment(b, chat.Id, user.Id(), p.Action, p.Secs)
+		if errors.Is(err, errPunishTimeRanOut) {
+			return autoPunishment{Action: p.Action}, false, nil
+		}
+		return p, err == nil, err
+	}
+	switch p.Action {
+	case "mute":
+		if user.IsAnonymousChannel() {
+			return p, false, nil
 		}
 		_, err = b.RestrictChatMember(chat.Id, user.Id(), MutedPermissions, nil)
 	case "ban":
@@ -804,46 +862,24 @@ func (m moduleStruct) blacklistWatcher(b *gotgbot.Bot, ctx *ext.Context) error {
 		}
 	case "kick":
 		if user.IsAnonymousChannel() {
-			return ext.ContinueGroups
+			return p, false, nil
 		}
 		err = kickMember(b, chat.Id, user.Id())
-	case "warn":
-		if user.IsAnonymousChannel() {
-			return ext.ContinueGroups
-		}
-
-		err = warnsModule.warnThisUser(b, ctx, user.Id(), fmt.Sprintf(reason, i), "warn", warnSourceAuto)
-		if err != nil {
-			if !errors.Is(err, ext.EndGroups) && !errors.Is(err, ext.ContinueGroups) {
-				log.Error(err)
-			}
-			return err
-		}
-		return ext.ContinueGroups
-	default:
-		// none, and a stored action the watcher applies nothing for, post nothing.
-		return ext.ContinueGroups
 	}
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-	if err = blacklistNotice(b, ctx, user, matched.Action, fmt.Sprintf(reason, i)); err != nil {
-		log.Error(err)
-		return err
-	}
-	return ext.ContinueGroups
+	return p, err == nil, err
 }
 
-// blacklistNotice posts the blacklist's punishment notice after the mute, kick or ban (D-03) through the
-// event message engine: a group's stored blacklist message replaces the default, with {action} the word
-// of the list's action and {reason} the reason the default shows (the stored reason filled with the
-// matched word), escaped by the engine while the default splices it as today (D-14). The site and the
-// reply are the forward blocklist's too (listNoticeSite, listNoticeReply); the default is today's request
-// byte for byte, queued as an automatic punishment message.
-func blacklistNotice(b *gotgbot.Bot, ctx *ext.Context, user *gotgbot.Sender, action, reason string) error {
+// blacklistNotice posts the blacklist's punishment notice after the mute, kick or ban, or the timed mute
+// or ban p applied (D-03), through the event message engine: a group's stored blacklist message replaces
+// the default, with {action} the word of the action applied and {reason} the reason the default shows (the
+// stored reason filled with the matched word), escaped by the engine while the untimed default splices it
+// as today (D-14); a timed punishment also fills {duration} and {until} and its default names the duration
+// with the reason escaped (D-15, D-16). The site and the reply are the forward blocklist's too
+// (listNoticeSite, listNoticeReply); the untimed default is today's request byte for byte, queued as an
+// automatic punishment message.
+func blacklistNotice(b *gotgbot.Bot, ctx *ext.Context, user *gotgbot.Sender, p autoPunishment, reason string) error {
 	tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
-	reply := listNoticeReply(tr, eventmsg.EventBlacklist, eventSenderTarget(user), action, reason)
+	reply := listNoticeReply(tr, eventmsg.EventBlacklist, eventSenderTarget(user), p, reason)
 	return postEvent(listNoticeSite(b, ctx.EffectiveChat, tr), reply)
 }
 

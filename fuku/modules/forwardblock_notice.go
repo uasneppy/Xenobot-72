@@ -26,6 +26,6 @@ func forwardBlockNotice(b *gotgbot.Bot, ctx *ext.Context, userID int64, action s
 	tr := ctxTr(ctx)
 	target := eventSenderTarget(ctx.EffectiveSender)
 	target.Id = userID
-	reply := listNoticeReply(tr, eventmsg.EventForwardBlock, target, action, forwardBlockReason(tr))
+	reply := listNoticeReply(tr, eventmsg.EventForwardBlock, target, autoPunishment{Action: action}, forwardBlockReason(tr))
 	return postEvent(listNoticeSite(b, &ctx.EffectiveMessage.Chat, tr), reply)
 }
