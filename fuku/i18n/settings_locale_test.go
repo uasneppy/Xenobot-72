@@ -111,6 +111,12 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_staff_no_group":          {120, 170},
 	"settings_staff_pick_more":         {120, 170},
 
+	// The shared duration screen and the timed action word (Phase 26, plan 26-03).
+	"settings_opt_timed":            {24, 30},
+	"settings_duration_intro_tmute": {120, 170},
+	"settings_duration_intro_tban":  {120, 170},
+	"settings_duration_hint":        {100, 140},
+
 	// The settings hub and the owner gate (plan 10-02). The ceilings are the UI-SPEC "New
 	// locale keys" columns; the alert and reply rows are held lower than Telegram's 200 so a
 	// long translation still fits.
@@ -1241,6 +1247,24 @@ func TestSettingsLabelLengths(t *testing.T) {
 				rendered := strings.ReplaceAll(settingsLocaleString(t, lang, data, state.key), "{n}", state.n)
 				if runes := utf8.RuneCountInString(rendered); runes > state.max {
 					t.Errorf("%s: state word %q (%s) has %d characters, ceiling %d", lang, rendered, state.key, runes, state.max)
+				}
+			}
+
+			// The Warnings page's timed row and the duration screen's preset cells (Phase 26, plan 26-03): each a
+			// half-width cell, at most 20 code points with the check mark.
+			for _, key := range []string{"settings_opt_tmute", "settings_opt_tban"} {
+				label := "✅ " + settingsLocaleString(t, lang, data, key)
+				if runes := utf8.RuneCountInString(label); runes > gridMax {
+					t.Errorf("%s: timed cell %q (%s) has %d characters, ceiling %d", lang, label, key, runes, gridMax)
+				}
+			}
+			for _, preset := range []struct{ key, n string }{
+				{"staff_act_duration_minutes", "10"}, {"staff_act_duration_hours", "12"},
+				{"staff_act_duration_days", "30"}, {"staff_act_duration_weeks", "1"},
+			} {
+				label := "✅ " + strings.ReplaceAll(settingsLocaleString(t, lang, data, preset.key), "{n}", preset.n)
+				if runes := utf8.RuneCountInString(label); runes > gridMax {
+					t.Errorf("%s: duration cell %q (%s) has %d characters, ceiling %d", lang, label, preset.key, runes, gridMax)
 				}
 			}
 
