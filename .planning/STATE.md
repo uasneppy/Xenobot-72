@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.2
 milestone_name: Conversations, Custom Messages and Tuning
-current_phase: 21
-current_phase_name: Message Engine, Messages Page and Manual Punishments
-status: verifying
-stopped_at: Phase 20 complete, ready to verify Phase 21
-last_updated: "2026-11-22T19:15:27.805Z"
+current_phase: 27
+current_phase_name: Manual Command Defaults, Reason Shortcuts and Appeal Button
+status: executing
+stopped_at: Completed 27-01-PLAN.md
+last_updated: "2026-11-22T19:47:08.624Z"
 last_activity: 2026-11-22
-last_activity_desc: Phase 20 complete, transitioned to Phase 21
-state_head: 7f65aa7c87a84df1a0d2577383643fd80421e5cc
+last_activity_desc: Phase 27 execution started
+state_head: 71dbf865f008fb493c604ce5c8078ae6a5f7159f
 progress:
   total_phases: 11
   completed_phases: 1
-  total_plans: 56
-  completed_plans: 56
+  total_plans: 63
+  completed_plans: 57
   percent: 9
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-22)
 
 **Core value:** My trusted staff can protect every one of my communities from one place. We act on a bad actor across all groups at once, and the bot never lets anyone act in a group where they aren't an admin.
-**Current focus:** Phase 21 — Message Engine, Messages Page and Manual Punishments
+**Current focus:** Phase 27 — Manual Command Defaults, Reason Shortcuts and Appeal Button
 
 ## Current Position
 
-Phase: 21 — Message Engine, Messages Page and Manual Punishments
-Plan: 11
-Status: Phase complete — ready for verification
-Last activity: 2026-11-22 — Phase 20 complete, transitioned to Phase 21
+Phase: 27 (Manual Command Defaults, Reason Shortcuts and Appeal Button) — EXECUTING
+Plan: 2 of 7
+Status: Ready to execute
+Last activity: 2026-11-22 — Phase 27 execution started
 
 Progress: [█░░░░░░░░░] 9%
 
@@ -196,6 +196,7 @@ Progress: [█░░░░░░░░░] 9%
 | Phase 19 P09 | about 2h | 3 tasks | 18 files |
 | Phase 19 P10 | 135min | 3 tasks | 5 files |
 | Phase 19 P12 | about 55min (gate runs) | 3 tasks | 6 files |
+| Phase 27 P01 | 6min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -308,6 +309,7 @@ Recent decisions affecting current work:
 - [v1.2 Roadmap]: The Backup page (BKP-01 to BKP-03, added by the owner on 2026-11-18) shares Phase 30 with MSG-10, because both rest on one backup file format that has to carry the custom messages. It is last because the page's export must equal `/export` and the messages table and event keys must be stable first. 40 requirements in all.
 - [v1.2 Roadmap]: MSG-11 (goldens before send sites change) is a rule for every phase and is mapped to Phase 21, where the harness starts. EVT-10 (excluded surfaces unchanged) is mapped to Phase 25, where its guard test sees the full event list.
 - [v1.2 Roadmap]: Events are table rows validated in Go, so a later phase adds rows and strings and no migration for the event key. PM copies and tuning follow the v1.1 rules: pacing on their own Redis keys, no new shutdown drain if it can be avoided (the worst case is already 68 s against the 60 s budget).
+- [Phase 27]: 27-01: Phase 27 MSG-11 manual command characterization goldens frozen in fuku/modules/moderation_phase27_legacy_request_test.go (17 subtests, 15 goldenP27* constants, commit 71dbf865); /swarn sends a warn reply after deleting command 101 and no-reason warns store localized fallback reason on unchanged b7393953.
 
 ### Pending Todos
 
@@ -429,8 +431,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-22T19:15:35Z
-Stopped at: Phase 20 complete, ready to verify Phase 21
+Last session: 2026-11-22T19:47:08.272Z
+Stopped at: Completed 27-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
