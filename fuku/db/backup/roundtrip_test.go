@@ -41,6 +41,7 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 		ChatId:                 srcChat,
 		Limit:                  9,
 		Action:                 "tmute",
+		ActionSecs:             1800,
 		DeleteAntifloodMessage: true,
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.AntiRaidSettings{
@@ -53,7 +54,7 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 		ChatID: srcChat, UserID: 101, ApprovedBy: 202, Reason: "trusted",
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.BlacklistSettings{
-		ChatId: srcChat, Word: "scam", Action: "tban", Reason: "custom reason",
+		ChatId: srcChat, Word: "scam", Action: "tban", ActionSecs: 86400, Reason: "custom reason",
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.CaptchaSettings{
 		ChatID: srcChat, Enabled: true, CaptchaMode: "text", Timeout: 9,
@@ -125,10 +126,11 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 		FileID: "rules-file", MediaType: 4, Buttons: buttons, MediaBelow: true,
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.WarnSettings{
-		ChatId: srcChat, WarnLimit: 7, WarnMode: "tmute",
+		ChatId: srcChat, WarnLimit: 7, WarnMode: "tmute", WarnModeSecs: 7200, ExpiryDays: 30,
 	}).Error)
+	warnTimes := models.Int64Array{time.Now().Unix() - 2*86400, time.Now().Unix() - 3600}
 	require.NoError(t, db.DB.Create(&models.Warns{
-		UserId: warnUserID, ChatId: srcChat, NumWarns: 2, Reasons: models.StringArray{"one", "two"},
+		UserId: warnUserID, ChatId: srcChat, NumWarns: 2, Reasons: models.StringArray{"one", "two"}, WarnTimes: warnTimes,
 	}).Error)
 
 	// Existing destination data must be replaced, not merged.
@@ -173,6 +175,7 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	require.NotNil(t, antifloodData.Settings)
 	assert.Equal(t, 9, antifloodData.Settings.Limit)
 	assert.Equal(t, "tmute", antifloodData.Settings.Action)
+	assert.Equal(t, 1800, antifloodData.Settings.ActionSecs)
 	assert.True(t, antifloodData.Settings.DeleteAntifloodMessage)
 
 	antiraidData, err := exportAntiraidData(dstChat)
@@ -194,6 +197,7 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	require.Len(t, blacklistsData.Entries, 1)
 	assert.Equal(t, "scam", blacklistsData.Entries[0].Word)
 	assert.Equal(t, "tban", blacklistsData.Entries[0].Action)
+	assert.Equal(t, 86400, blacklistsData.Entries[0].ActionSecs)
 	assert.Equal(t, "custom reason", blacklistsData.Entries[0].Reason)
 
 	captchaData, err := exportCaptchaData(dstChat)
@@ -313,10 +317,13 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	require.NotNil(t, warnsData.WarnSettings)
 	assert.Equal(t, 7, warnsData.WarnSettings.WarnLimit)
 	assert.Equal(t, "tmute", warnsData.WarnSettings.WarnMode)
+	assert.Equal(t, 7200, warnsData.WarnSettings.WarnModeSecs)
+	assert.Equal(t, 30, warnsData.WarnSettings.ExpiryDays)
 	require.Len(t, warnsData.Warns, 1)
 	assert.Equal(t, warnUserID, warnsData.Warns[0].UserId)
 	assert.Equal(t, 2, warnsData.Warns[0].NumWarns)
 	assert.Equal(t, models.StringArray{"one", "two"}, warnsData.Warns[0].Reasons)
+	assert.Equal(t, warnTimes, warnsData.Warns[0].WarnTimes)
 
 	fedsData, err := exportFederationsData(dstChat)
 	require.NoError(t, err)

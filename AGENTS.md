@@ -3055,7 +3055,16 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   counts: with the group's warn expiry on, each member's `num_warns`, reasons and times come from `Counted(expiry, time.Now())`, a
   member with no counted warn is left out, and the times travel only when the row stores one per warn; with expiry off every row is
   exported as stored and without its times, so a group that sets no expiry keeps the export it had before warn times existed
-  (`TestLegacyPunishmentExport`, whose rows now store times, passes unchanged).
+  (`TestLegacyPunishmentExport`, whose rows now store times, passes unchanged). The durations and the expiry travel through their
+  model tags (`warn_mode_secs`, `warn_expiry_days`, `action_secs`, all `omitempty`). An import sanitises them and never refuses a file
+  over them (`sanitizeImportedWarnSettings`, `sanitizeImportedAntiflood`, used by both the antiflood and the admin module,
+  `sanitizeImportedBlacklist`): a duration is kept only when it is a valid duration (`models.PunishDurationValid`) of a timed action
+  (`tmute`, `tban`), else 0, so a timed action with no duration stays inert and a plain action keeps none; an expiry outside 0 to 365 is
+  stored as 0 (off). A member's warn times are kept only when there is one per warn, each positive, non-decreasing and at most one
+  minute in the future (`sanitizeImportedWarnTimes`); otherwise they are dropped and the row is dated at the import (`updated_at` now),
+  so its warns count from the import and a tampered time can neither expire a warn early nor keep one forever. An old file with none of
+  the new keys imports them as zeros (`TestImportSanitizesPunishmentSettings`, `TestWarnsExportCountsWhatCounts`,
+  `TestAllModulesRoundTripEveryMeaningfulField`).
 - `chat_timezones` (migration 20261118120000) is one chat's choice of zone for the times the bot shows: `chat_id` primary
   key, `tz` (an IANA name such as `Europe/Kyiv`, or a fixed offset stored as `UTC+hh:mm`, `chk_chat_timezones_tz` 1..64
   characters), `updated_by`, `updated_at`. A chat without a row uses the bot-wide default (`DEFAULT_TIMEZONE`, default
@@ -6714,6 +6723,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestSettingsListBlacklistPageFitsEveryLocale`'s mixed screen `[3 2 2]` to `[3 2 2 2]`, `TestSettingsPhase19Codes` listing `bd` and
   `bz`), and `TestSettingsListBlacklistCallbackBytes` and `TestSettingsListBlacklistPageFitsEveryLocale` gained the timed states and
   the duration screen; the seam stubs of `blacklistWrites.Add` and `.SetAction` follow the seconds with no assertion changed.
+  Plan 26-06's families (warn expiry and the backup) are `TestWarnsCounted` (`fuku/db/models/warns_counted_test.go`, pure: every warn
+  with expiry off, the newer suffix with it on, an old row dated at its update time, the padding at the earlier of the update time and
+  the first time, a previous build's cached value counting every warn, extra times cut, decreasing times raised, warns without
+  reasons, fewer reasons than counted warns), `TestWarnExpiryWrites` (`fuku/db/warns/expiry_test.go`, SQLite and PostgreSQL),
+  `TestWarnExpiryMigrationStatements` and `TestWarnExpiryMigrationDefaults` (`fuku/db/migrations/warn_expiry_migration_test.go`),
+  `TestWarnExpiry` (`fuku/modules/warns_expiry_test.go`, on `warnTimedSite` with a moveable `punishNow` (`warnExpirySite`), warns
+  stored through the real `/warn` handler: `display` (1/3, the new reason only and `warns_expiry_note`), `limit` (two expired warns
+  and two counted under a limit of 3 punish nobody, the third counted warn restricts and resets), `rmwarn`, `button` and `resetwarns`
+  (with every warn expired `warns_no_warns_to_remove`, then the newest counted warn removed), `warnings` (`warns_settings_expiry`),
+  `aispam_count` and `off` (every warn counts and no line is added)), and `TestWarnsExportCountsWhatCounts` and
+  `TestImportSanitizesPunishmentSettings` (`fuku/db/backup/punish_import_test.go`). `TestAllModulesRoundTripEveryMeaningfulField` gained
+  the antiflood `tmute` 1800, the blacklist word's `tban` 86400, the warn settings' `tmute` 7200 and expiry 30 and a member's warn
+  times in its seeds and checks.
 
 ## Commits
 

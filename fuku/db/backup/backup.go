@@ -494,17 +494,19 @@ func exportWarnsData(chatID int64) (*WarnsBackup, error) {
 func exportedWarns(rows []models.Warns, expiryDays int, now time.Time) []models.Warns {
 	out := make([]models.Warns, 0, len(rows))
 	for _, row := range rows {
+		if expiryDays <= 0 {
+			row.WarnTimes = nil
+			out = append(out, row)
+			continue
+		}
 		complete := len(row.WarnTimes) == row.NumWarns
-		row.WarnTimes = nil
-		if expiryDays > 0 {
-			count, reasons, times := row.Counted(expiryDays, now)
-			if count == 0 {
-				continue
-			}
-			row.NumWarns, row.Reasons = count, models.StringArray(reasons)
-			if complete {
-				row.WarnTimes = models.Int64Array(times)
-			}
+		count, reasons, times := row.Counted(expiryDays, now)
+		if count == 0 {
+			continue
+		}
+		row.NumWarns, row.Reasons, row.WarnTimes = count, models.StringArray(reasons), nil
+		if complete {
+			row.WarnTimes = models.Int64Array(times)
 		}
 		out = append(out, row)
 	}
@@ -598,6 +600,7 @@ func importAdmin(tx *gorm.DB, chatID int64, payload interface{}) ([]string, erro
 	}
 	if data.AntifloodSettings != nil {
 		data.AntifloodSettings.ChatId = chatID
+		sanitizeImportedAntiflood(data.AntifloodSettings)
 	}
 	if data.CaptchaSettings != nil {
 		data.CaptchaSettings.ChatID = chatID
@@ -642,6 +645,7 @@ func importAntiflood(tx *gorm.DB, chatID int64, payload interface{}) ([]string, 
 		if data.Settings.Limit < 0 {
 			return nil, fmt.Errorf("invalid antiflood limit %d", data.Settings.Limit)
 		}
+		sanitizeImportedAntiflood(data.Settings)
 	}
 	if err := replaceChatSetting(tx, chatID, data.Settings); err != nil {
 		return nil, err
@@ -702,6 +706,7 @@ func importBlacklists(tx *gorm.DB, chatID int64, payload interface{}, report *Im
 		if data.Entries[i].Action == "" {
 			data.Entries[i].Action = "warn"
 		}
+		sanitizeImportedBlacklist(&data.Entries[i])
 	}
 	data.Entries = keepValidEntries(data.Entries, report, func(e *models.BlacklistSettings) (string, bool) {
 		e.Word = strings.ToLower(e.Word)
@@ -923,12 +928,15 @@ func importWarns(tx *gorm.DB, chatID int64, payload interface{}, preserveLegacyO
 		if data.WarnSettings.WarnMode == "" {
 			data.WarnSettings.WarnMode = "mute"
 		}
+		sanitizeImportedWarnSettings(data.WarnSettings)
 	}
+	now := time.Now()
 	for i := range data.Warns {
 		if data.Warns[i].UserId == 0 || data.Warns[i].NumWarns < 0 {
 			return nil, fmt.Errorf("invalid warn record")
 		}
 		data.Warns[i].ChatId = chatID
+		sanitizeImportedWarnTimes(&data.Warns[i], now)
 	}
 	if len(data.Warns) > 0 {
 		users := make([]models.User, len(data.Warns))
@@ -968,6 +976,69 @@ func importWarns(tx *gorm.DB, chatID int64, payload interface{}, preserveLegacyO
 		}
 	}
 	return keys, nil
+}
+
+// timedPunishAction reports whether action is a timed punishment (tmute, tban), the only actions an
+// imported duration is kept for.
+func timedPunishAction(action string) bool {
+	return strings.EqualFold(action, "tmute") || strings.EqualFold(action, "tban")
+}
+
+// sanitizeImportedWarnSettings stores 0 for an imported warn limit duration that is not a valid
+// duration (models.PunishDurationValid) of a timed mode, and for a warn expiry outside 0 to
+// models.WarnExpiryMaxDays (D-37). A file is never refused over them: a timed mode left with 0 is inert
+// and an expiry of 0 is off, the safe readings.
+func sanitizeImportedWarnSettings(s *models.WarnSettings) {
+	if !timedPunishAction(s.WarnMode) || !models.PunishDurationValid(s.WarnModeSecs) {
+		s.WarnModeSecs = 0
+	}
+	if s.ExpiryDays < 0 || s.ExpiryDays > models.WarnExpiryMaxDays {
+		s.ExpiryDays = 0
+	}
+}
+
+// sanitizeImportedAntiflood stores 0 for an imported flood action duration that is not a valid
+// duration of a timed action, so a tampered value never reaches a restriction (D-37).
+func sanitizeImportedAntiflood(s *models.AntifloodSettings) {
+	if !timedPunishAction(s.Action) || !models.PunishDurationValid(s.ActionSecs) {
+		s.ActionSecs = 0
+	}
+}
+
+// sanitizeImportedBlacklist stores 0 for an imported blacklist word's action duration that is not a
+// valid duration of a timed action (D-37).
+func sanitizeImportedBlacklist(e *models.BlacklistSettings) {
+	if !timedPunishAction(e.Action) || !models.PunishDurationValid(e.ActionSecs) {
+		e.ActionSecs = 0
+	}
+}
+
+// sanitizeImportedWarnTimes keeps an imported member's warn times only when there is one per warn,
+// each positive, non-decreasing and at most one minute after now (validImportedWarnTimes). Otherwise it
+// drops them and dates the row at the import, so its warns are counted from now and a tampered time can
+// neither expire a warn early nor keep one forever (D-37).
+func sanitizeImportedWarnTimes(row *models.Warns, now time.Time) {
+	if validImportedWarnTimes(row.WarnTimes, row.NumWarns, now) {
+		return
+	}
+	row.WarnTimes = nil
+	row.UpdatedAt = now
+}
+
+// validImportedWarnTimes is the import's check of a member's warn times; see sanitizeImportedWarnTimes.
+func validImportedWarnTimes(times []int64, numWarns int, now time.Time) bool {
+	if len(times) != numWarns {
+		return false
+	}
+	latest := now.Add(time.Minute).Unix()
+	var prev int64
+	for _, t := range times {
+		if t <= 0 || t < prev || t > latest {
+			return false
+		}
+		prev = t
+	}
+	return true
 }
 
 func moduleFieldPresent(payload interface{}, field string) bool {
