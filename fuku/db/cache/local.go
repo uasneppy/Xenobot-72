@@ -55,6 +55,9 @@ var (
 	eventMessagesPrefix = CacheKey("event_messages") + ":"
 
 	chatEscalationPrefix = CacheKey("chat_escalation") + ":"
+
+	chatManualDefaultsPrefix  = CacheKey("chat_manual_defaults") + ":"
+	chatReasonShortcutsPrefix = CacheKey("chat_reason_shortcuts") + ":"
 )
 
 // skipLocal reports whether key must never be served from process memory.
@@ -97,6 +100,10 @@ func skipLocal(key string) bool {
 	// The chat_escalation key (a group's escalation ladder) is read at every automatic punishment
 	// a ladder source raises: a ladder an owner switched off or changed must act on every replica
 	// at the next punishment, not after CACHE_LOCAL_TTL seconds (D-28).
+	//
+	// The chat_manual_defaults and chat_reason_shortcuts keys are read on every manual moderation
+	// command: a default duration, reason-required switch, appeal link, or shortcut change must
+	// act on every replica at the very next command, not after CACHE_LOCAL_TTL seconds.
 	return strings.HasPrefix(key, captchaPendingPrefix) ||
 		strings.HasPrefix(key, staffGroupPrefix) ||
 		strings.HasPrefix(key, staffLinkOfPrefix) ||
@@ -106,7 +113,9 @@ func skipLocal(key string) bool {
 		strings.HasPrefix(key, staffForwardBlockPrefix) ||
 		strings.HasPrefix(key, chatConvPrefix) ||
 		strings.HasPrefix(key, eventMessagesPrefix) ||
-		strings.HasPrefix(key, chatEscalationPrefix)
+		strings.HasPrefix(key, chatEscalationPrefix) ||
+		strings.HasPrefix(key, chatManualDefaultsPrefix) ||
+		strings.HasPrefix(key, chatReasonShortcutsPrefix)
 }
 
 func localSettings() (ttl, size int) {

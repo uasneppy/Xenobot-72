@@ -610,6 +610,9 @@ func (m moduleStruct) dispatchWarn(b *gotgbot.Bot, ctx *ext.Context, warnType st
 		_ = refuseReplyMismatch(mc)
 		return ext.EndGroups
 	}
+	if manualApplyReasonRequired(mc, reason, mc.manualDefaults()) {
+		return ext.EndGroups
+	}
 
 	return m.warnThisUser(b, ctx, userId, reason, warnType, warnSourceManual)
 }

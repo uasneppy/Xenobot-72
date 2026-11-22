@@ -83,10 +83,11 @@ func banTargetValidation(c *moderationCtx, t *target) error {
 
 func moderationDkick(m *moduleStruct) *moderationCommand {
 	return &moderationCommand{
-		module:   m,
-		gates:    []gateFn{deleteModGates},
-		extract:  extractFromReply,
-		validate: kickTargetValidation,
+		module:        m,
+		gates:         []gateFn{deleteModGates},
+		extract:       extractFromReply,
+		validate:      kickTargetValidation,
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
 			_, err := extraction.ReplyTarget(c.Msg).Delete(c.Bot, nil)
 			if err != nil {
@@ -110,6 +111,9 @@ func moderationTban(m *moduleStruct) *moderationCommand {
 			_time := extractTemporalTarget(c, t)
 			if _time == -1 {
 				return ext.EndGroups
+			}
+			if manualApplyReasonRequired(c, t.reason, c.manualDefaults()) {
+				return errManualReasonRequired
 			}
 			_, err := c.Chat.BanMember(c.Bot, t.userID, &gotgbot.BanChatMemberOpts{UntilDate: _time})
 			return err
@@ -177,6 +181,7 @@ var _ eventDefaultReply = banDefaultReply
 
 // banReplyWithButton is the success reply of /ban and /dban, the ban event: the default reply built
 // by banDefaultReply, or the group's stored ban message, through replyEvent after the ban (D-03).
+// When a default ban duration applied (t.untilDate > 0), it emits EventTimedBan with duration and until.
 func banReplyWithButton(c *moderationCtx, t *target) error {
 	banUser, err := c.Bot.GetChat(t.userID, nil)
 	if err != nil {
@@ -185,8 +190,19 @@ func banReplyWithButton(c *moderationCtx, t *target) error {
 	}
 
 	member := eventTargetOf(banUser)
-	text, opts := banDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
-	err = c.replyEvent(eventReply{Event: eventmsg.EventBan, Target: member, Values: eventValues{Reason: t.reason}, Default: text, Opts: opts})
+	if t.untilDate > 0 {
+		text, opts := tbanDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
+		err = c.replyEvent(eventReply{
+			Event:   eventmsg.EventTimedBan,
+			Target:  member,
+			Values:  eventValues{Reason: t.reason, Duration: t.timeVal, Until: eventUntil(t.untilDate)},
+			Default: text,
+			Opts:    opts,
+		})
+	} else {
+		text, opts := banDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
+		err = c.replyEvent(eventReply{Event: eventmsg.EventBan, Target: member, Values: eventValues{Reason: t.reason}, Default: text, Opts: opts})
+	}
 	if err != nil {
 		log.Error(err)
 		return err
@@ -221,6 +237,7 @@ func moderationBan(m *moduleStruct) *moderationCommand {
 			}
 			return banTargetValidation(c, t)
 		},
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
 			if t.isChannel {
 				if extraction.ReplyTarget(c.Msg) != nil {
@@ -229,8 +246,7 @@ func moderationBan(m *moduleStruct) *moderationCommand {
 				}
 				return nil
 			}
-			_, err := c.Chat.BanMember(c.Bot, t.userID, nil)
-			return err
+			return manualBanMember(c, t)
 		},
 		reply: func(c *moderationCtx, t *target) error {
 			var text string
@@ -277,10 +293,11 @@ func channelTargetName(msg *gotgbot.Message, channelID int64) string {
 
 func moderationKick(m *moduleStruct) *moderationCommand {
 	return &moderationCommand{
-		module:   m,
-		gates:    []gateFn{standardModGates},
-		extract:  extractFromArgs,
-		validate: kickTargetValidation,
+		module:        m,
+		gates:         []gateFn{standardModGates},
+		extract:       extractFromArgs,
+		validate:      kickTargetValidation,
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
 			return kickMember(c.Bot, c.Chat.Id, t.userID)
 		},
@@ -336,16 +353,16 @@ func moderationKickme(m *moduleStruct) *moderationCommand {
 
 func moderationSban(m *moduleStruct) *moderationCommand {
 	return &moderationCommand{
-		module:   m,
-		gates:    []gateFn{deleteModGates},
-		extract:  extractUserOnly,
-		validate: banTargetValidation,
+		module:        m,
+		gates:         []gateFn{deleteModGates},
+		extract:       extractUserAndOptionalReason,
+		validate:      banTargetValidation,
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
-			_, err := c.Chat.BanMember(c.Bot, t.userID, nil)
-			if err != nil {
+			if err := manualBanMember(c, t); err != nil {
 				return err
 			}
-			_, err = c.Msg.Delete(c.Bot, nil)
+			_, err := c.Msg.Delete(c.Bot, nil)
 			return err
 		},
 		reply:     nil,
@@ -376,14 +393,14 @@ func moderationDban(m *moduleStruct) *moderationCommand {
 			}
 			return banTargetValidation(c, t)
 		},
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
 			_, err := extraction.ReplyTarget(c.Msg).Delete(c.Bot, nil)
 			if err != nil {
 				log.Error(err)
 				return err
 			}
-			_, err = c.Chat.BanMember(c.Bot, t.userID, nil)
-			return err
+			return manualBanMember(c, t)
 		},
 		reply:     banReplyWithButton,
 		logAction: "dban",
@@ -962,10 +979,11 @@ func (moduleStruct) unrestrictButtonHandler(b *gotgbot.Bot, ctx *ext.Context) er
 
 func moderationSkick(m *moduleStruct) *moderationCommand {
 	return &moderationCommand{
-		module:   m,
-		gates:    []gateFn{deleteModGates},
-		extract:  extractUserOnly,
-		validate: kickTargetValidation,
+		module:        m,
+		gates:         []gateFn{deleteModGates},
+		extract:       extractUserAndOptionalReason,
+		validate:      kickTargetValidation,
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
 			if err := kickMember(c.Bot, c.Chat.Id, t.userID); err != nil {
 				return err

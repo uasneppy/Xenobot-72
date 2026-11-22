@@ -3588,3 +3588,6 @@ settings_esc_step_intro: "Elige qué hago en el paso {n}. El último paso se rep
 settings_esc_example_added: "La escalada está activa con una escalera de ejemplo: silencio de 1 hora, luego de 1 día, luego un baneo. Cambia los pasos abajo."
 settings_esc_refuse_last_step: "El único paso no se puede quitar mientras la escalada esté activa. Desactívala primero."
 settings_esc_stale: "La escalera cambió después de mostrar esta pantalla. No se cambió nada. Esta es la escalera actual."
+
+# Manual command defaults (Phase 27)
+moddef_reason_required: "Indica un motivo para esta sanción."

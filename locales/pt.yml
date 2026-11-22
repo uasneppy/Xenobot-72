@@ -3574,3 +3574,6 @@ settings_esc_step_intro: "Escolha o que faço no passo {n}. O último passo se r
 settings_esc_example_added: "A escalada está ligada com uma escada de exemplo: silêncio de 1 hora, depois de 1 dia, depois banimento. Mude os passos abaixo."
 settings_esc_refuse_last_step: "O único passo não pode ser removido com a escalada ligada. Desligue-a primeiro."
 settings_esc_stale: "A escada mudou depois de esta tela ser mostrada. Nada foi alterado. Esta é a escada atual."
+
+# Manual command defaults (Phase 27)
+moddef_reason_required: "Informe um motivo para esta punição."

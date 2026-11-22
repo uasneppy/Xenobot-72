@@ -3526,3 +3526,6 @@ settings_esc_step_intro: "Choisissez ce que je fais à l'étape {n}. La dernièr
 settings_esc_example_added: "L'escalade est activée avec une échelle d'exemple : muet 1 heure, puis muet 1 jour, puis bannissement. Modifiez les étapes ci-dessous."
 settings_esc_refuse_last_step: "La seule étape ne peut pas être retirée tant que l'escalade est activée. Désactivez-la d'abord."
 settings_esc_stale: "L'échelle a changé après l'affichage de cet écran. Rien n'a été modifié. Voici l'échelle actuelle."
+
+# Manual command defaults (Phase 27)
+moddef_reason_required: "Indiquez une raison pour cette sanction."

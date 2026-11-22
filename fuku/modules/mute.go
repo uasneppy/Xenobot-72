@@ -60,6 +60,7 @@ func unmuteDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *got
 
 // muteReplyWithButton is the success reply of /mute and /dmute, the mute event: the default reply
 // built by muteDefaultReply, or the group's stored mute message, through replyEvent after the mute.
+// When a default mute duration applied (t.untilDate > 0), it emits EventTimedMute with duration and until.
 func muteReplyWithButton(c *moderationCtx, t *target) error {
 	muteUser, err := c.Bot.GetChat(t.userID, nil)
 	if err != nil {
@@ -68,8 +69,19 @@ func muteReplyWithButton(c *moderationCtx, t *target) error {
 	}
 
 	member := eventTargetOf(muteUser)
-	text, opts := muteDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
-	err = c.replyEvent(eventReply{Event: eventmsg.EventMute, Target: member, Values: eventValues{Reason: t.reason}, Default: text, Opts: opts})
+	if t.untilDate > 0 {
+		text, opts := tmuteDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
+		err = c.replyEvent(eventReply{
+			Event:   eventmsg.EventTimedMute,
+			Target:  member,
+			Values:  eventValues{Reason: t.reason, Duration: t.timeVal, Until: eventUntil(t.untilDate)},
+			Default: text,
+			Opts:    opts,
+		})
+	} else {
+		text, opts := muteDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
+		err = c.replyEvent(eventReply{Event: eventmsg.EventMute, Target: member, Values: eventValues{Reason: t.reason}, Default: text, Opts: opts})
+	}
 	if err != nil {
 		log.Error(err)
 		return err
@@ -104,6 +116,36 @@ func extractUserOnly(c *moderationCtx) (target, error) {
 	return target{userID: uid}, nil
 }
 
+// extractUserAndOptionalReason extracts the target user with the exact same error messages as
+// extractUserOnly while retaining any trailing reason text for silent punishment commands
+// (/sban, /skick, /smute).
+func extractUserAndOptionalReason(c *moderationCtx) (target, error) {
+	uid, reason := extraction.ExtractUserAndText(c.Bot, c.Ctx)
+	if uid == -1 {
+		return target{}, fmt.Errorf("extraction failed")
+	}
+	if chat_status.IsChannelId(uid) {
+		text, _ := c.Tr.GetString("common_anonymous_user_error")
+		_, err := c.Msg.Reply(c.Bot, text, formatting.Shtml())
+		if err != nil {
+			log.Error(err)
+			return target{}, err
+		}
+		return target{}, fmt.Errorf("anonymous user")
+	}
+	if uid == 0 {
+		noUserKey := "common_no_user_specified"
+		text, _ := c.Tr.GetString(noUserKey)
+		_, err := c.Msg.Reply(c.Bot, text, formatting.Shtml())
+		if err != nil {
+			log.Error(err)
+			return target{}, err
+		}
+		return target{}, fmt.Errorf("no user")
+	}
+	return target{userID: uid, reason: reason}, nil
+}
+
 func moderationTmute(m *moduleStruct) *moderationCommand {
 	return &moderationCommand{
 		module:   m,
@@ -114,6 +156,9 @@ func moderationTmute(m *moduleStruct) *moderationCommand {
 			_time := extractTemporalTarget(c, t)
 			if _time == -1 {
 				return ext.EndGroups
+			}
+			if manualApplyReasonRequired(c, t.reason, c.manualDefaults()) {
+				return errManualReasonRequired
 			}
 			_, err := c.Chat.RestrictMember(c.Bot, t.userID, MutedPermissions,
 				&gotgbot.RestrictChatMemberOpts{UntilDate: _time},
@@ -148,13 +193,13 @@ func moderationTmute(m *moduleStruct) *moderationCommand {
 
 func moderationMute(m *moduleStruct) *moderationCommand {
 	return &moderationCommand{
-		module:   m,
-		gates:    []gateFn{standardModGates},
-		extract:  extractFromArgs,
-		validate: muteTargetValidation,
+		module:        m,
+		gates:         []gateFn{standardModGates},
+		extract:       extractFromArgs,
+		validate:      muteTargetValidation,
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
-			_, err := c.Chat.RestrictMember(c.Bot, t.userID, MutedPermissions, nil)
-			return err
+			return manualMuteMember(c, t)
 		},
 		reply:     muteReplyWithButton,
 		logAction: "mute",
@@ -163,13 +208,13 @@ func moderationMute(m *moduleStruct) *moderationCommand {
 
 func moderationSmute(m *moduleStruct) *moderationCommand {
 	return &moderationCommand{
-		module:   m,
-		gates:    []gateFn{deleteModGates},
-		extract:  extractUserOnly,
-		validate: muteTargetValidation,
+		module:        m,
+		gates:         []gateFn{deleteModGates},
+		extract:       extractUserAndOptionalReason,
+		validate:      muteTargetValidation,
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
-			_, err := c.Chat.RestrictMember(c.Bot, t.userID, MutedPermissions, nil)
-			return err
+			return manualMuteMember(c, t)
 		},
 		reply: func(c *moderationCtx, t *target) error {
 			_ = helpers.DeleteMessageWithErrorHandling(c.Bot, c.Chat.Id, c.Msg.MessageId)
@@ -202,14 +247,14 @@ func moderationDmute(m *moduleStruct) *moderationCommand {
 			}
 			return muteTargetValidation(c, t)
 		},
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
 			_, err := extraction.ReplyTarget(c.Msg).Delete(c.Bot, nil)
 			if err != nil {
 				log.Error(err)
 				return err
 			}
-			_, err = c.Chat.RestrictMember(c.Bot, t.userID, MutedPermissions, nil)
-			return err
+			return manualMuteMember(c, t)
 		},
 		reply:     muteReplyWithButton,
 		logAction: "dmute",

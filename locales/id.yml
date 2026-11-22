@@ -3583,3 +3583,6 @@ settings_esc_step_intro: "Pilih apa yang saya lakukan pada langkah {n}. Langkah 
 settings_esc_example_added: "Eskalasi aktif dengan tangga contoh: bisu 1 jam, lalu bisu 1 hari, lalu blokir. Ubah langkah di bawah."
 settings_esc_refuse_last_step: "Satu-satunya langkah tidak bisa dihapus selama eskalasi aktif. Matikan dulu."
 settings_esc_stale: "Tangga berubah setelah layar ini ditampilkan. Tidak ada yang diubah. Ini tangga saat ini."
+
+# Manual command defaults (Phase 27)
+moddef_reason_required: "Sertakan alasan untuk tindakan ini."

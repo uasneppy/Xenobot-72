@@ -84,6 +84,8 @@ func TestMain(m *testing.M) {
 			&models.ChatConversation{},
 			&models.ChatEscalation{},
 			&models.ChatOffence{},
+			&models.ChatManualDefaults{},
+			&models.ChatReasonShortcut{},
 		)
 		if err != nil {
 			fmt.Printf("AutoMigrate failed: %v\n", err)

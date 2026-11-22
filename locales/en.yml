@@ -2348,3 +2348,6 @@ settings_esc_step_intro: "Choose what I do at step {n}. The last step repeats fo
 settings_esc_example_added: "Escalation is on with an example ladder: a 1 hour mute, then a 1 day mute, then a ban. Change the steps below."
 settings_esc_refuse_last_step: "The only step cannot be removed while escalation is on. Turn it off first."
 settings_esc_stale: "The ladder changed after this screen was drawn. Nothing was changed. Here is the current ladder."
+
+# Manual command defaults (Phase 27)
+moddef_reason_required: "Specify a reason for this punishment."
