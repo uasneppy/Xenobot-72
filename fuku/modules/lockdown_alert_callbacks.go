@@ -362,14 +362,17 @@ func (m moduleStruct) lockdownLiftConfirm(
 	return ext.EndGroups
 }
 
-// lockdownAnnounceLift announces a lift that was recorded: the public lockdown_lifted
-// notice in the locked group's own language, posted through lockdownPostLiftNotice (so
-// under the lockdown pacer, a failure only logged), then a wake of the lockdown worker so
-// the joiners left to unban are handled at once. The alert's Lift Confirm and the settings
-// menu's Lift both announce through it, so a lift by button is never silent (D-26).
+// lockdownAnnounceLift announces a lift that was recorded: first a wake of the lockdown
+// worker, so the joiners left to unban are handled at once and neither the message read
+// nor a custom send delays the worker's close step (D-23), then the public lift notice in
+// the locked group's own language through postLockdownLiftEvent: the group's own lifted
+// message when one is stored, else today's lockdown_lifted notice posted through
+// lockdownPostLiftNotice (under the lockdown pacer, a failure only logged). The alert's
+// Lift Confirm and a private settings menu's Lift both announce through it, so a lift by
+// button is never silent unless the group silenced the message (D-26).
 func lockdownAnnounceLift(b *gotgbot.Bot, ld *models.ChatLockdown, actorID int64, actorName string, res lockdownLiftResult) {
-	lockdownPostLiftNotice(b, ld, lockdownLiftedText(staffChatTranslator(ld.ChatID), actorID, actorName, res))
 	wakeLockdownWorker()
+	postLockdownLiftEvent(b, ld, actorID, actorName, res, true)
 }
 
 // lockdownBanText translates a Ban card key with the account count and the locked
@@ -752,25 +755,26 @@ func (m moduleStruct) lockdownRevokeConfirm(
 	return ext.EndGroups
 }
 
-// lockdownPostLiftNotice posts the public lift notice into the locked group, under the
-// lockdown pacer like every lockdown post. A failure is logged and changes nothing: the
-// lift is already recorded.
-func lockdownPostLiftNotice(b *gotgbot.Bot, ld *models.ChatLockdown, text string) {
+// lockdownPostLiftNotice posts the default public lift notice into the locked group, under
+// the lockdown pacer like every lockdown post, and returns what Telegram answered. It is the
+// default send of a button lift's notice (postLockdownLiftEvent), which logs a failure; a
+// failure changes nothing, because the lift is already recorded.
+func lockdownPostLiftNotice(b *gotgbot.Bot, ld *models.ChatLockdown, text string) (*gotgbot.Message, error) {
 	if text == "" {
-		return
+		return nil, nil
 	}
+	var sent *gotgbot.Message
 	err := lockdownPaced(context.Background(), func(callCtx context.Context) error {
 		call, cancel := context.WithTimeout(callCtx, lockdownCallTimeout)
 		defer cancel()
-		_, sendErr := b.SendMessageWithContext(call, ld.ChatID, text, &gotgbot.SendMessageOpts{
+		var sendErr error
+		sent, sendErr = b.SendMessageWithContext(call, ld.ChatID, text, &gotgbot.SendMessageOpts{
 			ParseMode:          formatting.HTML,
 			LinkPreviewOptions: &gotgbot.LinkPreviewOptions{IsDisabled: true},
 		})
 		return sendErr
 	})
-	if err != nil {
-		log.Warnf("[Lockdown] lift notice for chat %d could not be posted: %v", ld.ChatID, err)
-	}
+	return sent, err
 }
 
 // lockdownCardCancel closes a confirm card without changing anything. Only the person

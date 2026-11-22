@@ -336,11 +336,12 @@ func settingsLockdownLiftRefusal(p *settingsPress, result lockdownLiftApply) *se
 // redraws the page with the command's words as a notice. A recorded lift redraws the page
 // before anything is announced: the announcement waits for a pacer slot (up to a minute) and
 // the card with its live Yes must not stay on screen meanwhile (WR-04). It is then announced
-// as the alert's Lift is (lockdownAnnounceLift: the public lockdown_lifted notice in the
-// locked group, then a wake of the worker) from a private menu, which is the only place the
-// group has not already been told. A menu opened in the group redraws in that same chat with
-// the same words as its notice, so a second public message would say it twice; it only wakes
-// the worker (D-26 as amended).
+// as the alert's Lift is (lockdownAnnounceLift: a wake of the worker, then the public lift
+// notice in the locked group, the group's own lifted message when one is stored) from a
+// private menu, which is the only place the group has not already been told. A menu opened
+// in the group redraws in that same chat with the same words as its notice, so a second
+// public default would say it twice; it wakes the worker and posts only a stored custom
+// lifted message, nothing when none is stored (D-26 as amended, D-22).
 func settingsLockdownLiftYes(p *settingsPress) *settingsScreen {
 	expired, ok := settingsCardExpired(p.fields)
 	cardLockdown, idOK := settingsCardObjectID(p.fields, "r")
@@ -364,6 +365,9 @@ func settingsLockdownLiftYes(p *settingsPress) *settingsScreen {
 		lockdownAnnounceLift(p.b, result.Row, p.query.From.Id, result.ActorName, result.Lift)
 	} else {
 		wakeLockdownWorker()
+		// The redraw is the notice in this chat, so only a stored custom lifted message is
+		// posted beside it, as a new message in the group (D-22).
+		postLockdownLiftEvent(p.b, result.Row, p.query.From.Id, result.ActorName, result.Lift, false)
 	}
 	lockdownPostInlineTally(p.b, result.Row, result.Lift)
 	return nil

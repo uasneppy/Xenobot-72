@@ -164,13 +164,28 @@ var eventEngineCallers = map[string]string{
 		"trigger's lockdown started, inside the post raidPostAsync counts (Phase 25)",
 	"raid_trigger.go: raidPostNotice": "calls postLockdownAutoEvent, run by raidFire through raidPostAsync only for " +
 		"lockdownStartStarted (Phase 25)",
+	"event_message_lockdown.go: postLockdownLiftReplyEvent": "the adapter of /unlockdown's reply, posted after the command " +
+		"recorded the lift (Phase 25)",
+	"event_message_lockdown.go: postLockdownLiftEvent": "the adapter of a button lift's public notice, posted after the alert's " +
+		"Lift Confirm or a settings menu's Lift Yes recorded the lift (Phase 25)",
+	"lockdown.go: moduleStruct.unlockdown": "calls postLockdownLiftReplyEvent only after applyLockdownLift answered " +
+		"liftApplyDone (Phase 25)",
+	"lockdown_alert_callbacks.go: lockdownAnnounceLift": "calls postLockdownLiftEvent after the worker wake, for a lift the " +
+		"alert's Lift Confirm or a private settings menu recorded (Phase 25)",
+	"settings_lockdown.go: settingsLockdownLiftYes": "calls postLockdownLiftEvent with the default off, after a menu opened in " +
+		"the group recorded the lift and redrew the page (Phase 25)",
 }
 
 // eventLockdownAdapterCallers is exactly every function that names a postLockdown* adapter: the sites the
-// phase chose for the lockdown messages. Plans 25-04 and 25-05 add the automatic notice and the lifts.
+// phase chose for the lockdown messages: the manual start, the automatic notice and the lift from every door.
 var eventLockdownAdapterCallers = map[string]string{
-	"lockdown.go: moduleStruct.lockdown": "the reply of a /lockdown that started a lockdown (EVT-06)",
-	"raid_trigger.go: raidPostNotice":    "the public notice of a lockdown a join surge, a flood or an AI burst started (EVT-07)",
+	"lockdown.go: moduleStruct.lockdown":   "the reply of a /lockdown that started a lockdown (EVT-06)",
+	"raid_trigger.go: raidPostNotice":      "the public notice of a lockdown a join surge, a flood or an AI burst started (EVT-07)",
+	"lockdown.go: moduleStruct.unlockdown": "the reply of an /unlockdown that recorded the lift (EVT-08)",
+	"lockdown_alert_callbacks.go: lockdownAnnounceLift": "the public notice of a lift the alert's Lift Confirm or a private " +
+		"settings menu recorded (EVT-08)",
+	"settings_lockdown.go: settingsLockdownLiftYes": "the custom lifted message of a lift a settings menu opened in the group " +
+		"recorded, posted only when one is stored (EVT-08, D-22)",
 }
 
 // eventEngineNeverRoots are the roots that must never reach the engine (D-33): the lockdown worker's cycle

@@ -398,7 +398,8 @@ func lockdownDefinitiveRefusal(err error) bool {
 
 // unlockdown lifts the group's lockdown through liftLockdownRow, which restores the
 // stored permissions before it records the lift, so nothing is announced as lifted
-// before it is.
+// before it is. A recorded lift is announced through postLockdownLiftReplyEvent (the
+// group's own lifted message, or today's reply); every other outcome keeps its reply.
 func (m moduleStruct) unlockdown(b *gotgbot.Bot, ctx *ext.Context) error {
 	chat := ctx.EffectiveChat
 	msg := ctx.EffectiveMessage
@@ -408,10 +409,14 @@ func (m moduleStruct) unlockdown(b *gotgbot.Bot, ctx *ext.Context) error {
 	}
 	tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
 	res := applyLockdownLift(context.Background(), b, chat.Id, actor)
-	replyLockdown(b, msg, lockdownLiftApplyText(tr, res, actor.Id))
-	if res.Outcome == liftApplyDone {
-		lockdownPostInlineTally(b, res.Row, res.Lift)
+	if res.Outcome != liftApplyDone {
+		replyLockdown(b, msg, lockdownLiftApplyText(tr, res, actor.Id))
+		return ext.EndGroups
 	}
+	// A recorded lift is the group's own lifted message, or today's reply when none is
+	// stored, as a reply to the command; the tally follows it as before.
+	postLockdownLiftReplyEvent(b, ctx, msg, tr, actor, res)
+	lockdownPostInlineTally(b, res.Row, res.Lift)
 	return ext.EndGroups
 }
 

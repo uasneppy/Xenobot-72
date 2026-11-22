@@ -926,9 +926,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   lift a newer lockdown); the menu never calls `setChatPermissions`, `BeginLift` or `FinishLift` itself. Every outcome redraws the page with the command's words as a notice
   (`lockdownLiftApplyText`), and a recorded lift redraws it before anything is announced (the announcement waits for a
   pacer slot, up to a minute, and the card with its live Yes must not stay on screen meanwhile). A lift from a private
-  menu is then announced through `lockdownAnnounceLift`; a lift from a menu opened in the group only wakes the worker,
-  because the redrawn menu already says it in that same chat and a second public message would say it twice. The page
-  never starts a lockdown.
+  menu is then announced through `lockdownAnnounceLift`; a lift from a menu opened in the group wakes the worker and then
+  calls `postLockdownLiftEvent` with the default switched off, because the redrawn menu already says it in that same chat and
+  a second public default would say it twice: the group's custom `locklift` message is posted as a new message when one is
+  stored (content and Silent off), and nothing stored, Silent, a read error or a refused custom message keep today's single
+  redraw (D-22). The page never starts a lockdown.
 - The Access page (`settings_access.go`, page `a`, `OwnerOnly`) is the owner switch "Admins can change settings". It
   declares control `s` and the page action `ay` (Yes, with `e`), both with `settingsRightOwner`. An `OwnerOnly` page is
   drawn and opened only for the live creator: `settingsMainEntries` skips it without calling its `MainState` unless the
@@ -2496,10 +2498,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `/unlockdown` ever ends a lockdown: no TTL, timer, Redis expiry, restart, worker cycle or expired ban lifts one, and
   `BeginLift` is reached only through `lockdownBeginLift` in `liftLockdownRow`, the one lift path shared by `/unlockdown`
   (`applyLockdownLift`), the alert's Lift Confirm and the settings menu's Lift Yes (`applyLockdownLift`) (restore the
-  stored permissions, then one conditional record, then `FinishLift`). The alert's Lift and the settings menu's Lift
-  from a private menu also post the public `lockdown_lifted` notice in the locked group, through `lockdownAnnounceLift`
-  (`lockdownPaced`), and wake the worker, so a lift by button is never silent, also from a private menu; a Lift from a
-  menu opened in the group only wakes the worker, its redrawn menu being the notice in that same chat. The
+  stored permissions, then one conditional record, then `FinishLift`). The lift notice of every door is the group's
+  `locklift` event message (Phase 25, the Event messages bullet), or today's `lockdown_lifted` notice when none is stored:
+  `/unlockdown` replies through `postLockdownLiftReplyEvent`, and the alert's Lift and the settings menu's Lift from a private
+  menu go through `lockdownAnnounceLift`, which wakes the worker first and then posts through `postLockdownLiftEvent`
+  (today's default under `lockdownPaced`), so a lift by button is never silent unless the group silenced the message; a Lift
+  from a menu opened in the group wakes the worker and posts only a stored custom lifted message, its redrawn menu being the
+  notice in that same chat. The
   `chat_lockdowns` columns `trigger_count`, `trigger_window` (seconds) and `trigger_percent` (migration 20261018120000,
   with `idx_chat_lockdowns_chat_lift` on `(chat_id, lift_started_at)`) record the numbers behind an automatic trigger:
   `trigger_kind` is `manual`, `join_surge`, `flood` or `ai_burst`, and all three numbers are 0 for a manual lockdown
@@ -3865,6 +3870,27 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   lockdown, the worker and the alert stand; a refused custom message is replaced by the default once; a send error is logged with
   today's `[RaidDetection] the notice of the automatic lockdown in chat %d was not delivered: %v`. The cannot-lock warning
   (`raidWarnCannotLock`) shares `raidSend` and is not an event (a never-reach root of `TestEventEngineCallers`).
+  The lift (plan 25-05, EVT-08, the `locklift` event) has two sites, both built by `lockdownLiftReply` (the person placeholders
+  naming the lifter as the row records them, or the bot for an anonymous admin; no event values, D-12; the default
+  `lockdownLiftDefaultReply`; and, after a custom text, the lift's facts `lockdownLiftNotes`, the manual change line and the
+  unbanning line while the lift has not finished, D-16). `postLockdownLiftReplyEvent(b, ctx, msg, tr, actor, res)` is
+  `/unlockdown`'s reply for `liftApplyDone` only (every other outcome keeps `replyLockdown` of `lockdownLiftApplyText`, and
+  `lockdownPostInlineTally` follows as before): a reply to the command in its topic, the default today's `msg.Reply` with
+  `formatting.Shtml()`, not paced, `{admin}` "an admin" for an anonymous admin, a custom message through
+  `media.SendGreetingMessage`, which takes no context, so its request is bounded only by the bot's HTTP client timeout, and a send
+  error logged with today's `[Lockdown] reply: %v`. `postLockdownLiftEvent(b, ld, actorID, actorName, res, withDefault)` is a
+  button lift's notice: its chat is built from the lockdown row (`ld.ChatID`, supergroup, the stored `chat_title` for
+  `{chatname}`), never from the chat the button sat in, so it never names the Staff Group; `staffChatTranslator` of it, no reply and
+  no topic, not `Automatic`. With `withDefault` (the alert's Lift Confirm and a private menu, through `lockdownAnnounceLift`, which
+  wakes the worker before it posts, D-23) the default is today's paced notice (`lockdownPostLiftNotice`, whose pacer wait derives
+  from `context.Background()` and whose request keeps `lockdownCallTimeout`); without it (a menu opened in the group, D-22) the
+  default sends nothing, so only a stored custom message is posted there, and the engine's generic line after a read error or a
+  refused custom message still says the default was sent (that default is empty by design). A custom message is one
+  `lockdownPaced` unit whose wait derives from its own `lockdownLiftCustomWait` (30 s) context and whose request goes through
+  `media.SendGreetingMessage`, which takes no context, so once in flight it is bounded only by the bot's HTTP client timeout
+  (30 s). A send error is logged with today's `[Lockdown] lift notice for chat %d could not be posted: %v`. Silent posts nothing
+  while the lift, the restore, the worker and the inline tally happen as before (D-20); a refused custom message is replaced by
+  the default once (no message from a group menu, D-21, D-22); never queued for deletion (D-08).
   The engine's vocabulary grew for the lockdown messages only (D-14, D-24): `eventValues.Percent` and the event placeholder
   `{percent}` (after `{window}` in `eventTokenNames`; 0 renders as nothing, so it is empty for every event but the flood trigger's
   notice, and a stored `{percent}` of an earlier event, which showed raw before, now renders empty), and three fields of
@@ -3888,8 +3914,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `composeEventMessage`, `renderEventText`, `composeEventPM`, `offerEventPM`, `offerReplyPM`, `eventMessagesLookup`) or a
   `postLockdown*` adapter of `event_message_lockdown.go` exactly equal to `eventEngineCallers` (`file.go: Function`, a method keyed
   with its receiver type as `repliesGuardDeclKey` builds it, each entry with its reason; a new caller and a stale entry both fail),
-  and the callers of the adapters exactly equal to `eventLockdownAdapterCallers` (today `lockdown.go: moduleStruct.lockdown` and
-  `raid_trigger.go: raidPostNotice`). It
+  and the callers of the adapters exactly equal to `eventLockdownAdapterCallers` (the five sites `lockdown.go: moduleStruct.lockdown`,
+  `lockdown.go: moduleStruct.unlockdown`, `raid_trigger.go: raidPostNotice`, `lockdown_alert_callbacks.go: lockdownAnnounceLift`
+  and `settings_lockdown.go: settingsLockdownLiftYes`). It
   then walks from each never-reach root (`runLockdownCycle`, `raidWarnCannotLock`, `lockdownPostInlineTally`, the alert's Lift ask,
   Ban, Revoke and Cancel handlers, `handleStaffAction`, `staffActionConfirm`, `staffActionCancel`, `staffUndoAsk`,
   `staffUndoConfirm`, `startStaffRun`, `runStaffActionInGroup`, `sendStaffLogPost`, `buildStaffPanel`, `SendCaptcha` and
@@ -6297,6 +6324,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   a custom message refused with a 400 is followed by exactly `goldenLockdownAutoJoinSurge`) and `drain` (the custom send held with
   `gateSends`: with `raidPostStopWait` at 20 ms `StopRaidPosts` reports not done, and done once the gate opens, with the custom notice
   posted).
+  `TestEventMessageLockdownLift` (`event_message_lockdown_lift_test.go`, plan 25-05, about 2 s, one lockdown or settings environment
+  per subtest with every deletion rule of the group at its shortest delay) holds the lift from every door: `command` (a stored
+  `<b>{admin}</b> opened {chatname} ({mention})`: `/unlockdown` replies to the command with the filled, escaped text and no note; no
+  queue row, nothing private), `command notes` (two banned joiners and a hand-changed permission set: the custom text, then the
+  manual change line and the unbanning line with 2), `command refusal unchanged` (no lockdown: `lockdown_not_active` as before),
+  `command silent` (no reply, the lift and the restore done), `alert button` (the custom notice as a new message after the card's
+  edit; with the send held by `gateSends` the worker was already woken, D-23), `alert refused` (real locales: a refused custom
+  notice is followed by exactly `goldenLockdownLiftAlert`), `private menu` (the custom notice once, after the page's redraw), `group
+  menu custom` (the redraw with its notice, the wake, and the custom notice once as a new message), `group menu quiet` (Silent, and
+  a refused custom message, post nothing beyond the menu) and `tally after silent` (a Silent lift that finishes inline with one kept
+  joiner posts no notice and the tally as before).
 
 ## Commits
 
