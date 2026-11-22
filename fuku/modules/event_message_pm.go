@@ -34,9 +34,13 @@ import (
 // eventPMSpec is how an event's private copy is built. DefaultKey is the locale key of the event's
 // default private text, used when the pm row stores no text. Automatic marks an event the bot raises
 // by itself, whose copies the per-group cap counts (pmCopyCapAllow); the manual events are not automatic.
+// UntilLine marks an event whose action can be a timed mute or ban (Phase 26, D-17): its default private
+// text is followed by the eventmsg_pm_until line whenever the copy's {until} is set, and an untimed
+// copy is unchanged.
 type eventPMSpec struct {
 	DefaultKey string
 	Automatic  bool
+	UntilLine  bool
 }
 
 // eventPMSpecs is every event that has a private copy, keyed by event. It is filled at init by
@@ -80,10 +84,10 @@ func init() {
 	// blacklist and forward blocklist punishments are automatic, so the per-group cap bounds a flood of
 	// offenders (D-07).
 	registerEventPM(eventmsg.EventWarn, eventPMSpec{DefaultKey: "eventmsg_pm_warn", Automatic: false})
-	registerEventPM(eventmsg.EventWarnLimit, eventPMSpec{DefaultKey: "eventmsg_pm_warnlimit", Automatic: false})
-	registerEventPM(eventmsg.EventFlood, eventPMSpec{DefaultKey: "eventmsg_pm_flood", Automatic: true})
-	registerEventPM(eventmsg.EventBlacklist, eventPMSpec{DefaultKey: "eventmsg_pm_blacklist", Automatic: true})
-	registerEventPM(eventmsg.EventForwardBlock, eventPMSpec{DefaultKey: "eventmsg_pm_fwdblock", Automatic: true})
+	registerEventPM(eventmsg.EventWarnLimit, eventPMSpec{DefaultKey: "eventmsg_pm_warnlimit", Automatic: false, UntilLine: true})
+	registerEventPM(eventmsg.EventFlood, eventPMSpec{DefaultKey: "eventmsg_pm_flood", Automatic: true, UntilLine: true})
+	registerEventPM(eventmsg.EventBlacklist, eventPMSpec{DefaultKey: "eventmsg_pm_blacklist", Automatic: true, UntilLine: true})
+	registerEventPM(eventmsg.EventForwardBlock, eventPMSpec{DefaultKey: "eventmsg_pm_fwdblock", Automatic: true, UntilLine: true})
 	// The screening events of Phase 24 (D-34): the failed captcha, the AI spam notice and the requirement warn,
 	// kick, ban and mute are all actions the bot takes by itself, so every one is automatic and the per-group
 	// cap of automatic copies (10 a minute, fail closed) bounds a raid of joiners or offenders. None needs
@@ -404,9 +408,10 @@ func composeEventPM(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator, spe
 // the spec's DefaultKey with {group} the group's title escaped and cut like a Staff Group title,
 // {until} the end in the group's zone for a timed event, {count} and {limit} the numbers of a warn or a
 // flood (empty when 0) and {action} the translated action word, escaped (empty when the event has none;
-// the manual texts carry none of the three), then, each on a new line, the reason line
-// (eventmsg_pm_reason with the reason escaped) when a reason was given and the note when set. It
-// never names the acting admin.
+// the manual texts carry none of the three), then, each on a new line, the until line (eventmsg_pm_until
+// with the same end) for a spec with UntilLine when {until} is set (a timed warn limit, flood, blacklist
+// or forward blocklist action), the reason line (eventmsg_pm_reason with the reason escaped) when a reason
+// was given and the note when set. It never names the acting admin.
 func eventPMDefaultText(tr *i18n.Translator, spec eventPMSpec, chat *gotgbot.Chat, values eventValues, note string) string {
 	params := i18n.TranslationParams{
 		"group": staffDisplayTitle(chat.Title), "until": "", "count": "", "limit": "",
@@ -423,6 +428,10 @@ func eventPMDefaultText(tr *i18n.Translator, spec eventPMSpec, chat *gotgbot.Cha
 	}
 	text, _ := tr.GetString(spec.DefaultKey, params)
 	lines := []string{text}
+	if spec.UntilLine && !values.Until.IsZero() {
+		until, _ := tr.GetString("eventmsg_pm_until", i18n.TranslationParams{"until": params["until"]})
+		lines = append(lines, until)
+	}
 	if values.Reason != "" {
 		reason, _ := tr.GetString("eventmsg_pm_reason", i18n.TranslationParams{"reason": html.EscapeString(values.Reason)})
 		lines = append(lines, reason)

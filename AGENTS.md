@@ -1178,11 +1178,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   or 100 answers the toast `settings_min_value` or `settings_max_value` and writes nothing; every other press writes through
   `applyWarnLimit`, the function `/setwarnlimit` calls. `m` is the action (`settingsWarnsModeKey`): `v` one to ten
   lower-case ASCII letters (`settingsFloodModeWord`, the Antiflood shape, so a long, upper-case or non-letter word is an
-  invalid request before any I/O) and the write goes through `applyWarnMode`, the function `/setwarnmode` calls, which accepts
-  exactly `warnSettingsModes` (ban, kick, mute): any other lower-case word, `tban`, `tmute` and `warn` included, is refused
+  invalid request before any I/O) and the write goes through `applyWarnMode`, the function `/setwarnmode` calls, with
+  seconds 0 (the page has no duration until plan 26-03), so it accepts exactly `warnSettingsModes` (ban, kick, mute): any
+  other lower-case word, `tban`, `tmute` (a timed mode with no duration is the unknown outcome) and `warn` included, is refused
   with the command's own `warns_mode_unknown` (the word escaped, because the locale text is the command's printf template and
-  the page is HTML) as a warn notice over the stored state, and writes nothing. A stored `tban`, `tmute` or empty action
-  (the table's CHECK allows them) applies nothing at the limit, so the page draws the stored word or Not set, adds
+  the page is HTML) as a warn notice over the stored state, and writes nothing. A stored `tban` or `tmute` with no duration
+  (`warn_mode_secs` 0) or an empty action (the table's CHECK allows them) applies nothing at the limit, so the page draws the stored word or Not set, adds
   `settings_warns_action_inert` and marks no choice; a press of Mute, Ban or Kick replaces it. The Antiflood note
   `settings_antiflood_action_note` is not reused, because "cannot be set from the menu" would be false here. Neither write
   changes the other value the page shows: a first limit write stores mode `mute` and a first action write stores limit 3 (the
@@ -3314,7 +3315,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `memberReqHeld`. Kick and ban recover through the leave update and a mute through its live marker, so only the warn
   needs the note. An `applyWarn` error with `Recorded` true (the limit action ran and the reset failed) is not a failed warn:
   the hold is marked, `LimitApplied` is set from `LimitReached` and no `LimitErr`, the notice is posted and the outcome is
-  `memberReqWarned` or `memberReqRemoved`; an error before the warn was stored is the backoff below.
+  `memberReqWarned` or `memberReqRemoved`; an error before the warn was stored is the backoff below. Since Phase 26 the
+  group's warn limit can be a timed mute or ban (D-14): `applyWarn` applies it with its end date, `memberReqLimitMode` maps
+  `tmute` to the mute and `tban` to the ban warn-limit notice (`memberReqNoticeKey`, `memberReqNoticeWarnOf` and the site's
+  action word; no requirement text of its own, P-07), and a `tban` limit is a removal like `ban` (`memberReqRemoved`, so a
+  joiner gets no welcome); a timed mode with no duration stays inert (the plain warn notice, nothing applied).
   Kick is `kickMemberContext`, ban a `banChatMember` with no end date, mute a `restrictChatMember` with
   `MutedPermissions` and the marker `until_date` (now plus 330 days, `lockdownBanSpan`) stored on the hold before the
   call. The requirement mute is owned by its marker alone (`isMemberReqMute`: restricted, still a member, `until_date`
@@ -3728,11 +3733,31 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the warn that reached the limit, the count, the limit and `eventActionWord(tr, res.Mode)`, and no kept row (the default
   has none, so a custom message has no bot row, D-15); the warns are reset before it posts, and a Silent warn limit posts
   and queues nothing while the limit action and the reset still happen. A stored mode the code applies nothing for
-  (`tban`, `tmute`, empty: `LimitReached` without `LimitApplied`) is not an event and keeps today's send exactly
-  (`warnPostLimit`, D-10), and a refused limit action posts nothing as before. `{action}` is a translated word in the group's language,
+  (`tban` or `tmute` with no duration, empty: `LimitReached` without `LimitApplied`) is not an event and keeps today's send
+  exactly (`warnPostLimit`, D-10), and a refused limit action posts nothing as before. Since Phase 26 (plan 26-02, TUNE-01)
+  the warn limit can be timed: `applyWarnLimitAction(ctx, b, chat, user, mode, secs)` keeps its three untimed branches byte
+  for byte (`applyWarnLimitUntimed`) and sends a `tmute` or `tban` whose duration is valid (`autoActionEffective`) through
+  `applyTimedPunishment` (`punish_timed.go`), the one helper of every timed automatic punishment: a timed mute is
+  `restrictChatMember` with `MutedPermissions` and `until_date`, a timed ban `banChatMember` with `until_date`, the end
+  computed from `punishNow()` immediately before the request with no pacer or wait in between, so the request and
+  `{until}` carry one value (D-11). An end that `extraction.TemporaryUntilDate` refuses or that is under `punishMinLead` (35
+  s) away (`punishUntilTooClose`) is never sent, so a timed punishment can never become permanent: the helper returns
+  `errPunishTimeRanOut` with one hourly-gated Warn naming the chat (`punishTimeRanOutWarn`), and the warn limit then
+  punishes nobody (`punished` false, a Warn naming the chat and user IDs, the warn kept and nothing reset). The requests
+  take no context, like the untimed punishments, so an in-flight timed restrict or ban is bounded only by the bot's HTTP
+  client timeout (30 s), never by a shorter per-request bound (D-12). `warnApplyResult` gains `Secs` and `Until`, set only
+  when an effective timed action took effect. For such an action `warnLimitDefaultReply` reads `warns_limit_tmuted` or
+  `warns_limit_tbanned` (`warnLimitTimedKeys`, with `{count}`, `{limit}`, `{user}` and `{duration}`) only when
+  `eventDefaultInput.Secs` is set, and every untimed and inert default stays byte for byte; `warnLimitEventReply` fills
+  `{duration}` (`punishDurationLabel`: the group's language form built from the `staff_act_duration_*` keys with the
+  largest unit that divides the seconds evenly, `2 год`) and `{until}` (the end date the request was sent with, through the
+  engine's `formatChatTime` in the chat's zone), and `{action}` reads the mute or ban word (`eventActionWords` maps `tmute`
+  and `tban` to the mute and ban keys, which a site asks for only for an effective timed action). Every other automatic
+  event and every untimed action leaves `{duration}` and `{until}` empty, as before (D-16). The message keeps its deletion
+  kind (`bot:punish_manual` for `/warn`, `bot:punish_auto` for a rule's warn, D-04). `{action}` is a translated word in the group's language,
   `eventActionWord(tr, action)` (`event_message_auto.go`): `eventmsg_action_warn`, `_mute`, `_kick` and `_ban`, short
-  participles that read after the member's name or after a label, and the empty string for any other action (an inert
-  mode); the warn fills it with the warn word. The flood's `{reason}` is `floodEventReason(tr)`
+  participles that read after the member's name or after a label (`tmute` and `tban` read the mute and ban words since
+  Phase 26), and the empty string for any other action (an inert mode); the warn fills it with the warn word. The flood's `{reason}` is `floodEventReason(tr)`
   (`eventmsg_reason_flood`). The flood (plan 23-04, the `flood` event, EVT-03) is the next site: `checkFlood` keeps its
   exemptions, deletes and punishment switch and hands the notice to `floodNotice` (`antiflood.go`), whose site has no
   reply, the flooding message's topic (`ThreadID` and the default's `MessageThreadId`), `bot:punish_auto`, `Automatic`,
@@ -3945,7 +3970,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   send site a custom message adds its caller there with a reason, never from an alert, reminder, raid-scale, staff or captcha
   challenge path.
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
-  Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
+  Automatic, UntilLine})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
   default text `eventmsg_pm_<event>` (D-06), and, since Phase 23 (plan 23-05, D-28), the Automatic family: `warn` and
   `warnlimit` with `Automatic` false and `flood`, `blacklist` and `fwdblock` with `Automatic` true, and, since Phase 24 (plan
@@ -3969,8 +3994,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `DefaultKey` with `{group}` the group's title through `staffDisplayTitle`, `{until}` in the group's zone, `{count}` and
   `{limit}` the numbers of a warn or a flood, empty when 0, and `{action}` the translated action word escaped, empty when
   the event has none (D-29: the five Phase 23 texts name the count, the limit and the action after a label where they apply,
-  and the manual texts carry none of the three), then `eventmsg_pm_reason` with the escaped reason when one was given; it
-  never names the admin), followed by `eventReply.PMNote`
+  and the manual texts carry none of the three), then, for a spec with `UntilLine` (Phase 26, D-17: `warnlimit`, `flood`,
+  `blacklist` and `fwdblock`, the events whose action can be a timed mute or ban) whose `{until}` is set, the
+  `eventmsg_pm_until` line with the same end, then `eventmsg_pm_reason` with the escaped reason when one was given; an untimed
+  copy and every other spec (the captcha's mute included) are unchanged; it never names the admin), followed by
+  `eventReply.PMNote`
   on a new line when the site set it (`/unmute` during an active lockdown reads `eventmsg_pm_unmute_lockdown` beside the
   group's `mutes_unmute_lockdown_note`; the group `Note` and default are unchanged); the keyboard is the stored
   buttons and the `{rules}` button only, never the bot's Unban or Unmute row (group callbacks), and the media is the
@@ -4884,9 +4912,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   holds every byte). The page reads through `warns.LoadWarnSettingsContext`, which shares the commands' cache key and TTL,
   returns its error, never inserts a row and caches no default for a chat with no row, so the command loader's next read
   still finds its miss and creates the row as before. `warn_settings` is not in `skipLocal`: another replica can show an
-  old value for up to `CACHE_LOCAL_TTL`, exactly as the commands can. `/setwarnmode` accepts exactly ban, kick and mute
-  (`warnSettingsModes`); the table's CHECK also allows `tban`, `tmute` and the empty string, which apply nothing at the
-  limit and are never written.
+  old value for up to `CACHE_LOCAL_TTL`, exactly as the commands can. `applyWarnMode(ctx, chat, mode, secs)` accepts ban,
+  kick and mute (`warnSettingsModes`, stored with seconds 0, which clears a duration) and, since Phase 26 (TUNE-01), `tmute`
+  and `tban` (`warnTimedModes`) with seconds in 60 to 31622400, stored together through `warnSettingsWrites.Mode` (default
+  `warns.SetWarnModeContext`); a timed mode with seconds 0 is `warnSettingsUnknownMode` (the pinned `warns_mode_unknown`) and
+  one outside the bounds `warnSettingsBadDuration` (`warns_mode_bad_duration`), neither writing anything. `/setwarnmode`
+  reads its arguments through `warnModeArgs`: a timed word followed by a word parses it with `parsePunishDuration` (an invalid
+  one is -1, the bad-duration reply), a timed word alone keeps the pinned unknown reply (`TestLegacyTimedPunishmentRequests`
+  `warnmode_tmute_alone`), and a plain word ignores what follows (`/setwarnmode ban 1d` stores ban). A timed success replies
+  `warns_mode_updated_tmute` or `_tban` with `{duration}` the duration in the group's language (`punishDurationLabel`), and
+  `/warnings` shows an effective timed mode as `tmute 2h` (`warnModeShown`, `punishDurationShort`) and anything else as
+  stored. The table's CHECK also allows the empty string, which applies nothing at the limit and is never written.
   The reports switch (Phase 18) is `applyReportsEnabled` in `reports.go`: it wraps only the group branch of `/reports on|off`
   (`reportsWrites.ChatStatus`, default `reports.SetChatReportStatus`, which writes `enabled` and `status` together; the
   `/report` path reads `status`) and returns a `reportsApplyResult` (outcome, the command's reply key, the status read
@@ -6439,7 +6475,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `git diff --exit-code 92f29f1 -- fuku/modules/timed_punishment_legacy_request_test.go fuku/db/backup/punish_export_legacy_test.go`.
   The repository and migration families of plan 26-02 are `TestSetWarnModeDuration` (`fuku/db/warns/timed_mode_test.go`),
   `TestTimedPunishmentMigrationStatements` and `TestTimedPunishmentMigrationDefaults`
-  (`fuku/db/migrations/timed_punishment_migration_test.go`).
+  (`fuku/db/migrations/timed_punishment_migration_test.go`). Its `fuku/modules` families: `TestPunishTimedCore`
+  (`punish_timed_test.go`, pure: the duration grammar and bounds, the short and translated wording in uk and en, the end date
+  and its 35 s refusal, `autoActionEffective`), `TestApplyWarnModeTimed` and `TestSetWarnModeTimedCommand` (`warns_timed_test.go`:
+  the apply function's outcomes and writes; `/setwarnmode tmute 2h`, `TBAN 1d`, three bad durations and `ban 1d`, and `/warnings`
+  showing `tmute 2h`, through the handlers on `newNoticeGoldenSite` with the real locales) and `TestWarnLimitTimed` (same file, the
+  tracer, `punishNow` fixed at the site's clock: `tmute_default` and `tban_default` (`/setwarnmode` then `/warn` up to the limit: one
+  `restrictChatMember` with `MutedPermissions` or one `banChatMember`, `until_date` now plus 7200, the timed default text with the
+  reasons, the warns reset, queued under `bot:punish_manual`), `tmute_custom` (a stored text filling `{action}`, `{duration}` and
+  `{until}`), `pm_until` (the private copy's Until line, none for an untimed limit), `inert_no_duration` (equal to
+  `goldenTimedWarnLimitInertTmute`), `too_close` (`applyTimedPunishment` with an end 34 s ahead sends nothing and logs one Warn naming
+  the chat) and `mreq_timed_limit` (a requirement warn reaching `tmute 1h` restricts with the end date and posts the mute
+  warn-limit notice; `tban` is a removal)). Toolkit: `warnTimedSite`, `warnTimedOnly`, `warnTimedLimitText`, `warnTimedLastText`,
+  `warnTimedStored`. `TestEventActionWords` holds `tmute` and `tban` to the mute and ban words.
 
 ## Commits
 

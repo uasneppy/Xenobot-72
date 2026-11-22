@@ -31,6 +31,7 @@ var eventMsgLocaleLimits = map[string]eventMsgLimit{
 	"eventmsg_pm_unban":           {140, 200},
 	"eventmsg_pm_unmute":          {140, 200},
 	"eventmsg_pm_reason":          {40, 60},
+	"eventmsg_pm_until":           {40, 60},
 	"eventmsg_pm_unmute_lockdown": {140, 200},
 	"eventmsg_pm_warn":            {140, 200},
 	"eventmsg_pm_warnlimit":       {140, 200},
@@ -60,10 +61,10 @@ var eventMsgLocaleLimits = map[string]eventMsgLimit{
 }
 
 // eventMsgNotDefaultText are the eventmsg_pm_ keys that are not an event's default private text, so they do
-// not name the group: the reason line, the lockdown note, the neutral Details reply and the log line with its two
-// reasons (the log channel's header names the group).
+// not name the group: the reason line, the until line of a timed action, the lockdown note, the neutral Details
+// reply and the log line with its two reasons (the log channel's header names the group).
 var eventMsgNotDefaultText = map[string]bool{
-	"eventmsg_pm_reason": true, "eventmsg_pm_unmute_lockdown": true, "eventmsg_pm_details_none": true,
+	"eventmsg_pm_reason": true, "eventmsg_pm_until": true, "eventmsg_pm_unmute_lockdown": true, "eventmsg_pm_details_none": true,
 	"eventmsg_pm_log": true, "eventmsg_pm_why_blocked": true, "eventmsg_pm_why_failed": true,
 }
 

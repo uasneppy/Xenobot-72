@@ -457,7 +457,8 @@ func memberReqWarnStep(ctx context.Context, b *gotgbot.Bot, c memberReqCase, tr 
 		// still false: the removal or mute happened, so the notice says it.
 		res.LimitApplied = res.LimitReached && res.LimitErr == nil
 	}
-	if res.LimitApplied && (res.Mode == "kick" || res.Mode == "ban") {
+	// A timed ban removes the member like a ban (Phase 26, D-14), so a joiner gets no welcome.
+	if res.LimitApplied && (res.Mode == "kick" || res.Mode == "ban" || res.Mode == "tban") {
 		return memberReqRemoved, &res
 	}
 	return memberReqWarned, &res

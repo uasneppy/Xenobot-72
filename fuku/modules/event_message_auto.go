@@ -49,14 +49,29 @@ var warnLimitKeys = map[string]string{
 	"ban":  "warns_limit_banned",
 }
 
+// warnLimitTimedKeys are the warn limit's texts of an effective timed limit action, which name the
+// duration; they are read only when in.Secs is set (D-15).
+var warnLimitTimedKeys = map[string]string{
+	"tmute": "warns_limit_tmuted",
+	"tban":  "warns_limit_tbanned",
+}
+
 // warnLimitDefaultReply is the default warn limit message: the limit action's text (warns_limit_kicked,
 // _muted or _banned by in.Action, with the count, the limit and the mention of the member's first name;
 // none for a mode the code applies nothing for), then "\n - " and each stored reason, escaped. The
 // options carry an empty keyboard, which Telegram receives as an empty reply_markup; the site adds the
-// reply to the triggering message. It returns today's request byte for byte.
+// reply to the triggering message. It returns today's request byte for byte. An effective timed limit
+// action (in.Action tmute or tban with in.Secs set) reads warns_limit_tmuted or _tbanned instead, with
+// the count, the limit, the mention and the duration in the translator's language; a timed mode with no
+// duration has no text, as before.
 func warnLimitDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
 	var text string
-	if key, ok := warnLimitKeys[in.Action]; ok {
+	if key, ok := warnLimitTimedKeys[in.Action]; ok && in.Secs > 0 {
+		text, _ = tr.GetString(key, i18n.TranslationParams{
+			"count": in.Count, "limit": in.Limit, "user": formatting.MentionHtml(in.Target.Id, in.Target.FirstName),
+			"duration": punishDurationLabel(tr, in.Secs),
+		})
+	} else if key, ok := warnLimitKeys[in.Action]; ok {
 		temp, _ := tr.GetString(key)
 		text = fmt.Sprintf(temp, in.Count, in.Limit, formatting.MentionHtml(in.Target.Id, in.Target.FirstName))
 	}
@@ -135,12 +150,17 @@ var eventActionWords = map[string]string{
 	"ban":  "eventmsg_action_ban",
 	// delete is the AI spam filter's deletion (Phase 24).
 	"delete": "eventmsg_action_delete",
+	// A timed mute or ban reads the mute or ban word; its time is in {duration} and {until} (Phase 26,
+	// D-16). The sites ask for it only for an effective timed action.
+	"tmute": "eventmsg_action_mute",
+	"tban":  "eventmsg_action_ban",
 }
 
 // eventActionWord is the word {action} takes for an action in the translator's language (the
 // group's): a short participle such as "muted" that reads after the member's name or after a label
-// (D-13). Any other action (an inert mode the code applies nothing for) has no word and renders as
-// nothing. The default texts never use it: the flood's default keeps its untranslated English word.
+// (D-13). A timed mute or ban (tmute, tban) reads the mute or ban word, so a site asks for it only when
+// the timed action is effective. Any other action (an inert mode the code applies nothing for) has no
+// word and renders as nothing. The default texts never use it: the flood's default keeps its untranslated English word.
 func eventActionWord(tr *i18n.Translator, action string) string {
 	key, ok := eventActionWords[action]
 	if !ok {

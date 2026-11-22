@@ -106,10 +106,23 @@ func memberReqNoticeParams(tr *i18n.Translator, broken int, warn *warnApplyResul
 	return params
 }
 
+// memberReqLimitMode is the warn-limit variant a limit action's notice uses: a timed mute or ban
+// (tmute, tban) takes the mute or ban variant, with no requirement text of its own (Phase 26, D-14);
+// any other mode is itself.
+func memberReqLimitMode(mode string) string {
+	switch mode {
+	case "tmute":
+		return "mute"
+	case "tban":
+		return "ban"
+	}
+	return mode
+}
+
 // memberReqNoticeKey chooses the template of a punishment: kick, ban and mute have their own;
 // a warn is the plain warn notice, or the variant of the group's warn mode when the limit
 // action took effect (a refused limit action is the plain notice, so a removal that did not
-// happen is never claimed).
+// happen is never claimed). A timed limit action takes the mute or ban variant.
 func memberReqNoticeKey(action int, warn *warnApplyResult) string {
 	switch action {
 	case models.RequirementActionKick:
@@ -120,9 +133,9 @@ func memberReqNoticeKey(action int, warn *warnApplyResult) string {
 		return "mreq_notice_mute"
 	}
 	if warn != nil && warn.LimitReached && warn.LimitApplied {
-		switch warn.Mode {
+		switch mode := memberReqLimitMode(warn.Mode); mode {
 		case "kick", "ban", "mute":
-			return "mreq_notice_warn_limit_" + warn.Mode
+			return "mreq_notice_warn_limit_" + mode
 		}
 	}
 	return "mreq_notice_warn"
@@ -175,9 +188,9 @@ func memberReqNoticeWarnOf(action int, in eventDefaultInput) *warnApplyResult {
 		return nil
 	}
 	warn := &warnApplyResult{Count: in.Count, Limit: in.Limit}
-	switch in.Action {
+	switch mode := memberReqLimitMode(in.Action); mode {
 	case "kick", "ban", "mute":
-		warn.Mode, warn.LimitReached, warn.LimitApplied = in.Action, true, true
+		warn.Mode, warn.LimitReached, warn.LimitApplied = mode, true, true
 	}
 	return warn
 }
@@ -365,10 +378,10 @@ func memberReqPostEventNotice(ctx context.Context, b *gotgbot.Bot, c memberReqCa
 			in.Count, in.Limit = warn.Count, warn.Limit
 			values.Count, values.Limit = warn.Count, warn.Limit
 			if warn.LimitReached && warn.LimitApplied {
-				switch warn.Mode {
+				switch mode := memberReqLimitMode(warn.Mode); mode {
 				case "kick", "ban", "mute":
-					in.Action = warn.Mode
-					values.Action = eventActionWord(tr, warn.Mode)
+					in.Action = mode
+					values.Action = eventActionWord(tr, mode)
 				}
 			}
 		}

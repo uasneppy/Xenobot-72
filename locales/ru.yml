@@ -735,6 +735,7 @@ error_generic: "Произошла ошибка. Пожалуйста, попр�
 eventmsg_admin_anon: "админ"
 eventmsg_pm_ban: "🚫 Вы забанены в группе <b>{group}</b>."
 eventmsg_pm_reason: "<b>Причина:</b> {reason}"
+eventmsg_pm_until: "<b>До:</b> {until}"
 eventmsg_pm_tban: "⏳ Вы забанены в группе <b>{group}</b> до {until}."
 eventmsg_pm_kick: "👢 Вас удалили из группы <b>{group}</b>. Вы можете вступить снова."
 eventmsg_pm_mute: "🔇 Вам выдан мут в группе <b>{group}</b>."

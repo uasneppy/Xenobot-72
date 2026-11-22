@@ -2,12 +2,14 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
@@ -223,6 +225,11 @@ type warnApplyResult struct {
 	// case the warn stays counted and nothing is reset.
 	LimitReached, LimitApplied bool
 	LimitErr                   error
+	// Secs and Until are set when an effective timed limit action (tmute, tban with a duration) took
+	// effect: its duration in seconds and the end date it was sent with, in unix seconds. Both are 0
+	// for an untimed action and when nothing was applied.
+	Secs  int
+	Until int64
 	// Reasons are the stored reasons including this warn's, taken before any reset.
 	Reasons []string
 	// Recorded is true once the warn is stored, so a returned error with Recorded set is the
@@ -232,8 +239,8 @@ type warnApplyResult struct {
 
 // applyWarn records one warn for userID under warnPunishLock, runs afterRecord (when not nil)
 // inside the lock right after the warn is stored, and at the group's warn limit runs the limit
-// action (kick, the permanent mute or ban) and resets the member's warns only after the action
-// took effect. It never sends a message: the caller words what happened. An error is the warn
+// action (kick, the permanent mute or ban, or a timed mute or ban with the stored duration) and
+// resets the member's warns only after the action took effect. It never sends a message: the caller words what happened. An error is the warn
 // that could not be recorded or the reset that failed; a refused limit action is in LimitErr.
 func applyWarn(ctx context.Context, b *gotgbot.Bot, chat *gotgbot.Chat, userID int64, reason string, afterRecord func()) (warnApplyResult, error) {
 	var res warnApplyResult
@@ -258,10 +265,13 @@ func applyWarn(ctx context.Context, b *gotgbot.Bot, chat *gotgbot.Chat, userID i
 		return res, nil
 	}
 	res.LimitReached = true
-	punished, actionErr := applyWarnLimitAction(ctx, b, chat, userID, settings.WarnMode)
+	punished, until, actionErr := applyWarnLimitAction(ctx, b, chat, userID, settings.WarnMode, settings.WarnModeSecs)
 	if actionErr != nil {
 		res.LimitErr = actionErr
 		return res, nil
+	}
+	if punished && until != 0 {
+		res.Secs, res.Until = settings.WarnModeSecs, until
 	}
 	if punished {
 		if _, resetErr := warns.ResetUserWarns(userID, chat.Id); resetErr != nil {
@@ -273,8 +283,31 @@ func applyWarn(ctx context.Context, b *gotgbot.Bot, chat *gotgbot.Chat, userID i
 }
 
 // applyWarnLimitAction runs the group's limit action for mode. punished is false for a mode the
-// warn module does not know, which applies nothing.
-func applyWarnLimitAction(ctx context.Context, b *gotgbot.Bot, chat *gotgbot.Chat, userID int64, mode string) (punished bool, err error) {
+// warn module does not know, which applies nothing. A timed mode (tmute, tban) acts only with a valid
+// duration (autoActionEffective), through applyTimedPunishment, and returns the end date it sent; a
+// timed mode with no duration falls to the default branch and stays inert, exactly as before (D-08).
+// An end date refused locally (errPunishTimeRanOut) punishes nobody: punished is false with no error,
+// so the warn stays counted and nothing is reset.
+func applyWarnLimitAction(ctx context.Context, b *gotgbot.Bot, chat *gotgbot.Chat, userID int64, mode string, secs int) (punished bool, until int64, err error) {
+	if p := (autoPunishment{Action: mode, Secs: secs}); p.Timed() && autoActionEffective(p.Action, p.Secs) {
+		p.Until, err = applyTimedPunishment(b, chat.Id, userID, p.Action, p.Secs)
+		switch {
+		case errors.Is(err, errPunishTimeRanOut):
+			log.Warnf("[Warns] warnlimit: the timed %s of user %d in chat %d was not sent (end date refused)", p.Action, userID, chat.Id)
+			return false, 0, nil
+		case err != nil:
+			log.Errorf("[warn] warnlimit: %s (%d) - %s", p.Action, userID, err)
+			return false, 0, err
+		}
+		return true, p.Until, nil
+	}
+	punished, err = applyWarnLimitUntimed(ctx, b, chat, userID, mode)
+	return punished, 0, err
+}
+
+// applyWarnLimitUntimed runs an untimed limit action (kick, the permanent mute or ban) exactly as
+// before Phase 26. punished is false for any other mode, which applies nothing.
+func applyWarnLimitUntimed(ctx context.Context, b *gotgbot.Bot, chat *gotgbot.Chat, userID int64, mode string) (punished bool, err error) {
 	switch mode {
 	case "kick":
 		err = kickMemberContext(ctx, b, chat.Id, userID)
@@ -455,14 +488,22 @@ func warnEventReply(b *gotgbot.Bot, chat *gotgbot.Chat, replyTo int64, tr *i18n.
 // empty keyboard) with the reply to the triggering message, and the values a custom text fills: the
 // reason of the warn that reached the limit, the count, the limit and the translated word of the limit
 // action. KeepRows stays nil: the default has no bot row, so a custom message has none either (D-15).
+//
+// A timed limit action (res.Secs set) names its duration: the default reads warns_limit_tmuted or
+// _tbanned, {duration} is the duration in the group's language and {until} the end date the request was
+// sent with, shown in the chat's zone (D-16). An untimed action leaves both empty, as before.
 func warnLimitEventReply(tr *i18n.Translator, replyTo int64, u gotgbot.User, reason string, res warnApplyResult) eventReply {
-	in := eventDefaultInput{Target: u, Count: res.Count, Limit: res.Limit, Action: res.Mode, Reasons: res.Reasons}
+	in := eventDefaultInput{Target: u, Count: res.Count, Limit: res.Limit, Action: res.Mode, Reasons: res.Reasons, Secs: res.Secs}
 	text, opts := warnLimitDefaultReply(tr, in)
 	opts.ReplyParameters = &gotgbot.ReplyParameters{MessageId: replyTo, AllowSendingWithoutReply: true}
+	values := eventValues{Reason: reason, Count: res.Count, Limit: res.Limit, Action: eventActionWord(tr, res.Mode)}
+	if res.Secs > 0 && res.Until > 0 {
+		values.Duration, values.Until = punishDurationLabel(tr, res.Secs), time.Unix(res.Until, 0)
+	}
 	return eventReply{
 		Event:   eventmsg.EventWarnLimit,
 		Target:  u,
-		Values:  eventValues{Reason: reason, Count: res.Count, Limit: res.Limit, Action: eventActionWord(tr, res.Mode)},
+		Values:  values,
 		Default: text,
 		Opts:    opts,
 	}

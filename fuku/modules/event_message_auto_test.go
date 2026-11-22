@@ -147,7 +147,13 @@ func TestEventActionWords(t *testing.T) {
 			if len(words) != len(actions) {
 				t.Errorf("action words = %v, want %d different words", words, len(actions))
 			}
-			for _, inert := range []string{"", "tban", "tmute", "none", "Mute", "Delete", "deleted"} {
+			// A timed mute or ban reads the mute or ban word (Phase 26, D-16); its time is in {duration}.
+			for timed, plain := range map[string]string{"tmute": "mute", "tban": "ban"} {
+				if got, want := eventActionWord(tr, timed), eventActionWord(tr, plain); got != want || got == "" {
+					t.Errorf("eventActionWord(%q) = %q, want the %s word %q", timed, got, plain, want)
+				}
+			}
+			for _, inert := range []string{"", "none", "Mute", "Delete", "deleted", "Tmute"} {
 				if got := eventActionWord(tr, inert); got != "" {
 					t.Errorf("eventActionWord(%q) = %q, want no word", inert, got)
 				}

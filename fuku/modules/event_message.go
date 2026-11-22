@@ -70,7 +70,9 @@ type eventActor struct {
 // Window (seconds), Percent and Lockdown are read only by the lockdown builders (event_message_lockdown.go):
 // an automatic trigger's window and share of new members, and what a lockdown message's default says
 // beside its person (the bot's missing rights for a start; the manual change, whether the lift finished
-// and the joiners being unbanned for a lift).
+// and the joiners being unbanned for a lift). Secs is the duration in seconds of an effective timed
+// action (tmute, tban), read only by the timed branches of the default builders; 0 for every other
+// action, so every untimed default stays byte for byte.
 type eventDefaultInput struct {
 	Target   gotgbot.User
 	Reason   string
@@ -84,6 +86,7 @@ type eventDefaultInput struct {
 	Window   int
 	Percent  int
 	Lockdown lockdownFacts
+	Secs     int
 }
 
 // eventDefaultReply builds an event's default reply: the text and the options the send site sent
