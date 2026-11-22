@@ -65,6 +65,15 @@ const (
 	// EventLockdown is the reply of a /lockdown that started a lockdown, also after an anonymous admin's
 	// proof tap. Every refusal and "already active" answer keeps its own text and is not this event.
 	EventLockdown = "lockdown"
+	// EventLockJoinSurge is the public notice of a lockdown a join surge started automatically.
+	EventLockJoinSurge = "lockjoin"
+	// EventLockFlood is the public notice of a lockdown a message flood started automatically.
+	EventLockFlood = "lockflood"
+	// EventLockAIBurst is the public notice of a lockdown a burst of AI spam verdicts started automatically.
+	EventLockAIBurst = "lockai"
+	// EventLockLift is the public notice of a recorded lift, from /unlockdown, the alert's Lift button
+	// or the settings menu.
+	EventLockLift = "locklift"
 )
 
 // The destinations a message can be stored for.
@@ -99,6 +108,10 @@ var Events = []string{
 	EventReqBan,
 	EventReqMute,
 	EventLockdown,
+	EventLockJoinSurge,
+	EventLockFlood,
+	EventLockAIBurst,
+	EventLockLift,
 }
 
 // Dests lists every destination a message can be stored for.

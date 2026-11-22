@@ -42,7 +42,8 @@ var eventMessageReadTimeout = 2 * time.Second
 // eventValues are the event's own values, filled into the event placeholders of a custom text. A
 // field with no value for the event (a permanent ban has no duration) renders as nothing (D-09).
 // Action is the translated word of the action taken (eventActionWord), Count and Limit the numbers of
-// a warn or a flood (0 renders as nothing) and Window a time window's text.
+// a warn or a flood (0 renders as nothing), Window a time window's text and Percent a share of a
+// count (the flood trigger's share of new members, 0 renders as nothing).
 type eventValues struct {
 	Reason   string
 	Duration string
@@ -51,6 +52,7 @@ type eventValues struct {
 	Count    int
 	Limit    int
 	Window   string
+	Percent  int
 }
 
 // eventActor is the admin who issued the command. Anonymous is set for an anonymous admin, whose
@@ -65,8 +67,10 @@ type eventActor struct {
 // count and the limit, the action's mode word (warn, mute, kick or ban, never translated), the stored
 // reasons of a warn limit and the bot's own keyboard rows the site computed, so a builder stays pure.
 // Rules is the mask of the broken member requirement rules, read only by the requirement builders.
-// Lockdown is what a lockdown message's default says beside its person (the bot's missing rights for a
-// start), read only by the lockdown builders (event_message_lockdown.go).
+// Window (seconds), Percent and Lockdown are read only by the lockdown builders (event_message_lockdown.go):
+// an automatic trigger's window and share of new members, and what a lockdown message's default says
+// beside its person (the bot's missing rights for a start; the manual change, whether the lift finished
+// and the joiners being unbanned for a lift).
 type eventDefaultInput struct {
 	Target   gotgbot.User
 	Reason   string
@@ -77,6 +81,8 @@ type eventDefaultInput struct {
 	Reasons  []string
 	Rows     [][]gotgbot.InlineKeyboardButton
 	Rules    int
+	Window   int
+	Percent  int
 	Lockdown lockdownFacts
 }
 
@@ -161,9 +167,9 @@ func (site eventSite) schedule(sent *gotgbot.Message) {
 	scheduleBotMessage(sent, site.Kind)
 }
 
-// eventTokenNames are the event placeholders. {count}, {action}, {limit} and {window} belong to the
-// event (empty for the manual events), so {count} in an event message is never the member count.
-var eventTokenNames = []string{"reason", "admin", "duration", "until", "action", "count", "limit", "window"}
+// eventTokenNames are the event placeholders. {count}, {action}, {limit}, {window} and {percent} belong
+// to the event (empty for the manual events), so {count} in an event message is never the member count.
+var eventTokenNames = []string{"reason", "admin", "duration", "until", "action", "count", "limit", "window", "percent"}
 
 // eventTokenSentinel is the marker an event placeholder is turned into before the Welcome
 // placeholders are filled. The stored text is HTML, where a literal '<' is always escaped, so the
@@ -189,6 +195,9 @@ func eventPlaceholderValues(tr *i18n.Translator, chatID int64, actor eventActor,
 	}
 	if v.Limit > 0 {
 		values["limit"] = strconv.Itoa(v.Limit)
+	}
+	if v.Percent > 0 {
+		values["percent"] = strconv.Itoa(v.Percent)
 	}
 	if !v.Until.IsZero() {
 		values["until"] = formatChatTime(v.Until, chatClockOf(chatID), "02.01.2006 15:04")

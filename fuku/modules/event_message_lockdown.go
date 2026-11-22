@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
@@ -26,11 +27,24 @@ import (
 
 // lockdownFacts are what a lockdown message's default says beside its person, read from the action that
 // took effect. For a start: the bot's missing rights (NoDelete, NoInvite), read from the live membership
-// startLockdownRow returned.
+// startLockdownRow returned. For a lift: whether the permissions were changed by hand during the lockdown
+// (ManualChange), whether the lift finished (Finished) and how many removed joiners are being unbanned
+// (Unbanning), the lift's own result.
 type lockdownFacts struct {
-	NoDelete bool
-	NoInvite bool
+	NoDelete     bool
+	NoInvite     bool
+	ManualChange bool
+	Finished     bool
+	Unbanning    int64
 }
+
+// lockdownNoteReserve is the room, in UTF-16 units, the message editor holds back from the text of a
+// lockdown event for the notes the bot appends after a custom text (D-17): the worst start notes and the
+// worst lift notes, each after its line break, fit it in every language (TestLockdownNoteFitsReserve), and
+// a translation that exceeds it is shortened, never the reserve raised.
+//
+//nolint:unused // first production caller arrives in plan 25-03
+const lockdownNoteReserve = 400
 
 // lockdownStartFacts reads a start's facts from the bot's live membership that startLockdownRow
 // returned: a missing delete or invite right never blocks the lock, it only adds a note.
@@ -56,6 +70,88 @@ func lockdownStartNoteLines(tr *i18n.Translator, f lockdownFacts) []string {
 // joined by line breaks.
 func lockdownStartNotes(tr *i18n.Translator, f lockdownFacts) string {
 	return lockdownJoinLines(lockdownStartNoteLines(tr, f))
+}
+
+// lockdownNoticeOpts are the options of a lockdown notice that is a new message (the automatic notice,
+// raidSend's): HTML with link previews off, no reply and no keyboard.
+//
+//nolint:unused // first production caller arrives in plan 25-03
+func lockdownNoticeOpts() *gotgbot.SendMessageOpts {
+	return &gotgbot.SendMessageOpts{
+		ParseMode:          formatting.HTML,
+		LinkPreviewOptions: &gotgbot.LinkPreviewOptions{IsDisabled: true},
+	}
+}
+
+// lockdownAutoIntroKeys are the intro keys of the automatic notice, by trigger kind.
+//
+//nolint:unused // first production caller arrives in plan 25-03
+var lockdownAutoIntroKeys = map[string]string{
+	models.LockdownTriggerJoinSurge: "lockdown_auto_started_join_surge",
+	models.LockdownTriggerFlood:     "lockdown_auto_started_flood",
+	models.LockdownTriggerAIBurst:   "lockdown_auto_started_ai_burst",
+}
+
+// lockdownAutoDefaultReply is the default public notice of a lockdown the trigger kind started
+// automatically, byte for byte raidPostNotice's text before Phase 25: the trigger's intro with in.Count and
+// in.Window (and in.Percent for a flood), each passed as a string by name, then the start notes of
+// in.Lockdown, joined by lockdownJoinLines, in HTML with link previews off. Any other kind has no notice and
+// builds "".
+//
+//nolint:unused // first production caller arrives in plan 25-03
+func lockdownAutoDefaultReply(kind string) eventDefaultReply {
+	return func(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+		key, ok := lockdownAutoIntroKeys[kind]
+		if !ok {
+			return "", nil
+		}
+		params := i18n.TranslationParams{"count": strconv.Itoa(in.Count), "window": strconv.Itoa(in.Window)}
+		if kind == models.LockdownTriggerFlood {
+			params["percent"] = strconv.Itoa(in.Percent)
+		}
+		lines := append([]string{lockdownText(tr, key, params)}, lockdownStartNoteLines(tr, in.Lockdown)...)
+		return lockdownJoinLines(lines), lockdownNoticeOpts()
+	}
+}
+
+// lockdownLiftNoteLines are the facts of a lift that follow its first line, in today's order: the manual
+// change note when the permissions were changed by hand, then how many removed joiners are being unbanned
+// while the lift has not finished and there are any.
+//
+//nolint:unused // first production caller arrives in plan 25-03
+func lockdownLiftNoteLines(tr *i18n.Translator, f lockdownFacts) []string {
+	var lines []string
+	if f.ManualChange {
+		lines = append(lines, lockdownText(tr, "lockdown_lifted_manual_change"))
+	}
+	if !f.Finished && f.Unbanning > 0 {
+		lines = append(lines, lockdownText(tr, "lockdown_lifted_unbanning", i18n.TranslationParams{"count": f.Unbanning}))
+	}
+	return lines
+}
+
+// lockdownLiftNotes are the lift's facts the bot appends after a custom lift text (D-16), joined by line
+// breaks; empty when the lift has none.
+//
+//nolint:unused // first production caller arrives in plan 25-03
+func lockdownLiftNotes(tr *i18n.Translator, f lockdownFacts) string {
+	return lockdownJoinLines(lockdownLiftNoteLines(tr, f))
+}
+
+// lockdownLiftDefaultReply is the default public notice of a recorded lift, byte for byte the notice before
+// Phase 25: lockdownLiftedText for the lifter in.Target (the name capped at lockdownNameMaxRunes) and the
+// lift's facts of in.Lockdown, with formatting.Shtml(). The options are the reply's (/unlockdown's); a
+// button lift's site sends the same text with its own paced options, today's.
+//
+//nolint:unused // first production caller arrives in plan 25-03
+func lockdownLiftDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	name := lockdownCapRunes(staffFullName(&in.Target), lockdownNameMaxRunes)
+	text := lockdownLiftedText(tr, in.Target.Id, name, lockdownLiftResult{
+		ManualChange: in.Lockdown.ManualChange,
+		Finished:     in.Lockdown.Finished,
+		Unbanning:    in.Lockdown.Unbanning,
+	})
+	return text, formatting.Shtml()
 }
 
 // lockdownStartDefaultReply is the default reply of a /lockdown that started a lockdown, byte for byte

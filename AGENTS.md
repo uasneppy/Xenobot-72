@@ -2931,8 +2931,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`EventForwardBlock`), in that order in `Events`, then Phase 24's six screening notices, `captcha` (`EventCaptcha`, the
   notice of a failed captcha), `aispam` (`EventAISpam`, the notice of an AI spam deletion), `mreqwarn` (`EventReqWarn`, the
   requirement warn and its warn-limit variants), `mreqkick` (`EventReqKick`), `mreqban` (`EventReqBan`) and `mreqmute`
-  (`EventReqMute`), then Phase 25's lockdown messages, `lockdown` (`EventLockdown`, the reply of a `/lockdown` that started
-  a lockdown), and the destinations `group` and `pm`, the private copy sent to the
+  (`EventReqMute`), then Phase 25's five lockdown messages, `lockdown` (`EventLockdown`, the reply of a `/lockdown` that started
+  a lockdown), `lockjoin` (`EventLockJoinSurge`), `lockflood` (`EventLockFlood`) and `lockai` (`EventLockAIBurst`), the public notice
+  of a lockdown that trigger started, and `locklift` (`EventLockLift`, the notice of a recorded lift), and the destinations `group` and `pm`, the private copy sent to the
   punished person, Phase 22) and never by a CHECK, so Phases 23, 24 and 25 added theirs with no migration; an unknown one is `ErrUnknownEvent` or `ErrUnknownDest` before any write. It is read through `cache.GetFromCacheOrLoad` as one
   `eventmsg.Messages` per chat (a map keyed `event|dest`, `Lookup(event, dest)`, plus the chat's `Options`, read from
   `chat_event_message_options` below) under `event_messages:<chat>` (`eventmsg.Get`; `eventmsg.GetFresh` is the same two
@@ -3821,6 +3822,22 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   default and the notes share `lockdownStartNoteLines`, so they cannot drift. Silent posts nothing and the lockdown, the worker
   and the alert are unchanged (D-20); a refused custom message is replaced by the default once; a send error is logged with
   today's `[Lockdown] reply: %v` (`TestEventMessageLockdownStart`).
+  The engine's vocabulary grew for the lockdown messages only (D-14, D-24): `eventValues.Percent` and the event placeholder
+  `{percent}` (after `{window}` in `eventTokenNames`; 0 renders as nothing, so it is empty for every event but the flood trigger's
+  notice, and a stored `{percent}` of an earlier event, which showed raw before, now renders empty), and three fields of
+  `eventDefaultInput` read only by the lockdown builders, `Window` (seconds), `Percent` and `Lockdown` (`lockdownFacts`: `NoDelete`
+  and `NoInvite` for a start; `ManualChange`, `Finished` and `Unbanning` for a lift); no hook, and nothing in `postEventSent`,
+  `postEventGroup` or `composeEventMessage` changed. The other default builders live in the same file and return today's text
+  and options byte for byte, proven against the goldens before their sites switch (`TestLockdownEventDefaults`):
+  `lockdownAutoDefaultReply(kind)` (`raidPostNotice`'s lines: the trigger's `lockdown_auto_started_*` intro with `in.Count`,
+  `in.Window` and, for a flood, `in.Percent`, then the start notes, joined by `lockdownJoinLines`, HTML with link previews off; any
+  other kind builds "") and `lockdownLiftDefaultReply` (`lockdownLiftedText` for the lifter `in.Target` and the lift's facts, with
+  `formatting.Shtml()`; a button lift's site sends the same text with today's paced options). `lockdownLiftNotes` (the manual change
+  line, then the unbanning line while the lift has not finished) is what follows a custom lift text, and `lockdownNoteReserve`
+  (400 UTF-16 units) is the room the editor will hold back for the notes: the worst start notes (both rights missing) and the worst
+  lift notes (a manual change and 99999 joiners), each after its line break, fit it in every language (`TestLockdownNoteFitsReserve`;
+  a translation that exceeds it is shortened, never the reserve raised). Until the Messages page uses them (plan 25-03) these
+  identifiers carry `//nolint:unused // first production caller arrives in plan 25-03`, which that plan removes.
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
@@ -6181,6 +6198,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   order), `silent` (the lockdown is active with the locked set, nothing is posted in the group, the next worker cycle posts the alert to
   the linked Staff Group), `refused` (real locales: a custom message refused with a 400 is followed by exactly `goldenLockdownStart`)
   and `anonymous` (after the proof tap `{admin}` reads "an admin" and `{mention}` and `{id}` name the bot, never the tapper).
+  `TestLockdownEventDefaults` (same file, pure, real locales, uk) sends each default builder's text and options through the call its
+  site's default makes on an in-memory recording client (`lockdownDefaultRequest`: `msg.Reply` for the command replies, `SendMessage`
+  with the paced notice's options for the automatic notice and a button lift) and compares the request with the nine start,
+  automatic and lift goldens by name through `lockdownGoldenWant`; it also holds that an unknown trigger kind builds nothing, that
+  the defaults end with the very notes a custom text gets, and that `{percent}` fills 80 and renders empty at 0.
+  `TestLockdownNoteFitsReserve` (pure, 8 languages) holds the worst notes to `lockdownNoteReserve`, which leaves at least 600 units
+  of a 1024-unit caption.
 
 ## Commits
 
