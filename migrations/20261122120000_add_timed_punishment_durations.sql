@@ -15,7 +15,7 @@
 -- itself. A plain action (mute, kick, ban) always stores 0.
 --
 -- The CHECK is part of the column definition because PostgreSQL has no ADD CONSTRAINT IF NOT
--- EXISTS, which is what keeps each statement idempotent: ADD COLUMN IF NOT EXISTS skips the
+-- EXISTS, which is what keeps each statement idempotent: the IF NOT EXISTS column form skips the
 -- whole clause, the constraint included, when the column already exists.
 --
 -- The tables are still read through the cache, and every write still invalidates its key.
