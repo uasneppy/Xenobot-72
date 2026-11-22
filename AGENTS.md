@@ -743,7 +743,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `mreq_fixed_check_failed`, so the same button works on the next tap; (10) the toast `mreq_fixed_done` and the notice edited
   to `mreq_notice_fixed` with no keyboard, or, when the permissions came from an active lockdown, the alert
   `mreq_fixed_done_lockdown` and `mreq_notice_fixed_lockdown`; the edited message is rescheduled for deletion only when it is
-  the hold's own stored notice (the notice ID is compared for that alone, never for the unmute: SEC-01). Only a hold with `welcome_held` (a join mute) then sends the held
+  the hold's own stored notice (the notice ID is compared for that alone, never for the unmute: SEC-01). Since Phase 24 the
+  stored notice is whichever message the requirement site posted, a group's custom mute notice or the default: a custom one carries
+  the same button below its custom buttons and is always text, so the tap edits and reschedules it exactly as the default
+  (`memberreq_fixed.go` is unchanged, `TestEventMessageMemberReqMute`). Only a hold with `welcome_held` (a join mute) then sends the held
   welcome, once, through `SendWelcomeMessage` after the query is answered, so Greet once claims the member only then; a
   message hold sends none. The query is answered exactly once on every path, in the group's language (`ctxTr` of the group
   callback): `memberReqFixedCallback` recovers from a panic and defers a single answer, as `settingsCallback` does. Every
@@ -3763,8 +3766,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   word) and, for a warn, `{count}` and `{limit}`; `Note` is `memberReqNoticeAppended(action)`, the same function the page's preview
   uses; `TextOnly` is set for all four events, and for the mute `Required` and `KeepRows` the "I fixed it" row with `KeepRowsLast`,
   so a custom mute notice always ends with the button. It returns the posted message's ID, or 0 when nothing was posted (Silent);
-  an error means neither the custom message nor the default was delivered (`TestEventMessageMemberReq` in `event_message_mreq_test.go`: a custom warn and warn limit, a Silent kick, a refused custom kick
-  replaced by the golden default, and the ban's private copy).
+  an error means neither the custom message nor the default was delivered (`TestEventMessageMemberReq`,
+  `TestEventMessageMemberReqMute` in `event_message_mreq_test.go`: a custom warn and warn limit, a Silent kick, a refused custom kick
+  replaced by the golden default, a custom mute whose button frees the member and reschedules the posted message from the tap, a
+  Silent mute row with a photo still posted as text with the button, an undelivered custom and default lifting the mute, and the ban
+  and mute private copies).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
@@ -3918,7 +3924,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   from the sent message's own date, so a retried or rate-limit-waited notice counts from the message that went out
   (`memberReqScheduleNotice`; a notice without a button follows the timer directly, a failed send writes nothing); the
   mute notice, which carries the "I fixed it" button, is queued at the 24 hour cap (86400 s) whatever the timer says, so a
-  short timer never removes the member's only self-service way out, and with the kind Off no row is written (D-14, D-25); after the member taps the button, `memberReqFixedEdit` (which takes the chat type and a `reschedule` flag, SEC-01: true
+  short timer never removes the member's only self-service way out, and with the kind Off no row is written (D-14, D-25);
+  a custom mute notice (Phase 24) keeps the button below its custom buttons and the same cap, and its message ID is the hold's
+  stored notice; after the member taps the button, `memberReqFixedEdit` (which takes the chat type and a `reschedule` flag, SEC-01: true
   only when the hold's stored `notice_msg_id` is positive and equals the pressed message's ID, so the same button attached
   to any other message of the chat is edited as before but queues nothing for it, and a hold whose notice ID was never
   stored reschedules nothing, the 24 hour row staying) reschedules the edited

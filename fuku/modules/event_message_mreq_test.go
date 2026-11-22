@@ -10,6 +10,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
+	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
 	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/memberreq"
@@ -263,5 +264,133 @@ func TestEventMessageMemberReq(t *testing.T) {
 			t.Fatal("the group notice has no text")
 		}
 		mreqEventWantPM(t, env, member, mreqEventPMText(t, env, tr, "eventmsg_pm_mreqban"))
+	})
+}
+
+// mreqEventMuteRows is the custom button row then the full-width "I fixed it" row of the member's hold.
+func mreqEventMuteRows(tr *i18n.Translator, hold *models.ChatRequirementHold, member gotgbot.User) [][]gotgbot.InlineKeyboardButton {
+	rows := mreqEventSiteRows()
+	return append(rows, memberReqFixedButton(tr, hold.ID, member.Id).InlineKeyboard...)
+}
+
+func TestEventMessageMemberReqMute(t *testing.T) {
+	t.Run("custom keeps the button", func(t *testing.T) {
+		const tap = 20 * time.Minute
+		env := newMreqEventEnv(t)
+		env.loadMemberReq()
+		tr := env.translator()
+		env.mreqRules(map[memberreq.Rule]int{memberreq.RuleLastName: models.RequirementActionMute})
+		eventMsgStoreRow(t, env.chat.Id, eventmsg.EventReqMute, mreqEventMuteText, "", 0, []models.Button{eventMsgSiteButton})
+		member := screenGoldenReqMember(env)
+
+		got := env.mreqEnforce(env.mreqCase(member))
+		if got.Outcome != memberReqMuted || got.Hold == nil {
+			t.Fatalf("enforcement = %+v, want Muted with a hold", got)
+		}
+
+		notice := mreqEventOnlyNotice(t, env)
+		want := "<b>@ann_lee</b> " + mreqEventWord(t, tr, "eventmsg_action_mute") + ": " +
+			mreqEventWord(t, tr, "mreq_rule_lastname") + mreqEventNote(t, tr)
+		rows := mreqEventMuteRows(tr, got.Hold, member)
+		if len(rows) != 2 || len(rows[1]) != 1 || rows[1][0].CallbackData == "" {
+			t.Fatalf("expected rows = %+v, want the custom row and one I fixed it button", rows)
+		}
+		mreqEventWantNotice(t, env, notice, member, want, rows)
+		env.wantRowFor(notice.MessageID, deletion.KindBotAuto, env.now().Add(24*time.Hour))
+
+		member = env.mreqFix(member)
+		tapped := env.now().Add(tap)
+		env.advance(tap)
+		restrictsBefore, answersBefore := len(env.mreqRestricts(member.Id)), len(env.mreqAnswers())
+
+		env.mreqPressData(member, notice.MessageID, rows[1][0].CallbackData)
+
+		mreqWantFixedUnmute(t, env.memberReqEnv, member, notice, restrictsBefore, answersBefore, lockdownSnapshotPermissions(t),
+			mreqAnswer{Text: mreqEventWord(t, tr, "mreq_fixed_done")},
+			mreqFixedNoticeText(t, tr, "mreq_notice_fixed", member))
+		env.wantRowFor(notice.MessageID, deletion.KindBotAuto, tapped.Add(600*time.Second))
+	})
+
+	t.Run("silent and media are ignored", func(t *testing.T) {
+		env := newMreqEventEnv(t)
+		tr := env.translator()
+		env.mreqRules(map[memberreq.Rule]int{memberreq.RuleLastName: models.RequirementActionMute})
+		eventMsgStoreRow(t, env.chat.Id, eventmsg.EventReqMute, mreqEventMuteText, "photo-file-id", db.PHOTO, nil)
+		if err := eventmsg.SetSilent(t.Context(), env.chat.Id, eventmsg.EventReqMute, eventmsg.DestGroup, true, 1); err != nil {
+			t.Fatalf("SetSilent error = %v", err)
+		}
+		member := screenGoldenReqMember(env)
+
+		got := env.mreqEnforce(env.mreqCase(member))
+		if got.Outcome != memberReqMuted || got.Hold == nil {
+			t.Fatalf("enforcement = %+v, want Muted with a hold", got)
+		}
+
+		if photos := env.calls("sendPhoto"); len(photos) != 0 {
+			t.Fatalf("sendPhoto calls = %d, want none (the requirement notice is text only)", len(photos))
+		}
+		notice := mreqEventOnlyNotice(t, env)
+		want := "<b>@ann_lee</b> " + mreqEventWord(t, tr, "eventmsg_action_mute") + ": " +
+			mreqEventWord(t, tr, "mreq_rule_lastname") + mreqEventNote(t, tr)
+		mreqEventWantNotice(t, env, notice, member, want, memberReqFixedButton(tr, got.Hold.ID, member.Id).InlineKeyboard)
+		env.wantRowFor(notice.MessageID, deletion.KindBotAuto, env.now().Add(24*time.Hour))
+	})
+
+	t.Run("undelivered", func(t *testing.T) {
+		env := newMreqEventEnv(t)
+		env.mreqRules(map[memberreq.Rule]int{memberreq.RuleLastName: models.RequirementActionMute})
+		eventMsgStore(t, env.chat.Id, eventmsg.EventReqMute, mreqEventMuteText)
+		env.fake.setChatPermsRaw(env.chat.Id, `{"can_send_messages":true,"can_pin_messages":true}`)
+		// The custom notice, its retry, the default and its retry are all refused.
+		env.fake.script("sendMessage", env.chat.Id, mreqRefusals(4)...)
+		member := screenGoldenReqMember(env)
+
+		if got := env.mreqEnforce(env.mreqCase(member)); got.Outcome != memberReqNotApplied {
+			t.Fatalf("enforcement = %+v, want NotApplied (the mute was lifted again)", got)
+		}
+
+		if n := len(env.calls("sendMessage")); n != 4 {
+			t.Errorf("sendMessage calls = %d, want the custom notice, the default and one retry of each", n)
+		}
+		if n := len(env.mreqNotices()); n != 0 {
+			t.Errorf("messages posted = %d, want nothing posted", n)
+		}
+		if n := len(env.calls("restrictChatMember")); n != 2 {
+			t.Fatalf("restrictChatMember calls = %d, want the mute and its lift", n)
+		}
+		lifted, lift := mreqRestrictPermissions(t, env.memberReqEnv, 1)
+		if want := (gotgbot.ChatPermissions{CanSendMessages: true, CanPinMessages: true}); lifted != want {
+			t.Errorf("lift permissions = %+v, want the group's live defaults %+v", lifted, want)
+		}
+		if until := staffParamInt(lift.Params, "until_date"); until != 0 {
+			t.Errorf("lift until_date = %d, want none", until)
+		}
+		hold := env.mreqHold(member.Id)
+		if hold == nil || hold.PunishedAt != nil || hold.NoticeMsgID != 0 {
+			t.Fatalf("hold = %+v, want a pending backoff row with no notice", hold)
+		}
+		env.wantNoRows()
+	})
+
+	t.Run("private copy", func(t *testing.T) {
+		env := newMreqEventEnv(t)
+		tr := env.translator()
+		env.mreqRules(map[memberreq.Rule]int{memberreq.RuleLastName: models.RequirementActionMute})
+		storeEventPM(t, env.chat.Id, eventmsg.EventReqMute, "", true)
+		member := screenGoldenReqMember(env)
+
+		got := env.mreqEnforce(env.mreqCase(member))
+		if got.Outcome != memberReqMuted || got.Hold == nil {
+			t.Fatalf("enforcement = %+v, want Muted with a hold", got)
+		}
+
+		if mute, send := mreqEventOrder(env, "restrictChatMember", env.chat.Id), mreqEventOrder(env, "sendMessage", env.chat.Id); mute < 0 || send < mute {
+			t.Errorf("the group notice (call %d) came before the mute (call %d)", send, mute)
+		}
+		notice := mreqEventOnlyNotice(t, env)
+		if rows := staffKeyboardOf(notice.Params["reply_markup"]); len(rows) != 1 {
+			t.Errorf("group notice keyboard = %+v, want the I fixed it row", rows)
+		}
+		mreqEventWantPM(t, env, member, mreqEventPMText(t, env, tr, "eventmsg_pm_mreqmute"))
 	})
 }
