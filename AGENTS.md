@@ -1229,7 +1229,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   check of every press of a preset. `settingsTimedWord(tr, action, secs)` is the one word of an effective timed action on every
   page (`settings_opt_timed`, `{action}, {duration}`, with the `settings_opt_tmute` or `_tban` word); its `ok` is false for
   anything else, so a caller keeps its own word for an untimed or inert action. The Warnings page is its first user (plan
-  26-03), the Antiflood page its second (plan 26-04, below); the Blacklist action screen and the escalation ladder reuse it. `TestSettingsDurationScreen` holds
+  26-03), the Antiflood page its second (plan 26-04, below) and the Blacklist action screen its third (plan 26-05, through
+  `settingsTimedDurationScreenBack`, whose Back is the action screen); the escalation ladder reuses it. `TestSettingsDurationScreen` holds
   the parser, the shape and the mark, the timed word and the fit in 8 languages (cells at most 20 code points with the mark,
   3800 UTF-16 units with a 64-rune title, the largest button 47 bytes private and 43 group).
 - The Antiflood page (`settings_antiflood.go`, page `f`, `Order` 40, icon 🌊) has a timed row since plan 26-04 (D-21, D-22):
@@ -1477,15 +1478,38 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   screen opens the list (`a=op&p=b`), not Main. A stored `none` is accepted by PostgreSQL since plan 19-01's migration
   (`TestSettingsBlacklistAction`, `TestSettingsParityBlacklistAction`, `TestSettingsDriftBlacklist`,
   `TestSettingsAuthorityParityBlacklist`: the four refusals of the ninth right with nothing written, the commands refusing or
-  writing for the same member and bot records, and the owner-gate carve-out). The worst cases are measured, not assumed:
+  writing for the same member and bot records, and the owner-gate carve-out). Since plan 26-05 (D-21, D-22) the action screen has
+  the timed row `[Timed mute | Timed ban]` after the two choice rows (`settings_opt_tmute`, `settings_opt_tban`), so a list with
+  words draws rows `[3 2 2 2]`. The entries carry `Secs` (`settingsListEntry.Secs`, read only by this page, zero on every other
+  list page, the Blocked sources page's included, so it draws exactly what it drew), and an action is uniform only when the action
+  and the seconds are equal on every word (`settingsBlacklistUniformAction`): a uniform effective timed action reads
+  `settingsTimedWord` ("Timed mute, 1 hour(s)", a duration no preset holds such as `/blacklistaction tban 90m` included,
+  `settingsBlacklistEntryWord`) on the action line of the list page and of the screen and marks its timed cell, the count lines of
+  mixed words group by action and seconds, and the inert line shows for a uniform value the page does not offer
+  (`settingsBlacklistActs`: a timed action with no duration, `delete`); `settingsBlacklistActionWord` is unchanged (the Blocked
+  sources page shares it). A timed cell presses `bd` (exactly `c` and `k`, `m` or `b`; right `settingsRightAdmin`, it writes
+  nothing), which reads the list fresh and draws the shared duration screen (`settingsTimedDurationScreenBack`, the shared core of
+  `settingsTimedDurationScreen` with the caller's Back) titled with the Blacklist page, the preset every word has marked only while
+  that timed action is every word's and effective, Back `{"a": "bo"}` to the action screen; a preset presses `bz` (exactly `c`, `k`
+  and `v`, `v` a preset's canonical decimal, so a forged `k` or `v`, a group menu's `u`, a missing field or an extra key is an
+  invalid request in step 1 before any lookup; right `settingsRightRestrictBotRestrict`, judged live), which stores through
+  `applyBlacklistAction(ctx, p.group.Id, mode, secs)`, the function `/blacklistaction` and `bs` call, and redraws the action screen
+  with `bs`'s notices (`settingsBlacklistRedrawSet`: no words, a failed save). A notice refusal of `bz` or `bd` redraws the action
+  screen through the table's `Redraw`. A plain choice clears the seconds. The page's typed add passes the words' seconds to
+  `applyBlacklistAdd`, so a word added from the page takes the shared timed action too. The duration screen's largest button is the
+  30-day preset, 47 bytes private (`bd` 37). `TestSettingsBlacklistTimed`, `TestSettingsParityBlacklistTimed`,
+  `TestSettingsDriftBlacklistTimed`, `TestSettingsAuthorityParityBlacklistTimed` and `TestSettingsBlacklistTimedForged`
+  (`settings_blacklist_timed_test.go`) hold it. The worst cases are measured, not assumed:
   `TestSettingsListBlacklistCallbackBytes` renders a 79,992-entry list (9,999 pages, 17-digit row IDs, a 14-character chat ID, a
   10-digit opener) and holds every button at most 64 bytes with the UI-SPEC's exact sizes (pager 40, ask 60, Yes 64, action 33,
   choice 40 and ban 39, Main cell 37 private and 33 group) and `Omitted` at 0, a row with an 18-digit ID getting no delete button
   and counting 1; `TestSettingsListBlacklistPageFitsEveryLocale` holds the list page of 32-ampersand entries with the two longest
   notices, the mixed action screen with eight count lines, the card with a 100-code-point entry and the group note to 3800 UTF-16
-  units in all 8 languages with a 64-rune title, and the row widths to the UI-SPEC (`{4,4,2,2,2}` middle page with the Add button, `{3,2,2}` action,
+  units in all 8 languages with a 64-rune title, and the row widths to the UI-SPEC (`{4,4,2,2,2}` middle page with the Add button, `{3,2,2,2}` action
+  since plan 26-05 (also the mixed timed and uniform timed screens, and `{2,2,2,2,2}` for the duration screen),
   `{2,2}` card, `{1,2}` and `{2}` note); `TestSettingsBlacklistReadsCreateNothing` that opening Main, the page, the action screen and a
   forged ask on a chat with no rows creates no row and fills no key in either menu. The page's action codes are `bp bx by bo bs bn bc`
+  (since plan 26-05 also `bd bz`, so `bp bx by bo bs bn bc bd bz`)
   (the pager is `bp` and Add is `bn` because the Deletion page's bot row codes `bw bg br ba bm` must stay unique among the codes of
   the section and row tables and the actions). Plan 19-04 adds the typed add. `bn` (Add words, the table's `AddCode`) needs the
   owner field `c` and the page's write right and writes the one wait of the user (`settingsInputSet`: page `b`, part `w`, the menu
@@ -2159,7 +2183,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   unchanged, and the ninth right's `CanBotRestrict`), and `settingsRightRefusal` runs bot first, member part, bot after, so every older
   right answers the same keys in the same order. Both read the commands' cached predicates and a false can be a stale cache, so the
   typed-reply door of plan 19-04 classifies such a false with one live `getChatMember` before it refuses. The Blacklist page (plan 19-03)
-  declares the ninth right for every write and the door uses it typed (plan 19-04). The other two list pages declare rights that already
+  declares the ninth right for every write and the door uses it typed (plan 19-04); its timed preset `bz` (plan 26-05) declares it
+  too, judged on the press's live member record, while the duration screen `bd` writes nothing and needs only `settingsRightAdmin`. The other two list pages declare rights that already
   existed: Filters `settingsRightChangeInfo` (`/filter` and `/stop` ask for `can_change_info` and no bot check) and Notes
   `settingsRightChangeInfoBotAdmin` (`/save` and `/clear` ask for the bot as an administrator, then `can_change_info`); on all three pages
   viewing, paging and Cancel need only `settingsRightAdmin`. `TestSettingsRights` "mirrors /addblacklist",
@@ -6627,7 +6652,21 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `floodTimedFlood`, `floodTimedNotice`) and the Antiflood page's five families above. The earlier Antiflood page tests took the
   timed row as a width edit only (4 rows to 5, the toggle's index 2 to 3 and the navigation row's 3 to 4), and
   `TestSettingsAntifloodCallbackBytes` and `TestSettingsAntifloodPageFitsEveryLocale` gained timed states, the duration screen and the
-  bad-duration notice.
+  bad-duration notice. Plan 26-05's families are `TestSetBlacklistActionDuration` (`fuku/db/blacklists/timed_action_test.go`,
+  SQLite: both columns on every word, the rows matched, the key dropped, `SetBlacklistAction` clearing the seconds,
+  `AddBlacklistTimedContext`, `ListBlacklistEntriesFresh` reading the seconds, another chat untouched),
+  `TestApplyBlacklistActionTimed` and `TestBlacklistActionTimedCommand` (`blacklists_timed_test.go`: the apply outcomes;
+  `/blacklistaction tmute 2h` answering `tmute 2h` on every word, `TBAN 1w`, three bad durations writing nothing, the current mode
+  `tban 1w`, `/addblacklist` taking the shared timed action and warn and 0 once the seconds differ), `TestBlacklistTimed` (same file,
+  `punishNow` fixed, on `newNoticeGoldenSite` with the real locales and a stored reason holding markup: `tmute` deletes, restricts
+  until now plus 7200 and posts the timed default with the reason escaped under `bot:punish_auto`, `tban` bans until now plus 604800,
+  `sender_chat_tmute` deletes and sends nothing else, `inert_no_duration` deletes and posts nothing, `custom_text` fills `{action}`,
+  `{duration}` and `{until}`, `pm_until` adds the private copy's Until line; toolkit `blacklistTimedRun`, `blacklistTimedNotice`) and
+  the Blacklist page's five families above. The earlier Blacklist page tests took the timed row as set edits only
+  (`TestSettingsBlacklistAction`'s uniform screen `{3,2,2}` to `{3,2,2,2}` and Back's index 5 to 7,
+  `TestSettingsListBlacklistPageFitsEveryLocale`'s mixed screen `[3 2 2]` to `[3 2 2 2]`, `TestSettingsPhase19Codes` listing `bd` and
+  `bz`), and `TestSettingsListBlacklistCallbackBytes` and `TestSettingsListBlacklistPageFitsEveryLocale` gained the timed states and
+  the duration screen; the seam stubs of `blacklistWrites.Add` and `.SetAction` follow the seconds with no assertion changed.
 
 ## Commits
 

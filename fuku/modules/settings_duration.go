@@ -89,6 +89,15 @@ func renderSettingsDuration(v settingsView, titleKey, action string, selected in
 // preset (storedAction and storedSecs) is marked only while the stored action is mode and effective, and Back opens
 // page, whose title the screen carries (titleKey).
 func settingsTimedDurationScreen(v settingsView, page, titleKey, act, k, mode, storedAction string, storedSecs int) *settingsScreen {
+	back := map[string]string{"a": settingsActOpen, "p": page}
+	return settingsTimedDurationScreenBack(v, titleKey, act, k, mode, storedAction, storedSecs, back)
+}
+
+// settingsTimedDurationScreenBack is settingsTimedDurationScreen with the Back press given by the caller: the
+// Blacklist page's duration screen returns to its action screen (a page action), not to the page.
+func settingsTimedDurationScreenBack(v settingsView, titleKey, act, k, mode, storedAction string, storedSecs int,
+	back map[string]string,
+) *settingsScreen {
 	selected := 0
 	if storedAction == mode && autoActionEffective(storedAction, storedSecs) {
 		selected = storedSecs
@@ -96,7 +105,6 @@ func settingsTimedDurationScreen(v settingsView, page, titleKey, act, k, mode, s
 	press := func(secs int) map[string]string {
 		return map[string]string{"a": act, "k": k, "v": strconv.Itoa(secs)}
 	}
-	back := map[string]string{"a": settingsActOpen, "p": page}
 	screen := renderSettingsDuration(v, titleKey, mode, selected, press, back, "")
 	return &screen
 }

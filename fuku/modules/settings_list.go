@@ -48,12 +48,14 @@ const (
 )
 
 // settingsListEntry is one row of a list as the engine sees it. Text is the stored word, keyword or name;
-// Action is the blacklist word's stored action; AdminOnly is a note's admin-only flag.
+// Action is the blacklist word's stored action and Secs its seconds (the duration of a timed action, Phase 26;
+// read only by the Blacklist page, zero on every other list page); AdminOnly is a note's admin-only flag.
 type settingsListEntry struct {
 	ID        int64
 	Text      string
 	AdminOnly bool
 	Action    string
+	Secs      int
 	// Detail, when set, follows the entry's text on its line after an arrow (the Reactions page's emoji). It is
 	// escaped like the text and never reaches a button, callback data or a log line.
 	Detail string

@@ -18,7 +18,8 @@ import (
 // The Blacklist page of the settings menu (page b, Phase 19) is a table of the list engine
 // (settings_list.go) plus the action screen. It lists the chat's blacklisted words eight a page, deletes one
 // behind a two-tap card that binds the row, and sets the action every word carries through
-// applyBlacklistAction, the function /blacklistaction uses. It reads through the fresh, chat-scoped,
+// applyBlacklistAction, the function /blacklistaction uses, a timed mute or ban with its duration included
+// (Phase 26, D-21: the timed row and the shared duration screen). It reads through the fresh, chat-scoped,
 // non-creating readers of the blacklists repository, never through the command's cached getter, which hides
 // its read error. It is private-only: a menu opened in the group shows only the framework's note.
 
@@ -29,6 +30,11 @@ const (
 	// action of every word (the field v, one of blacklistActionValues).
 	settingsActBlacklistOpen = "bo"
 	settingsActBlacklistSet  = "bs"
+	// settingsActBlacklistDuration opens the shared duration screen of a Timed mute or Timed ban cell (field k,
+	// settingsFloodTimedMute or settingsFloodTimedBan); settingsActBlacklistTimed sets that timed action with a
+	// preset's seconds for every word (fields k and v, a preset of settingsDurationPresets).
+	settingsActBlacklistDuration = "bd"
+	settingsActBlacklistTimed    = "bz"
 	// settingsBlacklistActionMaxRunes caps a stored action value that has no option word when it is shown.
 	settingsBlacklistActionMaxRunes = 16
 	// settingsBlacklistApplyTimeout bounds the writes of one typed message: a message holds at most about two thousand
@@ -69,7 +75,7 @@ var (
 
 // settingsBlacklistEntryOf is the engine's entry of a stored word.
 func settingsBlacklistEntryOf(row models.BlacklistSettings) settingsListEntry {
-	return settingsListEntry{ID: int64(row.ID), Text: row.Word, Action: row.Action}
+	return settingsListEntry{ID: int64(row.ID), Text: row.Word, Action: row.Action, Secs: row.ActionSecs}
 }
 
 // settingsBlacklistActionWord is the word of a stored action: the four option words of the commands, the
@@ -94,18 +100,29 @@ func settingsBlacklistActionWord(tr *i18n.Translator, action string) string {
 	return html.EscapeString(action)
 }
 
-// settingsBlacklistUniformAction returns the one action every word has, and false when the words differ or
-// there are none: the page claims a single action only when it is true of every word (C-02).
-func settingsBlacklistUniformAction(entries []settingsListEntry) (string, bool) {
+// settingsBlacklistEntryWord is the word of a stored action and its seconds: an effective timed action reads
+// settingsTimedWord ("Timed mute, 1 hour(s)", a duration no preset holds included), anything else
+// settingsBlacklistActionWord (a timed action stored with no duration as stored).
+func settingsBlacklistEntryWord(tr *i18n.Translator, action string, secs int) string {
+	if word, ok := settingsTimedWord(tr, action, secs); ok {
+		return word
+	}
+	return settingsBlacklistActionWord(tr, action)
+}
+
+// settingsBlacklistUniformAction returns the one action and seconds every word has, and false when the words
+// differ in either or there are none: the page claims a single action only when it is true of every word (C-02,
+// D-21).
+func settingsBlacklistUniformAction(entries []settingsListEntry) (string, int, bool) {
 	if len(entries) == 0 {
-		return "", false
+		return "", 0, false
 	}
 	for _, e := range entries[1:] {
-		if e.Action != entries[0].Action {
-			return "", false
+		if e.Action != entries[0].Action || e.Secs != entries[0].Secs {
+			return "", 0, false
 		}
 	}
-	return entries[0].Action, true
+	return entries[0].Action, entries[0].Secs, true
 }
 
 // settingsBlacklistActionLine is the action line of the list page and of the action screen: the action when
@@ -115,45 +132,60 @@ func settingsBlacklistActionLine(v settingsView, entries []settingsListEntry) []
 		return nil
 	}
 	word := settingsText(v.Tr, "settings_bl_action_mixed")
-	if action, ok := settingsBlacklistUniformAction(entries); ok {
-		word = settingsBlacklistActionWord(v.Tr, action)
+	if action, secs, ok := settingsBlacklistUniformAction(entries); ok {
+		word = settingsBlacklistEntryWord(v.Tr, action, secs)
 	}
 	return []string{settingsText(v.Tr, "settings_bl_action_line", i18n.TranslationParams{"action": word})}
 }
 
-// settingsBlacklistActionCounts counts the words by stored action.
-func settingsBlacklistActionCounts(entries []settingsListEntry) map[string]int {
-	counts := make(map[string]int)
+// settingsBlacklistValue is one stored value of the words: the action and its seconds.
+type settingsBlacklistValue struct {
+	Action string
+	Secs   int
+}
+
+// settingsBlacklistActionCounts counts the words by stored action and seconds.
+func settingsBlacklistActionCounts(entries []settingsListEntry) map[settingsBlacklistValue]int {
+	counts := make(map[settingsBlacklistValue]int)
 	for _, e := range entries {
-		counts[e.Action]++
+		counts[settingsBlacklistValue{Action: e.Action, Secs: e.Secs}]++
 	}
 	return counts
 }
 
-// settingsBlacklistActionsSorted lists the stored actions of the words, most words first, ties by value.
-func settingsBlacklistActionsSorted(counts map[string]int) []string {
-	actions := make([]string, 0, len(counts))
-	for action := range counts {
-		actions = append(actions, action)
+// settingsBlacklistActionsSorted lists the stored values of the words, most words first, ties by action and then
+// by seconds.
+func settingsBlacklistActionsSorted(counts map[settingsBlacklistValue]int) []settingsBlacklistValue {
+	values := make([]settingsBlacklistValue, 0, len(counts))
+	for value := range counts {
+		values = append(values, value)
 	}
-	slices.SortFunc(actions, func(a, b string) int {
+	slices.SortFunc(values, func(a, b settingsBlacklistValue) int {
 		if counts[a] != counts[b] {
 			return counts[b] - counts[a]
 		}
-		switch {
-		case a < b:
-			return -1
-		case a > b:
-			return 1
+		if c := strings.Compare(a.Action, b.Action); c != 0 {
+			return c
 		}
-		return 0
+		return a.Secs - b.Secs
 	})
-	return actions
+	return values
+}
+
+// settingsBlacklistActs reports whether a uniform stored value is one the page offers: an action of
+// blacklistActionValues with seconds 0, or an effective timed action. Anything else is drawn as stored with the
+// inert line.
+func settingsBlacklistActs(action string, secs int) bool {
+	if slices.Contains(blacklistActionValues, action) {
+		return secs == 0
+	}
+	return slices.Contains(blacklistTimedActions, action) && autoActionEffective(action, secs)
 }
 
 // settingsBlacklistActionBody is the action screen's body: the intro, the action line, one count line per stored
-// value (most words first) and the mixed hint when the words differ, the inert line for a uniform stored value the
-// command never writes, a blank line and the hint. An empty list has the intro and the no-words line only (U-10).
+// action and seconds (most words first) and the mixed hint when the words differ, the inert line for a uniform stored
+// value the page does not offer (settingsBlacklistActs: a timed action with no duration, a value the command never
+// writes), a blank line and the hint. An empty list has the intro and the no-words line only (U-10).
 func settingsBlacklistActionBody(v settingsView, entries []settingsListEntry) []string {
 	body := []string{settingsText(v.Tr, "settings_bl_action_intro")}
 	if len(entries) == 0 {
@@ -162,13 +194,13 @@ func settingsBlacklistActionBody(v settingsView, entries []settingsListEntry) []
 	body = append(body, settingsBlacklistActionLine(v, entries)...)
 	counts := settingsBlacklistActionCounts(entries)
 	if len(counts) > 1 {
-		for _, action := range settingsBlacklistActionsSorted(counts) {
+		for _, value := range settingsBlacklistActionsSorted(counts) {
 			body = append(body, settingsText(v.Tr, "settings_bl_action_count", i18n.TranslationParams{
-				"action": settingsBlacklistActionWord(v.Tr, action), "n": counts[action],
+				"action": settingsBlacklistEntryWord(v.Tr, value.Action, value.Secs), "n": counts[value],
 			}))
 		}
 		body = append(body, settingsText(v.Tr, "settings_bl_action_mixed_hint"))
-	} else if action, _ := settingsBlacklistUniformAction(entries); !slices.Contains(blacklistActionValues, action) {
+	} else if action, secs, _ := settingsBlacklistUniformAction(entries); !settingsBlacklistActs(action, secs) {
 		body = append(body, settingsText(v.Tr, "settings_bl_action_inert"))
 	}
 	return append(body, "", settingsText(v.Tr, "settings_bl_action_hint"))
@@ -190,15 +222,52 @@ func settingsBlacklistChoiceRow(k *settingsKeyboard, selected string, values ...
 	return row
 }
 
-// renderSettingsBlacklistAction draws the action screen (Screen 3): the body, the two choice rows with a check
-// mark only on the action every word has, and Back to the list (page 1) and Close. An empty list has no choices. It
-// is pure.
+// settingsBlacklistTimedRow builds the timed row [Timed mute | Timed ban]: each cell opens the shared duration screen
+// of its action (bd), and the cell of the effective timed action every word has (timed, its k) is marked.
+func settingsBlacklistTimedRow(k *settingsKeyboard, timed string) []gotgbot.InlineKeyboardButton {
+	var row []gotgbot.InlineKeyboardButton
+	for _, cell := range []struct{ k, key string }{
+		{settingsFloodTimedMute, "settings_opt_tmute"},
+		{settingsFloodTimedBan, "settings_opt_tban"},
+	} {
+		label := settingsText(k.view.Tr, cell.key)
+		if cell.k == timed {
+			label = settingsSelectedPrefix + label
+		}
+		if button, ok := k.button(label, map[string]string{"a": settingsActBlacklistDuration, "k": cell.k}); ok {
+			row = append(row, button)
+		}
+	}
+	return row
+}
+
+// settingsBlacklistSelected is the plain value and the timed cell an action screen marks: the uniform action of
+// blacklistActionValues with seconds 0, or the k of a uniform effective timed action; nothing for mixed words, a
+// timed action with no duration or a value the page does not offer.
+func settingsBlacklistSelected(entries []settingsListEntry) (plain, timed string) {
+	action, secs, ok := settingsBlacklistUniformAction(entries)
+	if !ok || !settingsBlacklistActs(action, secs) {
+		return "", ""
+	}
+	switch action {
+	case "tmute":
+		return "", settingsFloodTimedMute
+	case "tban":
+		return "", settingsFloodTimedBan
+	}
+	return action, ""
+}
+
+// renderSettingsBlacklistAction draws the action screen (Screen 3): the body, the two choice rows and the timed row
+// (rows [3 2 2 2] with the navigation) with a check mark only on the action and seconds every word has, and Back to
+// the list (page 1) and Close. An empty list has no choices. It is pure.
 func renderSettingsBlacklistAction(v settingsView, entries []settingsListEntry, notice string) settingsScreen {
 	k := newSettingsKeyboard(v)
 	if len(entries) > 0 {
-		selected, _ := settingsBlacklistUniformAction(entries)
+		selected, timed := settingsBlacklistSelected(entries)
 		k.row(settingsBlacklistChoiceRow(k, selected, "warn", "mute", "kick")...)
 		k.row(settingsBlacklistChoiceRow(k, selected, "ban", "none")...)
+		k.row(settingsBlacklistTimedRow(k, timed)...)
 	}
 	var nav []gotgbot.InlineKeyboardButton
 	if back, ok := k.button(settingsText(v.Tr, "settings_btn_back"), map[string]string{"a": settingsActOpen, "p": settingsPageBlacklist}); ok {
@@ -239,14 +308,30 @@ func settingsBlacklistRunOpen(p *settingsPress) *settingsScreen {
 func settingsBlacklistRunSet(p *settingsPress) *settingsScreen {
 	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
 	defer cancel()
-	notice := ""
-	switch applyBlacklistAction(ctx, p.group.Id, p.fields["v"], 0).Outcome {
+	return settingsBlacklistRedrawSet(p, applyBlacklistAction(ctx, p.group.Id, p.fields["v"], 0).Outcome)
+}
+
+// settingsBlacklistNotice is the notice of an action write: the no-words line, the save-failed line, or none for a
+// stored action (a press of the action every word has writes the same rows again and shows no notice). ok is false for
+// an outcome step 1 cannot let through (an unknown action or a bad duration).
+func settingsBlacklistNotice(tr *i18n.Translator, outcome blacklistActionOutcome) (string, bool) {
+	switch outcome {
 	case blacklistActionNoWords:
-		notice = settingsNoticeWarn(settingsText(p.tr, "settings_bl_action_no_words"))
+		return settingsNoticeWarn(settingsText(tr, "settings_bl_action_no_words")), true
 	case blacklistActionSaveFailed:
-		notice = settingsNoticeWarn(settingsText(p.tr, "common_settings_save_failed"))
-	case blacklistActionUnknown:
-		// Unreachable: step 1 only lets the command's own values through.
+		return settingsNoticeWarn(settingsText(tr, "common_settings_save_failed")), true
+	case blacklistActionUnknown, blacklistActionBadDuration:
+		return "", false
+	}
+	return "", true
+}
+
+// settingsBlacklistRedrawSet answers the press of an action write and redraws the action screen from a fresh read
+// with the outcome's notice, the one ending of bs and bz.
+func settingsBlacklistRedrawSet(p *settingsPress, outcome blacklistActionOutcome) *settingsScreen {
+	notice, ok := settingsBlacklistNotice(p.tr, outcome)
+	if !ok {
+		// Unreachable: step 1 only lets the command's own values and the presets through.
 		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
 		return nil
 	}
@@ -258,6 +343,43 @@ func settingsBlacklistRunSet(p *settingsPress) *settingsScreen {
 		return nil
 	}
 	return &screen
+}
+
+// settingsBlacklistRunDuration handles bd: a fresh read and the shared duration screen of the timed action k names,
+// whose presets press bz with the same k, with the preset every word has marked only while that timed action is
+// every word's and effective, and Back to the action screen. An unreadable list is the cannot-open edit.
+func settingsBlacklistRunDuration(p *settingsPress) *settingsScreen {
+	k := p.fields["k"]
+	mode, ok := settingsFloodTimedMode(k)
+	if !ok {
+		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
+		return nil
+	}
+	def, _ := settingsListByPage(settingsPageBlacklist)
+	entries, err := settingsListLoad(p, def)
+	if err != nil {
+		log.Warnf("[Settings] the blacklist duration screen of chat %d could not be read: %v", p.group.Id, err)
+		p.cannotOpen()
+		return nil
+	}
+	action, secs, _ := settingsBlacklistUniformAction(entries)
+	return settingsTimedDurationScreenBack(p.view(), "settings_page_blacklist", settingsActBlacklistTimed, k, mode,
+		action, secs, map[string]string{"a": settingsActBlacklistOpen})
+}
+
+// settingsBlacklistRunTimed handles bz: the timed action k names with the preset's seconds for every word through
+// applyBlacklistAction, the function /blacklistaction uses, then the action screen from a fresh read with the same
+// notices as bs.
+func settingsBlacklistRunTimed(p *settingsPress) *settingsScreen {
+	mode, okMode := settingsFloodTimedMode(p.fields["k"])
+	secs, okSecs := settingsDurationPreset(p.fields["v"])
+	if !okMode || !okSecs {
+		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
+	defer cancel()
+	return settingsBlacklistRedrawSet(p, applyBlacklistAction(ctx, p.group.Id, mode, secs).Outcome)
 }
 
 // settingsBlacklistAddRow is the part of the row after the pager that follows the Add button: the Action button on a
@@ -273,7 +395,8 @@ func settingsBlacklistAddRow(k *settingsKeyboard, entries []settingsListEntry) [
 	return []gotgbot.InlineKeyboardButton{button}
 }
 
-// settingsBlacklistActions are the page's own actions: the action screen and the action set.
+// settingsBlacklistActions are the page's own actions: the action screen, the action set, the duration screen and the
+// timed action set.
 func settingsBlacklistActions() map[string]settingsPageAction {
 	return map[string]settingsPageAction{
 		settingsActBlacklistOpen: {
@@ -288,6 +411,24 @@ func settingsBlacklistActions() map[string]settingsPageAction {
 				return settingsListPrivateField(fields) && slices.Contains(blacklistActionValues, fields["v"])
 			},
 			Run: settingsBlacklistRunSet,
+		},
+		// The timed row (Phase 26, D-21): a cell opens the shared duration screen with the live admin check alone; a
+		// preset stores the timed action for every word with the ninth right, as /blacklistaction asks.
+		settingsActBlacklistDuration: {
+			Fields: []string{"k"},
+			Right:  settingsRightAdmin,
+			Validate: func(fields map[string]string) bool {
+				return settingsListPrivateField(fields) && settingsFloodDurationFields(fields)
+			},
+			Run: settingsBlacklistRunDuration,
+		},
+		settingsActBlacklistTimed: {
+			Fields: []string{"k", "v"},
+			Right:  settingsRightRestrictBotRestrict,
+			Validate: func(fields map[string]string) bool {
+				return settingsListPrivateField(fields) && settingsFloodTimedFields(fields)
+			},
+			Run: settingsBlacklistRunTimed,
 		},
 	}
 }
@@ -400,7 +541,7 @@ func settingsBlacklistTypedWords(text string) []string {
 func settingsBlacklistRows(entries []settingsListEntry) models.BlacklistSettingsSlice {
 	rows := make(models.BlacklistSettingsSlice, 0, len(entries))
 	for _, e := range entries {
-		rows = append(rows, &models.BlacklistSettings{Word: e.Text, Action: e.Action})
+		rows = append(rows, &models.BlacklistSettings{Word: e.Text, Action: e.Action, ActionSecs: e.Secs})
 	}
 	return rows
 }
@@ -513,8 +654,12 @@ func settingsBlacklistDef() settingsListDef {
 		BodyExtra:   settingsBlacklistActionLine,
 		AddRowExtra: settingsBlacklistAddRow,
 		Actions:     settingsBlacklistActions(),
-		// A notice refusal of the action set (the bot cannot restrict) redraws the action screen it came from.
-		Redraw: map[string]func(*settingsPress, string) (settingsScreen, error){settingsActBlacklistSet: settingsBlacklistDrawAction},
+		// A notice refusal of an action write (the bot cannot restrict) redraws the action screen it came from.
+		Redraw: map[string]func(*settingsPress, string) (settingsScreen, error){
+			settingsActBlacklistSet:      settingsBlacklistDrawAction,
+			settingsActBlacklistTimed:    settingsBlacklistDrawAction,
+			settingsActBlacklistDuration: settingsBlacklistDrawAction,
+		},
 	}
 }
 

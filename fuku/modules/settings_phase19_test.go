@@ -50,6 +50,8 @@ func settingsPhase19Codes(minute string) []settingsPhase19Code {
 		{"bc", settingsPageBlacklist, map[string]string{"t": "w"}},
 		{"bo", settingsPageBlacklist, map[string]string{}},
 		{"bs", settingsPageBlacklist, map[string]string{"v": "warn"}},
+		{"bd", settingsPageBlacklist, map[string]string{"k": "m"}},
+		{"bz", settingsPageBlacklist, map[string]string{"k": "b", "v": "86400"}},
 		{"ig", settingsPageFilters, map[string]string{"v": "1"}},
 		{"ix", settingsPageFilters, map[string]string{"r": "5", "v": "1"}},
 		{"iy", settingsPageFilters, map[string]string{"r": "5", "e": minute}},
