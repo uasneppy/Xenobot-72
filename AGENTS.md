@@ -2838,8 +2838,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`aispamNoticeRedisClient`, `raidRedis` by default), a Redis error or a refusal posts nothing and offers no private copy. The
   engine asks it only when the notice or its private copy is on, so a group that never turned the notice on spends no Redis
   command on it. `fuku:aispam:notice:pace:next` and `fuku:aispam:notice:pace:block` are the notice's own fleet pacer
-  (`aispamNoticePaced`, `aispamNoticePacer` built from `aispamNoticePacerOptions`: 200 ms, 1 retry, `MaxWait` 2 s, each send
-  bounded by 10 s and derived from `aispamContext()`), so a wave of notices spends no other pacer's slots and a blocked pacer
+  (`aispamNoticePaced`, `aispamNoticePacer` built from `aispamNoticePacerOptions`: 200 ms, 1 retry, `MaxWait` 2 s, each pacer
+  wait bounded by 10 s and derived from `aispamContext()`; the two sends take no context, so the request itself is bounded by
+  the HTTP client's 30 s timeout, as for the private copy job), so a wave of notices spends no other pacer's slots and a blocked pacer
   fails the notice at once. All of them sit outside the `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps them.
 - `fuku:delete:norights:<chat>` is the 10 minute negative latch of a chat the bot cannot act in (`deletionLatchKey`,
   `deletionLatched`, `deletionSetLatch`, `deletionLatchTTL`), outside the `fuku:cache:` prefix so `CLEAR_CACHE_ON_STARTUP`
