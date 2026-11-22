@@ -29,8 +29,8 @@ func settingsWarnsTimedLine(optKey, unitKey string, n int) string {
 // settingsWarnsTimedRow returns the timed row of the Warnings page's keyboard after checking the page's widths.
 func settingsWarnsTimedRow(t *testing.T, keyboard [][]gotgbot.InlineKeyboardButton) []gotgbot.InlineKeyboardButton {
 	t.Helper()
-	if widths := settingsWarnsWidths(keyboard); fmt.Sprint(widths) != "[5 3 2 2]" {
-		t.Fatalf("Warnings page keyboard widths = %v, want [5 3 2 2]", widths)
+	if widths := settingsWarnsWidths(keyboard); fmt.Sprint(widths) != "[5 3 2 1 2]" {
+		t.Fatalf("Warnings page keyboard widths = %v, want [5 3 2 1 2]", widths)
 	}
 	return keyboard[2]
 }
@@ -198,8 +198,8 @@ func TestSettingsWarnsTimed(t *testing.T) {
 					if units := panelUTF16Len(screen.Text); units > 3800 || units == 0 {
 						t.Errorf("%s is %d UTF-16 units, want 1..3800", label, units)
 					}
-					if widths := settingsWarnsWidths(screen.Keyboard.InlineKeyboard); fmt.Sprint(widths) != "[5 3 2 2]" {
-						t.Errorf("%s keyboard widths = %v, want [5 3 2 2]", label, widths)
+					if widths := settingsWarnsWidths(screen.Keyboard.InlineKeyboard); fmt.Sprint(widths) != "[5 3 2 1 2]" {
+						t.Errorf("%s keyboard widths = %v, want [5 3 2 1 2]", label, widths)
 					}
 					for _, button := range settingsAllButtons(screen.Keyboard.InlineKeyboard) {
 						if n := len(button.CallbackData); n < 1 || n > 64 {

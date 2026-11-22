@@ -117,6 +117,12 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_duration_intro_tban":  {120, 170},
 	"settings_duration_hint":        {100, 140},
 
+	// The Warnings page's warn expiry: its line, its full-width button and the expiry screen (Phase 26, plan 26-07).
+	"settings_warns_expiry_line":  {30, 50},
+	"settings_btn_warns_expiry":   {24, 30},
+	"settings_warns_expiry_intro": {90, 130},
+	"settings_warns_expiry_hint":  {180, 240},
+
 	// The settings hub and the owner gate (plan 10-02). The ceilings are the UI-SPEC "New
 	// locale keys" columns; the alert and reply rows are held lower than Telegram's 200 so a
 	// long translation still fits.
@@ -1265,6 +1271,26 @@ func TestSettingsLabelLengths(t *testing.T) {
 				label := "✅ " + strings.ReplaceAll(settingsLocaleString(t, lang, data, preset.key), "{n}", preset.n)
 				if runes := utf8.RuneCountInString(label); runes > gridMax {
 					t.Errorf("%s: duration cell %q (%s) has %d characters, ceiling %d", lang, label, preset.key, runes, gridMax)
+				}
+			}
+
+			// The warn expiry (Phase 26, plan 26-07): the expiry screen's preset cells are half-width, at most 20 code
+			// points with the check mark (Off, the days and the weeks the presets read as); the Warnings page's expiry
+			// button is full-width, at most 40 with its longest state.
+			expiryStates := []string{settingsLocaleString(t, lang, data, "settings_state_off_plain")}
+			for _, preset := range []struct{ key, n string }{
+				{"staff_act_duration_days", "90"}, {"staff_act_duration_weeks", "2"},
+			} {
+				expiryStates = append(expiryStates, strings.ReplaceAll(settingsLocaleString(t, lang, data, preset.key), "{n}", preset.n))
+			}
+			expiryButton := settingsLocaleString(t, lang, data, "settings_btn_warns_expiry")
+			for _, state := range expiryStates {
+				if runes := utf8.RuneCountInString("✅ " + state); runes > gridMax {
+					t.Errorf("%s: expiry cell %q has %d characters, ceiling %d", lang, "✅ "+state, runes, gridMax)
+				}
+				rendered := strings.ReplaceAll(expiryButton, "{state}", state)
+				if runes := utf8.RuneCountInString(rendered); runes > accessToggle {
+					t.Errorf("%s: expiry button %q has %d characters, ceiling %d", lang, rendered, runes, accessToggle)
 				}
 			}
 

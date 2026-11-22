@@ -68,6 +68,9 @@ const (
 	// warnSettingsBadDuration means a timed mode (tban, tmute) came with a duration outside
 	// punishMinSecs to punishMaxSecs; nothing was written.
 	warnSettingsBadDuration
+	// warnSettingsBadExpiry means a warn expiry outside 0 to models.WarnExpiryMaxDays days; nothing
+	// was written.
+	warnSettingsBadExpiry
 )
 
 // warnSettingsResult is the verdict of an apply function. Key is the locale key the command
@@ -81,16 +84,19 @@ type warnSettingsResult struct {
 	Err     error
 }
 
-// warnSettingsWriter holds the two repository writes of the warn settings, so a test can make
+// warnSettingsWriter holds the three repository writes of the warn settings, so a test can make
 // one fail. Each write drops its own cache key. Mode writes the action and its duration in seconds
-// (0 for a plain action) together.
+// (0 for a plain action) together; Expiry writes the warn expiry in days (0 is off).
 type warnSettingsWriter struct {
-	Limit func(chatID int64, limit int) error
-	Mode  func(ctx context.Context, chatID int64, mode string, secs int) error
+	Limit  func(chatID int64, limit int) error
+	Mode   func(ctx context.Context, chatID int64, mode string, secs int) error
+	Expiry func(ctx context.Context, chatID int64, days int) error
 }
 
 // warnSettingsWrites is the write seam of the warn settings; production uses the repository.
-var warnSettingsWrites = warnSettingsWriter{Limit: warns.SetWarnLimit, Mode: warns.SetWarnModeContext}
+var warnSettingsWrites = warnSettingsWriter{
+	Limit: warns.SetWarnLimit, Mode: warns.SetWarnModeContext, Expiry: warns.SetWarnExpiryContext,
+}
 
 // warnReadBack reads the chat's warn settings after a write. A failed read-back is logged and
 // returns nil; the write already happened.
@@ -138,6 +144,21 @@ func applyWarnMode(ctx context.Context, chatID int64, mode string, secs int) war
 		return warnSettingsResult{Outcome: warnSettingsSaveFailed, Key: "common_settings_save_failed", Err: err}
 	}
 	return warnSettingsResult{Key: "warns_mode_updated_" + mode, Stored: warnReadBack(ctx, chatID)}
+}
+
+// applyWarnExpiry validates and stores the group's warn expiry in days: 0 (off) to
+// models.WarnExpiryMaxDays, anything else is warnSettingsBadExpiry with nothing written. The
+// repository write drops warn_settings:<chat>; no warns key needs dropping, because the warns cache
+// holds the raw row and counts at read time. There is no command: the Warnings page's expiry screen
+// is its one caller, which logs a failed write by the chat ID. It judges no person's rights.
+func applyWarnExpiry(ctx context.Context, chatID int64, days int) warnSettingsResult {
+	if days < 0 || days > models.WarnExpiryMaxDays {
+		return warnSettingsResult{Outcome: warnSettingsBadExpiry, Key: "common_callback_invalid_request"}
+	}
+	if err := warnSettingsWrites.Expiry(ctx, chatID, days); err != nil {
+		return warnSettingsResult{Outcome: warnSettingsSaveFailed, Key: "common_settings_save_failed", Err: err}
+	}
+	return warnSettingsResult{Stored: warnReadBack(ctx, chatID)}
 }
 
 // warnModeArgs reads the arguments of /setwarnmode: the lower-cased first word and the seconds to

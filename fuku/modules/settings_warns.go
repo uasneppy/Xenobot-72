@@ -33,7 +33,20 @@ const (
 	// the timed ban.
 	settingsWarnsTimedMute = "m"
 	settingsWarnsTimedBan  = "b"
+	// settingsActWarnsExpiryOpen is the action code of the expiry button: it opens the expiry screen (no field).
+	settingsActWarnsExpiryOpen = "ne"
+	// settingsActWarnsExpiry is the action code of a preset of the expiry screen: it stores the warn expiry
+	// (field v, the days of a preset of settingsWarnsExpiryPresets).
+	settingsActWarnsExpiry = "nx"
 )
+
+// settingsWarnsExpiryPresets are the warn expiries the expiry screen offers, in days, drawn two to a row in this
+// order: Off, 1 day, 3 days, 1 week, 2 weeks, 30 days and 90 days (P-16). Any other value up to
+// models.WarnExpiryMaxDays can only come from outside the page (a backup import), and the page draws it as stored.
+var settingsWarnsExpiryPresets = []int{0, 1, 3, 7, 14, 30, 90}
+
+// settingsWarnsExpiryPresetDigits is the length of the longest preset's decimal form (90).
+const settingsWarnsExpiryPresetDigits = 2
 
 // The warn limit is settingsWarnsMinLimit to settingsWarnsMaxLimit, the range applyWarnLimit
 // enforces (the command's own bounds).
@@ -90,6 +103,13 @@ func init() {
 				Fields: []string{"k", "v"}, Right: settingsRightAdminFloodBot,
 				Validate: settingsWarnsTimedFields, Run: settingsWarnsSetTimed,
 			},
+			// The warn expiry (Phase 26, D-38): the button opens the expiry screen with the live admin check
+			// alone; a preset stores the expiry through applyWarnExpiry with the right of the warn commands.
+			settingsActWarnsExpiryOpen: {Right: settingsRightAdmin, Run: settingsWarnsOpenExpiry},
+			settingsActWarnsExpiry: {
+				Fields: []string{"v"}, Right: settingsRightAdminFloodBot,
+				Validate: settingsWarnsExpiryFields, Run: settingsWarnsSetExpiry,
+			},
 		},
 	})
 }
@@ -120,6 +140,37 @@ func settingsWarnsTimedFields(fields map[string]string) bool {
 	}
 	_, ok := settingsDurationPreset(fields["v"])
 	return ok
+}
+
+// settingsWarnsExpiryPreset reads the v of an expiry preset press: exactly the canonical decimal days of one of
+// settingsWarnsExpiryPresets (no sign, space or leading zero), so a forged value is refused in step 1 of the press
+// pipeline, before any I/O.
+func settingsWarnsExpiryPreset(v string) (int, bool) {
+	days, ok := settingsParseNumber(v, settingsWarnsExpiryPresetDigits)
+	if !ok || strconv.Itoa(days) != v || !slices.Contains(settingsWarnsExpiryPresets, days) {
+		return 0, false
+	}
+	return days, true
+}
+
+// settingsWarnsExpiryFields is the strict check of an nx press: v is a preset.
+func settingsWarnsExpiryFields(fields map[string]string) bool {
+	_, ok := settingsWarnsExpiryPreset(fields["v"])
+	return ok
+}
+
+// settingsWarnsExpiryLabel is the word of a warn expiry: Off for 0, else punishDurationLabel of the days, the form
+// /warnings shows ("1 week(s)" for 7 days), so the page and the command never disagree.
+func settingsWarnsExpiryLabel(tr *i18n.Translator, days int) string {
+	if days <= 0 {
+		return settingsText(tr, "settings_state_off_plain")
+	}
+	return punishDurationLabel(tr, days*86400)
+}
+
+// settingsWarnsExpiryLine is the expiry line of the page and of the expiry screen.
+func settingsWarnsExpiryLine(tr *i18n.Translator, days int) string {
+	return settingsText(tr, "settings_warns_expiry_line", i18n.TranslationParams{"state": settingsWarnsExpiryLabel(tr, days)})
 }
 
 // settingsWarnsMainState is the Warnings button's state: "Limit {n}, {action}".
@@ -207,7 +258,7 @@ func renderSettingsWarns(v settingsView, s *models.WarnSettings, notice string) 
 	default:
 		body = append(body, settingsText(v.Tr, "settings_warns_action_inert"))
 	}
-	body = append(body, "", settingsText(v.Tr, "settings_warns_hint"))
+	body = append(body, settingsWarnsExpiryLine(v.Tr, s.ExpiryDays), "", settingsText(v.Tr, "settings_warns_hint"))
 	k := newSettingsKeyboard(v)
 	k.row(settingsStepperRow(k, settingsPageWarns, settingsWarnsLimitKey, s.WarnLimit,
 		[]int{-10, -1, 1, 10}, settingsWarnsStepTarget, strconv.Itoa(s.WarnLimit))...)
@@ -230,8 +281,50 @@ func renderSettingsWarns(v settingsView, s *models.WarnSettings, notice string) 
 		}
 	}
 	k.row(timedRow...)
+	if button, ok := k.button(settingsText(v.Tr, "settings_btn_warns_expiry", i18n.TranslationParams{
+		"state": settingsWarnsExpiryLabel(v.Tr, s.ExpiryDays),
+	}), map[string]string{"a": settingsActWarnsExpiryOpen}); ok {
+		k.row(button)
+	}
 	k.navRow(false)
 	return k.screen(settingsCompose(v, "settings_page_warns", body, notice, false))
+}
+
+// renderSettingsWarnsExpiry draws the expiry screen: the header naming the Warnings page, the intro, the expiry line
+// with the stored value (also one that is no preset), the hint, then the presets two to a row (Off, then each
+// punishDurationLabel of the days; the stored one prefixed with settingsSelectedPrefix, a stored value that is no
+// preset marks nothing), then Back to the Warnings page and Close. It is pure.
+func renderSettingsWarnsExpiry(v settingsView, s *models.WarnSettings) settingsScreen {
+	body := []string{
+		settingsText(v.Tr, "settings_warns_expiry_intro"),
+		settingsWarnsExpiryLine(v.Tr, s.ExpiryDays),
+		"",
+		settingsText(v.Tr, "settings_warns_expiry_hint"),
+	}
+	k := newSettingsKeyboard(v)
+	presets := settingsWarnsExpiryPresets
+	for i := 0; i < len(presets); i += 2 {
+		var row []gotgbot.InlineKeyboardButton
+		for _, days := range presets[i:min(i+2, len(presets))] {
+			label := settingsWarnsExpiryLabel(v.Tr, days)
+			if days == s.ExpiryDays {
+				label = settingsSelectedPrefix + label
+			}
+			if button, ok := k.button(label, map[string]string{"a": settingsActWarnsExpiry, "v": strconv.Itoa(days)}); ok {
+				row = append(row, button)
+			}
+		}
+		k.row(row...)
+	}
+	var nav []gotgbot.InlineKeyboardButton
+	if back, ok := k.button(settingsText(v.Tr, "settings_btn_back"), map[string]string{"a": settingsActOpen, "p": settingsPageWarns}); ok {
+		nav = append(nav, back)
+	}
+	if closeButton, ok := k.button(settingsText(v.Tr, "settings_btn_close"), map[string]string{"a": settingsActClose}); ok {
+		nav = append(nav, closeButton)
+	}
+	k.row(nav...)
+	return k.screen(settingsCompose(v, "settings_page_warns", body, "", false))
 }
 
 // settingsWarnsNotice is the notice line of an apply outcome: none for a stored value, the
@@ -244,8 +337,8 @@ func settingsWarnsNotice(p *settingsPress, result warnSettingsResult, word strin
 		return settingsNoticeWarn(settingsText(p.tr, result.Key))
 	case warnSettingsUnknownMode:
 		return settingsNoticeWarn(fmt.Sprintf(settingsText(p.tr, result.Key), html.EscapeString(word)))
-	case warnSettingsBadDuration:
-		// Unreachable from a valid press: an nt press carries a preset, which applyWarnMode accepts.
+	case warnSettingsBadDuration, warnSettingsBadExpiry:
+		// Unreachable from a valid press: an nt or nx press carries a preset, which the apply function accepts.
 		return settingsNoticeWarn(settingsText(p.tr, result.Key))
 	case warnSettingsSaveFailed:
 		log.Errorf("[Settings] warn settings write for chat %d failed: %v", p.group.Id, result.Err)
@@ -375,4 +468,37 @@ func settingsWarnsSetTimed(p *settingsPress) *settingsScreen {
 		return nil
 	}
 	return settingsWarnsRedraw(ctx, p, applyWarnMode(ctx, p.group.Id, mode, secs), before, mode)
+}
+
+// settingsWarnsOpenExpiry draws the expiry screen from the stored settings. An unreadable setting is the
+// cannot-open edit. Opening it writes nothing.
+func settingsWarnsOpenExpiry(p *settingsPress) *settingsScreen {
+	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
+	defer cancel()
+
+	before, ok := settingsWarnsReadBefore(ctx, p)
+	if !ok {
+		return nil
+	}
+	screen := renderSettingsWarnsExpiry(p.view(), before)
+	return &screen
+}
+
+// settingsWarnsSetExpiry stores the warn expiry of an nx press through applyWarnExpiry and redraws the Warnings page
+// from its read-back (its expiry line confirms the choice). A press of the stored value writes the same row again
+// and shows no notice. Raising the expiry never brings back a warn already dropped from a member's record.
+func settingsWarnsSetExpiry(p *settingsPress) *settingsScreen {
+	days, ok := settingsWarnsExpiryPreset(p.fields["v"])
+	if !ok {
+		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
+	defer cancel()
+
+	before, ok := settingsWarnsReadBefore(ctx, p)
+	if !ok {
+		return nil
+	}
+	return settingsWarnsRedraw(ctx, p, applyWarnExpiry(ctx, p.group.Id, days), before, "")
 }

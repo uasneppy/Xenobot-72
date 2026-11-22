@@ -1170,9 +1170,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   for an effective timed mode (`autoActionEffective`), else the Antiflood words of `settingsFloodActionWord`, the stored text
   escaped for a value outside them, `settings_state_not_set` for an empty mode). The body is the limit line
   (`settings_warns_limit`), the action line (`settings_warns_action`), the inert line while `autoActionEffective(mode, secs)` is
-  false, a blank line and the hint (`settings_warns_hint`); the keyboard is the stepper, the choice row `[Mute | Ban | Kick]`,
-  the timed row `[Timed mute | Timed ban]` (Phase 26, plan 26-03, `settings_opt_tmute` and `settings_opt_tban`) and Back and
-  Close, widths 5, 3, 2 and 2 in a group menu and in a private one, the largest button 48 bytes (private) and 44 (group). A
+  false, the expiry line (`settings_warns_expiry_line`, Phase 26 plan 26-07), a blank line and the hint (`settings_warns_hint`);
+  the keyboard is the stepper, the choice row `[Mute | Ban | Kick]`, the timed row `[Timed mute | Timed ban]` (Phase 26, plan
+  26-03, `settings_opt_tmute` and `settings_opt_tban`), the full-width expiry button (`settings_btn_warns_expiry`, `🕒 {state}`
+  with a word) and Back and Close, widths 5, 3, 2, 1 and 2 in a group menu and in a private one, the largest button 48 bytes
+  (private) and 44 (group). A
   mode `/setwarnmode` accepts without a duration is marked in the choice row and an effective timed mode in the timed row (the
   choice row then marks nothing). There are two controls,
   both `st` only (`Actions`, so a `tg` is an invalid request before any I/O) and both with right `settingsRightAdminFloodBot`
@@ -1201,7 +1203,24 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   writes the same row again and shows no notice; `warnSettingsBadDuration`, unreachable from a valid press, is a warn notice).
   A duration a command stored that is no preset (`/setwarnmode tmute 90m`) is drawn on the action line by its label and marks no
   preset. A refusal the framework answers with a notice (the bot is not an administrator) redraws through the page's `Open`,
-  the Warnings page. The duration screen is 47 bytes at its largest (the 30-day preset, private) and 43 in a group menu. A
+  the Warnings page. The duration screen is 47 bytes at its largest (the 30-day preset, private) and 43 in a group menu. The warn
+  expiry (Phase 26, plan 26-07, TUNE-03, D-38) has no command: the expiry line and button read Off or the expiry as `/warnings`
+  shows it (`settingsWarnsExpiryLabel`: `settings_state_off_plain` for 0, else `punishDurationLabel(tr, days*86400)`, so 7 and 14
+  days read as weeks and the page and the command never disagree). The button presses the page action `ne` (no field, right
+  `settingsRightAdmin`, so it opens with the live admin check alone and writes nothing), which draws the pure expiry screen
+  (`renderSettingsWarnsExpiry`: the page header, `settings_warns_expiry_intro`, the expiry line, `settings_warns_expiry_hint`, which
+  says an expired warn stops counting at once, is dropped from the member's record at their next warn change and is not brought back
+  by raising the expiry later, then the presets `settingsWarnsExpiryPresets` 0, 1, 3, 7, 14, 30 and 90 days two to a row, Off and the
+  `punishDurationLabel` words, the stored one marked and a stored value that is no preset (a backup import) drawn on the line and
+  marking nothing, then Back to the page `a=op&p=n` and Close: rows `[2 2 2 1 2]`). Each preset presses `nx` (field exactly `v`, the
+  canonical decimal days of a preset by `settingsWarnsExpiryPreset`, so 2, 366, 007, -1, an empty or missing `v` and an extra key are
+  invalid requests in step 1 before any lookup; right `settingsRightAdminFloodBot`, the right of the warn commands), whose Run stores
+  through `applyWarnExpiry(ctx, chatID, days)` in `warns.go` (the expiry's one write path, beside `applyWarnMode`: a value outside 0
+  to `models.WarnExpiryMaxDays` is `warnSettingsBadExpiry` with nothing written, unreachable from a valid press; the write goes
+  through the seam `warnSettingsWrites.Expiry`, default `warns.SetWarnExpiryContext`, which drops `warn_settings:<chat>`; a failed
+  write is `common_settings_save_failed`; it judges no person's rights) and redraws the page from the read-back (a press of the stored
+  value writes the same row again and shows no notice). The expiry screen is 38 bytes at its largest (the 90-day preset,
+  private) and 34 in a group menu, so the page's largest stays 48 and 44. It also works in a menu opened in the group (P-21). A
   stored `tban` or `tmute` with no duration (`warn_mode_secs` 0) or an empty action (the table's CHECK allows them) applies
   nothing at the limit, so the page draws the stored word or Not set, adds `settings_warns_action_inert` and marks no choice; a
   press of Mute, Ban, Kick or a timed preset replaces it. The Antiflood note
@@ -1218,7 +1237,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestSettingsWarnsPageFitsEveryLocale` and `TestSettingsWarnsReadsCreateNothing` hold it (`settings_warns_test.go`,
   `settings_warns_screens_test.go`), with the timed row's `TestSettingsWarnsTimed`, `TestSettingsParityWarnTimed`,
   `TestSettingsDriftWarnTimed`, `TestSettingsAuthorityParityWarnTimed` and `TestSettingsWarnsTimedForged`
-  (`settings_warns_timed_test.go`).
+  (`settings_warns_timed_test.go`), and the expiry's `TestSettingsWarnsExpiry`, `TestSettingsDriftWarnExpiry`,
+  `TestSettingsAuthorityWarnExpiry` and `TestSettingsWarnsExpiryForged` (`settings_warns_expiry_test.go`; no command exists, so the
+  drift and authority tests stand in for a parity test).
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
@@ -2138,8 +2159,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `/captchaaction`, the editor's Welcome and Goodbye switches and Greet once). `settingsRightAdminBotAdmin` also needs `chat_status.IsBotAdmin` and refuses with the notice
   `chat_status_bot_not_admin` (`/captcha`). `settingsRightAdminFloodBot` also needs `chat_status.IsUserAdmin(b, chat, b.Id)`
   and refuses with the notice `connections_is_user_connected_bot_not_admin` (`/setflood`, `/setfloodmode`, `/delflood`; also the
-  Warnings page's controls and its timed preset press `nt`, as `/setwarnlimit` and `/setwarnmode`, while the duration screen's
-  `nd` needs only `settingsRightAdmin`; and the Antiflood page's timed preset press `ft`, as `/setfloodmode`, while its `fd` needs
+  Warnings page's controls, its timed preset press `nt` and its expiry preset press `nx`, as `/setwarnlimit` and `/setwarnmode`,
+  while the duration screen's `nd` and the expiry screen's `ne` need only `settingsRightAdmin`; and the Antiflood page's timed preset press `ft`, as `/setfloodmode`, while its `fd` needs
   only `settingsRightAdmin`).
   `settingsRightRestrict` needs the creator or an administrator with `can_restrict_members` from the same member record
   (`staffIssuerSkipReason`) and refuses with the alert `settings_no_restrict` (lockdown lift and triggers). The user check
@@ -3214,7 +3235,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   Only while the group's expiry is on, `/warns` ends with the plain-text line `warns_expiry_note` (`/warns` sends no parse mode) and
   `/warnings` adds the line `warns_settings_expiry`, both naming the expiry through `punishDurationLabel` (`{duration}`); with expiry
   off every reply is byte for byte (`TestLegacyTimedPunishmentRequests`). `/resetallwarns` still counts rows to decide whether to show
-  its confirm card (accepted). The expiry has no command: plan 26-07's Warnings page sets it (`TestWarnExpiry`).
+  its confirm card (accepted). The expiry has no command: the Warnings page's expiry screen sets it (`nx`, `applyWarnExpiry`,
+  plan 26-07; `TestWarnExpiry`, `TestSettingsWarnsExpiry`).
 - Fed-ban lookups cache per `(fed, user)` with a negative sentinel; every ban/unban write must invalidate it.
 - A join arrives as both `ChatMemberUpdated` and a service message; dedupe through `claimRecentJoinProcessing`
   (the lockdown guard, which runs first, dedupes by its joiner row instead and never gates a ban on Redis).
