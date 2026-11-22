@@ -6758,6 +6758,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestImportSanitizesPunishmentSettings` (`fuku/db/backup/punish_import_test.go`). `TestAllModulesRoundTripEveryMeaningfulField` gained
   the antiflood `tmute` 1800, the blacklist word's `tban` 86400, the warn settings' `tmute` 7200 and expiry 30 and a member's warn
   times in its seeds and checks.
+  Plan 26-07's families (the expiry on the Warnings page) are `TestSettingsWarnsExpiry`, `TestSettingsDriftWarnExpiry`,
+  `TestSettingsAuthorityWarnExpiry` and `TestSettingsWarnsExpiryForged` (`fuku/modules/settings_warns_expiry_test.go`, on the settings
+  environment with `punishNow` moved through `mreqSwap` and warns dated through `warns.WarnUserAt`: the page reads Off, the button opens
+  the expiry screen with Off marked, 7 days is stored and read as 1 week, `/warns` (its own handler, in reply to the member) then lists
+  only the warn of the last 7 days and Off brings the older one back; a repository write of 30 and of 5 (no preset) is drawn, a page
+  press of 1 day keeps a warn of 2 days ago out of the limit at the next `applyWarn`, opening writes nothing; the bot not an
+  administrator, a plain member and an administrator the owner gate refuses; forged `nx` and `ne` presses refused in step 1 with no
+  lookup). The earlier Warnings tests took the expiry row as set edits only (`settingsWarnsStepper`'s layout, the navigation row's
+  index 3 to 4, two `len(keyboard)` counts 4 to 5, and `[5 3 2 2]` to `[5 3 2 1 2]` in `TestSettingsWarnsTimed`,
+  `TestSettingsWarnsCallbackBytes` and `TestSettingsWarnsPageFitsEveryLocale`), and the two screens tests gained the expiry screen
+  (rows `[2 2 2 1 2]`, 38 bytes private and 34 group at its largest) and the fullest page (an effective timed mute of 366 days and
+  expiry 90 days under the longest notice) in 8 languages, half-width cells at most 20 code points and the full-width expiry button at
+  most 40.
 
 ## Commits
 
