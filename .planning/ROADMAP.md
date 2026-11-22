@@ -348,7 +348,7 @@ Phases execute in numeric order: 20 → 21 → 22 → 23 → 24 → 25 → 26 �
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 20. Conversations | v1.2 | 8/8 | Complete (v2.26.0) | - |
+| 20. Conversations | v1.2 | 8/1 | Complete (v2.26.0) | 2026-11-22 |
 | 21. Message Engine, Messages Page and Manual Punishments | v1.2 | 11/11 | Done, awaiting the owner's live checks (21-VERIFICATION.md) | - |
 | 22. PM Copies | v1.2 | 5/9 | In progress (22-06 paused) | - |
 | 23. Warn, Flood, Blacklist and Forward Blocklist Messages | v1.2 | 0/TBD | Not started | - |

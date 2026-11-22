@@ -2,39 +2,44 @@
 gsd_state_version: "1.0"
 milestone: v1.2
 milestone_name: Conversations, Custom Messages and Tuning
-status: executing
-last_updated: "2026-11-21T12:00:00.000Z"
+current_phase: 21
+current_phase_name: Message Engine, Messages Page and Manual Punishments
+status: verifying
+stopped_at: Phase 20 complete, ready to verify Phase 21
+last_updated: "2026-11-22T19:15:27.805Z"
 last_activity: 2026-11-22
+last_activity_desc: Phase 20 complete, transitioned to Phase 21
+state_head: 7f65aa7c87a84df1a0d2577383643fd80421e5cc
 progress:
   total_phases: 11
   completed_phases: 1
-  total_plans: 28
-  completed_plans: 24
-  percent: 0
+  total_plans: 56
+  completed_plans: 56
+  percent: 9
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-18)
+See: .planning/PROJECT.md (updated 2026-11-22)
 
 **Core value:** My trusted staff can protect every one of my communities from one place. We act on a bad actor across all groups at once, and the bot never lets anyone act in a group where they aren't an admin.
-**Current focus:** Phase 26 (Timed Punishments, Escalation and Warn Expiry). Milestone v1.2 has ten phases (21 to 30) and 40 requirements, all mapped in `.planning/ROADMAP.md`. Phases 21 to 25 are built and verified with no code gaps and await the owner's live Telegram checks (`21-VERIFICATION.md` to `25-VERIFICATION.md`). v1.1 shipped 2026-11-13 and its live Telegram checks stay deferred (see Deferred Items below).
+**Current focus:** Phase 21 — Message Engine, Messages Page and Manual Punishments
 
 ## Current Position
 
-Phase: 26 of 30 (Timed Punishments, Escalation and Warn Expiry), milestone v1.2 (Phase 20 Conversations shipped in v2.26.0; this milestone's phases were renumbered 20-29 to 21-30 on 2026-11-21)
-Plan: Phase 26 is planned in 12 plans (`26-CONTEXT.md`, decisions D-01 to D-49, provisional P-01 to P-24); next is 26-01 (goldens). Phases 21 to 25 are done and verified (human_needed: live checks, provisional decisions and a PostgreSQL run). The full fuku/modules run takes about 6 minutes.
-Status: Executing Phase 26 (12 plans)
-Last activity: 2026-11-22 - Planned Phase 26 (timed punishments, escalation ladder, warn expiry), 12 plans
+Phase: 21 — Message Engine, Messages Page and Manual Punishments
+Plan: 11
+Status: Phase complete — ready for verification
+Last activity: 2026-11-22 — Phase 20 complete, transitioned to Phase 21
 
-Progress: [█████░░░░░] 5 of 11 phases done or verified
+Progress: [█░░░░░░░░░] 9%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 108
+- Total plans completed: 114
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -51,6 +56,7 @@ Progress: [█████░░░░░] 5 of 11 phases done or verified
 | 7 | 14 | - | - |
 | 8 | 11 | - | - |
 | 9 | 14 | - | - |
+| 20 | 8 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -417,8 +423,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-18T22:50:46.000Z
-Stopped at: Roadmap for v1.2 written (10 phases, 40 requirements mapped)
+Last session: 2026-11-22T19:15:35Z
+Stopped at: Phase 20 complete, ready to verify Phase 21
 Resume file: None
 
 ## Operator Next Steps

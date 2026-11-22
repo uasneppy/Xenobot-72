@@ -1,158 +1,68 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v1.2",
+  "milestone": "v1.2 — Conversations, Custom Messages and Tuning",
   "phases": [
     {
-      "number": "1",
-      "name": "Staff Group Links",
-      "status": "complete"
-    },
-    {
-      "number": "2",
-      "name": "Staff Actions Across Groups",
-      "status": "complete"
-    },
-    {
-      "number": "3",
-      "name": "Staff Audit and Undo",
-      "status": "complete"
-    },
-    {
-      "number": "4",
-      "name": "Manual Lockdown",
-      "status": "complete"
-    },
-    {
-      "number": "5",
-      "name": "Lockdown Alerts and Response",
-      "status": "complete"
-    },
-    {
-      "number": "6",
-      "name": "Automatic Raid Detection",
-      "status": "complete"
-    },
-    {
-      "number": "7",
-      "name": "AI-Assisted Raid Detection",
-      "status": "complete"
-    },
-    {
-      "number": "8",
-      "name": "Turnstile Web Captcha",
-      "status": "complete"
-    },
-    {
-      "number": "9",
-      "name": "Settings Menu",
-      "status": "complete"
-    },
-    {
-      "number": "10",
-      "name": "PM Settings Hub and Owner Gate",
-      "status": "complete"
-    },
-    {
-      "number": "11",
-      "name": "Message Editor",
-      "status": "complete"
-    },
-    {
-      "number": "12",
-      "name": "Rules Media, Media Under Text and Greet Once",
-      "status": "complete"
-    },
-    {
-      "number": "13",
-      "name": "Member Requirements",
-      "status": "complete"
-    },
-    {
-      "number": "14",
-      "name": "Profile Photo and Channel Rules",
-      "status": "complete"
-    },
-    {
-      "number": "15",
-      "name": "AI Spam-Name Check",
-      "status": "complete"
-    },
-    {
-      "number": "16",
-      "name": "Scheduled Deletion of Service and Bot Messages",
-      "status": "complete"
-    },
-    {
-      "number": "17",
-      "name": "Command, Edit and Self-Destruct Deletion",
-      "status": "complete"
-    },
-    {
-      "number": "18",
-      "name": "Remaining Settings Pages",
-      "status": "complete"
-    },
-    {
-      "number": "19",
-      "name": "Blacklist, Filter and Note Pages",
-      "status": "complete"
-    },
-    {
       "number": "20",
+      "name": "Conversations",
+      "status": "complete"
+    },
+    {
+      "number": "21",
       "name": "Message Engine, Messages Page and Manual Punishments",
       "status": "pending"
     },
     {
-      "number": "21",
+      "number": "22",
       "name": "PM Copies",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
-      "number": "22",
+      "number": "23",
       "name": "Warn, Flood, Blacklist and Forward Blocklist Messages",
       "status": "pending"
     },
     {
-      "number": "23",
+      "number": "24",
       "name": "Captcha, AI Spam and Member Requirement Notices",
       "status": "pending"
     },
     {
-      "number": "24",
+      "number": "25",
       "name": "Lockdown Messages",
       "status": "pending"
     },
     {
-      "number": "25",
+      "number": "26",
       "name": "Timed Punishments, Escalation and Warn Expiry",
       "status": "pending"
     },
     {
-      "number": "26",
+      "number": "27",
       "name": "Manual Command Defaults, Reason Shortcuts and Appeal Button",
       "status": "pending"
     },
     {
-      "number": "27",
+      "number": "28",
       "name": "Advanced Thresholds",
       "status": "pending"
     },
     {
-      "number": "28",
+      "number": "29",
       "name": "Plain Tone and Copy Settings",
       "status": "pending"
     },
     {
-      "number": "29",
+      "number": "30",
       "name": "Backup Page and Custom Messages in Backups",
       "status": "pending"
     }
   ],
   "next": {
-    "command": "/gsd-discuss-phase",
-    "label": "Discuss Phase 21",
-    "reason": "Roadmap created for v1.2. Discuss and plan Phase 21 first."
+    "command": "/gsd-progress --next",
+    "label": "Advance to the next step (verify)",
+    "reason": "Phase 2 of 11 · 9% · ready to verify"
   },
-  "updated_at": "2026-11-18T22:52:00.000Z"
+  "updated_at": "2026-11-22T19:15:27.820Z"
 }

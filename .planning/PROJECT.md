@@ -241,6 +241,8 @@ The numbered requirements are in `.planning/REQUIREMENTS.md`. v1.0 and v1.1 foll
 | v1.2: a custom message is one text that replaces all 8 translations for that group; no row means the default translation | The Welcome editor already works this way, and per-language custom texts would multiply every screen | — Pending |
 | v1.2: everything is configured per group in the bot's private chat, with no Staff Group defaults | Owner decision 2026-11-18 | — Pending |
 | v1.2: PM copies are best effort (Telegram only lets a bot message someone who started it), paced on their own budget and never sent for raid-scale removals | A PM must never delay or fail a punishment, and a raid must not turn into hundreds of PMs | — Pending |
+| v1.2: group conversations are off globally (`ENABLE_CHAT=false`) and enabled per group only by the group creator from private `/settings` after a 2-tap data notice card; the bot never converses in private chats | Owner hard rules; prevents unapproved outbound AI traffic and keeps private chat strictly for settings | ✓ Verified — Phase 20 (`20-UAT.md` 8/8, `20-SECURITY.md` 18/18, `20-VERIFICATION.md` passed) |
+| v1.2: conversation replies use `AllowSendingWithoutReply: false` at handler group 13, and the prompt builder lives in leaf `fuku/utils/chatprompt` | Keeps the bot from answering messages deleted by blacklist/locks/antiflood and lets `scripts/chat-spike` test the exact production prompt; async `aispam` race accepted (AR-20-01) | ✓ Verified — Phase 20 |
 
 ## Evolution
 
@@ -260,4 +262,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-18 at the start of milestone v1.2 (Custom Messages and Tuning)*
+*Last updated: 2026-11-22 after Phase 20*
