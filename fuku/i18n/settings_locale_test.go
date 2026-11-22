@@ -768,6 +768,34 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_msg_desc_lockflood":     {200, 280},
 	"settings_msg_desc_lockai":        {200, 280},
 	"settings_msg_desc_locklift":      {200, 280},
+	// The Manual defaults page (Phase 27, plan 27-05): its name, Main state, private-only note, body lines,
+	// buttons, duration picker intros, saved/removed notices and appeal-link typed-wait prompt and refusal.
+	"settings_page_moddefaults":         {17, 17},
+	"settings_state_moddef_n":           {16, 22},
+	"settings_moddef_group_note":        {160, 220},
+	"settings_moddef_intro":             {200, 280},
+	"settings_moddef_line_ban":          {50, 70},
+	"settings_moddef_line_mute":         {50, 70},
+	"settings_moddef_line_reason":       {50, 70},
+	"settings_moddef_line_appeal":       {50, 70},
+	"settings_moddef_permanent":         {16, 22},
+	"settings_moddef_appeal_none":       {16, 24},
+	"settings_moddef_dur_intro_ban":     {140, 200},
+	"settings_moddef_dur_intro_mute":    {140, 200},
+	"settings_btn_moddef_ban_dur":       {20, 20},
+	"settings_btn_moddef_mute_dur":      {20, 20},
+	"settings_btn_moddef_reason":        {32, 36},
+	"settings_btn_moddef_appeal_set":    {20, 20},
+	"settings_btn_moddef_appeal_remove": {20, 20},
+	"settings_btn_moddef_dur_off":       {26, 36},
+	"settings_moddef_saved_dur":         {40, 60},
+	"settings_moddef_saved_reason":      {40, 60},
+	"settings_moddef_saved_appeal":      {40, 60},
+	"settings_moddef_removed_appeal":    {40, 60},
+	"settings_moddef_appeal_wait":       {120, 180},
+	"settings_moddef_appeal_wait_rules": {150, 220},
+	"settings_moddef_appeal_wait_ended": {120, 180},
+	"settings_moddef_appeal_refuse_url": {140, 200},
 }
 
 // settingsAlertKeys are shown as answerCallbackQuery alerts: plain text, no tag, at most
@@ -985,6 +1013,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 		{"🛂", "settings_page_mreq"},
 		{"🧹", "settings_page_del"},
 		{"🚩", "settings_page_warns"},
+		{"⚖️", "settings_page_moddefaults"},
 		{"🪜", "settings_page_esc"},
 		{"🔘", "settings_page_switches"},
 		{"🌐", "settings_page_lang"},
@@ -1058,7 +1087,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 	}
 	// The full-width toggles of the Switches and Anonymous admins pages (Phase 18): each is
 	// rendered with the check or cross icon and the language's longer On or Off word.
-	phase18Toggles := []string{"settings_btn_sw_reports", "settings_btn_sw_aispam", "settings_btn_sw_approve", "settings_btn_anon_toggle"}
+	phase18Toggles := []string{"settings_btn_sw_reports", "settings_btn_sw_aispam", "settings_btn_sw_approve", "settings_btn_anon_toggle", "settings_btn_moddef_reason"}
 	// The full-width toggles that carry the state icon alone in place of {state} (Phase 21, plan 21-07: an event
 	// screen's Silent switch).
 	iconToggles := []string{
@@ -1068,7 +1097,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 	}
 	// The full-width buttons whose label is the whole button (Phase 22, plan 22-04: the event screen's row that
 	// opens the private copy), at most 40 code points.
-	fullWidthLabels := []string{"settings_btn_msg_pm_open"}
+	fullWidthLabels := []string{"settings_btn_msg_pm_open", "settings_btn_moddef_dur_off"}
 	// The editor's two-column buttons (UI-SPEC rows 28 to 38): at most 20 code points as
 	// written, icon included.
 	editorButtons := []string{
@@ -1084,6 +1113,9 @@ func TestSettingsLabelLengths(t *testing.T) {
 		"settings_btn_flt_add",
 		// The Notes list page's Add button (Phase 19, UI-SPEC check C19-2).
 		"settings_btn_notes_add",
+		// The Manual defaults page's two-column buttons (Phase 27, plan 27-05).
+		"settings_btn_moddef_ban_dur", "settings_btn_moddef_mute_dur",
+		"settings_btn_moddef_appeal_set", "settings_btn_moddef_appeal_remove",
 	}
 	// The editor's half-width switch cells (Phase 12, UI-SPEC check 2): the template with
 	// {state} replaced by the icon alone is at most 20 code points, so a name is at most 18.

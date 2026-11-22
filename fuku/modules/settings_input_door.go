@@ -197,7 +197,11 @@ func (r *settingsInputReply) waitEnded() bool {
 	if listPart := settingsListPartByCode(page, part); listPart != nil {
 		r.plain(r.text("settings_entries_wait_ended_note", i18n.TranslationParams{"part": r.text(listPart.WordKey)}))
 	} else if typed, ok := settingsTypedPages[page]; ok && typed.Part == part {
-		r.plain(r.text("settings_tz_wait_ended_note"))
+		key := typed.WaitEndedKey
+		if key == "" {
+			key = "settings_tz_wait_ended_note"
+		}
+		r.plain(r.text(key))
 	} else {
 		r.plain(r.text("settings_edit_wait_ended_note", i18n.TranslationParams{"part": r.text(settingsInputPartWordKey(part))}))
 	}

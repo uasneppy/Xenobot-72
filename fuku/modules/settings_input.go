@@ -291,13 +291,15 @@ func settingsInputValidPart(page, part string) bool {
 	return settingsListPartByCode(page, part) != nil
 }
 
-// settingsTypedPage is a page whose typed reply is one value (the Timezone page's zone): its part, the
-// Cancel code of its prompt, the right a typed reply is judged with and the handler the
-// door runs after the authority and slash checks.
+// settingsTypedPage is a page whose typed reply is one value (e.g. Timezone's zone or Manual defaults'
+// appeal link): its part, the Cancel code of its prompt, the right a typed reply is judged with, the handler
+// the door runs after the authority and slash checks, and the optional locale key sent when an expired wait
+// marker is consumed (falling back to settings_tz_wait_ended_note when empty).
 type settingsTypedPage struct {
 	Part, CancelCode string
 	Right            settingsRight
 	Typed            func(r *settingsInputReply)
+	WaitEndedKey     string
 }
 
 // settingsTypedPages records the single-value pages by page key; each registers from its own init.
