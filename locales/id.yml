@@ -1665,7 +1665,7 @@ aispam_help_msg: |
 
   Filter opsional yang menilai setiap pesan di chat ini dengan model AI dan menghapus pesan yang diyakininya sebagai spam.
 
-  Tidak ada hal lain yang terjadi: tidak ada peringatan, mute, balasan, atau pemberitahuan. Pesan yang diyakini model sebagai spam dihapus secara diam-diam, dan pengirimnya tidak pernah diberi tahu.
+  Filter ini hanya menghapus: tidak ada peringatan, mute, atau balasan. Pemilik grup dapat mengaktifkan pemberitahuan spam AI di halaman "Pesan" pada /settings di chat pribadi saya; setelah itu grup menerima paling banyak satu pemberitahuan singkat per anggota setiap 5 menit, dan paling banyak 3 per menit.
 
   Pesan yang ditulis dalam bahasa Inggris bertindak mulai keyakinan 80%, dan pesan dalam bahasa lain mulai 90%, karena model ini dioptimalkan untuk bahasa Inggris.
 

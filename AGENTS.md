@@ -3798,6 +3798,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   stays false. The event is off by default (`eventmsg.OffByDefault`), so with no row the group step posts nothing and `Admit` is not
   asked; the Messages page's Notice switch turns it on. It returns at once when the pool's context is done, and a send error is one
   Debug line with the chat and user IDs and the Telegram code. Every spam message is deleted whatever becomes of the notice.
+  The `/aispam` help (`aispam_help_msg`, 8 languages) and its frozen doc page (`commands/aispam/index.md`, edited by hand) say the
+  filter only deletes unless the group owner turns the notice on from the Messages page, with its two limits (D-42).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its

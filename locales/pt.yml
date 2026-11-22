@@ -1655,7 +1655,7 @@ aispam_help_msg: |
 
   Um filtro opcional que avalia cada mensagem deste chat com um modelo de IA e apaga as que ele considera com confiança serem spam.
 
-  Nada mais acontece: nem advertência, nem silenciamento, nem resposta, nem aviso. Uma mensagem sobre a qual o modelo tem confiança de ser spam é apagada em silêncio, e o remetente nunca é avisado.
+  O filtro apenas apaga: nem advertência, nem silenciamento, nem resposta. O dono do grupo pode ativar a notificação de spam com IA na página "Mensagens" de /settings no meu chat privado; então o grupo recebe no máximo uma notificação curta por membro a cada 5 minutos, e no máximo 3 por minuto.
 
   Mensagens escritas em inglês agem a partir de 80% de confiança, e mensagens em qualquer outro idioma a partir de 90%, porque o modelo é otimizado para inglês.
 
