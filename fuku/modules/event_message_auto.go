@@ -180,8 +180,6 @@ func captchaEventReason(tr *i18n.Translator) string {
 // aispamEventReason is the reason {reason} takes for an AI spam deletion in the translator's language. It
 // says only that the message looked like spam: never the provider, a model, a probability or a category
 // (D-36).
-//
-//nolint:unused // first production caller arrives in plan 24-06
 func aispamEventReason(tr *i18n.Translator) string {
 	reason, _ := tr.GetString("eventmsg_reason_aispam")
 	return reason

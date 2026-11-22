@@ -92,6 +92,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   refused once `raidAIDraining` is set (`raidAIFireAsync` counts the start in `raidAIFires` before it reads the flag), so
   no start begins behind `StopRaidAI`'s back. Tests wait for checks with `waitAISpamChecks`, which closes and cancels
   nothing, and a test that runs the drain restores the pool with `restoreAISpamPool` (`TestShutdownDrainsAISpamChecks`).
+  The AI spam notice (Phase 24, `postAISpamNotice`) runs inside a worker as the last step of a delete verdict, so it adds no
+  drain and no second: it returns at once once `aispamContext` is cancelled, and its pacer wait derives from that context
+  with a `MaxWait` of 2 s, so the drain's 9 s and the shutdown worst case are unchanged.
 - `StopChat` is the conversation pool's stop (Phase 20), a plain shutdown handler (`RegisterHandler`, the 10 s default) that
   `main.go` registers right after `DrainAISpamChecks`, so LIFO runs it before the AI spam drain. It sets `chatDraining` for good
   (a late addressed message is shed), cancels the pool's root context first (`chatContext`: every provider call, typing action
@@ -2108,7 +2111,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   it would bypass that layer, duplicate its encoding and add a round trip to every load and every delete. Keys whose
   staleness matters are read fresh (`*Fresh`, never cached) or kept short; a new cached setting that must change at once
   on every replica needs that too, not only `skipLocal`.
-- Operational Redis keys (`fuku:anonAdmin:*`, `fuku:staff:*`, `fuku:lockdown:*`, `fuku:raid:*`, `fuku:memberreq:*`, `fuku:fed:*`) sit outside the
+- Operational Redis keys (`fuku:anonAdmin:*`, `fuku:staff:*`, `fuku:lockdown:*`, `fuku:raid:*`, `fuku:memberreq:*`, `fuku:fed:*`, `fuku:aispam:*`) sit outside the
   `fuku:cache:` prefix; `CLEAR_CACHE_ON_STARTUP` does not clear them. `fuku:antiraid:*` is retired: nothing reads or
   writes it, and `sweepRetiredAntiRaidKeys` removes what the old raid mode left, once per process at startup.
 - `fuku:settings:sweep:lock` (new family `fuku:settings:*`, also outside the `fuku:cache:` prefix, so
@@ -2826,6 +2829,18 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   not deliver its copy with the group's Details option on (`pmCopyAddDetails`) and read only by the `pmcopy_` deep link
   (`pmCopyDetailsGet`); a view deletes nothing. Redis only (no Redis, no record and no button); it sits outside the
   `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it.
+- `fuku:aispam:notice:{<chat>}:u:<user>` and `fuku:aispam:notice:{<chat>}:m:<unix minute>` are the caps of the AI spam notice
+  (`aispam_notice.go`, Phase 24, EVT-05, D-22): one Lua script (`aispamNoticeScript`, under `raidRedisTimeout`, the chat ID a
+  hash tag) sets the member latch with `SET NX EX 300` (`aispamNoticeUserWindow`, 5 minutes) and answers no when it was already
+  set, else `INCR`s the minute's counter with `EXPIRE 120` and answers yes while it is at most `aispamNoticePerMinute` (3; the
+  minute is `aispamNoticeNow().Unix()/60`). The member latch is spent even when the minute is full, so that member stays quiet
+  for the window (the quiet direction). `aispamNoticeAllow` is the notice site's `Admit` and fails closed: no Redis client
+  (`aispamNoticeRedisClient`, `raidRedis` by default), a Redis error or a refusal posts nothing and offers no private copy. The
+  engine asks it only when the notice or its private copy is on, so a group that never turned the notice on spends no Redis
+  command on it. `fuku:aispam:notice:pace:next` and `fuku:aispam:notice:pace:block` are the notice's own fleet pacer
+  (`aispamNoticePaced`, `aispamNoticePacer` built from `aispamNoticePacerOptions`: 200 ms, 1 retry, `MaxWait` 2 s, each send
+  bounded by 10 s and derived from `aispamContext()`), so a wave of notices spends no other pacer's slots and a blocked pacer
+  fails the notice at once. All of them sit outside the `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps them.
 - `fuku:delete:norights:<chat>` is the 10 minute negative latch of a chat the bot cannot act in (`deletionLatchKey`,
   `deletionLatched`, `deletionSetLatch`, `deletionLatchTTL`), outside the `fuku:cache:` prefix so `CLEAR_CACHE_ON_STARTUP`
   keeps it. Its value is the scope: `gone` (the bot is not in the chat, was kicked, or the chat is gone or was upgraded: stops
@@ -3751,8 +3766,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   note (all eight rules, both remedies) is at most 346 units in every language (`TestMemberReqNoticeNoteFitsReserve`; a
   translation that exceeds it is shortened, never the reserve raised). Since plan 24-04 the Messages page's table uses
   `memberReqNoticeDefault`, `memberReqNoticeNote` (through `memberReqNoticeAppended`), `memberReqNoticeNoteReserve` (the Member
-  requirements family's `ReservedText`) and `aispamNoticeDefaultReply`, so their markers are gone; `aispamEventReason` keeps
-  `//nolint:unused // first production caller arrives in plan 24-06`, and plan 24-06 removes it. The page's event names are also the
+  requirements family's `ReservedText`) and `aispamNoticeDefaultReply`, so their markers are gone, and since plan 24-06 the AI spam
+  site calls `aispamEventReason`, whose marker is gone too. The page's event names are also the
   names the `#PM_COPY` log line gives the six events (`eventPMEventName`). The requirement site (plan 24-05, EVT-09, D-15 to D-20) is
   `memberReqPostEventNotice(ctx, b, c, tr, user, hold, warn) (int64, error)` in `memberreq_notice.go`, called only by
   `memberReqAnnounce` after the punishment took effect, through `postEventSent`. Its site is the case's chat, the group's
@@ -3771,6 +3786,18 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   replaced by the golden default, a custom mute whose button frees the member and reschedules the posted message from the tap, a
   Silent mute row with a photo still posted as text with the button, an undelivered custom and default lifting the mute, and the ban
   and mute private copies).
+  The AI spam site (plan 24-06, EVT-05, D-17 to D-23) is `postAISpamNotice(task)` in `aispam_notice.go`, called by `processAISpam`
+  as the last step of its delete branch, after `aispamMirrorDeletion` and `raidAIRecordVerdict`, and only when
+  `helpers.DeleteMessageWithErrorHandling` returned no error (a failed delete posts nothing; the keep and failure branches and
+  `aispamNotifyBreaker` are untouched). `checkAISpam` fills `aispamTask.user` (the effective user) and `aispamTask.threadID` (the
+  message's topic for a topic message, else 0). The site is the task's chat, the group's translator from `task.language`, no actor,
+  no reply (the message is gone), `ThreadID` the topic, `bot:punish_auto`, `Automatic`, `Admit` the caps (`aispamNoticeAllow`, see
+  Data) and both sends through `aispamNoticePaced` on `aispamContext()` (`SendDefault` around `helpers.SendMessageWithErrorHandling`
+  with `aispamNoticeDefaultReply`'s options and `MessageThreadId` the topic, `SendCustom` around `media.SendGreetingMessage`). The
+  reply is event `aispam`, the member as the target, `{reason}` `aispamEventReason(tr)` and `{action}` the delete word; `Required`
+  stays false. The event is off by default (`eventmsg.OffByDefault`), so with no row the group step posts nothing and `Admit` is not
+  asked; the Messages page's Notice switch turns it on. It returns at once when the pool's context is done, and a send error is one
+  Debug line with the chat and user IDs and the Telegram code. Every spam message is deleted whatever becomes of the notice.
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
@@ -3936,8 +3963,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   hour row stays; the antiflood action notice in `checkFlood`; the blacklist's mute, ban and kick notices (its warn action
   goes through `warnThisUser` with `warnSourceAuto`); and the AI spam breaker's pause notice in `aispamNotifyBreaker`,
   which D-27 counts as an automatic punishment message because it is aispam's only group message (the owner can narrow it
-  when confirming the phase). A delete verdict of aispam is silent in the group and the owner-log dump post of
-  `aispamMirrorDeletion` is never a kind. The antiflood and aispam sends go through
+  when confirming the phase). A delete verdict of aispam posts nothing in the group unless the group turned its AI spam notice
+  on (Phase 24, off by default); the notice is then queued under `bot:punish_auto` through its site (`postAISpamNotice`). The
+  owner-log dump post of `aispamMirrorDeletion` is never a kind. The antiflood and aispam sends go through
   `helpers.SendMessageWithErrorHandling`, which answers no message for a chat the bot cannot post in: the hook keeps the
   returned message and `scheduleBotMessage` ignores nil. Every hook is additive around the existing send (no request, error
   path or return changes) and runs only after a send succeeded (`TestBotAutoPunishmentNotices`, `TestMemberReqNoticeScheduled`,
@@ -6031,6 +6059,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the group notice, a member who blocked the bot (one attempted send, nothing else), and the cap (three members in one minute with the
   cap at 2: all kicked and noticed, two copies; a fourth in the next minute with no Redis: kicked and noticed, no copy). The captcha
   site is also `eventSite.Automatic`, so its copies are capped through `eventPMOffer.ByRule` as well as through the spec.
+  `TestAISpamNotice` (`aispam_notice_test.go`, plan 24-06, about 1.5 s, toolkit `aispamNoticeEnv`: one aispam dispatcher per subtest
+  over `newScreenGoldenSite` with the TypeSafe stand-in answering 0.95, miniredis, `withFastAISpamNoticePacer`, the fast private copy
+  pacer, the private chat client and the AI burst trigger swapped off through `raidSettingsLookup`) holds the AI spam site: `off by
+  default` (deleted, nothing posted or queued, no `fuku:aispam:notice:*` key), `default on` (the default text in the deleted message's
+  topic, no reply, a 600 s `bot:punish_auto` row), `custom`, `caps` (one member's second spam quiet; five more members, two more
+  notices), `quiet failures` (no Redis client, the pacer blocked a minute ahead, a delete refused with a 403: no notice), `shutdown`
+  (the pool cancelled right after the delete through `aispamNoticeCancelClient`: deleted, no notice, no cap spent; the pool restored
+  with `restoreAISpamPool`) and `private copy` (the default `aispam` copy after the notice, and none for a capped second spam).
   `TestSettingsMessagesScreeningFamily` (`settings_messages_screening_test.go`, plan 24-04, about 2 s, one `newSettingsMsgEnv` per
   subtest, real presses of drawn buttons) drives the page side: `hub and lists` (the bold 🛂 section with four Default lines, the
   Automatic section's seven lines with the AI spam notice reading Off, rows `[2 1 1 1 2]`, the Member requirements list `[2 2 2]`, the

@@ -40,6 +40,8 @@ func TestPMCopyCallers(t *testing.T) {
 				"the watcher reaches the engine only through this non-staff file and warns.go (D-30)",
 			"event_message_auto.go": "postCaptchaFailureNotice posts the captcha failure's notice after the failure action, " +
 				"for captcha.go, which stays free of the engine",
+			"aispam_notice.go": "postAISpamNotice posts the AI spam notice after the message was deleted, behind its per-member " +
+				"and per-group cap (off by default)",
 		},
 		"postEventSent": {
 			"event_message.go": "postEvent wraps it; a site that needs what the group step posted calls it after the punishment",
