@@ -1244,6 +1244,37 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`settings_warns_timed_test.go`), and the expiry's `TestSettingsWarnsExpiry`, `TestSettingsDriftWarnExpiry`,
   `TestSettingsAuthorityWarnExpiry` and `TestSettingsWarnsExpiryForged` (`settings_warns_expiry_test.go`; no command exists, so the
   drift and authority tests stand in for a parity test).
+- The Escalation page (`settings_escalation.go`, page `j`, `Order` 43, icon 🪜, `settings_page_esc`, right after Warnings, Phase 26 plan 26-10,
+  TUNE-02, D-31) is where an administrator turns a group's escalation ladder on, defines its steps (up to `escalation.MaxSteps`, 5, each a mute,
+  kick, ban, timed mute or timed ban) and picks how long a member's offences are remembered. It registers from its own file through
+  `registerSettingsPage`, is `PrivateOnly` (`PrivateNoteKey` `settings_esc_group_note`: a group menu's Main reads `In private` and opening it draws the
+  note, with no page code and no read) and `Hidden` in a Staff Group (`settingsEscHidden`: a definite Staff Group row read fresh through the page's own
+  seam `settingsEscStaffLookup`; an unreadable row shows the page), so a Staff Group's Main is one cell shorter. It has page actions only, no controls:
+  `je` the toggle (`v` 0 or 1), `jf` the forget period (`v` the canonical decimal days of one of `escalationForgetPresets` 1, 7, 30, 90), `js` a step's
+  screen (`t` 1 to 5), `ja` an untimed step (`t`, `v` mute, kick or ban), `jd` a step's shared duration screen (`t`, `k` m or b) and `jt` a timed step
+  (`t`, `k`, `v` a preset of `settingsDurationPresets`) and `jr` Remove last (`t` the index the screen showed as last). Every `Validate` requires the
+  private owner field `c` and checks its own fields strictly in step 1, so a group menu's press, an index outside 1 to 5, a leading zero, `warn` as a
+  step and an off-preset duration are invalid requests before any `getChatMember`. Writes (`je jf ja jt jr`) declare `settingsRightRestrict`, judged
+  on the press's own live member record, because a ladder decides what the bot does to members; opening the page, a step screen (`js`) and a duration
+  screen (`jd`) need `settingsRightAdmin`. Every write goes through one of four apply functions in `escalation_settings.go` (no command exists), which
+  read the ladder fresh, check their rule against that read, write through the `escalationWrites` seam and return a typed `escalationApplyResult`
+  (outcome, the ladder read back or the one before a refusal): `applyEscalationEnabled` (turning on a ladder with no step stores the example,
+  `escalationExampleSteps`: a 1 hour timed mute, a 1 day timed mute, then ban, outcome `escalationExampleAdded`; turning off stores the switch and then
+  deletes the group's offence counts, a failed delete is logged and does not undo the switch), `applyEscalationStep` (replaces step n or appends the next
+  one; n beyond `len(steps)+1` by a fresh read is `escalationStale`, an invalid step or index `escalationInvalid`, both writing nothing),
+  `applyEscalationRemoveStep` (n must equal `len(steps)`, else stale; the only step of a ladder that is on is `escalationLastStepRefused`) and
+  `applyEscalationForget`. A refusal or failed save redraws the page with a notice (`settings_esc_stale`, `settings_esc_refuse_last_step`,
+  `common_settings_save_failed`); the example notice is `settings_esc_example_added`. The page reads through `escalation.GetFresh` (the `settingsEscRead`
+  and `escalationRead` seams), creates nothing, and a failed read is the cannot-open edit and the unknown mark on Main. Main's state is Off or
+  `settings_state_esc_steps` (`{n} steps`). Screens: the page (intro, state, one `settings_esc_step_line` per step with the last as
+  `settings_esc_step_line_last` "n and later", the forget line and the hint; rows `[1 5 1 4 2]` full, `[1 1 2 4 2]` with one step, `[1 1 4 2]` empty),
+  a step screen (`[3 2 2]`) and the shared duration screen titled with the page (Back returns to the step screen). No screen names a Staff Group, a
+  member or a count of offences. `TestSettingsEscalationOpens`, `TestSettingsEscalationSteps`, `TestSettingsDriftEscalation` (the page draws what the
+  repository stores, and a ladder set through the page is what `escalate` returns at the next offence), `TestSettingsAuthorityEscalation`,
+  `TestSettingsEscalationForged`, `TestSettingsEscalationReadsCreateNothing`, `TestSettingsEscalationCallbackBytes`,
+  `TestSettingsEscalationPageFitsEveryLocale` (`settings_escalation_test.go`, `settings_escalation_screens_test.go`, `escalation_settings_test.go` for
+  the apply functions' `TestEscalationApply`) hold it. With the page Main has 24 state lines for the owner (`n|j` in the grid)
+  and a Staff Group's Main hides it like Deletion and Messages.
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`

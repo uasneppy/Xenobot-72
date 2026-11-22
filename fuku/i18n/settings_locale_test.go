@@ -118,10 +118,30 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_duration_hint":        {100, 140},
 
 	// The Warnings page's warn expiry: its line, its full-width button and the expiry screen (Phase 26, plan 26-07).
-	"settings_warns_expiry_line":  {30, 50},
-	"settings_btn_warns_expiry":   {24, 30},
-	"settings_warns_expiry_intro": {90, 130},
-	"settings_warns_expiry_hint":  {180, 240},
+	"settings_warns_expiry_line": {30, 50},
+	"settings_btn_warns_expiry":  {24, 30},
+
+	// The Escalation page (Phase 26, plan 26-10). The page name, the Add and Remove cells and the toggle are binding
+	// at the rendered ceilings of TestSettingsLabelLengths.
+	"settings_page_esc":             {14, 18},
+	"settings_state_esc_steps":      {15, 17},
+	"settings_esc_group_note":       {141, 158},
+	"settings_esc_intro":            {231, 269},
+	"settings_esc_state":            {32, 31},
+	"settings_esc_step_line":        {19, 19},
+	"settings_esc_step_line_last":   {29, 34},
+	"settings_esc_no_steps":         {58, 89},
+	"settings_esc_forget_line":      {62, 72},
+	"settings_esc_hint":             {119, 149},
+	"settings_btn_esc_toggle":       {25, 24},
+	"settings_btn_esc_add":          {14, 20},
+	"settings_btn_esc_remove":       {17, 24},
+	"settings_esc_step_intro":       {87, 123},
+	"settings_esc_example_added":    {126, 154},
+	"settings_esc_refuse_last_step": {85, 109},
+	"settings_esc_stale":            {110, 113},
+	"settings_warns_expiry_intro":   {90, 130},
+	"settings_warns_expiry_hint":    {180, 240},
 
 	// The settings hub and the owner gate (plan 10-02). The ceilings are the UI-SPEC "New
 	// locale keys" columns; the alert and reply rows are held lower than Telegram's 200 so a
@@ -965,6 +985,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 		{"🛂", "settings_page_mreq"},
 		{"🧹", "settings_page_del"},
 		{"🚩", "settings_page_warns"},
+		{"🪜", "settings_page_esc"},
 		{"🔘", "settings_page_switches"},
 		{"🌐", "settings_page_lang"},
 		{"🧾", "settings_page_log"},
