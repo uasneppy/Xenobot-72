@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 
 ## Current Position
 
-Phase: 25 of 30 (Lockdown Messages), milestone v1.2 (Phase 20 Conversations shipped in v2.26.0; this milestone's phases were renumbered 20-29 to 21-30 on 2026-11-21)
-Plan: Phase 25's 8 plans are done and verified (no code gaps, human_needed: live checks, provisional decisions P1-P15 and a PostgreSQL run in `25-VERIFICATION.md`); Phases 21 to 24 likewise. The full fuku/modules run takes about 6 minutes. Next: plan Phase 26
-Status: Phase 25 verified; ready to plan Phase 26
-Last activity: 2026-11-22 - Executed and verified Phase 25 (lockdown messages), 8 plans, 12/12 must-haves
+Phase: 26 of 30 (Timed Punishments, Escalation and Warn Expiry), milestone v1.2 (Phase 20 Conversations shipped in v2.26.0; this milestone's phases were renumbered 20-29 to 21-30 on 2026-11-21)
+Plan: Phase 26 is planned in 12 plans (`26-CONTEXT.md`, decisions D-01 to D-49, provisional P-01 to P-24); next is 26-01 (goldens). Phases 21 to 25 are done and verified (human_needed: live checks, provisional decisions and a PostgreSQL run). The full fuku/modules run takes about 6 minutes.
+Status: Executing Phase 26 (12 plans)
+Last activity: 2026-11-22 - Planned Phase 26 (timed punishments, escalation ladder, warn expiry), 12 plans
 
 Progress: [█████░░░░░] 5 of 11 phases done or verified
 

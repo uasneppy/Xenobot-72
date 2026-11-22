@@ -253,7 +253,20 @@ Plans:
   2. With the ladder on, a member's first, second and later automatic offences in that group get the steps the owner set, in order, whichever replica sees them. With the ladder off (the default), punishments are exactly what each setting says.
   3. With warn expiry set to N days, a warn older than N days no longer counts toward the limit, and `/warns` shows what counts. With it off (the default), nothing changes.
   4. A group that sets none of this behaves exactly as today, and every argument the three commands accept today answers as before.
-**Plans**: TBD
+**Plans**: 12 plans
+Plans:
+- [ ] 26-01-PLAN.md — goldens of the antiflood commands, the warn displays, the inert timed sends and the exports, committed alone (wave 1)
+- [ ] 26-02-PLAN.md — tracer: the duration columns, the timed-punishment core and the timed warn limit end to end (wave 2)
+- [ ] 26-03-PLAN.md — the shared duration screen, Timed mute and Timed ban on the Warnings page, the Messages page samples (wave 3)
+- [ ] 26-04-PLAN.md — timed flood action: command, punishment, notice and the Antiflood page (wave 4)
+- [ ] 26-05-PLAN.md — timed blacklist action: command, watcher, shared notice and the Blacklist action screen (wave 5)
+- [ ] 26-06-PLAN.md — warn times, the expiry setting, one counting rule for every warn reader and writer, and the backup (wave 6)
+- [ ] 26-07-PLAN.md — warn expiry on the Warnings page (wave 7)
+- [ ] 26-08-PLAN.md — the ladder's storage and its replica-safe offence count, with PostgreSQL integrity tests (wave 8)
+- [ ] 26-09-PLAN.md — the ladder resolver in the flood, blacklist and forward blocklist (wave 9)
+- [ ] 26-10-PLAN.md — the private Escalation page and its apply functions (wave 10)
+- [ ] 26-11-PLAN.md — safety and privacy: IDs-only logs, texts, codes, reads that create nothing, the Staff Group sweep (wave 11)
+- [ ] 26-12-PLAN.md — end-to-end proof and phase gates (wave 12)
 **UI hint**: yes
 
 ### Phase 27: Manual Command Defaults, Reason Shortcuts and Appeal Button
