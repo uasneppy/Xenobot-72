@@ -6890,6 +6890,23 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settingsPrivacyPhase26Run` inside `TestSettingsStaffPrivacy` (every new screen in 8 languages in a group view and a private view,
   and a private run by an administrator who is not the creator of a group linked to a Staff Group through the Escalation page, the
   Warnings timed row and expiry and the Antiflood and Blacklist duration screens).
+  `TestTimedPunishmentsEndToEnd` (`timed_punishments_e2e_test.go`, plan 26-12, about 3 s) is the phase's end-to-end proof through the real
+  dispatcher with only Telegram and the clock faked, one environment per subtest on the toolkit `timedE2E` (`newTimedE2E(t, real)`:
+  Phase 23's `autoMessagesE2E` with `punishNow` held by a moveable `fwdClock`; `openPage`, `setTimed` (the duration screen's two presses),
+  `punishCalls` and `wantPunishment` (the restrict and ban requests in the order they were made), `floodBurst`, `secondReplica` (a second
+  bot over the same database with the Blacklists module)). Every page step is a press of a button the bot drew. Subtests:
+  `warn_limit_page` (Warnings, Timed mute, 6 hours; the second `/warn` at a limit of 2 restricts until now plus 21600 and a custom warn limit text
+  fills `{duration}` and `{until}`), `flood_command` (`/setfloodmode tban 1d`, a burst bans until now plus 86400 and the notice shows the
+  duration), `blacklist_page` (the action screen's Timed mute, 1 hour), `ladder` (the Escalation toggle stores the example; a flood offence is
+  a 1 hour timed mute, a blacklist offence 61 s later on the second bot instance a 1 day one, the flood again a ban, an offence 31 days
+  later step 1 again, and with the ladder off the rule's own plain mute and no offence row), `warn_expiry` (two warns eight days old and one
+  now stored with expiry off, the page sets 7 days: `/warns` shows the one that counts and the expiry note, the next warn reaches a limit of 2
+  by the counted warns only, and with expiry back to Off another member's old warns are listed again), `pm_until` (a timed flood mute sends
+  the private copy with its Until line), `staff_group` (no Escalation cell in a Staff Group's menu, and a staff `/ban` fan-out to a linked
+  group whose ladder is on writes no offence row) and `nothing_set` (real locales: a warn limit, a blacklist word and a flood with a plain
+  mute send exactly `goldenNoticeWarnLimitMute`, `goldenNoticeBlacklistMute` and `goldenNoticeFloodMute` with the case's IDs put in, every
+  punishment has no end date and no offence row exists). `make test-shard-check` fails on a checkout path that holds a space (the script
+  does not quote it); run it from a path without one.
 
 ## Commits
 
