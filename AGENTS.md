@@ -5574,11 +5574,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   needs), `TestCountPending` (the bounded exact count) and `TestDropPendingMessage` (one pending row by chat, message and kind).
   The Phase 19 guarantee is `TestBlacklistActionValuesOnPostgres` (`./fuku/db/migrations`: on a chain-built database
   `UPDATE blacklists SET action = v` succeeds for warn, mute, kick, ban and none and fails with SQLSTATE 23514 for any other
-  value, and exactly one CHECK mentions the column, `chk_blacklist_action`; PostgreSQL only, it skips locally;
+  value, and exactly one CHECK references the column (by `pg_constraint.conkey`, so the check of `action_secs` is not counted), `chk_blacklist_action`; PostgreSQL only, it skips locally;
   `TestBlacklistActionMigrationStatements` is its database-free half and runs in `make test`).
   The warn mode guarantee (quick task 261116-wh3) is `TestWarnModeCheckOnPostgres` (`./fuku/db/migrations`: on a chain-built
   database `warns_settings.warn_mode` accepts NULL, the empty mode and the five modes and refuses any other value with SQLSTATE
-  23514, and exactly one CHECK mentions the column, `chk_warn_mode`; PostgreSQL only, it skips locally;
+  23514, and exactly one CHECK references the column (by `conkey`, so the check of `warn_mode_secs` is not counted), `chk_warn_mode`; PostgreSQL only, it skips locally;
   `TestWarnModeCheckMigrationStatements` is its database-free half and runs in `make test`).
   The Phase 20 guarantees are `TestChatConversationSettings` (`./fuku/db/chatconv`: column-targeted upserts that never
   clobber each other, a Go false written, the two checks refusing values outside the stored ones; it also runs on SQLite
