@@ -18,11 +18,15 @@ import (
 )
 
 // settingsMsgWantAutoStates fails the test unless every event of the Automatic family has its line in text with its
-// icon and the expected state word (events not in want read Default).
+// icon and the expected state word (events not in want read Default, or Off for an event that is off by default: the
+// AI spam notice, Phase 24).
 func settingsMsgWantAutoStates(t *testing.T, text string, want map[string]string) {
 	t.Helper()
 	for _, ev := range settingsMsgAutoEvents {
 		word := "settings_state_default"
+		if eventmsg.OffByDefault(ev.Key) {
+			word = "common_status_off"
+		}
 		if w, ok := want[ev.Key]; ok {
 			word = w
 		}
@@ -48,7 +52,7 @@ func TestSettingsMessagesAutoFamily(t *testing.T) {
 			t.Errorf("the hub %q has no bold 🤖 Automatic actions heading", text)
 		}
 		settingsMsgWantAutoStates(t, text, nil)
-		settingsMsgWantWidths(t, "the hub", keyboard, 2, 1, 1, 2)
+		settingsMsgWantWidths(t, "the hub", keyboard, 2, 1, 1, 1, 2)
 
 		cell, ok := settingsMsgButtonWith(t, keyboard, "a", settingsActMsgFamily, "t", "a")
 		if !ok || !strings.HasPrefix(cell.Text, "🤖 ") || !containsMarker(cell.Text, "settings_msg_fam_auto") {
@@ -62,8 +66,8 @@ func TestSettingsMessagesAutoFamily(t *testing.T) {
 			t.Errorf("the Automatic list %q lacks its intro or hint", text)
 		}
 		settingsMsgWantAutoStates(t, text, nil)
-		settingsMsgWantWidths(t, "the Automatic list", keyboard, 2, 2, 1, 2)
-		if back := settingsButtonFields(t, keyboard[3][0]); back["a"] != settingsActOpen || back["p"] != settingsPageMessages {
+		settingsMsgWantWidths(t, "the Automatic list", keyboard, 2, 2, 2, 1, 2)
+		if back := settingsButtonFields(t, keyboard[4][0]); back["a"] != settingsActOpen || back["p"] != settingsPageMessages {
 			t.Errorf("the Automatic list's Back carries %v, want the hub", back)
 		}
 
@@ -74,10 +78,19 @@ func TestSettingsMessagesAutoFamily(t *testing.T) {
 				continue
 			}
 			screen, screenKeyboard := m.pressButton(button)
-			for _, key := range []string{ev.NameKey, ev.DescKey, "settings_msg_hint_auto", "settings_edit_line_text", "settings_msg_line_silent"} {
+			// An event that is off by default (the AI spam notice, Phase 24) draws the Notice line in place of the Silent
+			// line.
+			switchLine, otherLine := "settings_msg_line_silent", "settings_msg_line_notice"
+			if eventmsg.OffByDefault(ev.Key) {
+				switchLine, otherLine = otherLine, switchLine
+			}
+			for _, key := range []string{ev.NameKey, ev.DescKey, "settings_msg_hint_auto", "settings_edit_line_text", switchLine} {
 				if !containsMarker(screen, key) {
 					t.Errorf("the %s screen %q lacks %s", ev.Code, screen, key)
 				}
+			}
+			if containsMarker(screen, otherLine) {
+				t.Errorf("the %s screen %q carries %s", ev.Code, screen, otherLine)
 			}
 			if containsMarker(screen, "settings_msg_hint_manual") {
 				t.Errorf("the %s screen %q carries the manual family's hint", ev.Code, screen)

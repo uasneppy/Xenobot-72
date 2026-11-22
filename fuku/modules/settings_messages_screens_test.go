@@ -83,8 +83,41 @@ func settingsMsgPMOffState() settingsEditState {
 }
 
 // settingsMsgFamilyWidths are the row widths of each family's list: its event cells two to a row (an odd last one
-// alone), then Back and Close.
-var settingsMsgFamilyWidths = map[string]string{"m": "[2 2 2 1 2]", "a": "[2 2 1 2]"}
+// alone), then Back and Close. Phase 24 gave the Automatic family its seventh event and added the Member requirements
+// family's four.
+var settingsMsgFamilyWidths = map[string]string{"m": "[2 2 2 1 2]", "a": "[2 2 2 1 2]", "r": "[2 2 2]"}
+
+// settingsMsgScreenWidths are the row widths of an event screen or a private copy screen of def in the state st: one
+// row per part of the definition ([Set] while the part is not set, [Set | Remove] while it is), the preview buttons two
+// to a row (Preview of each part that is set, then Full preview), the switch row when the screen has one (every private
+// copy screen, and every event screen but a NoSilent event's), the private copy row when the event has one, then Back
+// and Close. With the three parts of the manual and Automatic families these are the Phase 21 and 22 shapes ([1 1 1 1 1
+// 1 2] empty and [2 2 2 2 2 1 1 2] full for an event screen); the Member requirements family has two parts (D-29).
+func settingsMsgScreenWidths(def settingsEditPageDef, st settingsEditState, switchRow, pmRow bool) string {
+	var widths []int
+	previews := 1
+	for _, part := range def.Parts {
+		if settingsEditPartIsSet(st, part.Code) {
+			widths = append(widths, 2)
+			previews++
+			continue
+		}
+		widths = append(widths, 1)
+	}
+	for ; previews > 1; previews -= 2 {
+		widths = append(widths, 2)
+	}
+	if previews == 1 {
+		widths = append(widths, 1)
+	}
+	if switchRow {
+		widths = append(widths, 1)
+	}
+	if pmRow {
+		widths = append(widths, 1)
+	}
+	return fmt.Sprint(append(widths, 2))
+}
 
 // settingsMsgNamedScreen is one rendered screen of the page with the row widths its keyboard must have ("" for a screen
 // whose shape a test does not fix, such as the plain reply of a refusal, which always has its one Cancel).
@@ -117,7 +150,7 @@ func settingsMsgScreens(t *testing.T, view settingsView, notices []string) map[s
 	stored["every private copy on"] = settingsMsgEveryPMOn(t)
 	for i, notice := range notices {
 		for name, msgs := range stored {
-			add(fmt.Sprintf("hub %s notice %d", name, i), renderSettingsMsgHub(view, msgs, notice), "[2 1 1 2]")
+			add(fmt.Sprintf("hub %s notice %d", name, i), renderSettingsMsgHub(view, msgs, notice), "[2 1 1 1 2]")
 			for _, fam := range settingsMsgFamilies {
 				if len(fam.Events) == 0 {
 					continue
@@ -144,16 +177,19 @@ func settingsMsgScreens(t *testing.T, view settingsView, notices []string) map[s
 			if _, spec := eventPMSpecFor(ev.Key); !spec {
 				t.Fatalf("the %s event has no private copy spec", ev.Key)
 			}
-			emptyEvent, fullEvent := "[1 1 1 1 1 1 2]", "[2 2 2 2 2 1 1 2]"
+			emptyEvent := settingsMsgScreenWidths(def, settingsMsgEmptyState(), !ev.NoSilent, true)
+			fullEvent := settingsMsgScreenWidths(def, settingsMsgFullState(db.PHOTO), !ev.NoSilent, true)
+			emptyPM := settingsMsgScreenWidths(pmDef, settingsMsgPMOffState(), true, false)
+			fullPM := settingsMsgScreenWidths(pmDef, settingsMsgFullState(db.PHOTO), true, false)
 			for i, notice := range notices {
 				opts := settingsEditScreenOpts{Notice: notice, BotUsername: "FukuTestBot"}
 				add(fmt.Sprintf("event %s empty notice %d", ev.Code, i), renderSettingsMsgEvent(view, fam, ev, def, settingsMsgEmptyState(), opts), emptyEvent)
-				add(fmt.Sprintf("pm %s empty notice %d", ev.Code, i), renderSettingsMsgPM(view, fam, ev, pmDef, settingsMsgPMOffState(), opts), "[1 1 1 1 1 2]")
+				add(fmt.Sprintf("pm %s empty notice %d", ev.Code, i), renderSettingsMsgPM(view, fam, ev, pmDef, settingsMsgPMOffState(), opts), emptyPM)
 				for kind, mediaType := range map[string]int{"photo": db.PHOTO, "sticker": db.STICKER} {
 					add(fmt.Sprintf("event %s full %s notice %d", ev.Code, kind, i),
 						renderSettingsMsgEvent(view, fam, ev, def, settingsMsgFullState(mediaType), opts), fullEvent)
 					add(fmt.Sprintf("pm %s full %s notice %d", ev.Code, kind, i),
-						renderSettingsMsgPM(view, fam, ev, pmDef, settingsMsgFullState(mediaType), opts), "[2 2 2 2 2 1 2]")
+						renderSettingsMsgPM(view, fam, ev, pmDef, settingsMsgFullState(mediaType), opts), fullPM)
 				}
 				// Phase 22: the event screen whose private copy line reads On, and the private copy screen with every part
 				// stored and its switch on (Silent false), the state a copy that is sent is drawn in.
@@ -162,7 +198,7 @@ func settingsMsgScreens(t *testing.T, view settingsView, notices []string) map[s
 				add(fmt.Sprintf("event %s full pm on notice %d", ev.Code, i), renderSettingsMsgEvent(view, fam, ev, def, pmOn, opts), fullEvent)
 				pmSent := settingsMsgFullState(db.PHOTO)
 				pmSent.Silent = false
-				add(fmt.Sprintf("pm %s full switch on notice %d", ev.Code, i), renderSettingsMsgPM(view, fam, ev, pmDef, pmSent, opts), "[2 2 2 2 2 1 2]")
+				add(fmt.Sprintf("pm %s full switch on notice %d", ev.Code, i), renderSettingsMsgPM(view, fam, ev, pmDef, pmSent, opts), fullPM)
 			}
 			for name, d := range map[string]settingsEditPageDef{"": def, "pm ": pmDef} {
 				for _, part := range d.Parts {

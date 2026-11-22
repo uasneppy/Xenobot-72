@@ -144,6 +144,8 @@ func settingsEditCheckGreetingText(in settingsEditCheckInput) settingsEditVerdic
 	if settingsEditPartIsSet(in.State, settingsEditPartMedia) {
 		dataType, limit = in.State.MediaType, settingsEditCaptionLimit
 	}
+	// The room the bot adds after the text (a requirement notice's requirements line) is held back from the limit.
+	limit -= in.Def.ReservedText
 	// The commands count the stored HTML before they trim it, so the same count is made here.
 	if refusal := content.TextLengthRefusal(stored, dataType, in.Language); refusal != "" {
 		return settingsEditVerdict{RefusalText: refusal}
@@ -286,7 +288,8 @@ func settingsEditCheckMedia(in settingsEditCheckInput) settingsEditVerdict {
 
 // settingsEditMediaCaptionRefusal refuses a typed media when the stored text could not be its caption: the
 // Welcome and Goodbye text filled in for the worst-case member, the Rules heading plus text in the longest
-// language, both held to 1024 units. It reports whether it refused.
+// language, both held to 1024 units (less the definition's ReservedText for a hooked message). It reports whether
+// it refused.
 func settingsEditMediaCaptionRefusal(in settingsEditCheckInput, dataType int) (settingsEditVerdict, bool) {
 	stored := in.State.Text
 	if in.Def.Kind == settingsEditRules {
@@ -298,8 +301,9 @@ func settingsEditMediaCaptionRefusal(in settingsEditCheckInput, dataType int) (s
 	if content.TextLengthRefusal(stored, dataType, in.Language) != "" {
 		return settingsEditOverLimit("settings_edit_refuse_media_text_long", utf8.RuneCountInString(stored), settingsEditCaptionLimit), true
 	}
-	if longest, _ := settingsEditFilledLongest(in, stored); longest > settingsEditCaptionLimit {
-		return settingsEditOverLimit("settings_edit_refuse_media_text_long", longest, settingsEditCaptionLimit), true
+	limit := settingsEditCaptionLimit - in.Def.ReservedText
+	if longest, _ := settingsEditFilledLongest(in, stored); longest > limit {
+		return settingsEditOverLimit("settings_edit_refuse_media_text_long", longest, limit), true
 	}
 	return settingsEditVerdict{}, false
 }

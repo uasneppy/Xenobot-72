@@ -124,6 +124,7 @@ var (
 	_ eventDefaultReply = floodDefaultReply
 	_ eventDefaultReply = blacklistNoticeDefaultReply
 	_ eventDefaultReply = captchaFailureDefaultReply
+	_ eventDefaultReply = aispamNoticeDefaultReply
 )
 
 // eventActionWords maps an action's mode word to the locale key of its translated word.
@@ -160,8 +161,6 @@ func floodEventReason(tr *i18n.Translator) string {
 // aispam_notice_deleted text with {name} the escaped mention of the member's full name, in HTML with
 // link previews off. The site adds the deleted message's topic; it is never a reply. It says only that
 // a message was removed: never the provider, a model, a probability or a category (D-36).
-//
-//nolint:unused // first production caller arrives in plan 24-04
 func aispamNoticeDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
 	name := formatting.GetFullName(in.Target.FirstName, in.Target.LastName)
 	text, _ := tr.GetString("aispam_notice_deleted", i18n.TranslationParams{"name": formatting.MentionHtml(in.Target.Id, name)})

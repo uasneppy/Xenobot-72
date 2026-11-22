@@ -110,6 +110,11 @@ type settingsEditPageDef struct {
 	// ReservedButtons is the number of buttons the bot itself adds to the message (an Unban row), counted
 	// by the check against Telegram's keyboard limit. Zero for the three built-in pages.
 	ReservedButtons int
+	// ReservedText is the room, in UTF-16 units, the bot itself adds after a custom text (the requirements line and
+	// remedies of a member requirement notice), held back by the check from the text and caption limits and by the
+	// prompt's "Up to" number, so the bot's addition always fits. Zero for the three built-in pages and every
+	// definition whose message the bot adds nothing to.
+	ReservedText int
 	// Hooks are the definition's own load, remove, write, draw and preview; nil for the three built-in
 	// pages, which the editor serves through their commands' apply functions.
 	Hooks *settingsEditHooks

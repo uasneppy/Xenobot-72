@@ -117,7 +117,7 @@ func TestSettingsMessagesPMOptions(t *testing.T) {
 					t.Errorf("the hub %q does not read the %s option Off", text, each.name)
 				}
 			}
-			settingsMsgWantWidths(t, "the hub", keyboard, 2, 1, 1, 2)
+			settingsMsgWantWidths(t, "the hub", keyboard, 2, 1, 1, 1, 2)
 			toggle, fields := settingsMsgOptionToggle(t, keyboard, opt)
 			if fields["v"] != "1" || fields["c"] != strconv.FormatInt(env.chat.Id, 10) {
 				t.Errorf("the %s toggle carries %v, want v=1 for chat %d", opt.name, fields, env.chat.Id)
@@ -145,7 +145,7 @@ func TestSettingsMessagesPMOptions(t *testing.T) {
 			if !strings.Contains(text, settingsMsgOptionLine(opt, true)) || containsMarker(text, "common_settings_save_failed") {
 				t.Errorf("the redraw %q is not the hub reading %s On with no notice", text, opt.name)
 			}
-			settingsMsgWantWidths(t, "the redrawn hub", keyboard, 2, 1, 1, 2)
+			settingsMsgWantWidths(t, "the redrawn hub", keyboard, 2, 1, 1, 1, 2)
 			if _, fields := settingsMsgOptionToggle(t, keyboard, opt); fields["v"] != "0" {
 				t.Errorf("the redrawn toggle carries %v, want v=0", fields)
 			}

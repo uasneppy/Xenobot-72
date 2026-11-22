@@ -75,14 +75,17 @@ const (
 )
 
 // settingsMsgSample is the sample values a preview of an automatic event fills in (D-27): the warn or message
-// count, the limit, the action's mode word (warn, mute, kick or ban; the preview fills {action} with its translated
-// word and hands the mode word to the default builder) and the locale key of the event's own fixed reason (empty
-// means the sample reason). A manual event has the zero value, so its previews fill none of them.
+// count, the limit, the action's mode word (warn, mute, kick, ban or delete; the preview fills {action} with its
+// translated word and hands the mode word to the default builder), the locale key of the event's own fixed reason
+// (empty means the sample reason) and, for a member requirement event, the mask of the sample broken rules (Phase 24,
+// D-33: the preview's reason lists them and the bot's requirements line follows a custom text). A manual event has the
+// zero value, so its previews fill none of them.
 type settingsMsgSample struct {
 	Count     int
 	Limit     int
 	Action    string
 	ReasonKey string
+	Rules     int
 }
 
 // settingsMsgEvent is one event of a family: the eventmsg event it edits, its two-letter code (the k
@@ -90,7 +93,10 @@ type settingsMsgSample struct {
 // Unban or Unmute row, the warn's Remove warn row, the flood's admin row), counted against Telegram's
 // keyboard limit, the send site's own default reply builder (which a preview fills in), whether the event
 // is timed (its preview fills {duration} and {until}) and the sample values a preview of an automatic event
-// fills in.
+// fills in. NoSilent marks an event whose group message cannot be silenced (the requirement mute notice carries the
+// member's only way out, D-20): its screen draws no Silent switch and an hq press naming it is an invalid request.
+// Appended is what the send site appends after a custom text (the requirement events' requirements line and remedies,
+// D-14), which a Full preview of a custom text shows after it; nil appends nothing.
 type settingsMsgEvent struct {
 	Key             string
 	Code            string
@@ -101,19 +107,27 @@ type settingsMsgEvent struct {
 	Default         eventDefaultReply
 	Timed           bool
 	Sample          settingsMsgSample
+	NoSilent        bool
+	Appended        func(tr *i18n.Translator, in eventDefaultInput) string
 }
 
 // settingsMsgFamily is one family of events (D-19): its code (the t value of hl), icon, name, the intro of
 // its list, the prompt of its events' text part (which lists the placeholders the family's events fill), the
 // hint of its event screens and its events in page order. A family with no events is not drawn anywhere.
+// NoMedia gives its event messages the text and buttons parts only (the Member requirements family, D-29: a media item
+// could not carry the bot's requirements line), and ReservedText is the room, in UTF-16 units, its group messages leave
+// for what the bot appends after a custom text (held back from the text limit by the editor; a private copy appends
+// nothing and holds back nothing, D-35).
 type settingsMsgFamily struct {
-	Code        string
-	Icon        string
-	NameKey     string
-	IntroKey    string
-	WaitTextKey string
-	HintKey     string
-	Events      []settingsMsgEvent
+	Code         string
+	Icon         string
+	NameKey      string
+	IntroKey     string
+	WaitTextKey  string
+	HintKey      string
+	NoMedia      bool
+	ReservedText int
+	Events       []settingsMsgEvent
 }
 
 // settingsMsgManualEvents are the seven manual punishment events, in the order of eventmsg.Events.
@@ -149,10 +163,13 @@ var settingsMsgManualEvents = []settingsMsgEvent{
 }
 
 // settingsMsgAutoEvents are the Automatic family's events (Phase 23, D-24), each with the icon of its settings page:
-// the warn, the warn limit, the flood notice, the blacklist notice and the forward blocklist notice. The warn keeps its
-// Remove warn row and the flood its admin row on a custom message, so each reserves one button; none is timed. The
-// samples are the values a preview fills in (D-27): warn 1 of 3, warn limit 3 of 3 with mute, flood 6 messages of 5
-// with mute and the flood reason, blacklist and forward blocklist mute, the forward blocklist with its own reason.
+// the warn, the warn limit, the flood notice, the blacklist notice and the forward blocklist notice, then (Phase 24,
+// D-28) the failed captcha notice and the AI spam notice, which is off until the owner turns it on (D-21, D-30). The
+// warn keeps its Remove warn row and the flood its admin row on a custom message, so each reserves one button; none is
+// timed. The samples are the values a preview fills in (D-27, D-33): warn 1 of 3, warn limit 3 of 3 with mute, flood 6
+// messages of 5 with mute and the flood reason, blacklist and forward blocklist mute, the forward blocklist with its own
+// reason, the captcha a kick with 2 removed messages and the captcha reason, the AI spam notice the delete word and its
+// reason.
 var settingsMsgAutoEvents = []settingsMsgEvent{
 	{
 		Key: eventmsg.EventWarn, Code: "wn", Icon: "🚩", NameKey: "settings_msg_ev_warn", DescKey: "settings_msg_desc_warn",
@@ -175,11 +192,49 @@ var settingsMsgAutoEvents = []settingsMsgEvent{
 		Key: eventmsg.EventForwardBlock, Code: "fb", Icon: "🚷", NameKey: "settings_msg_ev_fwdblock", DescKey: "settings_msg_desc_fwdblock",
 		Default: blacklistNoticeDefaultReply, Sample: settingsMsgSample{Action: "mute", ReasonKey: "staff_fwdblock_reason"},
 	},
+	{
+		Key: eventmsg.EventCaptcha, Code: "cf", Icon: "🧩", NameKey: "settings_msg_ev_captcha", DescKey: "settings_msg_desc_captcha",
+		Default: captchaFailureDefaultReply, Sample: settingsMsgSample{Count: 2, Action: "kick", ReasonKey: "eventmsg_reason_captcha"},
+	},
+	{
+		Key: eventmsg.EventAISpam, Code: "ai", Icon: "🧠", NameKey: "settings_msg_ev_aispam", DescKey: "settings_msg_desc_aispam",
+		Default: aispamNoticeDefaultReply, Sample: settingsMsgSample{Action: "delete", ReasonKey: "eventmsg_reason_aispam"},
+	},
 }
 
-// settingsMsgFamilies are the families of the hub in page order: the manual family, then the Automatic family
-// (Phase 23); later phases add events to the Automatic family and the lockdown and requirement families. It is a
-// variable only so a test can draw more families; production code never reassigns it.
+// settingsMsgReqEvents are the Member requirements family's events (Phase 24, D-28): the requirement warn (also its
+// warn-limit variants), kick, ban and mute notices. Each default is the requirement executor's own notice builder and
+// each appends the requirements line and remedies after a custom text (memberReqNoticeAppended). The mute keeps its
+// "I fixed it" row on a custom message, so it reserves one button, and cannot be silenced (D-20). The samples (D-33):
+// warn 1 of 3 and the kick and ban with the username rule broken, the mute with the username and photo rules broken, so
+// its preview shows the photo remedy.
+var settingsMsgReqEvents = []settingsMsgEvent{
+	{
+		Key: eventmsg.EventReqWarn, Code: "rw", Icon: "❗", NameKey: "settings_msg_ev_mreqwarn", DescKey: "settings_msg_desc_mreqwarn",
+		Default: memberReqNoticeDefault(models.RequirementActionWarn), Appended: memberReqNoticeAppended(models.RequirementActionWarn),
+		Sample: settingsMsgSample{Count: 1, Limit: 3, Action: "warn", Rules: memberReqRuleBits("un")},
+	},
+	{
+		Key: eventmsg.EventReqKick, Code: "rk", Icon: "👢", NameKey: "settings_msg_ev_mreqkick", DescKey: "settings_msg_desc_mreqkick",
+		Default: memberReqNoticeDefault(models.RequirementActionKick), Appended: memberReqNoticeAppended(models.RequirementActionKick),
+		Sample: settingsMsgSample{Action: "kick", Rules: memberReqRuleBits("un")},
+	},
+	{
+		Key: eventmsg.EventReqBan, Code: "rb", Icon: "⛔", NameKey: "settings_msg_ev_mreqban", DescKey: "settings_msg_desc_mreqban",
+		Default: memberReqNoticeDefault(models.RequirementActionBan), Appended: memberReqNoticeAppended(models.RequirementActionBan),
+		Sample: settingsMsgSample{Action: "ban", Rules: memberReqRuleBits("un")},
+	},
+	{
+		Key: eventmsg.EventReqMute, Code: "rm", Icon: "🔇", NameKey: "settings_msg_ev_mreqmute", DescKey: "settings_msg_desc_mreqmute",
+		ReservedButtons: 1, NoSilent: true,
+		Default: memberReqNoticeDefault(models.RequirementActionMute), Appended: memberReqNoticeAppended(models.RequirementActionMute),
+		Sample: settingsMsgSample{Action: "mute", Rules: memberReqRuleBits("un", "ph")},
+	},
+}
+
+// settingsMsgFamilies are the families of the hub in page order: the manual family, the Automatic family (Phase 23)
+// and the Member requirements family (Phase 24); a later phase adds the lockdown family. It is a variable only so a test
+// can draw more families; production code never reassigns it.
 var settingsMsgFamilies = []settingsMsgFamily{
 	{
 		Code: "m", Icon: "🔨", NameKey: "settings_msg_fam_manual", IntroKey: "settings_msg_fam_manual_intro",
@@ -188,6 +243,11 @@ var settingsMsgFamilies = []settingsMsgFamily{
 	{
 		Code: "a", Icon: "🤖", NameKey: "settings_msg_fam_auto", IntroKey: "settings_msg_fam_auto_intro",
 		WaitTextKey: "settings_msg_wait_text_auto", HintKey: "settings_msg_hint_auto", Events: settingsMsgAutoEvents,
+	},
+	{
+		Code: "r", Icon: "🛂", NameKey: "settings_msg_fam_mreq", IntroKey: "settings_msg_fam_mreq_intro",
+		WaitTextKey: "settings_msg_wait_text_mreq", HintKey: "settings_msg_hint_mreq", NoMedia: true,
+		ReservedText: memberReqNoticeNoteReserve, Events: settingsMsgReqEvents,
 	},
 }
 
@@ -202,8 +262,11 @@ func settingsMsgTextPart(fam settingsMsgFamily) settingsEditPart {
 }
 
 // settingsMsgPartsOf are the parts of a family's event messages, in the order the event screen lists them:
-// the family's text part, then the editor's media and buttons parts.
+// the family's text part, then the editor's media and buttons parts; a NoMedia family has no media part.
 func settingsMsgPartsOf(fam settingsMsgFamily) []settingsEditPart {
+	if fam.NoMedia {
+		return []settingsEditPart{settingsMsgTextPart(fam), settingsEditButtonsPart}
+	}
 	return []settingsEditPart{settingsMsgTextPart(fam), settingsEditMediaPart, settingsEditButtonsPart}
 }
 
@@ -319,15 +382,16 @@ func settingsMsgPMWaitPage(ev settingsMsgEvent) string {
 }
 
 // settingsMsgEditDef is the message editor definition of one event: the hooked kind, the page's title,
-// the five editor codes, can_change_info to change it (D-22), the family's three parts, the field k that
-// names the event on every editor button, the bot's own reserved buttons and the hooks that read, draw,
-// remove, write and preview it.
+// the five editor codes, can_change_info to change it (D-22), the family's parts, the field k that
+// names the event on every editor button, the bot's own reserved buttons, the family's reserved text and the
+// hooks that read, draw, remove, write and preview it.
 func settingsMsgEditDef(fam settingsMsgFamily, ev settingsMsgEvent) settingsEditPageDef {
 	def := settingsMsgEditCodes
 	def.Key, def.Kind, def.Icon, def.TitleKey = settingsMsgWaitPage(ev), settingsEditEvent, ev.Icon, "settings_page_msgs"
 	def.Parts = settingsMsgPartsOf(fam)
 	def.Fields = map[string]string{settingsMsgEventField: ev.Code}
 	def.ReservedButtons = ev.ReservedButtons
+	def.ReservedText = fam.ReservedText
 	def.Hooks = &settingsEditHooks{
 		Load: settingsMsgLoad(ev, eventmsg.DestGroup), Draw: settingsMsgDraw(fam, ev),
 		Remove: settingsMsgRemove(ev, eventmsg.DestGroup), Write: settingsMsgWrite(ev, eventmsg.DestGroup),
@@ -338,7 +402,8 @@ func settingsMsgEditDef(fam settingsMsgFamily, ev settingsMsgEvent) settingsEdit
 
 // settingsMsgPMEditDef is the message editor definition of one event's private copy (D-07, D-23): the hooked
 // kind, the private copy's title (so the prompt says it is for the private copy), its icon, the same five editor
-// codes and can_change_info as the group message, the family's three parts, the fields k and d=p on every editor
+// codes and can_change_info as the group message, the family's parts (no reserved text: a private copy appends
+// nothing, D-35), the fields k and d=p on every editor
 // button (Set, Remove, the previews and the Cancel of the prompt and of a refusal), no reserved buttons (a
 // private copy never carries the bot's Unban or Unmute row) and the hooks that read, draw, remove, write and preview
 // the pm row (the previews through composeEventPM, the send path's composer, under their own header line).
@@ -408,10 +473,14 @@ func settingsMsgEventFields(fields map[string]string) bool {
 	return ok
 }
 
-// settingsMsgSilentFields is the Validate of hq: the private owner field, a known event code and a target
-// value of exactly "0" or "1".
+// settingsMsgSilentFields is the Validate of hq: the private owner field, a known event code that can be silenced (not
+// a NoSilent event, D-20) and a target value of exactly "0" or "1".
 func settingsMsgSilentFields(fields map[string]string) bool {
-	return settingsMsgEventFields(fields) && settingsEditSwitchValue(fields["v"])
+	if !settingsMsgEventFields(fields) || !settingsEditSwitchValue(fields["v"]) {
+		return false
+	}
+	_, ev, ok := settingsMsgEventByCode(fields[settingsMsgEventField])
+	return ok && !ev.NoSilent
 }
 
 // settingsMsgPMFields is the Validate of hp: the private owner field, an event with a private copy and a target
@@ -491,17 +560,21 @@ const (
 	settingsMsgCustom
 	// settingsMsgSilent means the event's Silent switch is on: the bot posts nothing.
 	settingsMsgSilent
+	// settingsMsgOff means the notice of an event that is off by default (the AI spam notice) is not switched on: the
+	// bot posts nothing (D-21, D-30).
+	settingsMsgOff
 )
 
-// settingsMsgStateOf is the state of one event's group message. Silent wins over a stored text, because
-// the bot then posts nothing; a row whose parts are all empty with Silent off is Default, as the send path
-// reads it.
+// settingsMsgStateOf is the state of one event's group message, read as the send path reads it (Resolve: no row is
+// the default message, Silent for an event that is off by default). Silent wins over a stored text, because the bot
+// then posts nothing; for an event that is off by default it reads Off. A NoSilent event ignores a stored Silent, as
+// the send site does (Required). A message whose parts are all empty is Default.
 func settingsMsgStateOf(msgs *eventmsg.Messages, ev settingsMsgEvent) settingsMsgState {
-	msg, ok := msgs.Lookup(ev.Key, eventmsg.DestGroup)
+	msg := msgs.Resolve(ev.Key, eventmsg.DestGroup)
 	switch {
-	case !ok:
-		return settingsMsgDefault
-	case msg.Silent:
+	case msg.Silent && eventmsg.OffByDefault(ev.Key):
+		return settingsMsgOff
+	case msg.Silent && !ev.NoSilent:
 		return settingsMsgSilent
 	case msg.HasContent():
 		return settingsMsgCustom
@@ -516,6 +589,8 @@ func settingsMsgStateWord(tr *i18n.Translator, state settingsMsgState) string {
 		return settingsText(tr, "settings_msg_state_custom")
 	case settingsMsgSilent:
 		return settingsText(tr, "settings_msg_state_silent")
+	case settingsMsgOff:
+		return settingsText(tr, "common_status_off")
 	case settingsMsgDefault:
 	}
 	return settingsText(tr, "settings_state_default")
@@ -531,12 +606,18 @@ func settingsMsgPMOn(msgs *eventmsg.Messages, ev settingsMsgEvent) bool {
 }
 
 // settingsMsgCountChanged counts the events of every family whose group message is not Default (Custom or Silent) or
-// whose private copy is on (D-24), each event once.
+// whose private copy is on (D-24), each event once. An event that is off by default counts only while its notice is
+// on (any state but Off) or its private copy is on (D-30).
 func settingsMsgCountChanged(msgs *eventmsg.Messages) int {
 	n := 0
 	for _, fam := range settingsMsgFamilies {
 		for _, ev := range fam.Events {
-			if settingsMsgStateOf(msgs, ev) != settingsMsgDefault || settingsMsgPMOn(msgs, ev) {
+			state := settingsMsgStateOf(msgs, ev)
+			changed := state != settingsMsgDefault && state != settingsMsgOff
+			if eventmsg.OffByDefault(ev.Key) {
+				changed = state != settingsMsgOff
+			}
+			if changed || settingsMsgPMOn(msgs, ev) {
 				n++
 			}
 		}
@@ -618,7 +699,7 @@ func settingsMsgRunEvent(p *settingsPress) *settingsScreen {
 func settingsMsgRunSilent(p *settingsPress) *settingsScreen {
 	def, ok := settingsMsgDefByFields(p.fields)
 	_, ev, evOK := settingsMsgEventByCode(p.fields[settingsMsgEventField])
-	if !ok || !evOK || !settingsEditSwitchValue(p.fields["v"]) {
+	if !ok || !evOK || ev.NoSilent || !settingsEditSwitchValue(p.fields["v"]) {
 		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
 		return nil
 	}
@@ -794,14 +875,19 @@ func settingsMsgWrite(ev settingsMsgEvent, dest string) func(context.Context, in
 // own fixed reason, Sample.ReasonKey) and, for a timed event, the duration is settingsMsgSampleDuration and the
 // end settingsMsgSampleSpan from now; an automatic event also fills its sample count, limit and action (the
 // translated word in {action}, the mode word and the reason as the one stored reason for the default builder).
-// The default text is the event's own builder in the group's language, with no bot rows. The reply carries no
-// options, so composeEventMessage adds no bot row: the Unban, Unmute and Remove warn buttons are live callbacks
-// that must never reach a private chat (D-27).
+// A member requirement event's sample rules (Sample.Rules) are its reason (the broken rules' phrases) and go to the
+// default builder, and its Note is what the site appends after a custom text (ev.Appended: the requirements line and
+// the remedies, D-33). The default text is the event's own builder in the group's language, with no bot rows. The
+// reply carries no options and no KeepRows, so composeEventMessage adds no bot row: the Unban, Unmute, Remove warn and
+// I fixed it buttons are live callbacks that must never reach a private chat (D-27).
 func settingsMsgPreviewReply(p *settingsPress, groupTr *i18n.Translator, ev settingsMsgEvent) eventReply {
 	target := p.query.From
 	values := eventValues{Reason: settingsText(groupTr, "settings_msg_sample_reason")}
 	sample := ev.Sample
-	if sample.ReasonKey != "" {
+	switch {
+	case sample.Rules != 0:
+		values.Reason = memberReqRulesText(groupTr, sample.Rules)
+	case sample.ReasonKey != "":
 		values.Reason = settingsText(groupTr, sample.ReasonKey)
 	}
 	if ev.Timed {
@@ -810,10 +896,14 @@ func settingsMsgPreviewReply(p *settingsPress, groupTr *i18n.Translator, ev sett
 	in := eventDefaultInput{Target: target, Reason: values.Reason, TimeVal: values.Duration}
 	if sample != (settingsMsgSample{}) {
 		values.Count, values.Limit, values.Action = sample.Count, sample.Limit, eventActionWord(groupTr, sample.Action)
-		in.Count, in.Limit, in.Action, in.Reasons = sample.Count, sample.Limit, sample.Action, []string{values.Reason}
+		in.Count, in.Limit, in.Action, in.Reasons, in.Rules = sample.Count, sample.Limit, sample.Action, []string{values.Reason}, sample.Rules
 	}
 	text, _ := ev.Default(groupTr, in)
-	return eventReply{Event: ev.Key, Target: target, Values: values, Default: text}
+	r := eventReply{Event: ev.Key, Target: target, Values: values, Default: text}
+	if ev.Appended != nil {
+		r.Note = ev.Appended(groupTr, in)
+	}
+	return r
 }
 
 // settingsMsgPreview is an event definition's Preview hook (D-20). It sends to the presser's private chat only,
@@ -988,7 +1078,8 @@ func renderSettingsMsgFamily(v settingsView, fam settingsMsgFamily, msgs *eventm
 }
 
 // settingsMsgPartLines is the state of each part of def in words (never the stored text, a button name or a
-// link), then the editor's note for a media kind that carries no caption.
+// link), then the editor's note for a media kind that carries no caption, only for a definition with a media part (a
+// NoMedia family's message never sends a stored media file, so the screen never mentions one).
 func settingsMsgPartLines(tr *i18n.Translator, def settingsEditPageDef, st settingsEditState) []string {
 	lines := make([]string, 0, len(def.Parts)+1)
 	for _, part := range def.Parts {
@@ -996,7 +1087,8 @@ func settingsMsgPartLines(tr *i18n.Translator, def settingsEditPageDef, st setti
 			"state": settingsEditStateWord(tr, st, part.Code),
 		}))
 	}
-	if settingsEditPartIsSet(st, settingsEditPartMedia) && (st.MediaType == db.STICKER || st.MediaType == db.VIDEO_NOTE) {
+	hasMedia := settingsEditPartByCode(def, settingsEditPartMedia) != nil
+	if hasMedia && settingsEditPartIsSet(st, settingsEditPartMedia) && (st.MediaType == db.STICKER || st.MediaType == db.VIDEO_NOTE) {
 		lines = append(lines, settingsText(tr, "settings_edit_note_no_caption"))
 	}
 	return lines
@@ -1015,6 +1107,20 @@ func settingsMsgSwitchRow(k *settingsKeyboard, labelKey, action string, ev setti
 	}
 }
 
+// settingsMsgNoticeRow adds the full-width Notice switch of an event that is off by default (D-30): the state icon of
+// on (the notice is posted), pressing hq with the Silent target that flips it, so v=1 (Silent) turns the notice off
+// and v=0 turns it on.
+func settingsMsgNoticeRow(k *settingsKeyboard, ev settingsMsgEvent, on bool) {
+	target := "0"
+	if on {
+		target = "1"
+	}
+	label := settingsText(k.view.Tr, "settings_btn_msg_notice", i18n.TranslationParams{"state": settingsStateIcon(on)})
+	if button, ok := k.button(label, map[string]string{"a": settingsActMsgSilent, settingsMsgEventField: ev.Code, "v": target}); ok {
+		k.row(button)
+	}
+}
+
 // renderSettingsMsgEvent draws an event's screen (the Draw hook of its editor definition): the event's icon
 // and bold name, its description, then the state of each part in words (never the stored text, a button
 // name or a link), the editor's note for a media kind that carries no caption, the Silent line, for an event
@@ -1024,25 +1130,43 @@ func settingsMsgSwitchRow(k *settingsKeyboard, labelKey, action string, ev setti
 // that is set, then Full preview, two to a row), then the full-width Silent toggle (the state icon, sending the
 // opposite of the stored state as an absolute target), then, for an event with a private copy, the full-width
 // row that opens the private copy's screen (a=he, k and d=p), then Back (the family) and Close: at most eight
-// rows, [2 2 2 2 2 1 1 2]. It is pure.
+// rows, [2 2 2 2 2 1 1 2]. An event that is off by default (the AI spam notice, D-30) draws the Notice line, toggle
+// and hint in place of the Silent ones: the notice is on while the message is not Silent, and its toggle presses the
+// same hq with the Silent target (v=1 turns the notice off, v=0 on). A NoSilent event (the requirement mute, D-20) has
+// no Silent line, toggle or hint. It is pure.
 func renderSettingsMsgEvent(
 	v settingsView, fam settingsMsgFamily, ev settingsMsgEvent, def settingsEditPageDef, st settingsEditState, opts settingsEditScreenOpts,
 ) settingsScreen {
 	tr := v.Tr
 	_, hasPM := eventPMSpecFor(ev.Key)
+	notice := eventmsg.OffByDefault(ev.Key)
 	body := []string{ev.Icon + " <b>" + settingsText(tr, ev.NameKey) + "</b>", settingsText(tr, ev.DescKey), ""}
 	body = append(body, settingsMsgPartLines(tr, def, st)...)
-	body = append(body, settingsText(tr, "settings_msg_line_silent", i18n.TranslationParams{"state": settingsStateWord(tr, st.Silent)}))
+	switch {
+	case notice:
+		body = append(body, settingsText(tr, "settings_msg_line_notice", i18n.TranslationParams{"state": settingsStateWord(tr, !st.Silent)}))
+	case !ev.NoSilent:
+		body = append(body, settingsText(tr, "settings_msg_line_silent", i18n.TranslationParams{"state": settingsStateWord(tr, st.Silent)}))
+	}
 	if hasPM {
 		body = append(body, settingsText(tr, "settings_msg_line_pm", i18n.TranslationParams{"state": settingsStateWord(tr, st.PMOn)}))
 	}
-	body = append(body,
-		"", settingsText(tr, fam.HintKey),
-		"", settingsText(tr, "settings_msg_hint_silent"))
+	body = append(body, "", settingsText(tr, fam.HintKey))
+	switch {
+	case notice:
+		body = append(body, "", settingsText(tr, "settings_msg_hint_notice"))
+	case !ev.NoSilent:
+		body = append(body, "", settingsText(tr, "settings_msg_hint_silent"))
+	}
 	k := newSettingsKeyboard(v)
 	settingsEditPartRows(k, def, st)
 	settingsEditPreviewRows(k, def, st)
-	settingsMsgSwitchRow(k, "settings_btn_msg_silent", settingsActMsgSilent, ev, st.Silent)
+	switch {
+	case notice:
+		settingsMsgNoticeRow(k, ev, !st.Silent)
+	case !ev.NoSilent:
+		settingsMsgSwitchRow(k, "settings_btn_msg_silent", settingsActMsgSilent, ev, st.Silent)
+	}
 	if hasPM {
 		open := map[string]string{"a": settingsActMsgEvent, settingsMsgEventField: ev.Code, settingsMsgDestField: settingsMsgDestPMCode}
 		if button, ok := k.button(settingsText(tr, "settings_btn_msg_pm_open"), open); ok {

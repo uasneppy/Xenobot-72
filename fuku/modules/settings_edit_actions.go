@@ -38,15 +38,16 @@ func settingsEditPartByCode(def settingsEditPageDef, code string) *settingsEditP
 }
 
 // settingsEditPromptMax is the number the text prompt shows after "Up to": 1024 while the group has stored
-// media on any page (the text is its caption), else 3800 on Rules and 4096 on Welcome and Goodbye.
+// media on any page (the text is its caption), else 3800 on Rules and 4096 on Welcome and Goodbye, each less the
+// definition's ReservedText (3496 for a member requirement notice).
 func settingsEditPromptMax(def settingsEditPageDef, st settingsEditState) int {
 	switch {
 	case settingsEditPartIsSet(st, settingsEditPartMedia):
-		return settingsEditCaptionMax
+		return settingsEditCaptionMax - def.ReservedText
 	case def.Kind == settingsEditRules:
-		return settingsEditRulesPromptMax
+		return settingsEditRulesPromptMax - def.ReservedText
 	}
-	return settingsEditTextMax
+	return settingsEditTextMax - def.ReservedText
 }
 
 // renderSettingsEditPrompt draws the waiting prompt. It is pure. It is a screen, not a page: the

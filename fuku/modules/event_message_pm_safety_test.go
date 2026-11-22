@@ -68,6 +68,16 @@ func TestEventPMTextsFitEveryLocale(t *testing.T) {
 	if len(events) == 0 {
 		t.Fatal("no event has a private copy spec, so the sweep proves nothing")
 	}
+	// Every event with a private copy spec is drawn by a family of the Messages page, which is where its copy is switched
+	// on and where the #PM_COPY log line takes the event's name from (restored in plan 24-04, once the Phase 24 events
+	// joined the page).
+	for _, event := range events {
+		if !slices.ContainsFunc(settingsMsgFamilies, func(fam settingsMsgFamily) bool {
+			return slices.ContainsFunc(fam.Events, func(ev settingsMsgEvent) bool { return ev.Key == event })
+		}) {
+			t.Errorf("no family of the Messages page lists the %s event, which has a private copy spec", event)
+		}
+	}
 	until := time.Now().Add(2 * time.Hour)
 	escapedName := html.EscapeString(eventPMWorstName)
 	mention := formatting.MentionHtml(eventPMMember, eventPMWorstName)

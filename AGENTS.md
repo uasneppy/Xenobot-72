@@ -1611,10 +1611,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   that note with the Open in private row, Back and Close, with no page code and no read) and `Hidden` in a Staff Group
   (`settingsMsgHidden`: a definite Staff Group row read fresh through the page's own seam `settingsMsgStaffLookup`, never the Deletion page's `deletionStaffLookup`, whose reads `TestSettingsDeletionHidden` counts; an unreadable row shows the page), because
   nothing is set at Staff Group level (D-01). It is drawn from one table, `settingsMsgFamilies` (`settingsMsgFamily{Code, Icon, NameKey,
-  IntroKey, WaitTextKey, HintKey, Events}`, a variable only so a test can draw more families), whose events are `settingsMsgEvent{Key, Code, Icon, NameKey,
-  DescKey, ReservedButtons, Default, Timed, Sample}` (`Default` the send site's own `eventDefaultReply` builder, `Timed` true for the events whose
-  preview fills `{duration}` and `{until}`, `Sample` a `settingsMsgSample{Count, Limit int; Action, ReasonKey string}` of the values a preview
-  of an automatic event fills in, zero for a manual event). Two families have events: the manual family (`m`, 🔨, Admin actions),
+  IntroKey, WaitTextKey, HintKey, NoMedia, ReservedText, Events}`, a variable only so a test can draw more families), whose events are `settingsMsgEvent{Key, Code, Icon, NameKey,
+  DescKey, ReservedButtons, Default, Timed, Sample, NoSilent, Appended}` (`Default` the send site's own `eventDefaultReply` builder, `Timed` true for the events whose
+  preview fills `{duration}` and `{until}`, `Sample` a `settingsMsgSample{Count, Limit int; Action, ReasonKey string; Rules int}` of the values a preview
+  of an automatic event fills in, zero for a manual event, `NoSilent` for an event that cannot be silenced, `Appended` what the send site appends
+  after a custom text; a family's `NoMedia` gives its events the text and buttons parts only and its `ReservedText` is copied to its group
+  definitions). Three families have events: the manual family (`m`, 🔨, Admin actions),
   `settingsMsgManualEvents`: ban
   `bn` 🚫 (reserved 1, the Unban row, `banDefaultReply`), tban `tb` ⏳ (`tbanDefaultReply`, timed), kick `kk` 👢 (`kickDefaultReply`), mute
   `mu` 🔇 (reserved 1, the Unmute row, `muteDefaultReply`), tmute `tm` 🔕 (`tmuteDefaultReply`, timed), unban `ub` 🔓 (`unbanDefaultReply`),
@@ -1623,18 +1625,33 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   it, `settingsMsgAutoEvents`: warn `wn` 🚩 (reserved 1, the Remove warn row, `warnDefaultReply`, sample 1 of 3, action warn), warn limit
   `wl` ⛔ (`warnLimitDefaultReply`, sample 3 of 3, mute), flood `fl` 🌊 (reserved 1, the admin row, `floodDefaultReply`, sample 6 messages of 5,
   mute, reason `eventmsg_reason_flood`), blacklist `bl` 🔤 (`blacklistNoticeDefaultReply`, mute) and forward blocklist `fb` 🚷
-  (`blacklistNoticeDefaultReply`, mute, reason `staff_fwdblock_reason`), none timed, each with the name and description keys
+  (`blacklistNoticeDefaultReply`, mute, reason `staff_fwdblock_reason`), then (Phase 24 plan 24-04, D-28) the failed captcha `cf` 🧩
+  (`captchaFailureDefaultReply`, sample a kick with 2 removed messages, reason `eventmsg_reason_captcha`) and the AI spam notice `ai` 🧠
+  (`aispamNoticeDefaultReply`, sample the delete word, reason `eventmsg_reason_aispam`), none timed, each with the name and description keys
   `settings_msg_ev_<event>` and `settings_msg_desc_<event>`, and no new action code, field or right (the family reuses `hl he hs hr hc hv hf
-  hq hp ho` with its own `t` and `k` values). A family with no events is not drawn anywhere and no renderer branches on a family's or an event's code. Screens: the hub
+  hq hp ho` with its own `t` and `k` values); and the Member requirements family (`r`, 🛂, `settings_msg_fam_mreq`, the settings page's own
+  name, Requirements, because the cell must fit 20 code points; intro `settings_msg_fam_mreq_intro`, prompt `settings_msg_wait_text_mreq`, hint
+  `settings_msg_hint_mreq`; Phase 24 plan 24-04, D-28, D-29), drawn after the Automatic one, `settingsMsgReqEvents`: warn `rw` ❗, kick `rk` 👢,
+  ban `rb` ⛔ and mute `rm` 🔇 (`EventReqWarn` to `EventReqMute`), each with `memberReqNoticeDefault(action)` as its default and
+  `memberReqNoticeAppended(action)` as `Appended` (the requirements line and remedies `memberReqNoticeNote` appends after a custom text, with the
+  template key the default would use), the samples warn 1 of 3 and kick and ban with the username rule, mute with the username and photo rules
+  (`memberReqRuleBits("un", "ph")`, so its preview shows the photo remedy, D-33); the mute reserves 1 button (its "I fixed it" row) and is
+  `NoSilent` (D-20). The family is `NoMedia` (its events have the parts `x b` only, P4) and its `ReservedText` is `memberReqNoticeNoteReserve`
+  (600), held back by the editor from the text limit (the prompt reads `Up to 3496`), while its private copy definitions hold back nothing
+  (D-35). An event that is off by default (`eventmsg.OffByDefault`: the AI spam notice, D-21, D-30) draws a Notice switch in place of the
+  Silent one: the line `settings_msg_line_notice` with the state word of "not Silent", the toggle `settings_btn_msg_notice`
+  (`settingsMsgNoticeRow`: the state icon of the notice, pressing the same `hq` with the Silent target, `v=1` turning the notice off and `v=0`
+  on) and the hint `settings_msg_hint_notice` in place of `settings_msg_hint_silent`. A `NoSilent` event's screen has no Silent line, toggle or
+  hint, and `settingsMsgSilentFields` refuses its `k` in step 1 (`settingsMsgRunSilent` refuses it again). A family with no events is not drawn anywhere and no renderer branches on a family's or an event's code. Screens: the hub
   (`a=op&p=h`: the intro, then for each family a blank line, its icon and bold name and one `settings_main_state_line` per event with
   its state word, followed by the code-side mark ` · 📩` (`settingsMsgPMSuffix`, an icon and no words) while the event's private copy is on
   (`settingsMsgPMOn`: a spec and `msgs.Resolve(event, eventmsg.DestPM).Silent` false, Phase 22 plan 22-05, D-24), then, while some event
   has a private copy spec (`settingsMsgAnyPM`), the private copies block (Phase 22 plan 22-06, D-24): a blank line, `📩 <b>`
   `settings_msg_pm_title` `</b>`, one line per option of `settingsMsgPMOptions` with its state word (`settings_msg_line_pm_details`,
   `settings_msg_line_pm_log`), a blank line, `settings_msg_hint_pm_options` and `settings_msg_hint_pm_log` (plan 22-07); one cell per family,
-  two to a row, then one full-width toggle per option, then Back to Main and Close, rows `[2 1 1 2]` with the two families), a family's list (`a=hl&t=<family>`: its intro, the event lines (with the same mark) and
+  two to a row, then one full-width toggle per option, then Back to Main and Close, rows `[2 1 1 1 2]` with the three families), a family's list (`a=hl&t=<family>`: its intro, the event lines (with the same mark) and
   `settings_msg_list_hint`; one cell per event, two to a row, then Back to the hub and Close, rows
-  `[2 2 2 1 2]` for the manual family and `[2 2 1 2]` for the Automatic one) and an event's screen (`a=he&k=<code>`: the event's icon and bold name, its description, then the editor's part lines
+  `[2 2 2 1 2]` for the manual and the Automatic families and `[2 2 2]` for the Member requirements one) and an event's screen (`a=he&k=<code>`: the event's icon and bold name, its description, then the editor's part lines
   `settings_edit_line_text`, `_media` and `_buttons` with `settingsEditStateWord`, the no-caption note for a sticker or a video
   note, then `settings_msg_line_silent` with `settingsStateWord`, for an event with a private copy spec (`eventPMSpecFor`) the private copy
   line `settings_msg_line_pm` (`settingsStateWord` of `settingsEditState.PMOn`, Phase 22) and, after a blank line each, the family's hint
@@ -1644,11 +1661,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   Silent toggle `settings_btn_msg_silent` with `settingsStateIcon`, then, for an event with a private copy spec, the full-width row
   `settings_btn_msg_pm_open` that opens the private copy's screen (`a=he&k=<code>&d=p`, Phase 22), then Back to the family and Close:
   seven rows with nothing stored (`[1 1 1 1 1 1 2]`) and at most eight, `[2 2 2 2 2 1 1 2]` with every part set, the private content-page
-  budget; an event with no private copy spec has no private copy row, `[1 1 1 1 1 2]` and `[2 2 2 2 2 1 2]`). An event's state (`settingsMsgStateOf`) is Silent when its Silent switch is on, Custom when it
+  budget; an event with no private copy spec has no private copy row, `[1 1 1 1 1 2]` and `[2 2 2 2 2 1 2]`; a Member requirements event has two
+  part rows and its mute no Silent row, `[1 1 1 1 1 2]` empty and `[2 2 2 1 1 1 2]` full, the mute `[1 1 1 1 2]` and `[2 2 2 1 1 2]`). An
+  event's state (`settingsMsgStateOf`, read through `msgs.Resolve` as the send path reads it) is Silent when its Silent switch is on (Off,
+  `common_status_off`, for an event that is off by default; a `NoSilent` event ignores a stored Silent as its site does), Custom when it
   has a text, a media or a button, else Default (no row, or a row with nothing left, reads as the send path reads it); Main reads
   `settings_state_default` when every event is Default with its private copy off and `settings_state_msg_n` (`{n} custom`) for the n events
-  whose group message is not Default or whose private copy is on, each event counted once (`settingsMsgCountChanged`, plan 22-05, D-24;
-  `TestSettingsMessagesPMStates`), the unknown mark when the read failed. Every read is `settingsMsgRead` (= `eventmsg.GetFresh`, never the
+  whose group message is not Default or whose private copy is on, each event counted once, an off-by-default event only while its notice or
+  its private copy is on (`settingsMsgCountChanged`, plan 22-05, D-24, D-30; `TestSettingsMessagesPMStates`), the unknown mark when the read failed. Every read is `settingsMsgRead` (= `eventmsg.GetFresh`, never the
   cache), creates nothing and returns its error: a failed read is the cannot-open edit on the hub, a family and an event screen and the
   unknown mark on Main. `hl` and `he` take exactly `t` and `k`, require the private owner field `c` in their `Validate` (so a group
   menu's press is an invalid request in step 1, before any `getChatMember`) and a family with events or a known event, and need
@@ -1737,8 +1757,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   private copy row 42, Set, Remove and Cancel 42 (46 with `d=p`), Preview 42 (46 with `d=p`) and Silent 42, the private copy switch 42, the
   hub's option toggle `ho` 41, Full preview 38 (42 with `d=p`), Back to Main and Close 33, Main's cell 37 private and 33 group, with no field outside `a c u p t k d v`, and `d` only `p`, only on the private copy row and on the editor buttons of the private copy's screens, prompts and
   refusals, every one of which carries it (`TestSettingsMessagesCallbackBytes`, plan 22-08); every
-  screen fits 3800 UTF-16 units in 8 languages with a 64-rune title, cells 20 code points, in the rows hub `[2 1 1 2]`, family list
-  `[2 2 2 1 2]` (manual) and `[2 2 1 2]` (Automatic), event screen `[1 1 1 1 1 1 2]` empty and `[2 2 2 2 2 1 1 2]` full (`[1 1 1 1 1 2]` and
+  screen fits 3800 UTF-16 units in 8 languages with a 64-rune title, cells 20 code points, in the rows hub `[2 1 1 1 2]`, family list
+  `[2 2 2 1 2]` (manual and Automatic) and `[2 2 2]` (Member requirements), event screen `[1 1 1 1 1 1 2]` empty and `[2 2 2 2 2 1 1 2]` full (`[1 1 1 1 1 2]` and
   `[2 2 2 2 2 1 2]` for an event with no private copy spec, whose screen carries no `d`), private copy screen `[1 1 1 1 1 2]` empty and
   `[2 2 2 2 2 1 2]` full, group note `[1 2]` (`[2]` without a bot username)
   (`TestSettingsMessagesPageFitsEveryLocale`, over `settingsMsgScreens` in `settings_messages_screens_test.go`, which also draws the hub with
@@ -1820,7 +1840,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `event_messages:<chat>`, which is in `skipLocal`, so the send path reads the new option at the very next command on every replica.
   The three tests run every case for both option rows from one table (`settingsMsgOptionCases`): `TestSettingsMessagesPMOptions` (the
   block, the toggle and its bytes, a press that writes its own option and no other and a second press with what the send path's cached
-  `eventMessagesLookup` reads at once, a failed write, the `[2 1 1 2]` rows), `TestSettingsDriftMessagesPMOptions` (an option stored through
+  `eventMessagesLookup` reads at once, a failed write, the `[2 1 1 1 2]` rows), `TestSettingsDriftMessagesPMOptions` (an option stored through
   the repository is drawn by the hub; with the option off a blocked copy of `/ban` does nothing for it, and after the hub's drawn toggle is
   pressed the next `/ban`'s blocked copy adds the Details button or posts the `#PM_COPY` line) and `TestSettingsAuthorityMessagesPMOptions` (an administrator without
   `can_change_info` sees the hub and the toggle but the press is the `settings_no_change_info` alert with nothing written, an administrator the
@@ -3717,10 +3737,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the remedy sentences of `memberReqNoticeRemedies(key, broken)`; the engine appends it after its own newline, so a blank
   line precedes it. `memberReqNoticeNoteReserve` (600 UTF-16 units) is the room the editor holds back for it, and the worst
   note (all eight rules, both remedies) is at most 346 units in every language (`TestMemberReqNoticeNoteFitsReserve`; a
-  translation that exceeds it is shortened, never the reserve raised). Until their sites switch, `memberReqNoticeDefault`,
-  `memberReqNoticeNote`, `memberReqNoticeNoteReserve` and `aispamNoticeDefaultReply` carry
-  `//nolint:unused // first production caller arrives in plan 24-04` and `aispamEventReason` the same marker naming plan
-  24-06; the named plan removes it.
+  translation that exceeds it is shortened, never the reserve raised). Since plan 24-04 the Messages page's table uses
+  `memberReqNoticeDefault`, `memberReqNoticeNote` (through `memberReqNoticeAppended`), `memberReqNoticeNoteReserve` (the Member
+  requirements family's `ReservedText`) and `aispamNoticeDefaultReply`, so their markers are gone; `aispamEventReason` keeps
+  `//nolint:unused // first production caller arrives in plan 24-06`, and plan 24-06 removes it. The page's event names are also the
+  names the `#PM_COPY` log line gives the six events (`eventPMEventName`).
 - PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
   Automatic})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
   second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
@@ -4952,7 +4973,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   a failed one) and `PreviewHeaderKey`. `Fields` are extra callback fields every editor action button of the definition carries (Set,
   Remove, Preview, Full preview and the Cancel of the prompt and of a refusal, never Back, Close or the navigation row;
   `settingsEditFields`), so one set of action codes edits many messages; `ReservedButtons` counts the buttons the bot adds itself (the
-  Unban row) against Telegram's 100. `settingsEditResolvedActions(codes, fields, resolve)` builds Set, Remove, Cancel, Preview and Full
+  Unban row) against Telegram's 100, and `ReservedText` (Phase 24 plan 24-04, D-29) the UTF-16 units the bot itself appends after a custom
+  text (a requirement notice's requirements line and remedies): `settingsEditCheckGreetingText` and `settingsEditMediaCaptionRefusal` hold it
+  back from the text and caption limits and `settingsEditPromptMax` subtracts it from the prompt's "Up to" number (the Member requirements
+  family's 600, so 3496), while every other definition has 0 and behaves exactly as before. `settingsEditResolvedActions(codes, fields, resolve)` builds Set, Remove, Cancel, Preview and Full
   preview of such a page: `resolve` turns a press's fields into the definition it names and is where the page requires its owner field,
   so a group menu's press is refused in step 1; the built-in pages build their actions through it with a resolve that answers the page
   itself. A hooked definition's typed reply runs the editor branch of the typed-reply door (no new door): the same `authorize`, the
@@ -5875,8 +5899,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   warn limit's reply added as their site adds it) and compares the request byte for byte with the 18 goldens of the warn,
   the warn limit, the flood, the blacklist and the forward blocklist notices.
   `TestSettingsMessagesAutoFamily` (`settings_messages_auto_test.go`, plan 23-03) drives the Automatic family through the real private
-  menu, one `newSettingsMsgEnv` per subtest: the hub's bold 🤖 section with five Default lines and rows `[2 1 1 2]`, the list `a=hl&t=a`
-  with five cells and rows `[2 2 1 2]`, each event screen with the family's hint, its part rows and its Silent toggle; a typed text on
+  menu, one `newSettingsMsgEnv` per subtest: the hub's bold 🤖 section with its Default lines and rows `[2 1 1 2]`, the list `a=hl&t=a`
+  with five cells and rows `[2 2 1 2]` (since plan 24-04: seven lines, the AI spam notice reading Off, rows `[2 1 1 1 2]`, seven cells and
+  rows `[2 2 2 1 2]`), each event screen with the family's hint, its part rows and its Silent toggle (the AI spam notice's Notice line and
+  toggle); a typed text on
   the warn stored on its group row and read Custom on the hub; the flood's Silent press stored and read Silent; and, with the real
   locales, Full preview of the default warn limit (the presser's mention, 3/3 and the sample reason, no keyboard) and of a stored
   flood text (the translated mute word, 6/5 and the flood reason, no bot row), with nothing sent to the group. The page's earlier
