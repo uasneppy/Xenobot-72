@@ -60,9 +60,9 @@ func (p autoPunishment) Timed() bool {
 }
 
 // punishDurationValid reports whether secs is a duration a timed punishment may store and apply:
-// punishMinSecs to punishMaxSecs inclusive (models.PunishDurationValid).
+// punishMinSecs to punishMaxSecs inclusive, the bounds of models.PunishDurationValid.
 func punishDurationValid(secs int) bool {
-	return models.PunishDurationValid(secs)
+	return secs >= punishMinSecs && secs <= punishMaxSecs
 }
 
 // autoActionEffective is the one rule of what a stored automatic action does (D-08): mute, kick and

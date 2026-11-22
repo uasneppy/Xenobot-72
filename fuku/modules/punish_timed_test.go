@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
 )
 
@@ -98,6 +99,11 @@ func TestPunishTimedCore(t *testing.T) {
 		for _, c := range inert {
 			if autoActionEffective(c.action, c.secs) {
 				t.Errorf("autoActionEffective(%q, %d) = true, want false", c.action, c.secs)
+			}
+		}
+		for _, secs := range []int{0, 59, 60, 7200, punishMaxSecs, punishMaxSecs + 1} {
+			if punishDurationValid(secs) != models.PunishDurationValid(secs) {
+				t.Errorf("punishDurationValid(%d) disagrees with models.PunishDurationValid", secs)
 			}
 		}
 		if !(autoPunishment{Action: "tmute"}).Timed() || !(autoPunishment{Action: "tban"}).Timed() || (autoPunishment{Action: "mute"}).Timed() {
