@@ -16,16 +16,16 @@ import (
 // (TestPMCopyCallers forbids postEvent in staff files): its punishments are the linked group's own
 // automatic actions, like a blacklist word's (D-30).
 
-// forwardBlockNotice posts the punishment notice of the forward blocklist's action ("mute", "kick" or
-// "ban") in the linked group, through the event message engine (postEvent) with the blacklist's site and
+// forwardBlockNotice posts the punishment notice of the forward blocklist's punishment as applied (a
+// mute, kick or ban, or the timed mute or ban a linked group's escalation ladder chose) in the linked group, through the event message engine (postEvent) with the blacklist's site and
 // reply: the group's stored forward blocklist message replaces the default, which is the blacklist's
 // punishment notice in the group's language, and both are queued as automatic punishment messages. The
 // reason is the fixed translated forwardBlockReason and the member is the sender: nothing about the
 // blocked source or the Staff Group is in scope here, so no placeholder can name them (D-06, D-31).
-func forwardBlockNotice(b *gotgbot.Bot, ctx *ext.Context, userID int64, action string) error {
+func forwardBlockNotice(b *gotgbot.Bot, ctx *ext.Context, userID int64, p autoPunishment) error {
 	tr := ctxTr(ctx)
 	target := eventSenderTarget(ctx.EffectiveSender)
 	target.Id = userID
-	reply := listNoticeReply(tr, eventmsg.EventForwardBlock, target, autoPunishment{Action: action}, forwardBlockReason(tr))
+	reply := listNoticeReply(tr, eventmsg.EventForwardBlock, target, p, forwardBlockReason(tr))
 	return postEvent(listNoticeSite(b, &ctx.EffectiveMessage.Chat, tr), reply)
 }

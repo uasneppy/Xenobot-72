@@ -146,6 +146,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - The private copy jobs of event messages (`pmCopyJobs`, `event_message_pm.go`) have no drain and no flag: a restart cuts
   off the copies in flight (best effort, like the federation fan-out), so the 68 s worst case and `stop_grace_period: 75s`
   are unchanged and `main.go` registers nothing for them.
+- Phase 26 adds no drain: the escalation ladder's resolver (`escalate`) starts no goroutine and the offence count runs inside the
+  calling handler under its own 2 s context, so the worst case above and `stop_grace_period: 75s` are unchanged.
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
 - The Turnstile web captcha is configured in `main` (`registerCaptchaWeb`) when `config.AppConfig.CaptchaWebConfigured()`
   holds: all four of `CAPTCHA_WEB_BASE_URL`, `TELEGRAM_MINI_APP_SHORT_NAME`, `TURNSTILE_SITE_KEY` and
@@ -266,11 +268,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   applies the list's action only when the cached restrict right holds for mute, kick and ban (warn needs none) and the
   per-member latch (`forwardBlockPunished`, key (group, member), `forwardBlockPunishWindow`, 60 s, claimed in one
   check-and-set) grants it, so an album of blocked forwards deletes every item and punishes the member once, and a later
-  forward after the window punishes again. The actions: `none` is the delete alone, `warn` is `warnsModule.warnThisUser` with
+  forward after the window punishes again. Inside that latch the mute, kick and ban are resolved through the linked group's escalation
+  ladder (`escalate`, source `fwdblock`, see the Escalation ladder bullet), so with the ladder on the step replaces the list's action in
+  that group (`forwardBlockPunishmentOf`, `forwardBlockPunishTimed` for a timed step) and with it off the list's action applies as below. The actions: `none` is the delete alone, `warn` is `warnsModule.warnThisUser` with
   `warnSourceAuto` (the sentinels `ext.EndGroups` and `ext.ContinueGroups` ignored, as `blacklistWatcher` does), `mute` is
   `RestrictChatMember` with `MutedPermissions` and no end date, `kick` is `kickMember`, `ban` is `BanChatMember` with no end
-  date; after mute, kick and ban the punishment calls `forwardBlockNotice(b, ctx, userID, action)` with the action word
-  (`"mute"`, `"kick"`, `"ban"`), which posts the `fwdblock` event through the event message engine (`postEvent`, Phase 23
+  date; after mute, kick and ban the punishment calls `forwardBlockNotice(b, ctx, userID, p)` with the punishment as applied (an `autoPunishment`; the
+  action word `"mute"`, `"kick"` or `"ban"`, or a ladder's timed step with its end date), which posts the `fwdblock` event through the event message engine (`postEvent`, Phase 23
   plan 23-04): a group's stored forward blocklist message replaces the default, which is the existing
   `blacklists_bl_watcher_{muted,kicked,banned}_user` template with the member's mention and the reason
   `staff_fwdblock_reason`, in the group's language; both are queued as `bot:punish_auto` (the blacklist's site and reply,
@@ -3267,6 +3271,24 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   off every reply is byte for byte (`TestLegacyTimedPunishmentRequests`). `/resetallwarns` still counts rows to decide whether to show
   its confirm card (accepted). The expiry has no command: the Warnings page's expiry screen sets it (`nx`, `applyWarnExpiry`,
   plan 26-07; `TestWarnExpiry`, `TestSettingsWarnsExpiry`).
+- Escalation ladder (`escalation.go`, Phase 26, TUNE-02, D-23 to D-30). `escalate(ctx, b, chatID, userID, source, p)` resolves the
+  punishment a member's offence gets, and `checkFlood`, `blacklistWatcher` and `forwardBlockEnforce` call it right before they punish.
+  - Sources: the flood, the blacklist and the forward blocklist punishments of real users. Never counted: a sender chat (an ID of 0 or
+    less) keeping its rule's own action, a Telegram service account, the bot itself, a warn action, delete only (`none`), an inert
+    action, the warn limit, member requirements, the captcha and AI spam. `escalate` itself returns `p` unchanged for anything that
+    is not `autoActionEffective`.
+  - Place: after each rule's own checks (exemptions, the bot's restrict right, the deletion of the message); for the forward
+    blocklist inside the per-member punishment latch, so an album is one offence. Offences within 60 s
+    (`escalation.SameOffenceWindow`) of the member's last counted one are the same offence; after the group's forget period the next
+    is 1 again; step `min(count, len(steps))`, so the last step repeats. The ladder of the group where the member offended is used,
+    never a Staff Group's.
+  - Failures: a ladder that cannot be read applies the rule's own action; a count that cannot be established (an error or the 2 s
+    `escalationCountTimeout`, which GORM hands to the driver, so it is enforced) applies step 1, never harder than the first step on a
+    guess. Each logs one Warn per chat per hour (`escalationWarnGates`) with chat and user IDs and the error class only, never the
+    error text. The resolver starts no goroutine, writes no Redis key and adds no drain; the restrict and ban requests stay bounded
+    only by the HTTP client (30 s). Seams for tests: `escalationLadderLookup`, `escalationCount`.
+  - Accepted limits: a count is kept when the punishment Telegram then refuses; a forward blocklist step overrides the Staff Group
+    list's action in that linked group, as that group's own setting.
 - Fed-ban lookups cache per `(fed, user)` with a negative sentinel; every ban/unban write must invalidate it.
 - A join arrives as both `ChatMemberUpdated` and a service message; dedupe through `claimRecentJoinProcessing`
   (the lockdown guard, which runs first, dedupes by its joiner row instead and never gates a ban on Redis).
@@ -6812,6 +6834,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (rows `[2 2 2 1 2]`, 38 bytes private and 34 group at its largest) and the fullest page (an effective timed mute of 366 days and
   expiry 90 days under the longest notice) in 8 languages, half-width cells at most 20 code points and the full-width expiry button at
   most 40.
+  Plan 26-09's family (the escalation ladder at its three sites) is `TestEscalation` (`fuku/modules/escalation_test.go`, on
+  `newNoticeGoldenSite` and `newFwdWatchEnv` with `punishNow` moved through `escalationClock`; the ladder stored through
+  `escalation.SetEnabledWithSteps`): `steps_in_order` (blacklist, timed mute 1 h, timed mute 1 day, then bans, each notice naming its
+  action), `flood_steps`, `same_offence`, `forget`, `off`, `unreadable_ladder` and `count_failed` (one gated Warn with IDs only),
+  `sender_chat`, `not_offences`, `second_bot_instance` and `forward_album` (one count for the album, then steps 2 and 3).
 
 ## Commits
 

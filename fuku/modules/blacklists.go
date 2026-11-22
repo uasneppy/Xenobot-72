@@ -810,6 +810,7 @@ func (m moduleStruct) blacklistWatcher(b *gotgbot.Bot, ctx *ext.Context) error {
 		// nothing for post nothing (D-08).
 		return ext.ContinueGroups
 	}
+	p = escalate(tracing.UpdateContext(ctx), b, chat.Id, user.Id(), "blacklist", p)
 	applied, notice, err := blacklistPunish(b, ctx, user, p)
 	if err != nil {
 		log.Error(err)
@@ -826,7 +827,7 @@ func (m moduleStruct) blacklistWatcher(b *gotgbot.Bot, ctx *ext.Context) error {
 }
 
 // blacklistPunish applies p, an effective action of the matched word, to the sender, the one place
-// the blacklist's punishment is decided (plan 26-09 adds the escalation ladder here). It returns the
+// the blacklist's punishment is decided (escalate has already resolved p through the escalation ladder). It returns the
 // punishment as applied (Until set for a timed one) and whether a notice is due; an error is a
 // punishment Telegram refused, which the watcher logs, after which nothing is posted.
 //   - mute, kick and ban send today's requests: a mute or a kick of an anonymous channel sends nothing

@@ -344,6 +344,7 @@ func (m *moduleStruct) checkFlood(b *gotgbot.Bot, ctx *ext.Context) error {
 		_ = helpers.DeleteMessageWithErrorHandling(b, chatId, msg.MessageId)
 	}
 
+	p = escalate(tracing.UpdateContext(ctx), b, chatId, userId, "flood", p)
 	rows, applied, notice, err := floodPunish(b, chat, tr, user, p)
 	if err != nil {
 		return err
