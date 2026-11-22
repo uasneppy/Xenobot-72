@@ -6383,6 +6383,27 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   drives a join surge followed by the alert's Lift pressed in the Staff Group, and `/lockdown` followed by a group menu's lift: each custom
   message names the locked group's own title as `{chatname}`, and no request the bot made to the locked group names the Staff Group's title
   or ID or the log channel's title or ID.
+  `TestLockdownMessagesEndToEnd` (`lockdown_messages_e2e_test.go`, plan 25-08, about 3 s) is the phase's end-to-end proof through the real
+  dispatcher with only Telegram faked, one environment per subtest on the toolkit `lockdownMessagesE2E` (`newLockdownMessagesE2E(t, real)`:
+  Phase 21's `messagesE2E` with the group linked to a Staff Group, a log channel with every category on, the raid settings removed, every
+  deletion rule of the group at its shortest delay and the bot an administrator with every right; `openLockdownEvent` (Main, Messages,
+  Lockdown and the event's cell, each a press of the drawn button), `setLockdownPart`, `setLockdownText`, `silence`, `lockCommand`,
+  `wantLockdownReply`, `wantAutoNotice`, `wantNoPrivateSend`). Every message is set on the page, never through the repository. Subtests:
+  `owner sets the manual start` (a typed text, a photo and a link button; the hub reads Custom; `/lockdown raid & co` locks first, then one
+  `sendPhoto` replying to the command with the filled, escaped caption, a line break and the approved-muted note, and the button; no queue
+  row; the next cycle's alert in the Staff Group and the log channel carries none of it), `join surge` (fifteen self joins: the notice with
+  15, 60 and the trigger sentence, a new message after the lock, the tipping joiner still recorded pending), `flood` (thirty items from four
+  members who joined two hours ago: 30, 30 and 100), `ai burst` (five spam verdicts from three accounts through `raidAIRecordVerdict`: 5 and
+  120), `lift doors` (four lockdowns in one environment, lifted by `/unlockdown`, the alert's Lift pressed in the Staff Group, a private
+  menu's Lift Yes by the owner and a group menu's Lift Yes, each posting the custom lift text naming its lifter once, the group menu also
+  redrawn with its notice), `nothing stored` (real locales: `/lockdown` and `/unlockdown` equal `goldenLockdownStart` and
+  `goldenLockdownLiftCommand` with the command's message ID put in, and fifteen self joins in a second environment equal
+  `goldenLockdownAutoJoinSurge`), `refused` (real locales: a custom photo refused with a 400 comes after the lock and is followed by the
+  golden default once), `silent` (the start and the lift silenced from the page: `/lockdown` locks with no reply and the alert is posted,
+  `/unlockdown` lifts with no reply), `untouched surfaces` (all five texts set from the page: the alert, a reminder, a "Ban N recent joiners"
+  run with its card report and `#LOCKDOWN_BAN` post, the alert's lift and the close of both copies carry none of them, only the start reply
+  and the lift notice do in the group, and nothing goes to a private chat after the page) and `two replicas` (a start text posted by replica
+  B; the owner silences it through replica A; B's next `/lockdown` locks and posts nothing).
 
 ## Commits
 
