@@ -5998,6 +5998,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the group notice, a member who blocked the bot (one attempted send, nothing else), and the cap (three members in one minute with the
   cap at 2: all kicked and noticed, two copies; a fourth in the next minute with no Redis: kicked and noticed, no copy). The captcha
   site is also `eventSite.Automatic`, so its copies are capped through `eventPMOffer.ByRule` as well as through the spec.
+  `TestSettingsMessagesScreeningFamily` (`settings_messages_screening_test.go`, plan 24-04, about 2 s, one `newSettingsMsgEnv` per
+  subtest, real presses of drawn buttons) drives the page side: `hub and lists` (the bold 🛂 section with four Default lines, the
+  Automatic section's seven lines with the AI spam notice reading Off, rows `[2 1 1 1 2]`, the Member requirements list `[2 2 2]`, the
+  Automatic list `[2 2 2 1 2]`), `requirement screens` (the `rm` screen's text and buttons parts with no media part, no Silent switch, its
+  private copy row and hint, `rw` with its Silent switch, Set text drawing the prompt `Up to 3496`, a forged `hq` naming `rm` refused as an
+  invalid request with nothing written), `ai notice` (the Notice line reading Off, the toggle's press storing Silent false on the aispam row,
+  the hub then reading Default and Main counting it, a second press turning it off) and `previews` (real locales: a typed `rm` text whose
+  Full preview is the text filled with the presser's mention and the sample rules followed by the requirements line and the photo remedy,
+  with no keyboard; the captcha's default Full preview with the kick word and 2 removed messages; nothing sent to the group).
+  `TestSettingsEditReservedText` (same file, pure) holds the reserve: a requirement text of 3496 units is accepted, 3497 refused with
+  `settings_edit_refuse_too_long_filled` naming 3496, the prompt reads 3496, and the warn and the requirement mute's private copy keep 4096.
 
 ## Commits
 
