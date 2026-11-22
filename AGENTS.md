@@ -6370,6 +6370,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and the approved-muted note, and opening every lockdown screen of another chat writes nothing. `TestSettingsStaffPrivacy` gains
   `settingsPrivacyPhase25Run` (the Lockdown list, the `lu` screen, a typed `lu` text, its Silent switch and its Full preview by an
   administrator who is not the creator of a group linked to a Staff Group, through `settingsPrivacyMsgRunClean`).
+  `event_message_lockdown_safety_test.go` (plan 25-07, about 0.9 s) holds the lockdown sites' safety, one environment per case with the
+  group titled and its administrator named with sentinels (`lockdownSafeRename`). `TestLockdownMessageLogsCarryIDsOnly` runs, under a
+  debug-level hook and with a sentinel photo, caption and button stored (`lockdownSafeStore`), the manual start and the lift by command
+  (`/lockdown` with a sentinel reason, then `/unlockdown`), the join surge and the alert's lift pressed in the Staff Group
+  (`lockdownSafeAlertLift`), and a group menu's lift, once with the engine's read failing and once with each custom photo refused with a
+  400: each failure leaves the engine's one Warn naming the chat ID and the event (a group menu's lift posts nothing, and its read-error
+  line still says the default was sent, which carries IDs only and is accepted), the other sites send their default once, and no line
+  carries the stored text or caption, the file ID, the button, the reason, the trigger sentence, the admin's name or the group's title.
+  `TestLockdownMessagePrivacy` links the group to a Staff Group titled with a sentinel (`lockdownSafeLinkStaff`) and gives it a log channel
+  known by a sentinel title (`lockdownSafeLogChannel`), stores a custom text with every placeholder (`lockdownSafeEveryPlaceholder`) and
+  drives a join surge followed by the alert's Lift pressed in the Staff Group, and `/lockdown` followed by a group menu's lift: each custom
+  message names the locked group's own title as `{chatname}`, and no request the bot made to the locked group names the Staff Group's title
+  or ID or the log channel's title or ID.
 
 ## Commits
 
