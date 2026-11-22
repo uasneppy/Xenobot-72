@@ -227,7 +227,16 @@ Plans:
   3. Lifting a lockdown posts the custom lifted message, whether the lift came from `/unlockdown`, the alert's Lift button or the settings menu.
   4. Staff Group actions, lockdown alerts and reminders, raid-scale removals (joiner bans and "Ban N recent joiners") with their reports, log channel posts and captcha challenges are exactly as before. They are not on the Messages page, never go through the renderer and never get a PM copy.
   5. A group with nothing stored gets today's lockdown texts byte for byte. A refused custom message falls back to the default, and the lock, the snapshot, the worker and the alert are never delayed by it.
-**Plans**: TBD
+**Plans**: 8 plans
+Plans:
+- [ ] 25-01-PLAN.md — goldens of the /lockdown reply, the three automatic notices, the cannot-lock warning and the lift notice from every door, committed alone (wave 1)
+- [ ] 25-02-PLAN.md — tracer: the manual lockdown's message through a non-lockdown adapter file; the five event keys, {percent}, the default builders and the structural EVT-10 guard over every engine caller (wave 2)
+- [ ] 25-03-PLAN.md — the Messages page's Lockdown family: five events, the notes' text reserve, no private copy row, previews (wave 3)
+- [ ] 25-04-PLAN.md — the join surge, flood and AI burst notices through the engine, inside raidPostAsync and the StopRaidPosts drain (wave 4)
+- [ ] 25-05-PLAN.md — the lift notice from /unlockdown, the alert's Lift button and the settings menu, a group menu posting only a stored custom message (wave 5)
+- [ ] 25-06-PLAN.md — behavioural EVT-10 guard: alerts, reminders, raid-scale removals, the Staff Group, captcha challenges and log posts untouched; no private copy (wave 6)
+- [ ] 25-07-PLAN.md — safeguards: forged presses, rights, drift, reads, cost, logs, privacy (wave 7)
+- [ ] 25-08-PLAN.md — end-to-end proof, phase gates and the one full package run (wave 8)
 **UI hint**: yes
 
 ### Phase 26: Timed Punishments, Escalation and Warn Expiry

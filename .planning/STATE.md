@@ -4,7 +4,7 @@ milestone: v1.2
 milestone_name: Conversations, Custom Messages and Tuning
 status: executing
 last_updated: "2026-11-21T12:00:00.000Z"
-last_activity: 2026-11-21
+last_activity: 2026-11-22
 progress:
   total_phases: 11
   completed_phases: 1
@@ -24,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-11-18)
 
 ## Current Position
 
-Phase: 24 of 30 (Captcha, AI Spam and Member Requirement Notices), milestone v1.2 (Phase 20 Conversations shipped in v2.26.0; this milestone's phases were renumbered 20-29 to 21-30 on 2026-11-21)
-Plan: Phase 24's 8 plans are done and verified (no code gaps, human_needed: live checks, provisional decisions P1-P16 and a PostgreSQL run in `24-VERIFICATION.md`); Phases 21 to 23 likewise. The full fuku/modules run takes about 6 minutes. Next: plan Phase 25
-Status: Phase 24 verified; ready to plan Phase 25
-Last activity: 2026-11-22 - Executed and verified Phase 24 (captcha, AI spam and member requirement notices), 8 plans, 12/12 must-haves
+Phase: 25 of 30 (Lockdown Messages), milestone v1.2 (Phase 20 Conversations shipped in v2.26.0; this milestone's phases were renumbered 20-29 to 21-30 on 2026-11-21)
+Plan: Phase 25 is planned: 8 plans in `.planning/phases/25-lockdown-messages/` (goldens first, then the manual start, the page, the automatic notices, the lift, the EVT-10 guards, the safeguards and the end-to-end proof), with provisional decisions P1-P15 in `25-CONTEXT.md`. Phases 21 to 24 are done and verified (human_needed: live checks). The full fuku/modules run takes about 6 minutes. Next: execute 25-01
+Status: Executing Phase 25 (8 plans)
+Last activity: 2026-11-22 - Planned Phase 25 (lockdown messages), 8 plans
 
 Progress: [█████░░░░░] 5 of 11 phases done or verified
 
