@@ -78,6 +78,8 @@ antiflood_help_msg: |
   
     × /setfloodmode `<action type>`: Выбрать, какое действие применять к пользователю, совершающему флуд. Варианты: ban/kick/mute
   
+    × /setfloodmode tmute 30m, /setfloodmode tban 1d: Временный мут или бан флудера, от 1m до 366d.
+  
     × /delflood `<yes/no/on/off>`: Если вы хотите, чтобы бот удалял сообщения, создаваемые пользователем при флуде."
 antiflood_setflood_disabled: "Хорошо.\n\n  Я не буду предупреждать пользователей за флуд."
 antiflood_setflood_success: Лимит флуда установлен на <b>%d</b> сообщений.
@@ -857,6 +859,9 @@ warns_limit_muted: "Это %d/%d предупреждений; Поэтому %s
 warns_limit_banned: "Это %d/%d предупреждений; Поэтому %s был забанен!"
 warns_limit_tmuted: "Это {count}/{limit} предупреждений; Поэтому {user} был заглушен на {duration}!"
 warns_limit_tbanned: "Это {count}/{limit} предупреждений; Поэтому {user} был забанен на {duration}!"
+antiflood_setfloodmode_bad_duration: "Укажите длительность от 1m до 366d, например <code>/setfloodmode tmute 30m</code>."
+antiflood_checkflood_timed_mute: "Да, мне не нравится ваш флуд. {user} был заглушен на {duration}!"
+antiflood_checkflood_timed_ban: "Да, мне не нравится ваш флуд. {user} был забанен на {duration}!"
 warns_remove_button: ❌ Удалить предупреждение
 warns_rules_button: Правила 📝
 warns_user_warning: "У пользователя %s %d/%d предупреждений; будьте осторожны!"

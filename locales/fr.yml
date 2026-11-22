@@ -383,6 +383,9 @@ warns_limit_muted: "Ça fait %d/%d avertissements ; Donc %s a été rendu muet !
 warns_limit_banned: "Ça fait %d/%d avertissements ; Donc %s a été banni !"
 warns_limit_tmuted: "Ça fait {count}/{limit} avertissements ; Donc {user} a été rendu muet pendant {duration} !"
 warns_limit_tbanned: "Ça fait {count}/{limit} avertissements ; Donc {user} a été banni pendant {duration} !"
+antiflood_setfloodmode_bad_duration: "Indiquez une durée de 1m à 366d, par exemple <code>/setfloodmode tmute 30m</code>."
+antiflood_checkflood_timed_mute: "Ouais, je n'aime pas vos inondations. {user} a été rendu muet pendant {duration} !"
+antiflood_checkflood_timed_ban: "Ouais, je n'aime pas vos inondations. {user} a été banni pendant {duration} !"
 warns_remove_button: ❌ Supprimer l'avertissement
 warns_rules_button: Règles 📝
 warns_user_warning: "L'utilisateur %s a %d/%d avertissements ; attention !"
@@ -1512,6 +1515,8 @@ antiflood_help_msg: |
 
   × /setfloodmode `<type d'action>` : Choisir l'action à prendre sur un utilisateur qui a
   floodé. Options : ban/kick/mute
+
+  × /setfloodmode tmute 30m, /setfloodmode tban 1d : Mute ou bannissement temporaire de l'utilisateur qui floode, de 1m à 366d.
 
   × /delflood `<yes/no/on/off>` : Si vous voulez que le bot supprime les messages floodés par l'utilisateur.
 

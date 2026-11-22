@@ -445,9 +445,13 @@ func floodNotice(b *gotgbot.Bot, chat *gotgbot.Chat, msg *gotgbot.Message, tr *i
 // floodOffWords are the arguments /setflood reads as "turn antiflood off".
 var floodOffWords = []string{"off", "no", "false", "0"}
 
-// floodModes are the only actions a command or the settings page may write. warn, tban and
-// tmute stay valid in the database check but are never written (D-20).
+// floodModes are the plain actions a command or the settings page may write, with seconds 0.
+// warn stays valid in the database check but is never written (D-20).
 var floodModes = []string{"ban", "kick", "mute"}
+
+// floodTimedModes are the timed actions (Phase 26, D-09): written only with a duration of
+// punishMinSecs to punishMaxSecs, and inert when stored with none.
+var floodTimedModes = []string{"tban", "tmute"}
 
 // floodApplyOutcome is what an apply function did with its input.
 type floodApplyOutcome int
@@ -459,10 +463,14 @@ const (
 	floodDisabled
 	// floodOutOfRange means the limit was neither 0 nor 3..100; nothing was written.
 	floodOutOfRange
-	// floodUnknownMode means the action was not ban, kick or mute; nothing was written.
+	// floodUnknownMode means the action was not ban, kick or mute, or a timed action came with
+	// no duration; nothing was written.
 	floodUnknownMode
 	// floodSaveFailed means the repository returned an error; Err holds it.
 	floodSaveFailed
+	// floodBadDuration means a timed action (tban, tmute) came with a duration outside
+	// punishMinSecs to punishMaxSecs; nothing was written.
+	floodBadDuration
 )
 
 // floodApplyResult is the verdict of an apply function. Stored is the row read back from the
@@ -506,13 +514,26 @@ func applyFloodLimit(ctx context.Context, chatID int64, limit int) floodApplyRes
 	}
 }
 
-// applyFloodMode validates and stores the antiflood action. Only ban, kick and mute are
-// accepted, exactly as spelled; the caller lower-cases user text first.
-func applyFloodMode(ctx context.Context, chatID int64, mode string) floodApplyResult {
-	if !slices.Contains(floodModes, mode) {
+// applyFloodMode validates and stores the antiflood action and its duration in seconds, exactly
+// as spelled; the caller lower-cases user text first (D-09, the rules of applyWarnMode):
+//   - a plain action (ban, kick, mute) stores seconds 0, clearing any duration, whatever secs says;
+//   - a timed action (tban, tmute) with seconds 0 is floodUnknownMode, the pinned reply of a timed
+//     word alone;
+//   - a timed action with seconds outside punishMinSecs to punishMaxSecs is floodBadDuration;
+//   - a valid timed action stores the action and the seconds in one write.
+//
+// Nothing is written on a refusal. The repository write invalidates its own cache key. It judges
+// no person's rights.
+func applyFloodMode(ctx context.Context, chatID int64, mode string, secs int) floodApplyResult {
+	switch {
+	case slices.Contains(floodModes, mode):
+		secs = 0
+	case !slices.Contains(floodTimedModes, mode), secs == 0:
 		return floodApplyResult{Outcome: floodUnknownMode}
+	case !punishDurationValid(secs):
+		return floodApplyResult{Outcome: floodBadDuration}
 	}
-	return floodSaved(ctx, chatID, floodApplied, antiflood.SetFloodModeContext(ctx, chatID, mode))
+	return floodSaved(ctx, chatID, floodApplied, antiflood.SetFloodActionContext(ctx, chatID, mode, secs))
 }
 
 // applyFloodDelete stores whether messages that caused a flood are deleted.
@@ -596,23 +617,45 @@ func (m *moduleStruct) flood(b *gotgbot.Bot, ctx *ext.Context) error {
 	if flood.Limit == 0 {
 		text, _ = tr.GetString(strings.ToLower(m.moduleName) + "_flood_disabled")
 	} else {
-		var mode string
-		switch flood.Action {
-		case "mute":
-			mode = "muted"
-		case "ban":
-			mode = "banned"
-		case "kick":
-			mode = "kicked"
-		}
 		temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_flood_show_settings")
-		text = fmt.Sprintf(temp, flood.Limit, mode)
+		text = fmt.Sprintf(temp, flood.Limit, floodShownAction(flood.Action, flood.ActionSecs))
 	}
 	_, err := msg.Reply(b, text, formatting.Shtml())
 	if err != nil {
 		return err
 	}
 	return ext.EndGroups
+}
+
+// floodShownAction is the untranslated word /flood shows for a stored action: muted, banned or kicked
+// for a plain action, the mute or ban word followed by " for " and the short duration ("muted for
+// 30m") for an effective timed action, and nothing for anything else (warn, or a timed action stored
+// with no duration, as before Phase 26).
+func floodShownAction(action string, secs int) string {
+	switch {
+	case action == "tmute" && autoActionEffective(action, secs):
+		return "muted for " + punishDurationShort(secs)
+	case action == "tban" && autoActionEffective(action, secs):
+		return "banned for " + punishDurationShort(secs)
+	}
+	return floodWords[action]
+}
+
+// floodModeArgs reads the arguments of /setfloodmode: the lower-cased first word and the seconds to
+// hand applyFloodMode. A timed word followed by a second word gets that word's duration, or -1 when
+// it is not a valid duration (applyFloodMode answers bad duration); a timed word alone gets 0, which
+// keeps the pinned unknown reply; a plain word gets 0 whatever follows it (/setfloodmode ban x stores
+// ban).
+func floodModeArgs(args []string) (string, int) {
+	mode := strings.ToLower(args[0])
+	if !slices.Contains(floodTimedModes, mode) || len(args) < 2 {
+		return mode, 0
+	}
+	secs, ok := parsePunishDuration(args[1])
+	if !ok {
+		return mode, -1
+	}
+	return mode, secs
 }
 
 func (m *moduleStruct) setFloodMode(b *gotgbot.Bot, ctx *ext.Context) error {
@@ -627,8 +670,8 @@ func (m *moduleStruct) setFloodMode(b *gotgbot.Bot, ctx *ext.Context) error {
 	args := ctx.Args()[1:]
 
 	if len(args) > 0 {
-		selectedMode := strings.ToLower(args[0])
-		result := applyFloodMode(tracing.UpdateContext(ctx), chat.Id, selectedMode)
+		selectedMode, secs := floodModeArgs(args)
+		result := applyFloodMode(tracing.UpdateContext(ctx), chat.Id, selectedMode, secs)
 		switch result.Outcome {
 		case floodSaveFailed:
 			log.Errorf("[Antiflood] SetFloodMode failed for chat %d: %v", chat.Id, result.Err)
@@ -636,12 +679,22 @@ func (m *moduleStruct) setFloodMode(b *gotgbot.Bot, ctx *ext.Context) error {
 			_, _ = msg.Reply(b, errText, formatting.Shtml())
 			return ext.EndGroups
 		case floodApplied:
+			shown := selectedMode
+			if slices.Contains(floodTimedModes, selectedMode) {
+				shown += " " + punishDurationShort(secs)
+			}
 			temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_setfloodmode_success")
-			_, err := msg.Reply(b, fmt.Sprintf(temp, selectedMode), formatting.Shtml())
+			_, err := msg.Reply(b, fmt.Sprintf(temp, shown), formatting.Shtml())
 			if err != nil {
 				log.Error(err)
 			}
 			return ext.EndGroups
+		case floodBadDuration:
+			text, _ := tr.GetString(strings.ToLower(m.moduleName) + "_setfloodmode_bad_duration")
+			_, err := msg.Reply(b, text, formatting.Shtml())
+			if err != nil {
+				return err
+			}
 		default:
 			temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_setfloodmode_unknown_type")
 			_, err := msg.Reply(b, fmt.Sprintf(temp, args[0]), formatting.Shtml())

@@ -211,6 +211,8 @@ antiflood_help_msg: "क्या आप जानते हैं कि कभ
 
   × /setfloodmode `<action type>`: चुनें कि flooding करने वाले उपयोगकर्ता पर कौन सी कार्रवाई की जाए। विकल्प: ban/kick/mute
 
+  × /setfloodmode tmute 30m, /setfloodmode tban 1d: flooding करने वाले उपयोगकर्ता का अस्थायी म्यूट या बैन, 1m से 366d तक।
+
   × /delflood `<yes/no/on/off>`: यदि आप चाहते हैं कि बॉट उपयोगकर्ता द्वारा flood किए गए संदेशों को हटाए।"
 
 bans_help_msg: "कभी-कभी उपयोगकर्ता परेशान कर सकते हैं और आप उन्हें अपनी चैट से हटाना चाह सकते हैं, यह मॉड्यूल इसी में आपकी मदद करता है!
@@ -1565,6 +1567,9 @@ warns_limit_muted: "यह %d/%d चेतावनियां हैं; इ�
 warns_limit_banned: "यह %d/%d चेतावनियां हैं; इसलिए %s को बैन कर दिया गया है!"
 warns_limit_tmuted: "यह {count}/{limit} चेतावनियां हैं; इसलिए {user} को {duration} के लिए म्यूट कर दिया गया है!"
 warns_limit_tbanned: "यह {count}/{limit} चेतावनियां हैं; इसलिए {user} को {duration} के लिए बैन कर दिया गया है!"
+antiflood_setfloodmode_bad_duration: "1m से 366d तक की अवधि दें, उदाहरण के लिए <code>/setfloodmode tmute 30m</code>।"
+antiflood_checkflood_timed_mute: "हाँ, मुझे आपकी flooding पसंद नहीं है। {user} को {duration} के लिए म्यूट कर दिया गया है!"
+antiflood_checkflood_timed_ban: "हाँ, मुझे आपकी flooding पसंद नहीं है। {user} को {duration} के लिए बैन कर दिया गया है!"
 warns_remove_button: ❌ चेतावनी हटाएं
 warns_rules_button: नियम 📝
 warns_user_warning: "उपयोगकर्ता %s को %d/%d चेतावनियां हैं; सावधान रहें!"

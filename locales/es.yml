@@ -112,6 +112,8 @@ antiflood_help_msg:
   × /setfloodmode `<tipo de acción>`: Elegir qué acción tomar contra un usuario que ha estado
   haciendo flood. Opciones: ban/kick/mute
 
+  × /setfloodmode tmute 30m, /setfloodmode tban 1d: Silencio o baneo temporal del usuario que hace flood, de 1m a 366d.
+
   × /delflood `<yes/no/on/off>`: Si quieres que el bot elimine mensajes enviados por el usuario."
 antiflood_setflood_disabled: "De acuerdo.
 
@@ -1028,6 +1030,9 @@ warns_limit_muted: "¡Esas son %d/%d advertencias; Así que %s ha sido Silenciad
 warns_limit_banned: "¡Esas son %d/%d advertencias; Así que %s ha sido baneado!"
 warns_limit_tmuted: "¡Esas son {count}/{limit} advertencias; Así que {user} ha sido silenciado durante {duration}!"
 warns_limit_tbanned: "¡Esas son {count}/{limit} advertencias; Así que {user} ha sido baneado durante {duration}!"
+antiflood_setfloodmode_bad_duration: "Indica una duración de 1m a 366d, por ejemplo <code>/setfloodmode tmute 30m</code>."
+antiflood_checkflood_timed_mute: "Sí, no me gusta tu flood. ¡{user} ha sido silenciado durante {duration}!"
+antiflood_checkflood_timed_ban: "Sí, no me gusta tu flood. ¡{user} ha sido baneado durante {duration}!"
 warns_remove_button: ❌ Eliminar advertencia
 warns_rules_button: Reglas 📝
 warns_user_warning: "¡El usuario %s tiene %d/%d advertencias; ten cuidado!"

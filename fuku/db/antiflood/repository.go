@@ -68,17 +68,29 @@ func SetFloodMode(chatID int64, mode string) error {
 	return SetFloodModeContext(context.Background(), chatID, mode)
 }
 
+// SetFloodModeContext stores a plain flood action with seconds 0 (SetFloodActionContext with 0): a
+// no-op when that action is already stored with no duration.
 func SetFloodModeContext(ctx context.Context, chatID int64, mode string) error {
+	return SetFloodActionContext(ctx, chatID, mode, 0)
+}
+
+// SetFloodActionContext stores the flood action and its duration in seconds (action_secs, 0 for a
+// plain action) in one write of only those two columns, so a concurrent limit or delete write is never
+// clobbered. It writes nothing when the cached settings already hold both values; otherwise the write
+// creates a missing row (with the model's flood_limit default of 5, D-27) and drops antiflood:<chat>.
+// The database check refuses an action or seconds outside the stored ones.
+func SetFloodActionContext(ctx context.Context, chatID int64, mode string, secs int) error {
 	floodSrc, err := GetAntifloodSettingsCachedContext(ctx, chatID)
 	if err != nil {
 		return err
 	}
-	if floodSrc.Action == mode {
+	if floodSrc.Action == mode && floodSrc.ActionSecs == secs {
 		return nil
 	}
 	updates := map[string]any{
-		"chat_id": chatID,
-		"action":  mode,
+		"chat_id":     chatID,
+		"action":      mode,
+		"action_secs": secs,
 	}
 	return upsertChatField(ctx, chatID, updates)
 }

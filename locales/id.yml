@@ -110,6 +110,8 @@ antiflood_help_msg: |
   × /setfloodmode `<action type>`: Pilih tindakan mana yang akan diambil pada pengguna yang telah
   melakukan flooding. Opsi: ban/kick/mute
 
+  × /setfloodmode tmute 30m, /setfloodmode tban 1d: Bisu atau blokir sementara pengguna yang melakukan flooding, dari 1m sampai 366d.
+
   × /delflood `<yes/no/on/off>`: Jika Anda ingin bot menghapus pesan yang diflood oleh pengguna."
 antiflood_setflood_disabled: "Oke.
 
@@ -1020,6 +1022,9 @@ warns_limit_muted: "Itu %d/%d peringatan; Jadi %s telah Dibisukan!"
 warns_limit_banned: "Itu %d/%d peringatan; Jadi %s telah diblokir!"
 warns_limit_tmuted: "Itu {count}/{limit} peringatan; Jadi {user} telah dibisukan selama {duration}!"
 warns_limit_tbanned: "Itu {count}/{limit} peringatan; Jadi {user} telah diblokir selama {duration}!"
+antiflood_setfloodmode_bad_duration: "Berikan durasi dari 1m sampai 366d, misalnya <code>/setfloodmode tmute 30m</code>."
+antiflood_checkflood_timed_mute: "Ya, saya tidak suka spam Anda. {user} telah dibisukan selama {duration}!"
+antiflood_checkflood_timed_ban: "Ya, saya tidak suka spam Anda. {user} telah diblokir selama {duration}!"
 warns_remove_button: ❌ Hapus peringatan
 warns_rules_button: Aturan 📝
 warns_user_warning: "Pengguna %s punya %d/%d peringatan; hati-hati!"

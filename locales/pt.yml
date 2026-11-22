@@ -103,6 +103,8 @@ antiflood_help_msg:
   × /setfloodmode `<tipo de ação>`: Escolha qual ação tomar em um usuário que está
   floodando. Opções: ban/kick/mute
 
+  × /setfloodmode tmute 30m, /setfloodmode tban 1d: Silêncio ou banimento temporário do usuário que está floodando, de 1m a 366d.
+
   × /delflood `<yes/no/on/off>`: Se você quer que o bot delete mensagens floodadas pelo usuário."
 antiflood_setflood_disabled: "Ok.
 
@@ -1010,6 +1012,9 @@ warns_limit_muted: "Isso é %d/%d avisos; Então %s foi silenciado!"
 warns_limit_banned: "Isso é %d/%d avisos; Então %s foi banido!"
 warns_limit_tmuted: "Isso é {count}/{limit} avisos; Então {user} foi silenciado por {duration}!"
 warns_limit_tbanned: "Isso é {count}/{limit} avisos; Então {user} foi banido por {duration}!"
+antiflood_setfloodmode_bad_duration: "Informe uma duração de 1m a 366d, por exemplo <code>/setfloodmode tmute 30m</code>."
+antiflood_checkflood_timed_mute: "É, eu não gosto do seu flood. {user} foi silenciado por {duration}!"
+antiflood_checkflood_timed_ban: "É, eu não gosto do seu flood. {user} foi banido por {duration}!"
 warns_remove_button: ❌ Remover aviso
 warns_rules_button: Regras 📝
 warns_user_warning: "Usuário %s tem %d/%d avisos; cuidado!"

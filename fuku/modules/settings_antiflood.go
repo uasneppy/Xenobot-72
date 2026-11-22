@@ -341,7 +341,7 @@ func settingsFloodSetMode(p *settingsPress, value string) *settingsScreen {
 	if !ok {
 		return nil
 	}
-	return settingsFloodRedraw(ctx, p, applyFloodMode(ctx, p.group.Id, value), before, value, true)
+	return settingsFloodRedraw(ctx, p, applyFloodMode(ctx, p.group.Id, value, 0), before, value, true)
 }
 
 // settingsFloodSetDelete applies the delete switch through applyFloodDelete, the function
