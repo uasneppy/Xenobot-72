@@ -464,7 +464,7 @@ func TestSettingsParityWarnMode(t *testing.T) {
 		settingsWarnsCleanup(t, env.chat.Id)
 		settingsWarnsSeed(t, env.chat.Id, 7, "ban")
 		previous := warnSettingsWrites
-		warnSettingsWrites.Mode = func(int64, string) error { return errors.New("write refused") }
+		warnSettingsWrites.Mode = func(context.Context, int64, string, int) error { return errors.New("write refused") }
 		t.Cleanup(func() { warnSettingsWrites = previous })
 
 		settingsWarnsPress(t, env, env.chat, menuMsgID, "a", "st", "p", "n", "t", "m", "v", "kick")

@@ -243,5 +243,5 @@ func settingsWarnsSetMode(p *settingsPress, value string) *settingsScreen {
 	if !ok {
 		return nil
 	}
-	return settingsWarnsRedraw(ctx, p, applyWarnMode(ctx, p.group.Id, value), before, value)
+	return settingsWarnsRedraw(ctx, p, applyWarnMode(ctx, p.group.Id, value, 0), before, value)
 }

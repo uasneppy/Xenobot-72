@@ -739,6 +739,8 @@ warns_help_msg:
 
   - /setwarnmode <ban/kick/mute>: Establecer el modo de advertencia del chat.
 
+  - /setwarnmode tmute 2h, /setwarnmode tban 1d: Silencio o baneo temporal al llegar al límite, de 1m a 366d.
+
   - /setwarnlimit <número>: Establecer el número de advertencias antes de que los usuarios sean castigados.
 
 
@@ -1016,10 +1018,15 @@ warns_mode_updated_ban: "Modo de advertencia actualizado a: ban"
 warns_mode_updated_kick: "Modo de advertencia actualizado a: kick"
 warns_mode_updated_mute: "Modo de advertencia actualizado a: mute"
 warns_mode_unknown: "Tipo desconocido '%s'. Por favor usa uno de: ban/kick/mute"
+warns_mode_updated_tmute: "Modo de advertencia actualizado a: mute durante {duration}"
+warns_mode_updated_tban: "Modo de advertencia actualizado a: ban durante {duration}"
+warns_mode_bad_duration: "Indica una duración de 1m a 366d, por ejemplo <code>/setwarnmode tmute 2h</code>."
 warns_admin_warning_error: ¡No voy a advertir a un administrador!
 warns_limit_kicked: "¡Esas son %d/%d advertencias; Así que %s ha sido expulsado!"
 warns_limit_muted: "¡Esas son %d/%d advertencias; Así que %s ha sido Silenciado!"
 warns_limit_banned: "¡Esas son %d/%d advertencias; Así que %s ha sido baneado!"
+warns_limit_tmuted: "¡Esas son {count}/{limit} advertencias; Así que {user} ha sido silenciado durante {duration}!"
+warns_limit_tbanned: "¡Esas son {count}/{limit} advertencias; Así que {user} ha sido baneado durante {duration}!"
 warns_remove_button: ❌ Eliminar advertencia
 warns_rules_button: Reglas 📝
 warns_user_warning: "¡El usuario %s tiene %d/%d advertencias; ten cuidado!"

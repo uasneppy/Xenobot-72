@@ -734,6 +734,8 @@ warns_help_msg: |
 
   - /setwarnmode <ban/kick/mute>: Atur mode peringatan obrolan.
 
+  - /setwarnmode tmute 2h, /setwarnmode tban 1d: Bisu atau blokir sementara saat batas tercapai, dari 1m sampai 366d.
+
   - /setwarnlimit <number>: Atur jumlah peringatan sebelum pengguna dihukum.
 
 
@@ -1008,10 +1010,15 @@ warns_mode_updated_ban: "Mode peringatan diperbarui ke: blokir"
 warns_mode_updated_kick: "Mode peringatan diperbarui ke: tendang"
 warns_mode_updated_mute: "Mode peringatan diperbarui ke: bisu"
 warns_mode_unknown: "Tipe tidak dikenal '%s'. Silakan gunakan salah satu dari: ban/kick/mute"
+warns_mode_updated_tmute: "Mode peringatan diperbarui ke: bisu selama {duration}"
+warns_mode_updated_tban: "Mode peringatan diperbarui ke: blokir selama {duration}"
+warns_mode_bad_duration: "Berikan durasi dari 1m sampai 366d, misalnya <code>/setwarnmode tmute 2h</code>."
 warns_admin_warning_error: Saya tidak akan memperingatkan admin!
 warns_limit_kicked: "Itu %d/%d peringatan; Jadi %s telah ditendang!"
 warns_limit_muted: "Itu %d/%d peringatan; Jadi %s telah Dibisukan!"
 warns_limit_banned: "Itu %d/%d peringatan; Jadi %s telah diblokir!"
+warns_limit_tmuted: "Itu {count}/{limit} peringatan; Jadi {user} telah dibisukan selama {duration}!"
+warns_limit_tbanned: "Itu {count}/{limit} peringatan; Jadi {user} telah diblokir selama {duration}!"
 warns_remove_button: ❌ Hapus peringatan
 warns_rules_button: Aturan 📝
 warns_user_warning: "Pengguna %s punya %d/%d peringatan; hati-hati!"

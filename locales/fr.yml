@@ -339,6 +339,8 @@ warns_help_msg:
 
   - /setwarnmode <ban/kick/mute> : Définir le mode d'avertissement du chat.
 
+  - /setwarnmode tmute 2h, /setwarnmode tban 1d : Mute ou bannissement temporaire à la limite, de 1m à 366d.
+
   - /setwarnlimit <nombre> : Définir le nombre d'avertissements avant sanction.
 
 
@@ -371,10 +373,15 @@ warns_mode_updated_ban: "Mode d'avertissement mis à jour : ban"
 warns_mode_updated_kick: "Mode d'avertissement mis à jour : kick"
 warns_mode_updated_mute: "Mode d'avertissement mis à jour : mute"
 warns_mode_unknown: "Type inconnu '%s'. Veuillez utiliser : ban/kick/mute"
+warns_mode_updated_tmute: "Mode d'avertissement mis à jour : mute pendant {duration}"
+warns_mode_updated_tban: "Mode d'avertissement mis à jour : ban pendant {duration}"
+warns_mode_bad_duration: "Indiquez une durée de 1m à 366d, par exemple <code>/setwarnmode tmute 2h</code>."
 warns_admin_warning_error: Je ne vais pas avertir un admin !
 warns_limit_kicked: "Ça fait %d/%d avertissements ; Donc %s a été expulsé !"
 warns_limit_muted: "Ça fait %d/%d avertissements ; Donc %s a été rendu muet !"
 warns_limit_banned: "Ça fait %d/%d avertissements ; Donc %s a été banni !"
+warns_limit_tmuted: "Ça fait {count}/{limit} avertissements ; Donc {user} a été rendu muet pendant {duration} !"
+warns_limit_tbanned: "Ça fait {count}/{limit} avertissements ; Donc {user} a été banni pendant {duration} !"
 warns_remove_button: ❌ Supprimer l'avertissement
 warns_rules_button: Règles 📝
 warns_user_warning: "L'utilisateur %s a %d/%d avertissements ; attention !"

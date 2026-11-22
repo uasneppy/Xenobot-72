@@ -40,10 +40,15 @@ func warnPunishLock(chatID, userID int64) *sync.Mutex {
 	return &warnPunishShards[uint64(chatID*31+userID)%uint64(len(warnPunishShards))]
 }
 
-// warnSettingsModes are the only actions /setwarnmode and the settings page may write. The
-// table's CHECK also allows tban, tmute and the empty string, which apply nothing at the
-// limit, so they are never written (D-17).
+// warnSettingsModes are the plain actions /setwarnmode and the settings page may write. The timed
+// modes tban and tmute are written beside them only with a valid duration (warnTimedModes, D-07); the
+// table's CHECK also allows the empty string, which applies nothing at the limit and is never written
+// (D-17).
 var warnSettingsModes = []string{"ban", "kick", "mute"}
+
+// warnTimedModes are the timed limit actions, accepted only with a duration in punishMinSecs to
+// punishMaxSecs (D-09).
+var warnTimedModes = []string{"tban", "tmute"}
 
 // warnSettingsOutcome is what an apply function did with its input.
 type warnSettingsOutcome int
@@ -53,10 +58,14 @@ const (
 	warnSettingsApplied warnSettingsOutcome = iota
 	// warnSettingsOutOfRange means the limit was outside 1..100; nothing was written.
 	warnSettingsOutOfRange
-	// warnSettingsUnknownMode means the action was not ban, kick or mute; nothing was written.
+	// warnSettingsUnknownMode means the action was not ban, kick or mute, nor a timed mode with a
+	// duration; nothing was written.
 	warnSettingsUnknownMode
 	// warnSettingsSaveFailed means the repository returned an error; Err holds it.
 	warnSettingsSaveFailed
+	// warnSettingsBadDuration means a timed mode (tban, tmute) came with a duration outside
+	// punishMinSecs to punishMaxSecs; nothing was written.
+	warnSettingsBadDuration
 )
 
 // warnSettingsResult is the verdict of an apply function. Key is the locale key the command
@@ -71,14 +80,15 @@ type warnSettingsResult struct {
 }
 
 // warnSettingsWriter holds the two repository writes of the warn settings, so a test can make
-// one fail. Each write drops its own cache key.
+// one fail. Each write drops its own cache key. Mode writes the action and its duration in seconds
+// (0 for a plain action) together.
 type warnSettingsWriter struct {
 	Limit func(chatID int64, limit int) error
-	Mode  func(chatID int64, mode string) error
+	Mode  func(ctx context.Context, chatID int64, mode string, secs int) error
 }
 
 // warnSettingsWrites is the write seam of the warn settings; production uses the repository.
-var warnSettingsWrites = warnSettingsWriter{Limit: warns.SetWarnLimit, Mode: warns.SetWarnMode}
+var warnSettingsWrites = warnSettingsWriter{Limit: warns.SetWarnLimit, Mode: warns.SetWarnModeContext}
 
 // warnReadBack reads the chat's warn settings after a write. A failed read-back is logged and
 // returns nil; the write already happened.
@@ -103,17 +113,45 @@ func applyWarnLimit(ctx context.Context, chatID int64, limit int) warnSettingsRe
 	return warnSettingsResult{Key: "warns_limit_updated", Stored: warnReadBack(ctx, chatID)}
 }
 
-// applyWarnMode validates and stores the action at the warn limit. Only ban, kick and mute are
-// accepted, exactly as spelled; the caller lower-cases user text first. The repository write
-// invalidates its own cache key.
-func applyWarnMode(ctx context.Context, chatID int64, mode string) warnSettingsResult {
-	if !slices.Contains(warnSettingsModes, mode) {
+// applyWarnMode validates and stores the action at the warn limit and its duration in seconds,
+// exactly as spelled; the caller lower-cases user text first (D-09):
+//   - a plain mode (ban, kick, mute) stores seconds 0, clearing any duration, whatever secs says;
+//   - a timed mode (tban, tmute) with seconds 0 is warnSettingsUnknownMode, the pinned reply of a
+//     timed word alone;
+//   - a timed mode with seconds outside punishMinSecs to punishMaxSecs is warnSettingsBadDuration;
+//   - a valid timed mode stores the mode and the seconds in one write.
+//
+// Nothing is written on a refusal. The repository write invalidates its own cache key. It judges no
+// person's rights.
+func applyWarnMode(ctx context.Context, chatID int64, mode string, secs int) warnSettingsResult {
+	switch {
+	case slices.Contains(warnSettingsModes, mode):
+		secs = 0
+	case !slices.Contains(warnTimedModes, mode), secs == 0:
 		return warnSettingsResult{Outcome: warnSettingsUnknownMode, Key: "warns_mode_unknown"}
+	case !punishDurationValid(secs):
+		return warnSettingsResult{Outcome: warnSettingsBadDuration, Key: "warns_mode_bad_duration"}
 	}
-	if err := warnSettingsWrites.Mode(chatID, mode); err != nil {
+	if err := warnSettingsWrites.Mode(ctx, chatID, mode, secs); err != nil {
 		return warnSettingsResult{Outcome: warnSettingsSaveFailed, Key: "common_settings_save_failed", Err: err}
 	}
 	return warnSettingsResult{Key: "warns_mode_updated_" + mode, Stored: warnReadBack(ctx, chatID)}
+}
+
+// warnModeArgs reads the arguments of /setwarnmode: the lower-cased first word and the seconds to
+// hand applyWarnMode. A timed word followed by a second word gets that word's duration, or -1 when it
+// is not a valid duration (applyWarnMode answers bad duration); a timed word alone gets 0, which keeps
+// the pinned unknown reply; a plain word gets 0 whatever follows it (/setwarnmode ban 1d stores ban).
+func warnModeArgs(args []string) (string, int) {
+	mode := strings.ToLower(args[0])
+	if !slices.Contains(warnTimedModes, mode) || len(args) < 2 {
+		return mode, 0
+	}
+	secs, ok := parsePunishDuration(args[1])
+	if !ok {
+		return mode, -1
+	}
+	return mode, secs
 }
 
 func (moduleStruct) setWarnMode(b *gotgbot.Bot, ctx *ext.Context) error {
@@ -143,8 +181,8 @@ func (moduleStruct) setWarnMode(b *gotgbot.Bot, ctx *ext.Context) error {
 	var replyText string
 
 	if len(args) > 0 {
-		mode := strings.ToLower(args[0])
-		result := applyWarnMode(tracing.UpdateContext(ctx), chat.Id, mode)
+		mode, secs := warnModeArgs(args)
+		result := applyWarnMode(tracing.UpdateContext(ctx), chat.Id, mode, secs)
 		switch result.Outcome {
 		case warnSettingsSaveFailed:
 			log.Errorf("[Warns] SetWarnMode failed for chat %d: %v", chat.Id, result.Err)
@@ -154,8 +192,14 @@ func (moduleStruct) setWarnMode(b *gotgbot.Bot, ctx *ext.Context) error {
 		case warnSettingsUnknownMode:
 			temp, _ := tr.GetString(result.Key)
 			replyText = fmt.Sprintf(temp, args[0])
-		default:
+		case warnSettingsBadDuration:
 			replyText, _ = tr.GetString(result.Key)
+		default:
+			if slices.Contains(warnTimedModes, mode) {
+				replyText, _ = tr.GetString(result.Key, i18n.TranslationParams{"duration": punishDurationLabel(tr, secs)})
+			} else {
+				replyText, _ = tr.GetString(result.Key)
+			}
 		}
 	} else {
 		replyText, _ = tr.GetString("warns_specify_action")
@@ -544,13 +588,23 @@ func (moduleStruct) warnings(b *gotgbot.Bot, ctx *ext.Context) error {
 
 	warnrc := warns.GetWarnSettingContext(tracing.UpdateContext(ctx), chat.Id)
 	temp, _ := tr.GetString("warns_settings_display")
-	text := fmt.Sprintf(temp, warnrc.WarnLimit, warnrc.WarnMode)
+	text := fmt.Sprintf(temp, warnrc.WarnLimit, warnModeShown(warnrc.WarnMode, warnrc.WarnModeSecs))
 	_, err := msg.Reply(b, text, formatting.Shtml())
 	if err != nil {
 		log.Error(err)
 		return err
 	}
 	return ext.EndGroups
+}
+
+// warnModeShown is the warn mode as /warnings shows it: an effective timed mode as the mode and the
+// short duration ("tmute 2h"), anything else as stored (a timed mode with no duration stays the bare
+// word, as before Phase 26).
+func warnModeShown(mode string, secs int) string {
+	if slices.Contains(warnTimedModes, mode) && autoActionEffective(mode, secs) {
+		return mode + " " + punishDurationShort(secs)
+	}
+	return mode
 }
 
 func (moduleStruct) warns(b *gotgbot.Bot, ctx *ext.Context) error {

@@ -576,6 +576,8 @@ warns_help_msg: "चेतावनियों के साथ अपने �
 
   - /setwarnmode <ban/kick/mute>: चैट का चेतावनी मोड सेट करें।
 
+  - /setwarnmode tmute 2h, /setwarnmode tban 1d: सीमा पर अस्थायी म्यूट या बैन, 1m से 366d तक।
+
   - /setwarnlimit <number>: उपयोगकर्ताओं को दंडित करने से पहले चेतावनियों की संख्या सेट करें।"
 users_help_msg:
   "स्वचालित पृष्ठभूमि उपयोगकर्ता और चैट ट्रैकर। इस मॉड्यूल में कोई उपयोगकर्ता-सामना करने वाले
@@ -1554,10 +1556,15 @@ warns_mode_updated_ban: "चेतावनी मोड अपडेट कि�
 warns_mode_updated_kick: "चेतावनी मोड अपडेट किया गया: kick"
 warns_mode_updated_mute: "चेतावनी मोड अपडेट किया गया: mute"
 warns_mode_unknown: "अज्ञात प्रकार '%s'। कृपया इनमें से एक का उपयोग करें: ban/kick/mute"
+warns_mode_updated_tmute: "चेतावनी मोड अपडेट किया गया: mute, {duration} के लिए"
+warns_mode_updated_tban: "चेतावनी मोड अपडेट किया गया: ban, {duration} के लिए"
+warns_mode_bad_duration: "1m से 366d तक की अवधि दें, उदाहरण के लिए <code>/setwarnmode tmute 2h</code>।"
 warns_admin_warning_error: मैं किसी एडमिन को चेतावनी नहीं दूंगा!
 warns_limit_kicked: "यह %d/%d चेतावनियां हैं; इसलिए %s को किक कर दिया गया है!"
 warns_limit_muted: "यह %d/%d चेतावनियां हैं; इसलिए %s को म्यूट कर दिया गया है!"
 warns_limit_banned: "यह %d/%d चेतावनियां हैं; इसलिए %s को बैन कर दिया गया है!"
+warns_limit_tmuted: "यह {count}/{limit} चेतावनियां हैं; इसलिए {user} को {duration} के लिए म्यूट कर दिया गया है!"
+warns_limit_tbanned: "यह {count}/{limit} चेतावनियां हैं; इसलिए {user} को {duration} के लिए बैन कर दिया गया है!"
 warns_remove_button: ❌ चेतावनी हटाएं
 warns_rules_button: नियम 📝
 warns_user_warning: "उपयोगकर्ता %s को %d/%d चेतावनियां हैं; सावधान रहें!"

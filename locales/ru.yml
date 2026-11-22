@@ -574,6 +574,8 @@ warns_help_msg: |
   
     - /setwarnmode <ban/kick/mute>: Установить режим предупреждений чата.
   
+    - /setwarnmode tmute 2h, /setwarnmode tban 1d: Временный мут или бан при достижении лимита, от 1m до 366d.
+  
     - /setwarnlimit <number>: Установить количество предупреждений до применения наказания.
   
   
@@ -845,10 +847,15 @@ warns_mode_updated_ban: "Обновлён режим предупреждени�
 warns_mode_updated_kick: "Обновлён режим предупреждений на: kick"
 warns_mode_updated_mute: "Обновлён режим предупреждений на: mute"
 warns_mode_unknown: "Неизвестный тип '%s'. Пожалуйста, используйте один из: ban/kick/mute"
+warns_mode_updated_tmute: "Обновлён режим предупреждений на: mute на {duration}"
+warns_mode_updated_tban: "Обновлён режим предупреждений на: ban на {duration}"
+warns_mode_bad_duration: "Укажите длительность от 1m до 366d, например <code>/setwarnmode tmute 2h</code>."
 warns_admin_warning_error: Я не собираюсь предупреждать администратора!
 warns_limit_kicked: "Это %d/%d предупреждений; Поэтому %s был выгнан!"
 warns_limit_muted: "Это %d/%d предупреждений; Поэтому %s был заглушен!"
 warns_limit_banned: "Это %d/%d предупреждений; Поэтому %s был забанен!"
+warns_limit_tmuted: "Это {count}/{limit} предупреждений; Поэтому {user} был заглушен на {duration}!"
+warns_limit_tbanned: "Это {count}/{limit} предупреждений; Поэтому {user} был забанен на {duration}!"
 warns_remove_button: ❌ Удалить предупреждение
 warns_rules_button: Правила 📝
 warns_user_warning: "У пользователя %s %d/%d предупреждений; будьте осторожны!"

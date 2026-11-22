@@ -724,6 +724,8 @@ warns_help_msg:
 
   - /setwarnmode <ban/kick/mute>: Define o modo de aviso do chat.
 
+  - /setwarnmode tmute 2h, /setwarnmode tban 1d: Silêncio ou banimento temporário ao atingir o limite, de 1m a 366d.
+
   - /setwarnlimit <número>: Define o número de avisos antes de usuários serem punidos.
 
 
@@ -998,10 +1000,15 @@ warns_mode_updated_ban: "Modo de aviso atualizado para: ban"
 warns_mode_updated_kick: "Modo de aviso atualizado para: kick"
 warns_mode_updated_mute: "Modo de aviso atualizado para: mute"
 warns_mode_unknown: "Tipo desconhecido '%s'. Por favor use um de: ban/kick/mute"
+warns_mode_updated_tmute: "Modo de aviso atualizado para: mute por {duration}"
+warns_mode_updated_tban: "Modo de aviso atualizado para: ban por {duration}"
+warns_mode_bad_duration: "Informe uma duração de 1m a 366d, por exemplo <code>/setwarnmode tmute 2h</code>."
 warns_admin_warning_error: Eu não vou advertir um admin!
 warns_limit_kicked: "Isso é %d/%d avisos; Então %s foi expulso!"
 warns_limit_muted: "Isso é %d/%d avisos; Então %s foi silenciado!"
 warns_limit_banned: "Isso é %d/%d avisos; Então %s foi banido!"
+warns_limit_tmuted: "Isso é {count}/{limit} avisos; Então {user} foi silenciado por {duration}!"
+warns_limit_tbanned: "Isso é {count}/{limit} avisos; Então {user} foi banido por {duration}!"
 warns_remove_button: ❌ Remover aviso
 warns_rules_button: Regras 📝
 warns_user_warning: "Usuário %s tem %d/%d avisos; cuidado!"
