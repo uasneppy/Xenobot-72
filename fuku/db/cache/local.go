@@ -53,6 +53,8 @@ var (
 	chatConvPrefix          = CacheKey("chat_conv") + ":"
 
 	eventMessagesPrefix = CacheKey("event_messages") + ":"
+
+	chatEscalationPrefix = CacheKey("chat_escalation") + ":"
 )
 
 // skipLocal reports whether key must never be served from process memory.
@@ -91,6 +93,10 @@ func skipLocal(key string) bool {
 	// The event_messages key (a group's custom event messages) is read at every manual
 	// punishment reply: a Remove or a Silent switch must act at the very next command on every
 	// replica, not after CACHE_LOCAL_TTL seconds (D-05).
+	//
+	// The chat_escalation key (a group's escalation ladder) is read at every automatic punishment
+	// a ladder source raises: a ladder an owner switched off or changed must act on every replica
+	// at the next punishment, not after CACHE_LOCAL_TTL seconds (D-28).
 	return strings.HasPrefix(key, captchaPendingPrefix) ||
 		strings.HasPrefix(key, staffGroupPrefix) ||
 		strings.HasPrefix(key, staffLinkOfPrefix) ||
@@ -99,7 +105,8 @@ func skipLocal(key string) bool {
 		strings.HasPrefix(key, deleteRulesPrefix) ||
 		strings.HasPrefix(key, staffForwardBlockPrefix) ||
 		strings.HasPrefix(key, chatConvPrefix) ||
-		strings.HasPrefix(key, eventMessagesPrefix)
+		strings.HasPrefix(key, eventMessagesPrefix) ||
+		strings.HasPrefix(key, chatEscalationPrefix)
 }
 
 func localSettings() (ttl, size int) {

@@ -3173,6 +3173,36 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   DO UPDATE` of their own option plus `updated_by` and `updated_at`, so a Go false is written and the two never clobber each
   other, and each drops the key after the write. It is never part of backup, export, import or reset in Phase 22
   (`TestEventMessagesStayOutOfBackup`; Phase 30 decides).
+- `chat_escalation` (migration 20261122140000, Phase 26 plan 26-08, TUNE-02, D-28) is one group's escalation ladder, one row
+  per chat under the inline primary key `pk_chat_escalation`: `enabled`, five step pairs `step1_action` to `step5_action`
+  (`VARCHAR(8) NOT NULL DEFAULT ''`) and `step1_secs` to `step5_secs` (`INTEGER NOT NULL DEFAULT 0`), each pair under its own
+  inline CHECK `chk_chat_escalation_step1` to `_step5` (the action in `'' mute tmute kick tban ban`, the seconds 0 to
+  31,622,400), `forget_days` (`NOT NULL DEFAULT 30`, `chk_chat_escalation_forget` 1 to 365), `updated_by` and `updated_at`,
+  and no foreign key. A chat without a row is off with no steps and 30 days (`escalation.Defaults`). `models.ChatEscalation`
+  maps it with no `default:` tag (so a Go false and an empty step are written) and check tags that build the same checks on
+  SQLite. It is read through `cache.GetFromCacheOrLoad` under `cache.CacheKey("chat_escalation", chat)` (`escalation.Get`,
+  which creates nothing and returns its error; `GetFresh` is the same query without the cache) into an `escalation.Ladder`
+  whose `Steps` run from step 1 up to the first empty step, and the prefix is listed in `skipLocal`, because the ladder is read
+  at every automatic punishment a ladder source raises and a change must act on every replica at the next one. The writes
+  `SetEnabled`, `SetEnabledWithSteps` (on, steps 1 to `len`, the rest cleared, in one upsert), `SetStep` (n 1 to
+  `escalation.MaxSteps` = 5; an empty `Step` clears it) and `SetForgetDays` (1 to 365) validate first (`escalation.ValidStep`:
+  `mute`, `kick` and `ban` with 0 seconds, `tmute` and `tban` with a duration `models.PunishDurationValid` accepts; anything
+  else is `escalation.ErrInvalidValue` with nothing written), then run one `INSERT ... ON CONFLICT (chat_id) DO UPDATE` of their
+  own columns plus `updated_by` and `updated_at`, so two admins changing two steps never clobber each other, and drop the key.
+  It is never part of backup, export, import or reset (`TestEscalationStaysOutOfBackup`).
+- `chat_offences` (same migration, D-26, D-27) is one member's offence count in one group: `chat_id`, `user_id` (primary key
+  `pk_chat_offences` on both), `offences` (`chk_chat_offences_count` >= 0) and `last_offence_unix` (BIGINT unix seconds, so no
+  dialect compares text times), no foreign key. `models.ChatOffence` maps it. It is written only by
+  `escalation.CountOffence(ctx, chat, user, now, forget)`, one raw `INSERT ... ON CONFLICT (chat_id, user_id) DO UPDATE ...
+  RETURNING offences` that runs on PostgreSQL and on the SQLite of the tests (3.35 or later; `go-sqlite3` bundles 3.53): a first
+  offence is 1; an offence less than `escalation.SameOffenceWindow` (60 s) after the last counted one (a replica whose clock is
+  behind included) is the same offence and keeps both the count and the time, so a burst counts once a minute at most; one at
+  least `forget` after it restarts at 1; anything else adds 1; a stored count of 0 restarts at 1. PostgreSQL's row lock makes
+  concurrent offences on several replicas one count each (`TestOffenceCountConcurrent`). It refuses a chat of 0, a user ID of
+  0 or less and a forget period under one second before any write. `escalation.ClearOffences(ctx, chat)` deletes a chat's
+  rows. The counts are read only by that upsert, never cached (so no `DeleteCache` applies) and never part of backup, export,
+  import or reset. No worker or sweep prunes them: a count is forgotten by comparison inside the upsert, and the rows of members
+  who never offend again stay, bounded by the members ever punished while the ladder was on (accepted, D-27).
 - `UpdateRecord` skips zero values. Use `UpdateRecordWithZeroValues` to write `false`/`0`/`""`. Both return
   `gorm.ErrRecordNotFound` when no row matched.
 - Check `TableName()` before raw SQL: `ConnectionSettings→connection` (per user), `ConnectionChatSettings→
@@ -5833,6 +5863,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestWarnExpiryWrites` (`./fuku/db/warns`: one time per warn, an old warn dropped at the next write with expiry on and never with it
   off, the newest counted warn removed, the reset's answer, eight concurrent warns of one member keeping one count each, the expiry
   upsert writing only its column and dropping the key, and the counted read after a moved clock; it also runs on SQLite in `make test`).
+  The escalation ladder guarantees (plan 26-08) are `TestEscalationMigrationDefaults` (`./fuku/db/migrations`: the two statements
+  run twice without error, a ladder row with only `chat_id` reads off, no steps and 30 days, an offence row with only its key reads 0
+  and 0, the named checks refuse a step action of `warn`, step seconds of 31622401 and -1, a forget period of 0 and 366 and a count of
+  -1 with SQLSTATE 23514 naming the check, and a second row of either key fails with 23505; PostgreSQL only, it skips locally;
+  `TestEscalationMigrationStatements` is its database-free half and runs in `make test`), `TestEscalationSettings`
+  (`./fuku/db/escalation`: a read of a chat with no row creates nothing, writers of different steps never clobber each other, five
+  concurrent step writers on PostgreSQL, the step and forget checks in Go and in the table, every write dropping the key and
+  `GetFresh` bypassing the cache), `TestOffenceCountRules` (the same-offence window, the forget period, members and chats counted
+  apart, `ClearOffences` and the refused calls) and `TestOffenceCountConcurrent` (sixteen offences of one member at one instant
+  count once and leave one row; its case is registered on PostgreSQL only, because SQLite answers "database is locked" to a
+  concurrent writer). `TestEscalationSettings` and `TestOffenceCountRules` also run on SQLite in `make test`.
   The pattern is anchored with `$`, so list the real top-level test function names and add the test's package to the
   target. Add a test there when a new guarantee rests on a partial unique index, a `CHECK` or a conditional update.
 - In CI, keep the migration-chain step before `make test-rest`; its `schema_migrations` rows back the checksum test.
