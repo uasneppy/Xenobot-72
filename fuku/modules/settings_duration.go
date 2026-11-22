@@ -84,6 +84,23 @@ func renderSettingsDuration(v settingsView, titleKey, action string, selected in
 	return k.screen(settingsCompose(v, titleKey, body, notice, false))
 }
 
+// settingsTimedDurationScreen draws the duration screen of a page's timed row for the timed action mode (tmute or
+// tban) a press of cell k named: each preset presses action code act with k and the preset's seconds, the stored
+// preset (storedAction and storedSecs) is marked only while the stored action is mode and effective, and Back opens
+// page, whose title the screen carries (titleKey).
+func settingsTimedDurationScreen(v settingsView, page, titleKey, act, k, mode, storedAction string, storedSecs int) *settingsScreen {
+	selected := 0
+	if storedAction == mode && autoActionEffective(storedAction, storedSecs) {
+		selected = storedSecs
+	}
+	press := func(secs int) map[string]string {
+		return map[string]string{"a": act, "k": k, "v": strconv.Itoa(secs)}
+	}
+	back := map[string]string{"a": settingsActOpen, "p": page}
+	screen := renderSettingsDuration(v, titleKey, mode, selected, press, back, "")
+	return &screen
+}
+
 // settingsTimedWord is the word of an effective timed action on every page that offers one (the Warnings page;
 // later Antiflood, Blacklist and the escalation ladder): settings_opt_timed with the settings_opt_tmute or
 // settings_opt_tban word and punishDurationLabel ("Timed mute, 1 hour(s)"). ok is false for anything else (an

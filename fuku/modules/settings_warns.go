@@ -353,16 +353,8 @@ func settingsWarnsOpenDuration(p *settingsPress) *settingsScreen {
 	if !ok {
 		return nil
 	}
-	selected := 0
-	if before.WarnMode == mode && autoActionEffective(before.WarnMode, before.WarnModeSecs) {
-		selected = before.WarnModeSecs
-	}
-	press := func(secs int) map[string]string {
-		return map[string]string{"a": settingsActWarnsTimed, "k": k, "v": strconv.Itoa(secs)}
-	}
-	back := map[string]string{"a": settingsActOpen, "p": settingsPageWarns}
-	screen := renderSettingsDuration(p.view(), "settings_page_warns", mode, selected, press, back, "")
-	return &screen
+	return settingsTimedDurationScreen(p.view(), settingsPageWarns, "settings_page_warns", settingsActWarnsTimed, k, mode,
+		before.WarnMode, before.WarnModeSecs)
 }
 
 // settingsWarnsSetTimed stores the timed mode of an nt press with its preset's seconds through applyWarnMode,

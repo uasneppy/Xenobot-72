@@ -476,16 +476,8 @@ func settingsFloodOpenDuration(p *settingsPress) *settingsScreen {
 	if !ok {
 		return nil
 	}
-	selected := 0
-	if before.Action == mode && autoActionEffective(before.Action, before.ActionSecs) {
-		selected = before.ActionSecs
-	}
-	press := func(secs int) map[string]string {
-		return map[string]string{"a": settingsActFloodTimed, "k": k, "v": strconv.Itoa(secs)}
-	}
-	back := map[string]string{"a": settingsActOpen, "p": settingsPageAntiflood}
-	screen := renderSettingsDuration(p.view(), "settings_page_antiflood", mode, selected, press, back, "")
-	return &screen
+	return settingsTimedDurationScreen(p.view(), settingsPageAntiflood, "settings_page_antiflood", settingsActFloodTimed, k, mode,
+		before.Action, before.ActionSecs)
 }
 
 // settingsFloodSetTimed stores the timed action of an ft press with its preset's seconds through
