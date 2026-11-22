@@ -20,14 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-18)
 
 **Core value:** My trusted staff can protect every one of my communities from one place. We act on a bad actor across all groups at once, and the bot never lets anyone act in a group where they aren't an admin.
-**Current focus:** Phase 25 (Lockdown Messages). Milestone v1.2 has ten phases (21 to 30) and 40 requirements, all mapped in `.planning/ROADMAP.md`. Phases 21 to 24 are built and verified with no code gaps and await the owner's live Telegram checks (`21-VERIFICATION.md` to `24-VERIFICATION.md`). v1.1 shipped 2026-11-13 and its live Telegram checks stay deferred (see Deferred Items below).
+**Current focus:** Phase 26 (Timed Punishments, Escalation and Warn Expiry). Milestone v1.2 has ten phases (21 to 30) and 40 requirements, all mapped in `.planning/ROADMAP.md`. Phases 21 to 25 are built and verified with no code gaps and await the owner's live Telegram checks (`21-VERIFICATION.md` to `25-VERIFICATION.md`). v1.1 shipped 2026-11-13 and its live Telegram checks stay deferred (see Deferred Items below).
 
 ## Current Position
 
 Phase: 25 of 30 (Lockdown Messages), milestone v1.2 (Phase 20 Conversations shipped in v2.26.0; this milestone's phases were renumbered 20-29 to 21-30 on 2026-11-21)
-Plan: Phase 25 is planned: 8 plans in `.planning/phases/25-lockdown-messages/` (goldens first, then the manual start, the page, the automatic notices, the lift, the EVT-10 guards, the safeguards and the end-to-end proof), with provisional decisions P1-P15 in `25-CONTEXT.md`. Phases 21 to 24 are done and verified (human_needed: live checks). The full fuku/modules run takes about 6 minutes. Next: execute 25-01
-Status: Executing Phase 25 (8 plans)
-Last activity: 2026-11-22 - Planned Phase 25 (lockdown messages), 8 plans
+Plan: Phase 25's 8 plans are done and verified (no code gaps, human_needed: live checks, provisional decisions P1-P15 and a PostgreSQL run in `25-VERIFICATION.md`); Phases 21 to 24 likewise. The full fuku/modules run takes about 6 minutes. Next: plan Phase 26
+Status: Phase 25 verified; ready to plan Phase 26
+Last activity: 2026-11-22 - Executed and verified Phase 25 (lockdown messages), 8 plans, 12/12 must-haves
 
 Progress: [█████░░░░░] 5 of 11 phases done or verified
 

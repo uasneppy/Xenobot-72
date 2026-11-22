@@ -60,7 +60,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 22: PM Copies** - 9/9 plans, verified, awaiting live checks. An optional private copy to the punished person on its own pacing, with a Details button fallback and a log line
 - [ ] **Phase 23: Warn, Flood, Blacklist and Forward Blocklist Messages** - 7/7 plans, verified, awaiting live checks. Custom messages for warn, warn limit and the three automatic actions
 - [ ] **Phase 24: Captcha, AI Spam and Member Requirement Notices** - 8/8 plans, verified, awaiting live checks. Custom messages for a failed captcha and requirement notices, and a new rate-limited AI spam notice
-- [ ] **Phase 25: Lockdown Messages** - Custom messages for a manual lockdown, each automatic trigger and the lift, with every alert and raid-scale path unchanged
+- [ ] **Phase 25: Lockdown Messages** - 8/8 plans, verified, awaiting live checks. Custom messages for a manual lockdown, each automatic trigger and the lift, with every alert and raid-scale path unchanged
 - [ ] **Phase 26: Timed Punishments, Escalation and Warn Expiry** - Working timed bans and mutes for warn limit, blacklist and flood, an escalation ladder, and expiring warns
 - [ ] **Phase 27: Manual Command Defaults, Reason Shortcuts and Appeal Button** - Default durations, a reason-required switch, saved reason words and an appeal link on ban messages
 - [ ] **Phase 28: Advanced Thresholds** - Per-group detection and screening limits that are code constants today, inside safe bounds

@@ -4039,7 +4039,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   action applied), `antiflood.go` (`floodNotice`, after the flood's mute, kick or ban), `blacklists.go`
   (`blacklistNotice`, after the blacklist's mute, kick or ban) and `forwardblock_notice.go` (`forwardBlockNotice`, the
   forward blocklist's notice of the linked group, the watcher's only way to the engine besides `warns.go`) and
-  `event_message_auto.go` (`postCaptchaFailureNotice`, Phase 24) and `event_message_lockdown.go` (the lockdown and lift
+  `event_message_auto.go` (`postCaptchaFailureNotice`, Phase 24) and `aispam_notice.go` (`postAISpamNotice`, the AI spam
+  notice after the deletion, plan 24-06) and `event_message_lockdown.go` (the lockdown and lift
   messages for the lockdown files, which stay free of the engine, Phase 25), `postEventSent` only by `event_message.go` (`postEvent`) and
   `memberreq_notice.go` (`memberReqPostEventNotice`, the requirement notice after the punishment, plan 24-05), each allow-list entry with its reason and a stale entry failing, and no file whose name starts with
   `staff`, `lockdown` or `raid` names `offerEventPM`, `registerEventPM`, `offerReplyPM`, `replyEvent`, `postEvent` or any
