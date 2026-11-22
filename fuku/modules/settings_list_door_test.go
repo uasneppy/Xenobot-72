@@ -252,7 +252,7 @@ func settingsListDoorRecovery(t *testing.T, env *settingsListEnv) {
 		chat := settingsListDoorChat(env)
 		settingsListDoorWait(env, chat, owner)
 		add := blacklistWrites.Add
-		blacklistWrites.Add = func(context.Context, int64, string, string) error { return errors.New("the database is down") }
+		blacklistWrites.Add = func(context.Context, int64, string, string, int) error { return errors.New("the database is down") }
 		t.Cleanup(func() { blacklistWrites.Add = add })
 		before := settingsEditSentCount(env.settingsEnv, owner)
 
@@ -271,11 +271,11 @@ func settingsListDoorRecovery(t *testing.T, env *settingsListEnv) {
 		chat := settingsListDoorChat(env)
 		settingsListDoorWait(env, chat, owner)
 		add := blacklistWrites.Add
-		blacklistWrites.Add = func(ctx context.Context, chatID int64, word, action string) error {
+		blacklistWrites.Add = func(ctx context.Context, chatID int64, word, action string, secs int) error {
 			if word == "bad" {
 				return errors.New("the database is down")
 			}
-			return add(ctx, chatID, word, action)
+			return add(ctx, chatID, word, action, secs)
 		}
 		t.Cleanup(func() { blacklistWrites.Add = add })
 		before := settingsEditSentCount(env.settingsEnv, owner)

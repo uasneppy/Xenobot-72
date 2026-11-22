@@ -187,7 +187,7 @@ blacklists_blacklist_already_blacklisted: "Estas palabras ya están en la lista 
 blacklists_blacklist_give_bl_word: ¡Por favor dame una palabra para añadir a la lista negra!
 blacklists_blacklist_word_too_long: "Estas palabras son demasiado largas (máximo 100 caracteres): %s"
 blacklists_blacklist_word_too_broad: "Estas palabras son demasiado generales (una sola letra, dígito o signo de puntuación coincidiría con casi todos los mensajes): %s"
-blacklists_help_msg: "*Comandos de Usuario:*\n× /blacklists: Ver las palabras de la lista negra de este chat.\n\n*Comandos de Administrador:*\n× /addblacklist `<disparador>`: Añade la palabra a la lista negra en el chat actual.\n× /rmblacklist `<disparador>`: Elimina la palabra de las Palabras en Lista Negra actuales en el Chat.\n× /blaction `<mute/kick/ban/warn/none>`: Establece la acción a realizar por el bot cuando se detecta una palabra de la lista negra.\n× /blacklistaction: Igual que arriba\n\n*Solo Propietario:*\n× /remallbl: Elimina todas las palabras de la lista negra del chat\n\n*Nota:*\nEl modo predeterminado para Lista Negra es *warn*, que elimina el mensaje y advierte al usuario."
+blacklists_help_msg: "*Comandos de Usuario:*\n× /blacklists: Ver las palabras de la lista negra de este chat.\n\n*Comandos de Administrador:*\n× /addblacklist `<disparador>`: Añade la palabra a la lista negra en el chat actual.\n× /rmblacklist `<disparador>`: Elimina la palabra de las Palabras en Lista Negra actuales en el Chat.\n× /blaction `<mute/kick/ban/warn/none>`: Establece la acción a realizar por el bot cuando se detecta una palabra de la lista negra.\n× /blaction tmute 2h, /blaction tban 1d: Silencio o baneo temporal por una palabra de la lista negra, de 1m a 366d.\n× /blacklistaction: Igual que arriba\n\n*Solo Propietario:*\n× /remallbl: Elimina todas las palabras de la lista negra del chat\n\n*Nota:*\nEl modo predeterminado para Lista Negra es *warn*, que elimina el mensaje y advierte al usuario."
 blacklists_ls_bl_list_bl: "Estas palabras están en la lista negra en este chat:"
 blacklists_ls_bl_no_blacklisted: No hay palabras en la lista negra en este chat.
 blacklists_rm_all_bl_ask:
@@ -2153,6 +2153,9 @@ users_extended_docs: |
 # Issue #628 remediation keys
 misc_translate_parse_error: "No se pudo procesar la respuesta de traducción. Inténtalo de nuevo."
 blacklists_set_bl_action_update_failed: "No se pudo actualizar la acción de lista negra. Inténtalo de nuevo."
+blacklists_set_bl_action_bad_duration: "Indica una duración de 1m a 366d, por ejemplo <code>/blacklistaction tmute 2h</code>."
+blacklists_bl_watcher_tmuted_user: "Silenciado {user} durante {duration} debido a {reason}"
+blacklists_bl_watcher_tbanned_user: "Baneado {user} durante {duration} debido a {reason}"
 filters_overwrite_token_failed: "No se pudo crear la confirmación de sobrescritura. Inténtalo de nuevo."
 notes_overwrite_token_failed: "No se pudo crear la confirmación de sobrescritura. Inténtalo de nuevo."
 common_settings_save_failed: "Error al guardar la configuracion. Intentalo de nuevo mas tarde."

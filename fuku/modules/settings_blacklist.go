@@ -240,7 +240,7 @@ func settingsBlacklistRunSet(p *settingsPress) *settingsScreen {
 	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
 	defer cancel()
 	notice := ""
-	switch applyBlacklistAction(ctx, p.group.Id, p.fields["v"]).Outcome {
+	switch applyBlacklistAction(ctx, p.group.Id, p.fields["v"], 0).Outcome {
 	case blacklistActionNoWords:
 		notice = settingsNoticeWarn(settingsText(p.tr, "settings_bl_action_no_words"))
 	case blacklistActionSaveFailed:

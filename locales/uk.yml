@@ -96,7 +96,7 @@ blacklists_blacklist_already_blacklisted: "Уже в чорному списку
 blacklists_blacklist_give_bl_word: "Вкажіть слово для чорного списку."
 blacklists_blacklist_word_too_long: "Ці слова задовгі (максимум 100 символів): %s"
 blacklists_blacklist_word_too_broad: "Ці слова надто загальні (одна літера, цифра чи розділовий знак збігалися б майже з кожним повідомленням): %s"
-blacklists_help_msg: "<b>🔤 Чорний список</b>\n\nЗаборонені слова видаляються одразу. Контрабанда на об'єкті не допускається.\n\n<b>Команди для всіх</b>\n• /blacklists — показує чорний список чату.\n\n<b>Команди адмінів</b>\n• /addblacklist <code>&lt;слово&gt;</code> — додає слово до чорного списку.\n• /rmblacklist <code>&lt;слово&gt;</code> — прибирає слово з чорного списку.\n• /blaction <code>&lt;mute/kick/ban/warn/none&gt;</code> — задає, що я роблю, коли знаходжу заборонене слово.\n• /blacklistaction — те саме, що /blaction.\n\n<b>Команди власника</b>\n• /remallbl — прибирає всі слова з чорного списку.\n\n<b>Примітки</b>\nСтандартна дія — <code>warn</code>: повідомлення видаляється, а автор отримує попередження."
+blacklists_help_msg: "<b>🔤 Чорний список</b>\n\nЗаборонені слова видаляються одразу. Контрабанда на об'єкті не допускається.\n\n<b>Команди для всіх</b>\n• /blacklists — показує чорний список чату.\n\n<b>Команди адмінів</b>\n• /addblacklist <code>&lt;слово&gt;</code> — додає слово до чорного списку.\n• /rmblacklist <code>&lt;слово&gt;</code> — прибирає слово з чорного списку.\n• /blaction <code>&lt;mute/kick/ban/warn/none&gt;</code> — задає, що я роблю, коли знаходжу заборонене слово.\n• /blaction <code>&lt;tmute/tban&gt; &lt;тривалість&gt;</code> — задає тимчасовий мут або бан за заборонене слово, від 1m до 366d, наприклад <code>/blaction tmute 2h</code>.\n• /blacklistaction — те саме, що /blaction.\n\n<b>Команди власника</b>\n• /remallbl — прибирає всі слова з чорного списку.\n\n<b>Примітки</b>\nСтандартна дія — <code>warn</code>: повідомлення видаляється, а автор отримує попередження."
 blacklists_ls_bl_list_bl: "У чорному списку цього чату:"
 blacklists_ls_bl_no_blacklisted: "У цьому чаті немає заборонених слів."
 blacklists_rm_all_bl_ask: "Видалити всі заборонені слова з цього чату?"
@@ -1092,6 +1092,9 @@ users_extended_docs: "<b>Фоновий облік:</b>\nМодуль Users — 
 # Issue #628 remediation keys
 misc_translate_parse_error: "Збій: не вдалося прочитати відповідь перекладача. Спробуйте ще раз."
 blacklists_set_bl_action_update_failed: "Збій: не вдалося оновити дію чорного списку. Спробуйте ще раз."
+blacklists_set_bl_action_bad_duration: "Вкажіть тривалість від 1m до 366d, наприклад <code>/blacklistaction tmute 2h</code>."
+blacklists_bl_watcher_tmuted_user: "{user} отримує мут на {duration}. Причина: {reason}."
+blacklists_bl_watcher_tbanned_user: "{user} забанено на {duration}. Причина: {reason}."
 filters_overwrite_token_failed: "Збій: не вдалося створити підтвердження перезапису. Спробуйте ще раз."
 notes_overwrite_token_failed: "Збій: не вдалося створити підтвердження перезапису. Спробуйте ще раз."
 common_settings_save_failed: "Збій: не вдалося зберегти налаштування. Спробуйте ще раз."

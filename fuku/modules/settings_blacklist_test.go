@@ -891,7 +891,7 @@ func TestSettingsBlacklistAction(t *testing.T) {
 		settingsBlacklistSeedActions(t, env.chat.Id, "warn", "warn")
 		m := settingsBlacklistOpenMenu(env, env.chat)
 		setAction := blacklistWrites.SetAction
-		blacklistWrites.SetAction = func(context.Context, int64, string) (int64, error) { return 0, errors.New("update failed") }
+		blacklistWrites.SetAction = func(context.Context, int64, string, int) (int64, error) { return 0, errors.New("update failed") }
 		t.Cleanup(func() { blacklistWrites.SetAction = setAction })
 		m.press("a", settingsActBlacklistSet, "v", "ban")
 		text, _ := m.last()

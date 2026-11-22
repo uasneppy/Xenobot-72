@@ -447,7 +447,7 @@ blacklists_blacklist_already_blacklisted: "Ces mots sont déjà sur la liste noi
 blacklists_blacklist_give_bl_word: Veuillez me donner un mot à ajouter à la liste noire !
 blacklists_blacklist_word_too_long: "Ces mots sont trop longs (max 100 caractères) : %s"
 blacklists_blacklist_word_too_broad: "Ces mots sont trop généraux (une seule lettre, un seul chiffre ou signe de ponctuation correspondrait à presque tous les messages) : %s"
-blacklists_help_msg: "*Commandes Utilisateur :*\n× /blacklists : Voir les mots sur liste noire de ce chat.\n\n*Commandes Admin :*\n× /addblacklist `<déclencheur>` : Ajoute le mot à la liste noire du chat actuel.\n× /rmblacklist `<déclencheur>` : Supprime le mot de la liste noire du chat actuel.\n× /blaction `<mute/kick/ban/warn/none>` : Définit l'action à effectuer par le bot lorsqu'un mot de la liste noire est détecté.\n× /blacklistaction : Identique à ci-dessus\n\n*Propriétaire uniquement :*\n× /remallbl : Supprime tous les mots de la liste noire du chat\n\n*Note :*\nLe mode par défaut pour la liste noire est *warn*, qui supprime le message et avertit l'utilisateur."
+blacklists_help_msg: "*Commandes Utilisateur :*\n× /blacklists : Voir les mots sur liste noire de ce chat.\n\n*Commandes Admin :*\n× /addblacklist `<déclencheur>` : Ajoute le mot à la liste noire du chat actuel.\n× /rmblacklist `<déclencheur>` : Supprime le mot de la liste noire du chat actuel.\n× /blaction `<mute/kick/ban/warn/none>` : Définit l'action à effectuer par le bot lorsqu'un mot de la liste noire est détecté.\n× /blaction tmute 2h, /blaction tban 1d : Rend muet ou bannit temporairement pour un mot de la liste noire, de 1m à 366d.\n× /blacklistaction : Identique à ci-dessus\n\n*Propriétaire uniquement :*\n× /remallbl : Supprime tous les mots de la liste noire du chat\n\n*Note :*\nLe mode par défaut pour la liste noire est *warn*, qui supprime le message et avertit l'utilisateur."
 blacklists_ls_bl_list_bl: "Ces mots sont sur la liste noire de ce chat :"
 blacklists_ls_bl_no_blacklisted: Il n'y a pas de mots sur la liste noire dans ce chat.
 blacklists_rm_all_bl_ask: |
@@ -2090,6 +2090,9 @@ system_config_loaded: "Configuration chargée et validée avec succès"
 # Issue #628 remediation keys
 misc_translate_parse_error: "Impossible d'analyser la réponse de traduction. Veuillez réessayer."
 blacklists_set_bl_action_update_failed: "Impossible de mettre à jour l'action de la liste noire. Veuillez réessayer."
+blacklists_set_bl_action_bad_duration: "Indiquez une durée de 1m à 366d, par exemple <code>/blacklistaction tmute 2h</code>."
+blacklists_bl_watcher_tmuted_user: "{user} rendu muet pendant {duration} à cause de {reason}"
+blacklists_bl_watcher_tbanned_user: "{user} banni pendant {duration} à cause de {reason}"
 filters_overwrite_token_failed: "Impossible de créer la confirmation d'écrasement. Veuillez réessayer."
 notes_overwrite_token_failed: "Impossible de créer la confirmation d'écrasement. Veuillez réessayer."
 common_settings_save_failed: "Echec de la sauvegarde des parametres. Veuillez reessayer plus tard."

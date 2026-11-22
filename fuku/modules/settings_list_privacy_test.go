@@ -214,7 +214,7 @@ func TestSettingsListLogsCarryIDsOnly(t *testing.T) {
 
 	t.Run("an action set whose write fails", func(t *testing.T) {
 		mark := logged.mark()
-		mreqSwap(t, &blacklistWrites.SetAction, func(context.Context, int64, string) (int64, error) { return 0, broken })
+		mreqSwap(t, &blacklistWrites.SetAction, func(context.Context, int64, string, int) (int64, error) { return 0, broken })
 		m := settingsListOpenMenuPage(env, chat, owner, settingsPageBlacklist)
 		m.press("a", settingsActBlacklistOpen)
 		m.press("a", settingsActBlacklistSet, "v", "mute")
@@ -223,7 +223,7 @@ func TestSettingsListLogsCarryIDsOnly(t *testing.T) {
 
 	t.Run("typed words whose writes fail", func(t *testing.T) {
 		mark := logged.mark()
-		mreqSwap(t, &blacklistWrites.Add, func(context.Context, int64, string, string) error { return broken })
+		mreqSwap(t, &blacklistWrites.Add, func(context.Context, int64, string, string, int) error { return broken })
 		settingsListDoorWait(env, chat, owner)
 		settingsListDoorSay(env, owner, settingsListSentinelWord+"x "+settingsListSentinelContent)
 		logged.wantChat(t, "failing typed words", mark, chat.Id)
@@ -291,7 +291,7 @@ func TestSettingsListLogsCarryIDsOnly(t *testing.T) {
 			run  func()
 		}{
 			{"blacklist add", func() {
-				mreqSwap(t, &blacklistWrites.Add, func(context.Context, int64, string, string) error { return broken })
+				mreqSwap(t, &blacklistWrites.Add, func(context.Context, int64, string, string, int) error { return broken })
 				applyBlacklistAdd(ctx, chat.Id, []string{word}, nil)
 			}},
 			{"blacklist remove", func() {
@@ -303,8 +303,8 @@ func TestSettingsListLogsCarryIDsOnly(t *testing.T) {
 				applyBlacklistRemoveByID(ctx, chat.Id, 5)
 			}},
 			{"blacklist action", func() {
-				mreqSwap(t, &blacklistWrites.SetAction, func(context.Context, int64, string) (int64, error) { return 0, broken })
-				applyBlacklistAction(ctx, chat.Id, "ban")
+				mreqSwap(t, &blacklistWrites.SetAction, func(context.Context, int64, string, int) (int64, error) { return 0, broken })
+				applyBlacklistAction(ctx, chat.Id, "ban", 0)
 			}},
 			{"filter add", func() {
 				mreqSwap(t, &filterWrites.Exists, func(context.Context, int64, string) (bool, error) { return false, nil })

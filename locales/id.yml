@@ -185,7 +185,7 @@ blacklists_blacklist_already_blacklisted: "Kata-kata ini sudah ada di daftar hit
 blacklists_blacklist_give_bl_word: Berikan saya kata untuk ditambahkan ke daftar hitam!
 blacklists_blacklist_word_too_long: "Kata-kata ini terlalu panjang (maks 100 karakter): %s"
 blacklists_blacklist_word_too_broad: "Kata-kata ini terlalu umum (satu huruf, angka, atau tanda baca saja akan cocok dengan hampir semua pesan): %s"
-blacklists_help_msg: "*Perintah Pengguna:*\n× /blacklists: Lihat kata-kata daftar hitam di obrolan ini.\n\n*Perintah Admin:*\n× /addblacklist `<trigger>`: Menambahkan kata ke daftar hitam di obrolan saat ini.\n× /rmblacklist `<trigger>`: Menghapus kata dari Kata-kata yang Didaftar Hitam di Obrolan saat ini.\n× /blaction `<mute/kick/ban/warn/none>`: Mengatur tindakan yang akan dilakukan oleh bot ketika kata daftar hitam terdeteksi.\n× /blacklistaction: Sama seperti di atas\n\n*Khusus Pemilik:*\n× /remallbl: Menghapus semua kata yang didaftar hitam dari obrolan\n\n*Catatan:*\nMode default untuk Daftar Hitam adalah *warn*, yang menghapus pesan dan memperingatkan pengguna."
+blacklists_help_msg: "*Perintah Pengguna:*\n× /blacklists: Lihat kata-kata daftar hitam di obrolan ini.\n\n*Perintah Admin:*\n× /addblacklist `<trigger>`: Menambahkan kata ke daftar hitam di obrolan saat ini.\n× /rmblacklist `<trigger>`: Menghapus kata dari Kata-kata yang Didaftar Hitam di Obrolan saat ini.\n× /blaction `<mute/kick/ban/warn/none>`: Mengatur tindakan yang akan dilakukan oleh bot ketika kata daftar hitam terdeteksi.\n× /blaction tmute 2h, /blaction tban 1d: Bisukan atau blokir sementara karena kata daftar hitam, dari 1m sampai 366d.\n× /blacklistaction: Sama seperti di atas\n\n*Khusus Pemilik:*\n× /remallbl: Menghapus semua kata yang didaftar hitam dari obrolan\n\n*Catatan:*\nMode default untuk Daftar Hitam adalah *warn*, yang menghapus pesan dan memperingatkan pengguna."
 blacklists_ls_bl_list_bl: "Kata-kata ini didaftar hitam di obrolan ini:"
 blacklists_ls_bl_no_blacklisted: Tidak ada kata yang didaftar hitam di obrolan ini.
 blacklists_rm_all_bl_ask: |
@@ -2148,6 +2148,9 @@ users_extended_docs: |
 # Issue #628 remediation keys
 misc_translate_parse_error: "Gagal menguraikan respons terjemahan. Silakan coba lagi."
 blacklists_set_bl_action_update_failed: "Gagal memperbarui tindakan daftar hitam. Silakan coba lagi."
+blacklists_set_bl_action_bad_duration: "Berikan durasi dari 1m sampai 366d, misalnya <code>/blacklistaction tmute 2h</code>."
+blacklists_bl_watcher_tmuted_user: "Dibisukan {user} selama {duration} karena {reason}"
+blacklists_bl_watcher_tbanned_user: "Diblokir {user} selama {duration} karena {reason}"
 filters_overwrite_token_failed: "Gagal membuat konfirmasi timpa. Silakan coba lagi."
 notes_overwrite_token_failed: "Gagal membuat konfirmasi timpa. Silakan coba lagi."
 common_settings_save_failed: "Gagal menyimpan pengaturan. Silakan coba lagi nanti."

@@ -178,7 +178,7 @@ blacklists_blacklist_already_blacklisted: "Estas palavras já estão na lista ne
 blacklists_blacklist_give_bl_word: Por favor, me dê uma palavra para adicionar à lista negra!
 blacklists_blacklist_word_too_long: "Estas palavras são muito longas (máx 100 caracteres): %s"
 blacklists_blacklist_word_too_broad: "Estas palavras são amplas demais (uma única letra, dígito ou sinal de pontuação corresponderia a quase todas as mensagens): %s"
-blacklists_help_msg: "*Comandos de Usuário:*\n× /blacklists: Ver as palavras da lista negra deste chat.\n\n*Comandos de Admin:*\n× /addblacklist `<trigger>`: Adiciona a palavra na lista negra do chat atual.\n× /rmblacklist `<trigger>`: Remove a palavra da Lista de Palavras Proibidas no Chat.\n× /blaction `<mute/kick/ban/warn/none>`: Define a ação a ser executada pelo bot quando uma palavra da lista negra for detectada.\n× /blacklistaction: O mesmo que acima\n\n*Apenas Dono:*\n× /remallbl: Remove todas as palavras da lista negra do chat\n\n*Nota:*\nO modo padrão para Lista Negra é *warn*, que apaga a mensagem e adverte o usuário."
+blacklists_help_msg: "*Comandos de Usuário:*\n× /blacklists: Ver as palavras da lista negra deste chat.\n\n*Comandos de Admin:*\n× /addblacklist `<trigger>`: Adiciona a palavra na lista negra do chat atual.\n× /rmblacklist `<trigger>`: Remove a palavra da Lista de Palavras Proibidas no Chat.\n× /blaction `<mute/kick/ban/warn/none>`: Define a ação a ser executada pelo bot quando uma palavra da lista negra for detectada.\n× /blaction tmute 2h, /blaction tban 1d: Silencia ou bane temporariamente por uma palavra da lista negra, de 1m a 366d.\n× /blacklistaction: O mesmo que acima\n\n*Apenas Dono:*\n× /remallbl: Remove todas as palavras da lista negra do chat\n\n*Nota:*\nO modo padrão para Lista Negra é *warn*, que apaga a mensagem e adverte o usuário."
 blacklists_ls_bl_list_bl: "Estas palavras estão na lista negra neste chat:"
 blacklists_ls_bl_no_blacklisted: Não há palavras na lista negra neste chat.
 blacklists_rm_all_bl_ask:
@@ -2138,6 +2138,9 @@ users_extended_docs: |
 # Issue #628 remediation keys
 misc_translate_parse_error: "Falha ao analisar resposta de tradução. Tente novamente."
 blacklists_set_bl_action_update_failed: "Falha ao atualizar ação de lista negra. Tente novamente."
+blacklists_set_bl_action_bad_duration: "Informe uma duração de 1m a 366d, por exemplo <code>/blacklistaction tmute 2h</code>."
+blacklists_bl_watcher_tmuted_user: "{user} mutado por {duration} devido a {reason}"
+blacklists_bl_watcher_tbanned_user: "{user} banido por {duration} devido a {reason}"
 filters_overwrite_token_failed: "Falha ao criar confirmação de sobrescrita. Tente novamente."
 notes_overwrite_token_failed: "Falha ao criar confirmação de sobrescrita. Tente novamente."
 common_settings_save_failed: "Falha ao salvar configurações. Tente novamente mais tarde."

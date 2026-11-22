@@ -244,7 +244,7 @@ bans_help_msg: "कभी-कभी उपयोगकर्ता परेश�
 
   × /unrestrict: unmute और unban में से विकल्प चुनने के लिए InlineKeyboard दिखाता है।"
 
-blacklists_help_msg: "*उपयोगकर्ता कमांड:*\n× /blacklists: इस चैट के ब्लैकलिस्ट शब्द देखें।\n\n*एडमिन कमांड:*\n× /addblacklist `<trigger>`: वर्तमान चैट में शब्द को ब्लैकलिस्ट करें।\n× /rmblacklist `<trigger>`: चैट में ब्लैकलिस्ट किए गए शब्दों से शब्द हटाएं।\n× /blaction `<mute/kick/ban/warn/none>`: ब्लैकलिस्ट शब्द का पता चलने पर बॉट द्वारा की जाने वाली कार्रवाई सेट करें।\n× /blacklistaction: ऊपर जैसा ही\n\n*केवल मालिक:*\n× /remallbl: चैट से सभी ब्लैकलिस्ट किए गए शब्दों को हटाता है\n\n*नोट:*\nब्लैकलिस्ट के लिए डिफ़ॉल्ट मोड *warn* है, जो संदेश हटाता है और उपयोगकर्ता को चेतावनी देता है।"
+blacklists_help_msg: "*उपयोगकर्ता कमांड:*\n× /blacklists: इस चैट के ब्लैकलिस्ट शब्द देखें।\n\n*एडमिन कमांड:*\n× /addblacklist `<trigger>`: वर्तमान चैट में शब्द को ब्लैकलिस्ट करें।\n× /rmblacklist `<trigger>`: चैट में ब्लैकलिस्ट किए गए शब्दों से शब्द हटाएं।\n× /blaction `<mute/kick/ban/warn/none>`: ब्लैकलिस्ट शब्द का पता चलने पर बॉट द्वारा की जाने वाली कार्रवाई सेट करें।\n× /blaction tmute 2h, /blaction tban 1d: ब्लैकलिस्ट शब्द पर अस्थायी म्यूट या बैन, 1m से 366d तक।\n× /blacklistaction: ऊपर जैसा ही\n\n*केवल मालिक:*\n× /remallbl: चैट से सभी ब्लैकलिस्ट किए गए शब्दों को हटाता है\n\n*नोट:*\nब्लैकलिस्ट के लिए डिफ़ॉल्ट मोड *warn* है, जो संदेश हटाता है और उपयोगकर्ता को चेतावनी देता है।"
 
 captcha_help_msg: "CAPTCHA सत्यापन के साथ अपने ग्रुप को बॉट्स और स्पैमर्स से बचाएं!
 
@@ -1868,6 +1868,9 @@ warns_notes_docs: |
 # Issue #628 remediation keys
 misc_translate_parse_error: "अनुवाद प्रतिक्रिया को पार्स नहीं किया जा सका। कृपया फिर से प्रयास करें।"
 blacklists_set_bl_action_update_failed: "ब्लैकलिस्ट कार्रवाई अपडेट नहीं हो सकी। कृपया फिर से प्रयास करें।"
+blacklists_set_bl_action_bad_duration: "1m से 366d तक की अवधि दें, उदाहरण के लिए <code>/blacklistaction tmute 2h</code>।"
+blacklists_bl_watcher_tmuted_user: "{reason} के कारण {user} को {duration} के लिए म्यूट किया गया"
+blacklists_bl_watcher_tbanned_user: "{reason} के कारण {user} को {duration} के लिए बैन किया गया"
 filters_overwrite_token_failed: "ओवरराइट पुष्टि बनाई नहीं जा सकी। कृपया फिर से प्रयास करें।"
 notes_overwrite_token_failed: "ओवरराइट पुष्टि बनाई नहीं जा सकी। कृपया फिर से प्रयास करें।"
 common_settings_save_failed: "Settings save karne mein error. Baad mein try karein."

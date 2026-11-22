@@ -2634,6 +2634,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   limit or delete write is never clobbered; a missing row is created with the model's limit 5, D-27), writes nothing when the cached
   settings already hold both values, and drops `antiflood:<chat>`; `SetFloodModeContext` and `SetFloodMode` are that write with
   seconds 0. `GetAntifloodSettingsContext`'s explicit `Select` reads `action_secs` (`TestSetFloodActionDuration`).
+  `blacklists.SetBlacklistActionTimedContext(ctx, chat, action, secs)` (plan 26-05) is one `UPDATE` of `action` (lower-cased) and
+  `action_secs` on every word of the chat, returns the rows matched and drops `blacklist:<chat>`; `AddBlacklistTimedContext(ctx,
+  chat, word, action, secs)` stores one word with both. `SetBlacklistAction`, `SetBlacklistActionContext`, `AddBlacklist` and
+  `AddBlacklistContext` are those writes with seconds 0, and `ListBlacklistEntriesFresh` reads `action_secs` beside the ID, word
+  and action (`TestSetBlacklistActionDuration`).
 - `chat_settings_access` (migration 20261104120000) is the owner switch "Admins can change settings", one row per chat; a
   chat without a row means owner only. It is read only through `menuaccess.AdminsAllowedFresh`, a fresh query that is never
   cached (so no `DeleteCache` applies, and a cache added later needs `skipLocal` and a `DeleteCache` on every write), and an
@@ -5104,11 +5109,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   because `make check-translations` cannot see table fields. The page that draws the table is the Locks page (see the settings
   Callbacks bullets).
   The blacklist (Phase 19) is written by four apply functions in `blacklists.go`, through the `blacklistWrites` seam (defaults
-  `blacklists.AddBlacklistContext`, `RemoveBlacklistContext` and `SetBlacklistActionContext`, each dropping `blacklist:<chat>`):
+  `blacklists.AddBlacklistTimedContext`, `RemoveBlacklistContext` and `SetBlacklistActionTimedContext`, each dropping
+  `blacklist:<chat>`; `Add` and `SetAction` take the seconds since plan 26-05):
   `applyBlacklistAdd` (the typed words sorted into added, already listed, too long and failed; a new word is stored lower-cased
-  with the warn action), `applyBlacklistRemove` (only words that are in the caller's read of the chat's words),
-  `applyBlacklistRemoveByID` (the menu's delete by row ID, chat-scoped) and `applyBlacklistAction` (only the values of
-  `blacklistActionValues`, `mute kick warn ban none`; the rows the update matched are returned). `/addblacklist` and its three
+  with the shared action and seconds, below), `applyBlacklistRemove` (only words that are in the caller's read of the chat's words),
+  `applyBlacklistRemoveByID` (the menu's delete by row ID, chat-scoped) and `applyBlacklistAction(ctx, chat, action, secs)` (a value
+  of `blacklistActionValues`, `mute kick warn ban none`, stores seconds 0; a timed action of `blacklistTimedActions`, `tban tmute`,
+  needs a duration of 1m to 366d and stores both columns in one update, while one with seconds 0 is `blacklistActionUnknown`, the
+  pinned reply, and one out of bounds `blacklistActionBadDuration`, both writing nothing; the rows the update matched are returned).
+  `/blacklistaction tmute 2h` (exactly two words whose first is `tmute` or `tban`, read by `blacklistActionArgs`, the second through
+  `parsePunishDuration`) sets the timed action and answers the changed-mode text with the short form (`tmute 2h`,
+  `blacklistShownAction`); a second word that is not a duration of 1m to 366d answers `blacklists_set_bl_action_bad_duration`;
+  `tmute` or `tban` alone and any other two words keep the pinned `choose_correct_option`, and `/blacklistaction` alone shows the
+  first word's action in the short form when it is an effective timed action (`TestBlacklistActionTimedCommand`).
+  `blacklistActionValues` is unchanged, so `TestForwardBlockVocabulary` holds (D-07). `/addblacklist` and its three
   aliases, `/rmblacklist` and its aliases and `/blacklistaction` keep their gates and every reply byte and map the typed results
   onto them, including `/blacklistaction ban` on a chat with no words, which writes nothing and still answers its success text
   (research C-02, pinned, not fixed). `TestLegacyBlacklistRequests` pins every request and stored row of the four commands and is
@@ -5120,7 +5134,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   provisional owner confirmation A19-2 of `19-SPIKE.md`; declining it is a revert of its commit.
   A new word takes the action every word of the chat already shares (one of `mute kick warn ban none`), else warn, so a
   word added after `/blacklistaction ban` no longer acts with Warn (`blacklistSharedAction`, the command and the page alike):
-  the provisional owner confirmation A19-3 of `19-SPIKE.md`; declining it is a revert of its commit.
+  the provisional owner confirmation A19-3 of `19-SPIKE.md`; declining it is a revert of its commit. Since plan 26-05 the shared
+  value is the action and the seconds: every word with the same plain action and seconds 0, or the same effective timed action
+  and the same seconds, gives a new word both, and mixed actions or seconds, or a timed action stored with no duration, give warn
+  and 0 (D-21).
   The filters (Phase 19) are written by `applyFilterAdd`, `applyFilterRemove` and `checkFilterKeyword` in `filters.go`, through the
   `filterWrites` seam (defaults `filters.AddFilterContext`, `RemoveFilterContext`, `CountFiltersContext` and `FilterExistsContext`;
   `AddFilter`, `RemoveFilter`, `CountFilters` and `DoesFilterExists` stay as wrappers with their old hiding behaviour, and
