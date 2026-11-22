@@ -6246,6 +6246,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   of a 1024-unit caption. `TestEventEngineCallers` and its self-check `TestEventEngineCallersGuardFails`
   (`event_engine_callers_test.go`, about 0.6 s, a parse of the package's files) hold EVT-10 structurally: the exact caller map of the
   engine and of the `postLockdown*` adapters, and that no never-reach root can reach either (the Event messages bullet).
+  `TestSettingsMessagesLockdownFamily` (`settings_messages_lockdown_test.go`, plan 25-03, about 1.7 s, one `newSettingsMsgEnv` per
+  subtest, real presses of the drawn buttons and real typed messages) drives the Lockdown family through the private menu: `hub and
+  list` (the bold 🚨 section after the Member requirements one and before the private copies, five Default lines, the hub
+  `[2 2 1 1 2]` with the Lockdown cell second on its row, the list `[2 2 1 2]` with five cells and Back to the hub), `screens` (each
+  lockdown event screen has the three part rows, its Silent switch, the hint `settings_msg_hint_lockdown`, no private copy line or
+  row, `[1 1 1 1 1 2]` empty; Set text on `lj` writes the wait `hljg` and draws `Up to 3696`, 624 with a media item; a forged `he`
+  with `d=p` on `ld` and `hp` on `lu` are the invalid request alert with nothing written), `typed and silent` (the live creator's
+  typed text is stored on the `lockdown` group row and the hub reads Custom, a Silent press on `lu` stores Silent and the hub reads
+  Silent, and the next `/lockdown raid & co` replies with the page's text filled and the approved-muted note) and `previews` (real
+  locales: Full preview of a stored `{count} {window} {percent}: {reason}` on `lf` is `30 30 80: `, the flood's trigger sentence,
+  a line break and the approved-muted note; Full preview of `lu` with nothing stored is the lift default naming the presser with no
+  note; nothing is sent to the group). The page's earlier families cover the Lockdown family through `settingsMsgScreens`, where
+  `settingsMsgFamilyPM` requires a private copy spec on every event of `m`, `a` and `r` and forbids one on every `l` event.
 
 ## Commits
 
