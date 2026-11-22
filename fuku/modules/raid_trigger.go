@@ -52,10 +52,10 @@ const (
 	// replicas.
 	raidWarnEvery = 24 * time.Hour
 
-	// raidTriggerToken stands in for the trigger sentence until the translated warning is
+	// raidTriggerMarker stands in for the trigger sentence until the translated warning is
 	// assembled, so the sentence (it holds a percent sign) never meets the translator's
 	// legacy printf pass.
-	raidTriggerToken = "<<raid-trigger>>"
+	raidTriggerMarker = "<<raid-trigger>>"
 )
 
 // raidPostStopWait is the longest StopRaidPosts waits for the posts in flight at shutdown. A
@@ -439,11 +439,11 @@ func raidWarnCannotLock(b *gotgbot.Bot, chat *gotgbot.Chat, trig raidTrigger, ou
 	render := func(tr *i18n.Translator) string {
 		text := lockdownText(tr, key, i18n.TranslationParams{
 			"group":   lockdownGroupToken,
-			"trigger": raidTriggerToken,
+			"trigger": raidTriggerMarker,
 		})
 		return lockdownSplice(text,
 			lockdownGroupToken, group,
-			raidTriggerToken, lockdownTriggerSentence(tr, trig.Kind, trig.Count, trig.Window, trig.Percent),
+			raidTriggerMarker, lockdownTriggerSentence(tr, trig.Kind, trig.Count, trig.Window, trig.Percent),
 		)
 	}
 
