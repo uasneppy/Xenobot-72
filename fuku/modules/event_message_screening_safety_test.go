@@ -365,7 +365,7 @@ func TestEventMessageScreeningPrivacy(t *testing.T) {
 			} else {
 				storeEventPM(t, env.chat.Id, eventmsg.EventReqMute, "", true)
 			}
-			target := env.mreqMember("ZZRTL‮evil‏", "", "")
+			target := env.mreqMember("ZZRTL\u202Eevil\u200F", "", "")
 
 			if got := env.mreqEnforce(env.mreqCase(target)); got.Outcome != memberReqMuted {
 				t.Fatalf("enforcement = %+v, want Muted", got)
@@ -383,7 +383,7 @@ func TestEventMessageScreeningPrivacy(t *testing.T) {
 				t.Fatalf("the private copy %q names the member %v, want %v (only the custom text names them)", private[0].Params["text"], names, custom)
 			}
 
-			leaks := append(screenSafeStaffLeaks(staffChat), "‮", "‏")
+			leaks := append(screenSafeStaffLeaks(staffChat), "\u202E", "\u200F")
 			for _, request := range screenSafeRequests(t, env.fake.moduleBotClient) {
 				screenSafeWantClean(t, "a request", request, leaks)
 			}
