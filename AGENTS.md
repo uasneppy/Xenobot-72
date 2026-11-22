@@ -6095,6 +6095,23 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   private copy screens, the `ai` screen and its Notice press, a typed `rw` text and a Full preview of `cf` by an administrator who is not the
   creator, through `settingsPrivacyMsgRunClean`). The page catalog `settingsMsgScreens` already draws every screen of the three families
   (the `ai` screen with its notice on and off, the requirement screens empty and full) for the byte and length tests.
+  `event_message_screening_safety_test.go` (plan 24-07, about 0.5 s) holds the sites' safety. `TestEventMessageScreeningLogsCarryIDsOnly`
+  runs each site under a debug-level hook with a stored sentinel text, photo and button: the captcha (`eventMsgCaptchaSite`, a held message
+  holding a sentinel) and the requirement kick (`newMreqEventEnv`) send the default after a failed read and after a refused custom message,
+  each with one Warn naming the chat and the event; the AI spam notice (`newAISpamNoticeEnv`, turned on) posts nothing after a failed read
+  (an off-by-default event) and the default after a refused custom photo; no line carries the stored text, the file ID, the button, the
+  held or spam message, the member's names, the captcha or AI reason or the rule phrase. `TestEventMessageScreeningPrivacy` runs one site
+  per surface, custom and with nothing stored, each group linked to a Staff Group titled with a sentinel (`screenSafeLinkStaff`): the
+  captcha with both private copy options on and the member refusing private messages (the notice, the Details edit and record and the
+  `#PM_COPY` line exist), the AI spam notice and its private copy with the TypeSafe stand-in's category and model sentinels and a
+  probability of 0.9731, and the requirement mute and its private copy for a member whose first name holds U+202E and U+200F and who has
+  no username; no Telegram request, Details record or log line names the Staff Group, the provider, the model, the category or the
+  probability, and no requirement request carries either control (the default mention's own isolate is by design). `/aispam`'s own
+  `[AISpam] verdict` line is the operator's record of the verdict and keeps those details; it is the one line exempt, and the test
+  requires it to carry the sentinel category, which proves the sentinel was in flight. `TestEventMessageMemberReqMuteWaitsOutRateLimit`
+  closes the gap plan 24-05 left: a custom requirement mute notice the requirement pacer gives up on (four 429s) is sent again with the
+  same custom text and its "I fixed it" row, and the mute is never lifted. `TestEventPMTextsFitEveryLocale` also measures each
+  requirement event's default private text with the reason of all eight rule phrases.
 
 ## Commits
 

@@ -110,6 +110,17 @@ func TestEventPMTextsFitEveryLocale(t *testing.T) {
 				if !strings.Contains(text, staffDisplayTitle(eventPMWorstTitle)) {
 					t.Errorf("%s default %q does not name the group", event, text)
 				}
+				// A requirement event's reason is the phrases of the broken rules (Phase 24, D-14): its worst real reason is
+				// all eight, measured beside the 200-character one.
+				if slices.ContainsFunc(settingsMsgReqEvents, func(ev settingsMsgEvent) bool { return ev.Key == event }) {
+					rules := values
+					rules.Reason = memberReqRulesText(tr, mreqAllRulesMask())
+					text := eventPMDefaultText(tr, spec, &chat, rules, "")
+					eventPMWantFilled(t, event+" default with every rule", text, 4096)
+					if !strings.Contains(text, html.EscapeString(rules.Reason)) {
+						t.Errorf("%s default %q does not list every broken rule", event, text)
+					}
+				}
 				withNote := eventPMDefaultText(tr, spec, &chat, values, note)
 				eventPMWantFilled(t, event+" default with the lockdown note", withNote, 4096)
 				if !strings.HasSuffix(withNote, "\n"+note) {
