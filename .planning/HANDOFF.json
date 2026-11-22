@@ -1,0 +1,44 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-11-22T11:23:09.961Z",
+  "phase": "26",
+  "phase_name": "Timed Punishments, Escalation and Warn Expiry",
+  "phase_dir": ".planning/phases/26-timed-punishments-escalation-and-warn-expiry",
+  "plan": 8,
+  "task": 1,
+  "total_tasks": 2,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": "26-01", "name": "goldens of the timed punishment sends and the export", "status": "done", "commit": "92f29f1 (golden), 517c5f5"},
+    {"id": "26-02", "name": "timed warn limit end to end, migration 20261122120000", "status": "done", "commit": "80e05a1"},
+    {"id": "26-03", "name": "duration screen, timed warn limit on the Warnings page, previews", "status": "done", "commit": "6556eb9"},
+    {"id": "26-04", "name": "timed flood action", "status": "done", "commit": "ad60141"},
+    {"id": "26-05", "name": "timed blacklist action", "status": "done", "commit": "8253538"},
+    {"id": "26-06", "name": "warn expiry storage, counting and backup, migration 20261122130000", "status": "done", "commit": "131d55b"},
+    {"id": "26-07", "name": "warn expiry on the Warnings page", "status": "done", "commit": "f7bb78f"},
+    {"id": "26-08", "name": "ladder storage: chat_escalation, chat_offences, migration 20261122140000", "status": "in_progress", "progress": "executor stopped by the pause during task 1, before verification or any commit; its unverified changes are saved in 26-08-WIP.patch and the tree was cleaned"}
+  ],
+  "remaining_tasks": [
+    {"id": "26-08", "name": "ladder storage (restart; the WIP patch may be applied as a starting point)", "status": "not_started"},
+    {"id": "26-09", "name": "escalate resolver wired into flood, blacklist, forward blocklist", "status": "not_started"},
+    {"id": "26-10", "name": "private Escalation page (key j)", "status": "not_started"},
+    {"id": "26-11", "name": "safety sweep", "status": "not_started"},
+    {"id": "26-12", "name": "end-to-end test and full gates", "status": "not_started"},
+    {"id": "verify-26", "name": "gsd-verifier for Phase 26, then ROADMAP/STATE", "status": "not_started"},
+    {"id": "phases-27-30", "name": "plan and execute Phases 27 to 30", "status": "not_started"}
+  ],
+  "blockers": [],
+  "async_jobs": [],
+  "human_actions_pending": [
+    {"action": "Live Telegram checks for Phases 21 to 25 (listed in each NN-VERIFICATION.md)", "context": "verified status is human_needed", "blocking": false},
+    {"action": "Confirm or change provisional decisions: Phase 22 defaults, 23 P1-P10, 24 P1-P16, 25 P1-P15, 26 P-01..P-24", "context": "recorded in each CONTEXT.md", "blocking": false},
+    {"action": "Commit 80e05a1 (26-02 SUMMARY) lacks the attribution trailers; left as is because commits are never amended", "context": "a gsd-tools command committed it", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "Standing authorization: plan and execute each phase without asking; record open choices as provisional decisions", "rationale": "owner instruction", "phase": "21-30"},
+    {"decision": "Everything is set group by group in the group's settings in the bot's PM; no Staff Group defaults", "rationale": "owner instruction", "phase": "21-30"}
+  ],
+  "uncommitted_files": [],
+  "next_action": "Re-launch an Opus gsd-executor for 26-08 (it may start from 26-08-WIP.patch, verifying everything), push, then continue 26-09 to 26-12, verify Phase 26",
+  "context_notes": "One executor per plan, sequential; push after each plan; gates: plan verify, touched families -race, check-translations/docs/test-shard-check, build, golangci-lint v2.13.1 new-from-rev and notesttools and --new=false, gosec baseline 19, one full fuku/modules -race run (~6.6 min). Guard goldens with git diff --exit-code at 92f29f1, 36d2070, e40a7be, 9d4554d, 86baf1a, b7662c7. make test-postgres-integrity runs locally against a throwaway PG16+Redis in the scratchpad (keep the data dir traversable, then restore 0700)."
+}
