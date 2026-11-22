@@ -6870,6 +6870,26 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `escalation.SetEnabledWithSteps`): `steps_in_order` (blacklist, timed mute 1 h, timed mute 1 day, then bans, each notice naming its
   action), `flood_steps`, `same_offence`, `forget`, `off`, `unreadable_ladder` and `count_failed` (one gated Warn with IDs only),
   `sender_chat`, `not_offences`, `second_bot_instance` and `forward_album` (one count for the album, then steps 2 and 3).
+  Plan 26-11's safety sweep: `TestTimedPunishmentLogsCarryIDsOnly` (`timed_punishment_safety_test.go`, under a debug-level hook with
+  sentinels in internal errors, a member's message and the text around a matched word: an unreadable ladder, a failed count, an end date
+  refused as too close, a timed restrict Telegram refuses at the flood and at the blacklist, a failed save of `applyWarnMode`,
+  `applyWarnExpiry`, `applyBlacklistAction` and every `applyEscalation*`, and an unreadable ladder before a change; no line holds a
+  sentinel and every `[Escalation]` and `[Punish]` line names the chat; Telegram's own refusal text is not a sentinel, because the
+  untimed punishments have always logged it and it is the server's wording, never a member's). It found two lines that logged the raw
+  error of a failed write, the blacklist action's and the warn settings' page line, which now log `escalationErrClass` only.
+  `TestTimedNoticeTextsFitEveryLocale` (the six timed default texts with a 64-rune markup name, the longest duration label and a
+  200-character reason, at most 4096 UTF-16 units, no placeholder left, the name only escaped), the extended
+  `TestEventPMTextsFitEveryLocale` (a spec with `UntilLine` ends its text with the Until line before the reason, no other spec has it),
+  `TestPhase26Cost` (a flood offence with the ladder off makes no count and writes no `chat_offences` row, with it on exactly one of each;
+  the Escalation page, a step screen and a duration screen cost the pipeline's `getChatMember` and `getChat` and nothing else; a
+  Warnings timed press adds only the cached bot-administrator check its right asks for), `TestPhase26Codes` and
+  `TestPhase26ReadsCreateNothing` (`settings_phase26_test.go`: the fifteen action codes of the phase belong to exactly their pages and
+  are no core code, a valid press with one extra key is refused in step 1 with no `getChatMember`, a private-only code pressed from a
+  group menu is refused in step 1, and opening every new screen on a chat with no rows creates no row in `warns_settings`,
+  `antiflood_settings`, `blacklists`, `chat_escalation`, `chat_offences` or `chats`), and `settingsPrivacyPhase26Screens` and
+  `settingsPrivacyPhase26Run` inside `TestSettingsStaffPrivacy` (every new screen in 8 languages in a group view and a private view,
+  and a private run by an administrator who is not the creator of a group linked to a Staff Group through the Escalation page, the
+  Warnings timed row and expiry and the Antiflood and Blacklist duration screens).
 
 ## Commits
 

@@ -341,7 +341,7 @@ func settingsWarnsNotice(p *settingsPress, result warnSettingsResult, word strin
 		// Unreachable from a valid press: an nt or nx press carries a preset, which the apply function accepts.
 		return settingsNoticeWarn(settingsText(p.tr, result.Key))
 	case warnSettingsSaveFailed:
-		log.Errorf("[Settings] warn settings write for chat %d failed: %v", p.group.Id, result.Err)
+		log.Errorf("[Settings] warn settings write for chat %d failed: %s", p.group.Id, escalationErrClass(result.Err))
 		return settingsNoticeWarn(settingsText(p.tr, result.Key))
 	}
 	return ""

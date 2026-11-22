@@ -107,6 +107,18 @@ func TestEventPMTextsFitEveryLocale(t *testing.T) {
 				// /unmute adds, measured for every event because a note only adds its own length.
 				text := eventPMDefaultText(tr, spec, &chat, values, "")
 				eventPMWantFilled(t, event+" default", text, 4096)
+				// The events whose action can be a timed mute or ban (Phase 26, D-17: the warn limit, the flood, the blacklist
+				// and the forward blocklist) end their text with the Until line before the reason when an end is set, and
+				// no other event has it.
+				untilLine, _ := tr.GetString("eventmsg_pm_until", i18n.TranslationParams{"until": formatChatTime(until, chatClockOf(chat.Id), "02.01.2006 15:04")})
+				if spec.UntilLine {
+					reasonLine, _ := tr.GetString("eventmsg_pm_reason", i18n.TranslationParams{"reason": html.EscapeString(values.Reason)})
+					if !strings.HasSuffix(text, "\n"+untilLine+"\n"+reasonLine) {
+						t.Errorf("%s default %q does not end with the Until line and the reason line", event, text)
+					}
+				} else if strings.Contains(text, untilLine) {
+					t.Errorf("%s default %q has an Until line, but its spec has none", event, text)
+				}
 				if !strings.Contains(text, staffDisplayTitle(eventPMWorstTitle)) {
 					t.Errorf("%s default %q does not name the group", event, text)
 				}

@@ -312,7 +312,7 @@ func applyBlacklistAction(ctx context.Context, chatID int64, action string, secs
 	if err != nil {
 		log.WithFields(log.Fields{
 			"chatId": chatID,
-			"error":  err,
+			"error":  escalationErrClass(err),
 		}).Error("[Blacklists] Failed to persist blacklist action")
 		return blacklistActionResult{Outcome: blacklistActionSaveFailed, Err: err}
 	}
