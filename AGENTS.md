@@ -2666,6 +2666,33 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   chat, word, action, secs)` stores one word with both. `SetBlacklistAction`, `SetBlacklistActionContext`, `AddBlacklist` and
   `AddBlacklistContext` are those writes with seconds 0, and `ListBlacklistEntriesFresh` reads `action_secs` beside the ID, word
   and action (`TestSetBlacklistActionDuration`).
+- Warn expiry (migration 20261122130000, Phase 26 plan 26-06, TUNE-03) is two columns: `warns_settings.warn_expiry_days`
+  (`INTEGER NOT NULL DEFAULT 0`, inline named CHECK `chk_warns_settings_expiry` 0 to 365, `models.WarnExpiryMaxDays`; 0 is off) and
+  `warns_users.warn_times` (`JSONB NOT NULL DEFAULT '[]'`, `models.Int64Array`): the unix seconds of each stored warn, in the order of
+  the reasons. The models (`WarnSettings.ExpiryDays`, `Warns.WarnTimes`) carry no `default:` tag and JSON `omitempty`. The migration
+  backfills nothing: a row saved before it has fewer times than warns, and `(*models.Warns).NormalisedTimes` dates every missing time
+  at the front with the earlier of the row's `updated_at` and its first stored time (never earlier than the warn's real time, so no
+  old warn expires before its real age), cuts extra times from the end and raises a time lower than the one before it, so the times
+  are always one per warn and non-decreasing; a value with no update time and no times (a `warns` cache value of the previous build)
+  pads with the far future, so it counts every warn and never expires one on a guess. `(*models.Warns).Counted(expiryDays, now)` is
+  the one counting rule every reader and writer uses: with expiry off every warn and the stored reasons as they are (so every display
+  is byte for byte), with expiry on the warns whose time is after `now - expiryDays*24h`, a suffix of the record, with the last
+  `min(count, len(reasons))` reasons (a row can hold fewer reasons than warns). The dated repository writes take the locks `WarnUser`
+  always took, inside one transaction: `warns.WarnUserAt(ctx, user, chat, reason, now)` (the chat row lock, the settings row lock,
+  creating the default settings row, and the member's row lock) dates the member's row, drops the warns that no longer count while
+  expiry is on (`num_warns`, `warns` and `warn_times` all keep the counted suffix), appends this warn with `now` and returns the
+  counted number and reasons, so the limit compares what counts; `RemoveWarnAt` removes the newest counted warn and answers removed
+  only when one counted (the expired ones dropped in the same write); `ResetUserWarnsAt` deletes the row and answers removed only when a
+  warn counted. With expiry off nothing is ever dropped and both answer exactly as before (`RemoveWarn` while `num_warns` is above 0,
+  `ResetUserWarns` whenever a row was deleted). Raising the expiry later never brings back a warn already dropped. `GetWarnsAt` counts
+  the cached row with the expiry read through `LoadWarnSettingsContext` (which creates no row; a failed read counts with expiry off, so
+  a display never counts fewer warns on a guess); the `warns:<user>:<chat>` cache value now holds the times and the row's update time in
+  unix seconds. The old names `WarnUser`, `RemoveWarn`, `ResetUserWarns`, `GetWarns` and `GetWarnsContext` are wrappers on
+  `time.Now()` with their old signatures. `warns.SetWarnExpiryContext(ctx, chat, days)` refuses a value outside 0 to 365
+  (`ErrWarnExpiryOutOfRange`) before any write, then is one column-targeted upsert of `warn_expiry_days` (a missing row is created with
+  limit 3 and mode mute; a concurrent limit or mode write is never clobbered) and drops `warn_settings:<chat>`. Every write still drops
+  `warns:<user>:<chat>` and `warn_settings:<chat>` after its commit. Rolling deploy (accepted): a replica on the old code that appends or
+  removes a reason without a time can misalign that member's times until their next warn change.
 - `chat_settings_access` (migration 20261104120000) is the owner switch "Admins can change settings", one row per chat; a
   chat without a row means owner only. It is read only through `menuaccess.AdminsAllowedFresh`, a fresh query that is never
   cached (so no `DeleteCache` applies, and a cache added later needs `skipLocal` and a `DeleteCache` on every write), and an
@@ -3024,7 +3051,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   out is counted in `ImportReport.Skipped`. `ImportChatDataReport` returns the report and the `/import` confirmation
   adds `backup_import_skipped_entries` and `backup_import_log_skipped` to its success message
   (`TestGreetingsBackupDropsLastMessageIDs`, `TestImportNeverTakesTheLogChannel`, `TestImportSkipsInvalidListEntries`,
-  `TestBackupConfirmImportReportsWhatItLeftOut`).
+  `TestBackupConfirmImportReportsWhatItLeftOut`). The warns export (Phase 26 plan 26-06, D-37, `exportedWarns`) carries what
+  counts: with the group's warn expiry on, each member's `num_warns`, reasons and times come from `Counted(expiry, time.Now())`, a
+  member with no counted warn is left out, and the times travel only when the row stores one per warn; with expiry off every row is
+  exported as stored and without its times, so a group that sets no expiry keeps the export it had before warn times existed
+  (`TestLegacyPunishmentExport`, whose rows now store times, passes unchanged).
 - `chat_timezones` (migration 20261118120000) is one chat's choice of zone for the times the bot shows: `chat_id` primary
   key, `tz` (an IANA name such as `Europe/Kyiv`, or a fixed offset stored as `UTC+hh:mm`, `chk_chat_timezones_tz` 1..64
   characters), `updated_by`, `updated_at`. A chat without a row uses the bot-wide default (`DEFAULT_TIMEZONE`, default
@@ -5754,7 +5785,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestTimedPunishmentMigrationStatements` is its database-free half and runs in `make test`) and `TestSetWarnModeDuration`
   (`./fuku/db/warns`: the mode and its seconds stored in one upsert with the limit kept, the two-argument wrapper storing 0, a limit
   write and a mode write never clobbering each other, and each write dropping `warn_settings:<chat>`; it also runs on SQLite in
-  `make test`).
+  `make test`). The warn expiry guarantees (plan 26-06) are `TestWarnExpiryMigrationDefaults` (`./fuku/db/migrations`: the two
+  statements run twice without error, rows with only their required columns read 0 and `[]`, exactly one check, found by `conkey`, is on
+  `warn_expiry_days` and it is `chk_warns_settings_expiry`, and 366 is refused with SQLSTATE 23514 naming it while 365 is accepted;
+  PostgreSQL only, it skips locally; `TestWarnExpiryMigrationStatements` is its database-free half and runs in `make test`) and
+  `TestWarnExpiryWrites` (`./fuku/db/warns`: one time per warn, an old warn dropped at the next write with expiry on and never with it
+  off, the newest counted warn removed, the reset's answer, eight concurrent warns of one member keeping one count each, the expiry
+  upsert writing only its column and dropping the key, and the counted read after a moved clock; it also runs on SQLite in `make test`).
   The pattern is anchored with `$`, so list the real top-level test function names and add the test's package to the
   target. Add a test there when a new guarantee rests on a partial unique index, a `CHECK` or a conditional update.
 - In CI, keep the migration-chain step before `make test-rest`; its `schema_migrations` rows back the checksum test.

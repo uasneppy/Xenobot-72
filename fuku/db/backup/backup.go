@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
@@ -477,7 +478,37 @@ func exportWarnsData(chatID int64) (*WarnsBackup, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &WarnsBackup{WarnSettings: settings, Warns: rows}, nil
+	expiryDays := 0
+	if settings != nil {
+		expiryDays = settings.ExpiryDays
+	}
+	return &WarnsBackup{WarnSettings: settings, Warns: exportedWarns(rows, expiryDays, time.Now())}, nil
+}
+
+// exportedWarns is what the warns export carries of the members' rows. With expiry off every row
+// is exported as stored, without its times: they decide nothing while every warn counts, and a group
+// that sets no expiry keeps the export it had before warn times existed. With expiry on each row
+// carries only what counts (Counted with the group's expiry and the current time), so the group that
+// imports it counts what the source counted; a member with no counted warn is left out, and the times
+// travel only when the row stores one per warn (otherwise the importer dates the warns itself).
+func exportedWarns(rows []models.Warns, expiryDays int, now time.Time) []models.Warns {
+	out := make([]models.Warns, 0, len(rows))
+	for _, row := range rows {
+		complete := len(row.WarnTimes) == row.NumWarns
+		row.WarnTimes = nil
+		if expiryDays > 0 {
+			count, reasons, times := row.Counted(expiryDays, now)
+			if count == 0 {
+				continue
+			}
+			row.NumWarns, row.Reasons = count, models.StringArray(reasons)
+			if complete {
+				row.WarnTimes = models.Int64Array(times)
+			}
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 func exportFederationsData(chatID int64) (*FederationsBackup, error) {
