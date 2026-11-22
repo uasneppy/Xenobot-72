@@ -49,8 +49,8 @@ func TestSettingsWarnsCallbackBytes(t *testing.T) {
 					if screen.Omitted != 0 {
 						t.Errorf("%s omitted %d buttons for overflow, want none", name, screen.Omitted)
 					}
-					if widths := settingsWarnsWidths(screen.Keyboard.InlineKeyboard); fmt.Sprint(widths) != "[5 3 2]" {
-						t.Errorf("%s keyboard widths = %v, want [5 3 2]", name, widths)
+					if widths := settingsWarnsWidths(screen.Keyboard.InlineKeyboard); fmt.Sprint(widths) != "[5 3 2 2]" {
+						t.Errorf("%s keyboard widths = %v, want [5 3 2 2]", name, widths)
 					}
 					for _, button := range settingsAllButtons(screen.Keyboard.InlineKeyboard) {
 						n := len(button.CallbackData)
@@ -96,8 +96,8 @@ func TestSettingsWarnsPageFitsEveryLocale(t *testing.T) {
 							if units := panelUTF16Len(screen.Text); units > 3800 || units == 0 {
 								t.Errorf("%s is %d UTF-16 units, want 1..3800", label, units)
 							}
-							if widths := settingsWarnsWidths(screen.Keyboard.InlineKeyboard); fmt.Sprint(widths) != "[5 3 2]" {
-								t.Errorf("%s keyboard widths = %v, want [5 3 2]", label, widths)
+							if widths := settingsWarnsWidths(screen.Keyboard.InlineKeyboard); fmt.Sprint(widths) != "[5 3 2 2]" {
+								t.Errorf("%s keyboard widths = %v, want [5 3 2 2]", label, widths)
 							}
 							if screen.Omitted != 0 {
 								t.Errorf("%s omitted %d buttons", label, screen.Omitted)

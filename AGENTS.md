@@ -1164,11 +1164,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`warns.LoadWarnSettingsContext`, the key `/setwarnlimit`, `/setwarnmode` and `/warnings` and the warn module read: no row
   means limit 3 and mode `mute`, nothing is created or cached for it, and a failed read is the cannot-open edit and the
   unknown mark on Main). Main's state is `settings_state_warns` (`Limit {n}, {action}`, the action's word through
-  `settingsWarnsActionWord`: the Antiflood words of `settingsFloodActionWord`, the stored text escaped for a value outside
-  them, `settings_state_not_set` for an empty mode). The body is the limit line (`settings_warns_limit`), the action line
-  (`settings_warns_action`), the inert line while the stored action is not one the bot acts on, a blank line and the hint
-  (`settings_warns_hint`); the keyboard is the stepper, the choice row `[Mute | Ban | Kick]` and Back and Close, widths 5, 3
-  and 2 in a group menu and in a private one, the largest button 48 bytes (private) and 44 (group). There are two controls,
+  `settingsWarnsActionWord(tr, mode, secs)`: the timed word `settingsTimedWord` (`settings_opt_timed`, "Timed mute, 1 hour(s)")
+  for an effective timed mode (`autoActionEffective`), else the Antiflood words of `settingsFloodActionWord`, the stored text
+  escaped for a value outside them, `settings_state_not_set` for an empty mode). The body is the limit line
+  (`settings_warns_limit`), the action line (`settings_warns_action`), the inert line while `autoActionEffective(mode, secs)` is
+  false, a blank line and the hint (`settings_warns_hint`); the keyboard is the stepper, the choice row `[Mute | Ban | Kick]`,
+  the timed row `[Timed mute | Timed ban]` (Phase 26, plan 26-03, `settings_opt_tmute` and `settings_opt_tban`) and Back and
+  Close, widths 5, 3, 2 and 2 in a group menu and in a private one, the largest button 48 bytes (private) and 44 (group). A
+  mode `/setwarnmode` accepts without a duration is marked in the choice row and an effective timed mode in the timed row (the
+  choice row then marks nothing). There are two controls,
   both `st` only (`Actions`, so a `tg` is an invalid request before any I/O) and both with right `settingsRightAdminFloodBot`
   (the right `/setflood` uses, because `/setwarnlimit`'s and `/setwarnmode`'s `IsUserConnected(true, true)` ask for an admin
   and for the bot as an administrator; the cached `RequireUserAdmin` of the commands is replaced by the live check every
@@ -1179,12 +1183,26 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `applyWarnLimit`, the function `/setwarnlimit` calls. `m` is the action (`settingsWarnsModeKey`): `v` one to ten
   lower-case ASCII letters (`settingsFloodModeWord`, the Antiflood shape, so a long, upper-case or non-letter word is an
   invalid request before any I/O) and the write goes through `applyWarnMode`, the function `/setwarnmode` calls, with
-  seconds 0 (the page has no duration until plan 26-03), so it accepts exactly `warnSettingsModes` (ban, kick, mute): any
+  seconds 0 (a plain mode stores 0, so Mute, Ban or Kick clears a stored duration), so it accepts exactly
+  `warnSettingsModes` (ban, kick, mute): any
   other lower-case word, `tban`, `tmute` (a timed mode with no duration is the unknown outcome) and `warn` included, is refused
   with the command's own `warns_mode_unknown` (the word escaped, because the locale text is the command's printf template and
-  the page is HTML) as a warn notice over the stored state, and writes nothing. A stored `tban` or `tmute` with no duration
-  (`warn_mode_secs` 0) or an empty action (the table's CHECK allows them) applies nothing at the limit, so the page draws the stored word or Not set, adds
-  `settings_warns_action_inert` and marks no choice; a press of Mute, Ban or Kick replaces it. The Antiflood note
+  the page is HTML) as a warn notice over the stored state, and writes nothing. The timed row sets a timed mode (D-20): its
+  two cells press the page action `nd` (field `k`, `m` for the timed mute and `b` for the timed ban, checked in step 1 by
+  `settingsWarnsDurationFields`; right `settingsRightAdmin`, so it opens with the live admin check alone and writes nothing),
+  which draws the shared duration screen (`renderSettingsDuration`) with Timed mute's or Timed ban's intro, the stored preset
+  marked only while that timed mode is stored and effective, and Back to the Warnings page (`a=op&p=n`). Each preset presses
+  `nt` (fields exactly `k` and `v`, `v` a preset's canonical decimal seconds by `settingsDurationPreset`, so a forged mode,
+  duration or extra field is an invalid request in step 1 before any lookup; right `settingsRightAdminFloodBot`, the right of
+  `/setwarnmode`), whose Run stores the timed mode with the preset's seconds through `applyWarnMode(ctx, p.group.Id, mode,
+  secs)` and redraws the Warnings page from the read-back (its action line confirms the choice; a press of the stored preset
+  writes the same row again and shows no notice; `warnSettingsBadDuration`, unreachable from a valid press, is a warn notice).
+  A duration a command stored that is no preset (`/setwarnmode tmute 90m`) is drawn on the action line by its label and marks no
+  preset. A refusal the framework answers with a notice (the bot is not an administrator) redraws through the page's `Open`,
+  the Warnings page. The duration screen is 47 bytes at its largest (the 30-day preset, private) and 43 in a group menu. A
+  stored `tban` or `tmute` with no duration (`warn_mode_secs` 0) or an empty action (the table's CHECK allows them) applies
+  nothing at the limit, so the page draws the stored word or Not set, adds `settings_warns_action_inert` and marks no choice; a
+  press of Mute, Ban, Kick or a timed preset replaces it. The Antiflood note
   `settings_antiflood_action_note` is not reused, because "cannot be set from the menu" would be false here. Neither write
   changes the other value the page shows: a first limit write stores mode `mute` and a first action write stores limit 3 (the
   repository's upserts). Every press redraws from the row the apply function read back (a refusal or a failed save,
@@ -1196,7 +1214,22 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestSettingsParityWarnLimit`, `TestSettingsParityWarnMode`, `TestSettingsWarnsInertAction`, `TestSettingsWarnsBounds`,
   `TestSettingsWarnsForged`, `TestSettingsDriftWarns`, `TestSettingsAuthorityParityWarns`, `TestSettingsWarnsCallbackBytes`,
   `TestSettingsWarnsPageFitsEveryLocale` and `TestSettingsWarnsReadsCreateNothing` hold it (`settings_warns_test.go`,
-  `settings_warns_screens_test.go`).
+  `settings_warns_screens_test.go`), with the timed row's `TestSettingsWarnsTimed`, `TestSettingsParityWarnTimed`,
+  `TestSettingsDriftWarnTimed`, `TestSettingsAuthorityParityWarnTimed` and `TestSettingsWarnsTimedForged`
+  (`settings_warns_timed_test.go`).
+- The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
+  its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
+  P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
+  (the page header, `settings_duration_intro_tmute` or `_tban`, `settings_duration_hint`, which says any other duration from 1
+  minute to 366 days is set by command, each cell `punishDurationLabel` in the view's language with `settingsSelectedPrefix` on
+  the selected preset and none for a value that is no preset, then Back with the caller's fields and Close, rows `[2 2 2 2 2]`).
+  `settingsDurationPreset(v)` accepts exactly a preset's canonical decimal (no sign, space, leading zero or unit), the step-1
+  check of every press of a preset. `settingsTimedWord(tr, action, secs)` is the one word of an effective timed action on every
+  page (`settings_opt_timed`, `{action}, {duration}`, with the `settings_opt_tmute` or `_tban` word); its `ok` is false for
+  anything else, so a caller keeps its own word for an untimed or inert action. The Warnings page is its first user (plan
+  26-03); the Antiflood page, the Blacklist action screen and the escalation ladder reuse it. `TestSettingsDurationScreen` holds
+  the parser, the shape and the mark, the timed word and the fit in 8 languages (cells at most 20 code points with the mark,
+  3800 UTF-16 units with a 64-rune title, the largest button 47 bytes private and 43 group).
 - The Switches page (`settings_switches.go`, page `t`, `Order` 86, icon 🔘, `settings_page_switches`, between Deletion and Access,
   Phase 18, plan 18-06) registers from its own file through `registerSettingsPage`, with no `Hidden`, so a Staff Group's own
   menu shows it too. It has three full-width toggles, each `tg` only (`Actions`, so an `st` is an invalid request before any
@@ -2053,7 +2086,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settingsRightAdmin` needs only the live admin check every press already makes (`/captchamode`, `/captchatime`,
   `/captchaaction`, the editor's Welcome and Goodbye switches and Greet once). `settingsRightAdminBotAdmin` also needs `chat_status.IsBotAdmin` and refuses with the notice
   `chat_status_bot_not_admin` (`/captcha`). `settingsRightAdminFloodBot` also needs `chat_status.IsUserAdmin(b, chat, b.Id)`
-  and refuses with the notice `connections_is_user_connected_bot_not_admin` (`/setflood`, `/setfloodmode`, `/delflood`).
+  and refuses with the notice `connections_is_user_connected_bot_not_admin` (`/setflood`, `/setfloodmode`, `/delflood`; also the
+  Warnings page's controls and its timed preset press `nt`, as `/setwarnlimit` and `/setwarnmode`, while the duration screen's
+  `nd` needs only `settingsRightAdmin`).
   `settingsRightRestrict` needs the creator or an administrator with `can_restrict_members` from the same member record
   (`staffIssuerSkipReason`) and refuses with the alert `settings_no_restrict` (lockdown lift and triggers). The user check
   is live, so it is stricter than the commands' cached one; the bot check uses the commands' own predicate, never a live
@@ -6487,7 +6522,16 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `goldenTimedWarnLimitInertTmute`), `too_close` (`applyTimedPunishment` with an end 34 s ahead sends nothing and logs one Warn naming
   the chat) and `mreq_timed_limit` (a requirement warn reaching `tmute 1h` restricts with the end date and posts the mute
   warn-limit notice; `tban` is a removal)). Toolkit: `warnTimedSite`, `warnTimedOnly`, `warnTimedLimitText`, `warnTimedLastText`,
-  `warnTimedStored`. `TestEventActionWords` holds `tmute` and `tban` to the mute and ban words.
+  `warnTimedStored`. `TestEventActionWords` holds `tmute` and `tban` to the mute and ban words. Plan 26-03's families are
+  `TestSettingsDurationScreen` (`settings_duration_test.go`, pure over the real locales) and the Warnings page's timed row
+  (`settings_warns_timed_test.go`, on the settings environment with the marker locale): `TestSettingsWarnsTimed` (Timed mute,
+  the duration screen, the 1 hour preset stored as `tmute` 3600 with the timed word on the page and on Main and Timed mute marked,
+  the stored preset again, Ban replacing it, the real English words and the timed states in 8 languages),
+  `TestSettingsParityWarnTimed` (`nt` against `/setwarnmode tmute 6h` and `tban 1d`, the same row and cache),
+  `TestSettingsDriftWarnTimed` (`/setwarnmode tmute 90m` drawn with no preset marked; a page `tban` 6 h applied by `applyWarn` at
+  the limit with `until_date` now plus 21600, `punishNow` fixed), `TestSettingsAuthorityParityWarnTimed` and
+  `TestSettingsWarnsTimedForged` (eleven forged `nt` and `nd` presses refused in step 1 with no lookup). The earlier Warnings tests
+  took the timed row as a width edit only (`[5 3 2]` to `[5 3 2 2]`, the navigation row's index 2 to 3).
 
 ## Commits
 

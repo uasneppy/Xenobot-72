@@ -111,6 +111,7 @@ func TestSettingsDurationScreen(t *testing.T) {
 			notice := settingsNoticeWarn(settingsText(tr, "connections_is_user_connected_bot_not_admin"))
 			for _, variant := range settingsWarnsViews(tr, title) {
 				back := map[string]string{"a": settingsActOpen, "p": settingsPageWarns}
+				largest := 0
 				for _, action := range []string{"tmute", "tban"} {
 					label := fmt.Sprintf("%s %s %s", code, variant.name, action)
 					screen := renderSettingsDuration(variant.view, "settings_page_warns", action, 2592000,
@@ -128,7 +129,12 @@ func TestSettingsDurationScreen(t *testing.T) {
 						if n := len(button.CallbackData); n < 1 || n > 64 {
 							t.Errorf("%s button %q has %d bytes of callback data, want 1..64", label, button.Text, n)
 						}
+						largest = max(largest, len(button.CallbackData))
 					}
+				}
+				// The largest button is the 30-day preset: 47 bytes in a private menu, 43 in a group menu.
+				if want := map[bool]int{true: 47, false: 43}[variant.view.Private]; largest != want {
+					t.Errorf("%s %s: the largest button is %d bytes, want %d", code, variant.name, largest, want)
 				}
 			}
 			for _, secs := range settingsDurationPresets {

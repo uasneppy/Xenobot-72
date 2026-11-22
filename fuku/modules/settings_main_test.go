@@ -404,8 +404,17 @@ func settingsMainWorstState(tr *i18n.Translator) string {
 	}
 	for _, mode := range settingsWarnsStoredModes {
 		candidates = append(candidates, settingsText(tr, "settings_state_warns", i18n.TranslationParams{
-			"n": settingsWarnsMaxLimit, "action": settingsWarnsActionWord(tr, mode),
+			"n": settingsWarnsMaxLimit, "action": settingsWarnsActionWord(tr, mode, 0),
 		}))
+	}
+	// Phase 26: a timed warn limit's word at the largest limit, for every preset and the longest duration a
+	// command can store.
+	for _, mode := range []string{"tmute", "tban"} {
+		for _, secs := range append(slices.Clone(settingsDurationPresets), punishMaxSecs, 5400) {
+			candidates = append(candidates, settingsText(tr, "settings_state_warns", i18n.TranslationParams{
+				"n": settingsWarnsMaxLimit, "action": settingsWarnsActionWord(tr, mode, secs),
+			}))
+		}
 	}
 	// The Language line is the stored language by its own name and flag: the longest of the eight.
 	for _, code := range groupLanguageCodes {
