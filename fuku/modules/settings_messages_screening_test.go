@@ -311,3 +311,98 @@ func TestSettingsEditReservedText(t *testing.T) {
 		}
 	}
 }
+
+// TestSettingsAuthorityMessagesScreening holds the rights of the Phase 24 events (plan 24-07, D-32, MSG-08) in one
+// environment: a typist demoted between Set on the failed captcha's text and the typed message stores nothing, and an
+// administrator without can_change_info opens the Member requirements list, the requirement mute's screen and its Full
+// preview and the AI spam screen, while Set (in both forms), Silent or the AI spam notice's Notice switch, the private copy
+// switch of the six events and Remove of a stored requirement kick text and a stored captcha private text are each the
+// settings_no_change_info alert with no edit, no wait and no row written. The requirement mute has no Silent switch, so
+// its hq is the invalid request of step 1 (TestSettingsMessagesForged), not a rights refusal.
+func TestSettingsAuthorityMessagesScreening(t *testing.T) {
+	env := newSettingsMsgEnv(t)
+	admin := env.admin
+
+	listEditAdmin(env.settingsEnv, env.chat, admin, true)
+	settingsMsgSetWait(t, env, admin, "cf", settingsEditPartText)
+	listEditAdmin(env.settingsEnv, env.chat, admin, false)
+	before := settingsEditSentCount(env.settingsEnv, admin)
+	sendPrivateMessage(env.settingsEnv, admin, gotgbot.Message{Text: "Typed after the demotion {mention}"})
+	settingsEditWantReply(t, env.settingsEnv, admin, before, "settings_no_change_info", "settings_edit_wait_stopped")
+	settingsEditWaitGone(t, env.settingsEnv, admin)
+	if row, ok := settingsMsgStored(t, env.chat.Id, eventmsg.EventCaptcha); ok {
+		t.Errorf("the typed text of a demoted typist was stored: %+v", row)
+	}
+
+	// Viewing and previewing need no can_change_info.
+	m := settingsMsgPrivateMenu(env, env.chat, admin)
+	for _, view := range []struct {
+		kv  []string
+		key string
+	}{
+		{[]string{"a", settingsActMsgFamily, "t", "r"}, "settings_msg_fam_mreq_intro"},
+		{[]string{"a", settingsActMsgEvent, settingsMsgEventField, "rm"}, "settings_msg_ev_mreqmute"},
+		{[]string{"a", settingsActMsgEvent, settingsMsgEventField, "ai"}, "settings_msg_ev_aispam"},
+	} {
+		if text, _ := m.press(view.kv...); !containsMarker(text, view.key) {
+			t.Errorf("%v did not open for an administrator without can_change_info: %q", view.kv, text)
+		}
+	}
+	sent := len(env.fake.sentTo(admin.Id))
+	m.press("a", settingsActMsgFull, settingsMsgEventField, "rm")
+	if got := len(env.fake.sentTo(admin.Id)) - sent; got < 2 {
+		t.Errorf("the requirement mute's Full preview sent %d messages to an administrator without can_change_info, want the header and the message", got)
+	}
+
+	// Every change is refused: the stored requirement kick text and captcha private text give Remove something to remove.
+	settingsMsgSeed(t, env.chat.Id, eventmsg.EventReqKick, "Stored requirement kick text", false)
+	settingsMsgSeedPM(t, env.chat.Id, eventmsg.EventCaptcha, "Stored captcha copy", false)
+	rows := settingsMsgAllRows(t, env.chat.Id)
+	pm := []string{settingsMsgDestField, settingsMsgDestPMCode}
+	presses := [][]string{
+		{"a", settingsActMsgRemove, "t", settingsEditPartText, settingsMsgEventField, "rk"},
+		append([]string{"a", settingsActMsgRemove, "t", settingsEditPartText, settingsMsgEventField, "cf"}, pm...),
+	}
+	events := append(append([]settingsMsgEvent{}, settingsMsgAutoEvents[len(settingsMsgAutoEvents)-2:]...), settingsMsgReqEvents...)
+	if codes := events[0].Code + events[1].Code; codes != "cfai" {
+		t.Fatalf("the Automatic family's last two events are %q, want the failed captcha and the AI spam notice", codes)
+	}
+	for _, ev := range events {
+		presses = append(presses,
+			[]string{"a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, ev.Code},
+			append([]string{"a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, ev.Code}, pm...),
+			[]string{"a", settingsActMsgPM, settingsMsgEventField, ev.Code, "v", "1"},
+		)
+		switch {
+		case ev.NoSilent:
+		case eventmsg.OffByDefault(ev.Key):
+			// The Notice switch: v=0 turns the notice on.
+			presses = append(presses, []string{"a", settingsActMsgSilent, settingsMsgEventField, ev.Code, "v", "0"})
+		default:
+			presses = append(presses, []string{"a", settingsActMsgSilent, settingsMsgEventField, ev.Code, "v", "1"})
+		}
+	}
+	for _, kv := range presses {
+		msgID := env.updateID()
+		env.pressPrivate(admin, msgID, env.privateFields(env.chat.Id, kv...))
+		if answer, alert := env.lastAnswer(); !alert || !containsMarker(answer, "settings_no_change_info") {
+			t.Errorf("%v answered %q (alert %v), want the settings_no_change_info alert", kv, answer, alert)
+		}
+		if got := len(env.edits(admin.Id, msgID)); got != 0 {
+			t.Errorf("the refused %v made %d edits, want none", kv, got)
+		}
+		if env.redis.Exists(settingsInputKey(admin.Id)) {
+			t.Errorf("the refused %v left a wait", kv)
+		}
+	}
+	after := settingsMsgAllRows(t, env.chat.Id)
+	if len(after) != len(rows) {
+		t.Errorf("the refused presses changed the rows from %d to %d", len(rows), len(after))
+	}
+	for key, row := range rows {
+		got, ok := after[key]
+		if !ok || got.Text != row.Text || got.Silent != row.Silent || !got.UpdatedAt.Equal(row.UpdatedAt) {
+			t.Errorf("the refused presses changed the %s row from %+v to %+v", key, row, got)
+		}
+	}
+}

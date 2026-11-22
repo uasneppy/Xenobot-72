@@ -62,6 +62,34 @@ var settingsMsgValidPresses = map[string][]string{
 	settingsActMsgPM + " fl":          {"a", settingsActMsgPM, settingsMsgEventField, "fl", "v", "1"},
 	settingsActMsgPM + " bl":          {"a", settingsActMsgPM, settingsMsgEventField, "bl", "v", "1"},
 	settingsActMsgPM + " fb":          {"a", settingsActMsgPM, settingsMsgEventField, "fb", "v", "0"},
+	// Phase 24: the Member requirements family's list, the failed captcha's screen, the requirement mute's private copy
+	// screen, the AI spam notice's Notice switch (the same hq, v=0 turns it on), a requirement event's Set of its text,
+	// the requirement ban's private copy switch and the failed captcha's Full preview.
+	settingsActMsgFamily + " r":     {"a", settingsActMsgFamily, "t", "r"},
+	settingsActMsgEvent + " cf":     {"a", settingsActMsgEvent, settingsMsgEventField, "cf"},
+	settingsActMsgEvent + " rm d=p": {"a", settingsActMsgEvent, settingsMsgEventField, "rm", settingsMsgDestField, settingsMsgDestPMCode},
+	settingsActMsgSilent + " ai":    {"a", settingsActMsgSilent, settingsMsgEventField, "ai", "v", "0"},
+	settingsActMsgSet + " rw":       {"a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, "rw"},
+	settingsActMsgPM + " rb":        {"a", settingsActMsgPM, settingsMsgEventField, "rb", "v", "1"},
+	settingsActMsgFull + " cf":      {"a", settingsActMsgFull, settingsMsgEventField, "cf"},
+}
+
+// settingsMsgScreeningForged are the forged presses of the Phase 24 events that the generated forms of
+// settingsMsgForgedPresses do not already make (D-29, D-32): the Member requirements list and the failed captcha's screen
+// from a group menu, a destination other than p on the requirement mute, a media part on a requirement event and on its
+// private copy (the family has text and buttons only), a Silent press on the requirement mute (it cannot be silenced), a
+// Notice target of 2 on the AI spam notice, a private copy switch whose target is not a digit and a Full preview with an
+// extra key.
+var settingsMsgScreeningForged = []settingsMsgForgedPress{
+	{name: "hl of r from a group menu", group: true, kv: []string{"a", settingsActMsgFamily, "t", "r"}},
+	{name: "he of cf from a group menu", group: true, kv: []string{"a", settingsActMsgEvent, settingsMsgEventField, "cf"}},
+	{name: "he of rm with d=x", kv: []string{"a", settingsActMsgEvent, settingsMsgEventField, "rm", settingsMsgDestField, "x"}},
+	{name: "hs of rw with the media part", kv: []string{"a", settingsActMsgSet, "t", settingsEditPartMedia, settingsMsgEventField, "rw"}},
+	{name: "hv of rk with the media part and d=p", kv: []string{"a", settingsActMsgPreview, "t", settingsEditPartMedia, settingsMsgEventField, "rk", settingsMsgDestField, settingsMsgDestPMCode}},
+	{name: "hq of rm with v=1", kv: []string{"a", settingsActMsgSilent, settingsMsgEventField, "rm", "v", "1"}},
+	{name: "hq of ai with v=2", kv: []string{"a", settingsActMsgSilent, settingsMsgEventField, "ai", "v", "2"}},
+	{name: "hp of rb with v=x", kv: []string{"a", settingsActMsgPM, settingsMsgEventField, "rb", "v", "x"}},
+	{name: "hf of cf with an extra key", kv: []string{"a", settingsActMsgFull, settingsMsgEventField, "cf", "x", "1"}},
 }
 
 // settingsMsgAutoForged are the forged presses of the Automatic family that the generated forms of settingsMsgForgedPresses
@@ -100,7 +128,7 @@ func settingsMsgWith(kv []string, key, value string) []string {
 // place of c, an unknown event (or family for hl, option for ho), an unknown part for the part actions, a target other than 0
 // or 1 for the switches, an extra field and, for the d=p forms, a destination other than p (Phase 22, D-26).
 func settingsMsgForgedPresses() []settingsMsgForgedPress {
-	forged := append([]settingsMsgForgedPress{}, settingsMsgAutoForged...)
+	forged := append(append([]settingsMsgForgedPress{}, settingsMsgAutoForged...), settingsMsgScreeningForged...)
 	for name, kv := range settingsMsgValidPresses {
 		code := kv[1]
 		forged = append(forged,
@@ -252,6 +280,12 @@ func TestSettingsMessagesReadsCreateNothing(t *testing.T) {
 				open("a", settingsActMsgFamily, "t", "a")
 				open("a", settingsActMsgEvent, settingsMsgEventField, "fb")
 				open("a", settingsActMsgEvent, settingsMsgEventField, "fb", settingsMsgDestField, settingsMsgDestPMCode)
+				// Phase 24: the Member requirements list, the AI spam screen, the requirement mute's screen and its
+				// private copy screen.
+				open("a", settingsActMsgFamily, "t", "r")
+				open("a", settingsActMsgEvent, settingsMsgEventField, "ai")
+				open("a", settingsActMsgEvent, settingsMsgEventField, "rm")
+				open("a", settingsActMsgEvent, settingsMsgEventField, "rm", settingsMsgDestField, settingsMsgDestPMCode)
 				if text, _ := env.lastEdit(env.admin.Id, msgID); !containsMarker(text, "settings_msg_pm_intro") {
 					t.Errorf("the run's last edit is %q, want the last event's private copy screen", text)
 				}
@@ -341,6 +375,12 @@ func TestSettingsMessagesCost(t *testing.T) {
 		"the Automatic list":               {"a", settingsActMsgFamily, "t", "a"},
 		"an automatic event screen":        {"a", settingsActMsgEvent, settingsMsgEventField, "fb"},
 		"an automatic private copy screen": {"a", settingsActMsgEvent, settingsMsgEventField, "fb", settingsMsgDestField, settingsMsgDestPMCode},
+		// Phase 24: the Member requirements list, the requirement mute's screen and its private copy screen, and the AI
+		// spam screen with its Notice switch.
+		"the Member requirements list":      {"a", settingsActMsgFamily, "t", "r"},
+		"a requirement event screen":        {"a", settingsActMsgEvent, settingsMsgEventField, "rm"},
+		"a requirement private copy screen": {"a", settingsActMsgEvent, settingsMsgEventField, "rm", settingsMsgDestField, settingsMsgDestPMCode},
+		"the AI spam screen":                {"a", settingsActMsgEvent, settingsMsgEventField, "ai"},
 	}
 	pipeline := map[string]int{"getChatMember": 1, "getChat": 1, "editMessageText": 1, "answerCallbackQuery": 1}
 

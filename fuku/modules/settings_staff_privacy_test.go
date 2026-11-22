@@ -708,6 +708,13 @@ func TestSettingsStaffPrivacy(t *testing.T) {
 		settingsPrivacyPhase23Run(t)
 	})
 
+	// Phase 24: the same administrator drives the screening events: the Member requirements list, the requirement mute's
+	// event and private copy screens, the AI spam screen and its Notice switch, a typed requirement warn text and a Full
+	// preview of the failed captcha.
+	t.Run("a private Phase 24 run by an admin who is not the creator never names the Staff Group", func(t *testing.T) {
+		settingsPrivacyPhase24Run(t)
+	})
+
 	t.Run("a group menu run never names a Staff Group", func(t *testing.T) {
 		env := newSettingsEnv(t)
 		titles := []string{"ZZ Zero & <Ö>", "ZZ One & <Ö>", "ZZ Two & <Ö>"}
@@ -1848,4 +1855,37 @@ func settingsPrivacyPhase23Run(t *testing.T) {
 	}
 	settingsPrivacyMsgRunClean(t, env, moderator, m.msgID, staffChat, "Phase 23",
 		"settings_msg_fam_auto_intro", "settings_msg_pm_intro", "settings_msg_ev_fwdblock", "settings_msg_preview_header", "settings_edit_saved_text")
+}
+
+// settingsPrivacyPhase24Run is the Phase 24 run of an administrator who is not the creator (with can_change_info) in the
+// private menu of a group linked to a Staff Group: the Member requirements list, the requirement mute's event screen and
+// its private copy screen, the AI spam screen and its Notice switch, a typed requirement warn text and a Full preview of
+// the failed captcha. Nothing the bot produced for them names the Staff Group.
+func settingsPrivacyPhase24Run(t *testing.T) {
+	t.Helper()
+	env := newSettingsMsgEnv(t)
+	settingsEditFakeSends(env.settingsEnv)
+	staffChat := settingsStaffTestOwnedStaffGroup(env.settingsEnv, settingsStaffPrivacyTitle)
+	linkLockdownGroupTo(env.lockdownEnv, staffChat)
+	moderator := settingsPrivacyMsgModerator(t, env)
+
+	m := settingsMsgPrivateMenu(env, env.chat, moderator)
+	m.press("a", settingsActMsgFamily, "t", "r")
+	m.press("a", settingsActMsgEvent, settingsMsgEventField, "rm")
+	m.press("a", settingsActMsgEvent, settingsMsgEventField, "rm", settingsMsgDestField, settingsMsgDestPMCode)
+	m.press("a", settingsActMsgEvent, settingsMsgEventField, "ai")
+	m.press("a", settingsActMsgSilent, settingsMsgEventField, "ai", "v", "0")
+	m.press("a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, "rw")
+	sendPrivateMessage(env.settingsEnv, moderator, gotgbot.Message{Text: "{mention}: {action} {count}/{limit}, {reason} in {chatname}"})
+	m.press("a", settingsActMsgFull, settingsMsgEventField, "cf")
+
+	if row, ok := settingsMsgStored(t, env.chat.Id, eventmsg.EventReqWarn); !ok || row.Text == "" {
+		t.Errorf("the run left the requirement warn's message %+v (row %v), want the typed text", row, ok)
+	}
+	if row, ok := settingsMsgStored(t, env.chat.Id, eventmsg.EventAISpam); !ok || row.Silent {
+		t.Errorf("the run left the AI spam notice %+v (row %v), want it on", row, ok)
+	}
+	settingsPrivacyMsgRunClean(t, env, moderator, m.msgID, staffChat, "Phase 24",
+		"settings_msg_fam_mreq_intro", "settings_msg_ev_mreqmute", "settings_msg_pm_intro", "settings_msg_line_notice",
+		"settings_msg_preview_header", "settings_edit_saved_text")
 }

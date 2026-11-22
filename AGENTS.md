@@ -6080,6 +6080,21 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   with no keyboard; the captcha's default Full preview with the kick word and 2 removed messages; nothing sent to the group).
   `TestSettingsEditReservedText` (same file, pure) holds the reserve: a requirement text of 3496 units is accepted, 3497 refused with
   `settings_edit_refuse_too_long_filled` naming 3496, the prompt reads 3496, and the warn and the requirement mute's private copy keep 4096.
+  The page's safeguards over the Phase 24 events (plan 24-07): `settingsMsgValidPresses` holds a valid press of the Member requirements
+  list (`hl&t=r`), the failed captcha's screen and Full preview, the requirement mute's private copy screen, the AI spam notice's Notice
+  switch (`hq&k=ai&v=0`), a requirement Set and the requirement ban's private copy switch, and `settingsMsgScreeningForged` the forms the
+  generated ones do not make (the list and the captcha screen from a group menu, `he&k=rm&d=x`, a media part on `rw` and on `rk`'s private
+  copy, `hq&k=rm&v=1`, `hq&k=ai&v=2`, `hp&k=rb&v=x`, `hf&k=cf` with an extra key), so `TestSettingsMessagesForged` refuses every one in
+  step 1 with no member lookup; `TestSettingsMessagesReadsCreateNothing` and `TestSettingsMessagesCost` also open the Member requirements
+  list, the `rm` screen and its private copy screen and the `ai` screen. `TestSettingsAuthorityMessagesScreening`
+  (`settings_messages_screening_test.go`, one environment, about 0.05 s): a typist demoted between Set on the captcha's text and the typed
+  message stores nothing; without `can_change_info` the Member requirements list, the `rm` screen and its Full preview and the `ai` screen
+  open, while Set (both forms), Silent (or the AI spam notice's Notice switch, `v=0`), the private copy switch of the six events, Remove of
+  a stored requirement kick text and of a stored captcha private text are each the `settings_no_change_info` alert with no edit, no wait
+  and every row unchanged. `TestSettingsStaffPrivacy` gains `settingsPrivacyPhase24Run` (the Member requirements list, the `rm` event and
+  private copy screens, the `ai` screen and its Notice press, a typed `rw` text and a Full preview of `cf` by an administrator who is not the
+  creator, through `settingsPrivacyMsgRunClean`). The page catalog `settingsMsgScreens` already draws every screen of the three families
+  (the `ai` screen with its notice on and off, the requirement screens empty and full) for the byte and length tests.
 
 ## Commits
 
