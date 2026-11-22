@@ -3794,20 +3794,35 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   largest unit that divides the seconds evenly, `2 год`) and `{until}` (the end date the request was sent with, through the
   engine's `formatChatTime` in the chat's zone), and `{action}` reads the mute or ban word (`eventActionWords` maps `tmute`
   and `tban` to the mute and ban keys, which a site asks for only for an effective timed action). Every other automatic
-  event and every untimed action leaves `{duration}` and `{until}` empty, as before (D-16). The message keeps its deletion
+  event but the flood's timed punishment (below) and every untimed action leaves `{duration}` and `{until}` empty, as before (D-16). The message keeps its deletion
   kind (`bot:punish_manual` for `/warn`, `bot:punish_auto` for a rule's warn, D-04). `{action}` is a translated word in the group's language,
   `eventActionWord(tr, action)` (`event_message_auto.go`): `eventmsg_action_warn`, `_mute`, `_kick` and `_ban`, short
   participles that read after the member's name or after a label (`tmute` and `tban` read the mute and ban words since
   Phase 26), and the empty string for any other action (an inert mode); the warn fills it with the warn word. The flood's `{reason}` is `floodEventReason(tr)`
   (`eventmsg_reason_flood`). The flood (plan 23-04, the `flood` event, EVT-03) is the next site: `checkFlood` keeps its
-  exemptions, deletes and punishment switch and hands the notice to `floodNotice` (`antiflood.go`), whose site has no
+  exemptions and deletes, applies the punishment through `floodPunish` and hands the notice to `floodNotice` (`antiflood.go`), whose site has no
   reply, the flooding message's topic (`ThreadID` and the default's `MessageThreadId`), `bot:punish_auto`, `Automatic`,
   no actor ("an admin") and the default through `helpers.SendMessageWithErrorHandling` (its restricted-chat skip
   included); the target is `eventSenderTarget` of the sender (a user's names, or a sender chat's ID and title), the
   default `floodDefaultReply` with the switch's rows, the values the flood reason, the burst's message count, the flood
   limit and the action word, and `KeepRows` nil, so a custom flood message keeps the Unmute or Unban row first (D-15).
-  Only a mute, a kick or a ban is the event; a stored inert action (`warn`, `tban`, `tmute`) applies nothing and keeps
-  today's notice through `sendDefaultPost` (D-10). `checkFlood` logs a send error and returns it as before. The blacklist
+  Only a mute, a kick, a ban or an applied timed mute or ban is the event; a stored inert action (`warn`, or `tban` or `tmute`
+  with no duration) applies nothing and keeps today's notice through `sendDefaultPost` (D-10). `checkFlood` logs a send error
+  and returns it as before. Since Phase 26 (plan 26-04, TUNE-01) the flood can be timed: `checkFlood` builds
+  `autoPunishment{Action, Secs}` from the stored row (`antiflood_settings.action_secs`), checks the bot's restrict right for
+  every action `autoActionEffective` accepts (mute, kick, ban and a timed action with a duration; warn and an inert timed
+  action need none, as before) and calls `floodPunish(b, chat, tr, user, p)`, the one place the flood's action is decided
+  (plan 26-09 adds the escalation ladder there). Its mute, kick and ban branches are the old switch moved unchanged (the same
+  requests, the Unmute row of a mute, the Unban row and `banChatSenderChat` of a banned sender chat, nothing and no notice for
+  a sender chat under mute or kick); an effective `tmute` or `tban` goes through `applyTimedPunishment` (the timed mute keeps
+  the Unmute row, the timed ban carries none, the end date recorded on the punishment), and a sender chat under a timed
+  action gets nothing and no notice (D-13: a sender chat has no timed form). The timed request takes no context, so an
+  in-flight timed restrict or ban is bounded only by the bot's HTTP client timeout (30 s), like the untimed ones (D-12). An end
+  date refused locally (`errPunishTimeRanOut`) punishes nobody and posts today's inert notice. `floodNotice` takes the
+  punishment as applied and the limit: for an applied timed punishment the default reads `antiflood_checkflood_timed_mute` or
+  `_timed_ban` (`floodTimedKeys`, `{user}` and `{duration}`) and the values fill `{duration}` (`punishDurationLabel`) and
+  `{until}` (the end date the request carried, in the chat's zone); the flood's private copy then adds its Until line
+  (`UntilLine`). `checkFlood`'s cyclomatic complexity went from 31 to 21 (`TestFloodTimed`). The blacklist
   (plan 23-04, the `blacklist` event) and the forward blocklist (the `fwdblock` event) share one site and reply
   (`listNoticeSite`: no reply, no topic, `bot:punish_auto`, `Automatic`, no actor, the default through `b.SendMessage`;
   `listNoticeReply`: the default from `blacklistNoticeDefaultReply`, the values the reason and the action word, no count,
@@ -3821,7 +3836,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and options its site sent before custom messages, byte for byte: `warnDefaultReply` (the warn, with the site's rows),
   `warnLimitDefaultReply` (`warns_limit_kicked`, `_muted` or `_banned` by `Action`, none for an inert mode, then each
   escaped reason; an empty keyboard), `floodDefaultReply` (`antiflood_checkflood_perform_action` with the full name and
-  the English word, the site's Unmute or Unban row by value, the site adds the topic) and `blacklistNoticeDefaultReply`
+  the English word, the site's Unmute or Unban row by value, the site adds the topic; an applied timed action reads
+  `floodTimedKeys` only when `Secs` is set) and `blacklistNoticeDefaultReply`
   (shared by the blacklist and the forward blocklist: `blacklists_bl_watcher_{muted,kicked,banned}_user` with the full
   name and `Reason` spliced unescaped, `formatting.Shtml()`). Each is called by its send site and by the Messages page's event
   table (the `Default` of `settingsMsgAutoEvents`, for the previews). `warnThisUser` logs a send error and returns it as before
@@ -4118,7 +4134,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`pm_copy_callers_test.go`, D-33: a `go/parser` walk of the package's non-test files; `offerEventPM` is used only by
   `event_message.go`, `registerEventPM` only by `event_message_pm.go` and `postEvent` (plan 23-02) only by `event_message.go`
   (`replyEvent`, the moderation pipeline's site), `warns.go` (`warnThisUser`, after the warn is stored and any limit
-  action applied), `antiflood.go` (`floodNotice`, after the flood's mute, kick or ban), `blacklists.go`
+  action applied), `antiflood.go` (`floodNotice`, after the flood's mute, kick or ban, timed or not), `blacklists.go`
   (`blacklistNotice`, after the blacklist's mute, kick or ban) and `forwardblock_notice.go` (`forwardBlockNotice`, the
   forward blocklist's notice of the linked group, the watcher's only way to the engine besides `warns.go`) and
   `event_message_auto.go` (`postCaptchaFailureNotice`, Phase 24) and `aispam_notice.go` (`postAISpamNotice`, the AI spam

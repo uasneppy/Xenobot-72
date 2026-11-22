@@ -94,15 +94,31 @@ var floodWords = map[string]string{
 	"ban":  "banned",
 }
 
+// floodTimedKeys are the flood notices of an applied timed action, which name the duration; they are
+// read only when in.Secs is set.
+var floodTimedKeys = map[string]string{
+	"tmute": "antiflood_checkflood_timed_mute",
+	"tban":  "antiflood_checkflood_timed_ban",
+}
+
 // floodDefaultReply is the default flood notice: antiflood_checkflood_perform_action with the mention
 // of the sender's full name (a sender chat's title) and today's English word for in.Action (none for
 // an inert action). The keyboard is the bot's rows the site computed (the Unmute row of a mute, the
 // Unban row of a banned sender chat, none otherwise), sent by value; the site adds the topic. It
-// returns today's request byte for byte.
+// returns today's request byte for byte. An applied timed action (in.Action tmute or tban with in.Secs
+// set) reads antiflood_checkflood_timed_mute or _timed_ban instead, with the mention and the duration
+// in the translator's language (D-15); a timed action with no duration keeps today's empty word.
 func floodDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
-	temp, _ := tr.GetString("antiflood_checkflood_perform_action")
 	name := formatting.GetFullName(in.Target.FirstName, in.Target.LastName)
-	text := fmt.Sprintf(temp, formatting.MentionHtml(in.Target.Id, name), floodWords[in.Action])
+	var text string
+	if key, ok := floodTimedKeys[in.Action]; ok && in.Secs > 0 {
+		text, _ = tr.GetString(key, i18n.TranslationParams{
+			"user": formatting.MentionHtml(in.Target.Id, name), "duration": punishDurationLabel(tr, in.Secs),
+		})
+	} else {
+		temp, _ := tr.GetString("antiflood_checkflood_perform_action")
+		text = fmt.Sprintf(temp, formatting.MentionHtml(in.Target.Id, name), floodWords[in.Action])
+	}
 	return text, &gotgbot.SendMessageOpts{
 		ParseMode:   formatting.HTML,
 		ReplyMarkup: gotgbot.InlineKeyboardMarkup{InlineKeyboard: in.Rows},

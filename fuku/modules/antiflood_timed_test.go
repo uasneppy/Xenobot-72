@@ -5,10 +5,22 @@ package modules
 import (
 	"context"
 	"fmt"
+	"html"
+	"strconv"
 	"testing"
+	"time"
 
+	"github.com/PaulSonOfLars/gotgbot/v2"
+	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+
+	"github.com/uasneppy/fuku_robot/fuku/db"
+	"github.com/uasneppy/fuku_robot/fuku/db/antiflood"
+	dbcache "github.com/uasneppy/fuku_robot/fuku/db/cache"
 	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
+	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
+	"github.com/uasneppy/fuku_robot/fuku/utils/formatting"
 )
 
 // TestApplyFloodModeTimed holds the one write path of the flood action with a duration: a valid timed action
@@ -163,5 +175,120 @@ func TestSetFloodModeTimedCommand(t *testing.T) {
 		if row := floodApplyStored(t, s.chat.Id); row.Action != "ban" || row.ActionSecs != 0 {
 			t.Fatalf("stored row = %+v, want ban and 0", row)
 		}
+	})
+}
+
+// floodTimedFlood is noticeGoldenFlood with a duration: a flood limit of 1 with action and secs stored through
+// the repository, and the target's messages 101 and 102 (posted as the sender chat with channel) through
+// checkFlood, so the second one floods. The timed punishments' clock is fixed at the site's clock.
+func floodTimedFlood(t *testing.T, s *botSite, action string, secs int, channel bool) {
+	t.Helper()
+	mreqSwap(t, &punishNow, func() time.Time { return s.now })
+	resetAntifloodState(t)
+	t.Cleanup(func() {
+		db.DB.Where("chat_id = ?", s.chat.Id).Delete(&models.AntifloodSettings{})
+		dbcache.DeleteCache(dbcache.CacheKey("antiflood", s.chat.Id))
+		resetAntifloodState(t)
+	})
+	if err := antiflood.SetFlood(s.chat.Id, 1); err != nil {
+		t.Fatalf("SetFlood() error = %v", err)
+	}
+	if err := antiflood.SetFloodActionContext(context.Background(), s.chat.Id, action, secs); err != nil {
+		t.Fatalf("SetFloodActionContext(%q, %d) error = %v", action, secs, err)
+	}
+	for _, id := range []int64{101, 102} {
+		if err := antifloodModule.checkFlood(s.bot, noticeGoldenMessage(s, id, "flood "+strconv.FormatInt(id, 10), channel)); err != ext.ContinueGroups {
+			t.Fatalf("checkFlood(message %d) error = %v, want ContinueGroups", id, err)
+		}
+	}
+}
+
+// floodTimedNotice is the default notice of an applied timed flood action in Ukrainian: key with the mention of
+// the target's full name and the duration label.
+func floodTimedNotice(tr *i18n.Translator, key string, secs int) string {
+	name := formatting.GetFullName(noticeGoldenTarget.FirstName, noticeGoldenTarget.LastName)
+	text, _ := tr.GetString(key, i18n.TranslationParams{
+		"user": formatting.MentionHtml(noticeGoldenTarget.Id, name), "duration": punishDurationLabel(tr, secs),
+	})
+	return text
+}
+
+// TestFloodTimed is the flood's timed punishment end to end (D-11 to D-17): a timed mute or ban is sent with the
+// end date computed right before the request, its default notice names the duration (the timed mute keeping the
+// Unmute row), a sender chat under a timed action gets nothing, a timed action with no duration keeps today's inert
+// notice, a custom text fills {action}, {duration} and {until}, and the private copy adds the Until line.
+func TestFloodTimed(t *testing.T) {
+	withModerationGoldenLocales(t)
+	tr := i18n.MustNewTranslator("uk")
+	unmuteRow := eventMsgAutoRow(t, tr, "button_unmute_admins", "unmute", noticeGoldenTarget.Id)
+
+	t.Run("tmute", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		floodTimedFlood(t, s, "tmute", 1800, false)
+
+		call := warnTimedOnly(t, s, "restrictChatMember")
+		if got, want := fmt.Sprint(call.Params["until_date"]), strconv.FormatInt(s.now.Unix()+1800, 10); got != want {
+			t.Errorf("until_date = %s, want %s", got, want)
+		}
+		if got, ok := call.Params["permissions"].(gotgbot.ChatPermissions); !ok || got != MutedPermissions {
+			t.Errorf("permissions = %#v, want MutedPermissions", call.Params["permissions"])
+		}
+		eventMsgAutoPunishedFirst(t, s, "restrictChatMember")
+		eventMsgAutoCustom(t, s, floodTimedNotice(tr, "antiflood_checkflood_timed_mute", 1800), []string{unmuteRow}, "", deletion.KindBotAuto)
+	})
+
+	t.Run("tban", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		floodTimedFlood(t, s, "tban", 86400, false)
+
+		call := warnTimedOnly(t, s, "banChatMember")
+		if got, want := fmt.Sprint(call.Params["until_date"]), strconv.FormatInt(s.now.Unix()+86400, 10); got != want {
+			t.Errorf("until_date = %s, want %s", got, want)
+		}
+		eventMsgAutoCustom(t, s, floodTimedNotice(tr, "antiflood_checkflood_timed_ban", 86400), nil, "", deletion.KindBotAuto)
+	})
+
+	t.Run("sender_chat_tban", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		floodTimedFlood(t, s, "tban", 86400, true)
+
+		warnTimedOnly(t, s, "")
+		if n := len(s.client.callsFor("sendMessage")); n != 0 {
+			t.Fatalf("sendMessage calls = %d, want no notice for a sender chat", n)
+		}
+		s.wantNoRows(s.chat.Id)
+	})
+
+	t.Run("inert_no_duration", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		floodTimedFlood(t, s, "tmute", 0, false)
+
+		warnTimedOnly(t, s, "")
+		eventMsgAutoGolden(t, s, 1, goldenTimedFloodInertTmute)
+	})
+
+	t.Run("custom_text", func(t *testing.T) {
+		s := newNoticeGoldenSite(t, deletion.KindBotAuto)
+		eventMsgStore(t, s.chat.Id, eventmsg.EventFlood, "{action} / {duration} / {until}")
+		floodTimedFlood(t, s, "tmute", 1800, false)
+
+		warnTimedOnly(t, s, "restrictChatMember")
+		until := formatChatTime(time.Unix(s.now.Unix()+1800, 0), chatClockOf(s.chat.Id), "02.01.2006 15:04")
+		want := html.EscapeString(eventActionWord(tr, "mute")) + " / " + html.EscapeString(punishDurationLabel(tr, 1800)) + " / " + until
+		eventMsgAutoCustom(t, s, want, []string{unmuteRow}, "", deletion.KindBotAuto)
+	})
+
+	t.Run("pm_until", func(t *testing.T) {
+		s := newEventPMAutoSite(t, deletion.KindBotAuto)
+		s.chat.Title = eventPMAutoTitle
+		storeEventPM(t, s.chat.Id, eventmsg.EventFlood, "", true)
+		floodTimedFlood(t, s, "tban", 3600, false)
+
+		eventMsgAutoPunishedFirst(t, s, "banChatMember")
+		text, _ := tr.GetString("eventmsg_pm_flood", i18n.TranslationParams{"group": eventPMAutoGroup, "action": eventActionWord(tr, "ban")})
+		end := formatChatTime(time.Unix(s.now.Unix()+3600, 0), chatClockOf(s.chat.Id), "02.01.2006 15:04")
+		line, _ := tr.GetString("eventmsg_pm_until", i18n.TranslationParams{"until": end})
+		reason, _ := tr.GetString("eventmsg_pm_reason", i18n.TranslationParams{"reason": html.EscapeString(floodEventReason(tr))})
+		eventPMAutoWant(t, s, text+"\n"+line+"\n"+reason)
 	})
 }
