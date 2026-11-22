@@ -420,6 +420,12 @@ Items acknowledged and deferred at milestone close, most recent first:
 | 17 | verification_deferred_human | /gsd-verify-work 17 |
 | 18 | verification_deferred_human | /gsd-verify-work 18 |
 | 19 | verification_deferred_human | /gsd-verify-work 19 |
+| 21 | verification_deferred_human | /gsd-verify-work 21 |
+| 22 | verification_deferred_human | /gsd-verify-work 22 |
+| 23 | verification_deferred_human | /gsd-verify-work 23 |
+| 24 | verification_deferred_human | /gsd-verify-work 24 |
+| 25 | verification_deferred_human | /gsd-verify-work 25 |
+| 26 | verification_deferred_human | /gsd-verify-work 26 |
 
 ## Session Continuity
 
