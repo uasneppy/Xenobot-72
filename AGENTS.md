@@ -3841,7 +3841,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   there, the way `forwardblock_notice.go` serves the forward blocklist watcher. A lockdown site (`lockdownEventSite`) has a
   `Schedule` that does nothing, so a lockdown message is never queued for deletion, custom or default (D-08), and no lockdown
   event has a private copy spec, so no copy is ever offered (D-04). The manual start (plan 25-02, EVT-06, the `lockdown` event)
-  is `postLockdownStartEvent(b, ctx, msg, tr, actor, name, row, botMember)`, the one call `lockdown` makes after
+  is `postLockdownStartEvent(b, ctx, msg, tr, actor, name, row, bot)` (`bot` the bot's live membership), the one call `lockdown` makes after
   `startLockdownRow` answered `lockdownStartStarted` (every refusal and "already active" answer keeps its own text). Its site is
   the command's chat and translator, a reply to the command (its topic for a topic message), not `Automatic`, and the default
   through today's `msg.Reply` with `formatting.Shtml()`, not paced; a custom message goes through `media.SendGreetingMessage`, which
@@ -4103,7 +4103,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   when confirming the phase). A delete verdict of aispam posts nothing in the group unless the group turned its AI spam notice
   on (Phase 24, off by default); the notice is then queued under `bot:punish_auto` through its site (`postAISpamNotice`). The
   owner-log dump post of `aispamMirrorDeletion` is never a kind. No lockdown message is a named site (Phase 25, D-08): a
-  lockdown site's `Schedule` (`lockdownEventSite`) does nothing, so a `/lockdown` reply, custom or default, is never queued.
+  lockdown site's `Schedule` (`lockdownEventSite`) does nothing, so no lockdown message (the `/lockdown` reply, the automatic
+  notice, the lift notice), custom or default, is ever queued.
   The antiflood and aispam sends go through
   `helpers.SendMessageWithErrorHandling`, which answers no message for a chat the bot cannot post in: the hook keeps the
   returned message and `scheduleBotMessage` ignores nil. Every hook is additive around the existing send (no request, error
