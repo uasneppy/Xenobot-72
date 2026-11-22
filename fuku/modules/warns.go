@@ -253,7 +253,7 @@ func applyWarn(ctx context.Context, b *gotgbot.Bot, chat *gotgbot.Chat, userID i
 	if err != nil {
 		return res, err
 	}
-	numWarns, reasons, err := warns.WarnUser(userID, chat.Id, reason)
+	numWarns, reasons, err := warns.WarnUserAt(ctx, userID, chat.Id, reason, punishNow())
 	if err != nil {
 		return res, err
 	}
@@ -274,7 +274,7 @@ func applyWarn(ctx context.Context, b *gotgbot.Bot, chat *gotgbot.Chat, userID i
 		res.Secs, res.Until = settings.WarnModeSecs, until
 	}
 	if punished {
-		if _, resetErr := warns.ResetUserWarns(userID, chat.Id); resetErr != nil {
+		if _, resetErr := warns.ResetUserWarnsAt(ctx, userID, chat.Id, punishNow()); resetErr != nil {
 			return res, resetErr
 		}
 		res.LimitApplied = true
@@ -630,6 +630,10 @@ func (moduleStruct) warnings(b *gotgbot.Bot, ctx *ext.Context) error {
 	warnrc := warns.GetWarnSettingContext(tracing.UpdateContext(ctx), chat.Id)
 	temp, _ := tr.GetString("warns_settings_display")
 	text := fmt.Sprintf(temp, warnrc.WarnLimit, warnModeShown(warnrc.WarnMode, warnrc.WarnModeSecs))
+	if warnrc.ExpiryDays > 0 {
+		line, _ := tr.GetString("warns_settings_expiry", i18n.TranslationParams{"duration": punishDurationLabel(tr, warnrc.ExpiryDays*86400)})
+		text += "\n" + line
+	}
 	_, err := msg.Reply(b, text, formatting.Shtml())
 	if err != nil {
 		log.Error(err)
@@ -683,11 +687,12 @@ func (moduleStruct) warns(b *gotgbot.Bot, ctx *ext.Context) error {
 		return ext.EndGroups
 	}
 
-	numWarns, reasons := warns.GetWarnsContext(tracing.UpdateContext(ctx), userId, chat.Id)
+	numWarns, reasons := warns.GetWarnsAt(tracing.UpdateContext(ctx), userId, chat.Id, punishNow())
 	text := ""
 
 	if numWarns != 0 {
 		warnrc := warns.GetWarnSettingContext(tracing.UpdateContext(ctx), chat.Id)
+		note := warnsExpiryNote(tr, warnrc.ExpiryDays)
 		if len(reasons) > 0 {
 			temp, _ := tr.GetString("warns_user_warnings_list")
 			text = fmt.Sprintf(temp, numWarns, warnrc.WarnLimit)
@@ -695,7 +700,7 @@ func (moduleStruct) warns(b *gotgbot.Bot, ctx *ext.Context) error {
 			for _, reason := range reasons {
 				fmt.Fprintf(&sb, "\n - %s", reason)
 			}
-			text += sb.String()
+			text += sb.String() + note
 			msgs := formatting.SplitMessage(text)
 			for _, msgText := range msgs {
 				_, err := msg.Reply(b, msgText, nil)
@@ -706,7 +711,7 @@ func (moduleStruct) warns(b *gotgbot.Bot, ctx *ext.Context) error {
 			}
 		} else {
 			temp, _ := tr.GetString("warns_user_warnings_no_reasons")
-			_, err := msg.Reply(b, fmt.Sprintf(temp, numWarns, warnrc.WarnLimit), nil)
+			_, err := msg.Reply(b, fmt.Sprintf(temp, numWarns, warnrc.WarnLimit)+note, nil)
 			if err != nil {
 				log.Error(err)
 				return err
@@ -721,6 +726,17 @@ func (moduleStruct) warns(b *gotgbot.Bot, ctx *ext.Context) error {
 		}
 	}
 	return ext.EndGroups
+}
+
+// warnsExpiryNote is the line /warns ends with while the group's warn expiry is on (a newline and
+// warns_expiry_note, plain text because /warns sends no parse mode), and nothing while it is off, so
+// the reply of a group without expiry is byte for byte what it was.
+func warnsExpiryNote(tr *i18n.Translator, expiryDays int) string {
+	if expiryDays <= 0 {
+		return ""
+	}
+	line, _ := tr.GetString("warns_expiry_note", i18n.TranslationParams{"duration": punishDurationLabel(tr, expiryDays*86400)})
+	return "\n" + line
 }
 
 func (moduleStruct) rmWarnButton(b *gotgbot.Bot, ctx *ext.Context) error {
@@ -759,7 +775,7 @@ func (moduleStruct) rmWarnButton(b *gotgbot.Bot, ctx *ext.Context) error {
 	}
 	var replyText string
 
-	removed, removeErr := warns.RemoveWarn(userId, chat.Id)
+	removed, removeErr := warns.RemoveWarnAt(tracing.UpdateContext(ctx), userId, chat.Id, punishNow())
 	if removeErr != nil {
 		replyText, _ = tr.GetString("error_generic")
 	} else if removed {
@@ -891,7 +907,7 @@ func (moduleStruct) resetWarns(b *gotgbot.Bot, ctx *ext.Context) error {
 		return ext.EndGroups
 	}
 
-	removed, resetErr := warns.ResetUserWarns(userId, chat.Id)
+	removed, resetErr := warns.ResetUserWarnsAt(tracing.UpdateContext(ctx), userId, chat.Id, punishNow())
 	var text string
 	if resetErr != nil {
 		text, _ = tr.GetString("error_generic")
@@ -1081,7 +1097,7 @@ func (moduleStruct) removeWarn(b *gotgbot.Bot, ctx *ext.Context) error {
 	}
 
 	var replyText string
-	removed, removeErr := warns.RemoveWarn(userId, chat.Id)
+	removed, removeErr := warns.RemoveWarnAt(tracing.UpdateContext(ctx), userId, chat.Id, punishNow())
 	if removeErr != nil {
 		replyText, _ = tr.GetString("error_generic")
 	} else if removed {

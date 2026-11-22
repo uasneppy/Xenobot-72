@@ -3196,6 +3196,16 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   those two tests and this bullet.
 - Antiflood counters are in-process (per replica). The raid detection counters (`fuku:raid:*`) are Redis-only: without
   Redis the automatic triggers do nothing, and `/lockdown` still works.
+- The warn commands and the warn limit count only the warns that count (warn expiry, Phase 26 plan 26-06, D-35, D-36):
+  `applyWarn` records through `warns.WarnUserAt(ctx, user, chat, reason, punishNow())` and compares the counted number it returns
+  with the limit, and resets through `ResetUserWarnsAt` after the limit action; `/warns` reads `GetWarnsAt(..., punishNow())`,
+  `/rmwarn` and the Remove warn button `RemoveWarnAt`, `/resetwarns` `ResetUserWarnsAt`, all on the `punishNow` clock, and the AI spam
+  filter's warn count (`aispamWarnCount`) the `GetWarnsContext` wrapper, which counts on `time.Now()`. A member whose warns have all
+  expired is answered `warns_user_no_warnings` by `/warns` and `warns_no_warns_to_remove` by `/rmwarn`, the button and `/resetwarns`.
+  Only while the group's expiry is on, `/warns` ends with the plain-text line `warns_expiry_note` (`/warns` sends no parse mode) and
+  `/warnings` adds the line `warns_settings_expiry`, both naming the expiry through `punishDurationLabel` (`{duration}`); with expiry
+  off every reply is byte for byte (`TestLegacyTimedPunishmentRequests`). `/resetallwarns` still counts rows to decide whether to show
+  its confirm card (accepted). The expiry has no command: plan 26-07's Warnings page sets it (`TestWarnExpiry`).
 - Fed-ban lookups cache per `(fed, user)` with a negative sentinel; every ban/unban write must invalidate it.
 - A join arrives as both `ChatMemberUpdated` and a service message; dedupe through `claimRecentJoinProcessing`
   (the lockdown guard, which runs first, dedupes by its joiner row instead and never gates a ban on Redis).

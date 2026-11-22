@@ -1033,6 +1033,8 @@ warns_settings_display: "Grup memiliki pengaturan berikut:\n<b>Batas Peringatan:
 warns_user_warnings_list: "Pengguna ini punya %d/%d peringatan, untuk alasan berikut:"
 warns_user_warnings_no_reasons: "Pengguna punya %d/%d peringatan, tetapi tidak ada alasan untuk salah satunya."
 warns_user_no_warnings: Pengguna ini tidak punya peringatan apa pun!
+warns_expiry_note: "Peringatan yang lebih lama dari {duration} tidak dihitung."
+warns_settings_expiry: "<b>Peringatan kedaluwarsa setelah:</b> {duration}"
 warns_removed_by: "Peringatan dihapus oleh %s."
 warns_no_warns_to_remove: Pengguna sudah tidak punya peringatan!
 warns_limit_set_help: "Silakan tentukan berapa banyak peringatan yang harus diizinkan untuk pengguna sebelum tindakan diambil. Mis. <code>/setwarnlimit 5</code>"

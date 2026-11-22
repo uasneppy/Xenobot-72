@@ -1041,6 +1041,8 @@ warns_settings_display: "El grupo tiene la siguiente configuración:\n<b>Límite
 warns_user_warnings_list: "Este usuario tiene %d/%d advertencias, por las siguientes razones:"
 warns_user_warnings_no_reasons: "El usuario tiene %d/%d advertencias, pero sin razones para ninguna de ellas."
 warns_user_no_warnings: ¡Este usuario no tiene advertencias!
+warns_expiry_note: "Las advertencias de más de {duration} no cuentan."
+warns_settings_expiry: "<b>Las advertencias caducan tras:</b> {duration}"
 warns_removed_by: "Advertencia eliminada por %s."
 warns_no_warns_to_remove: ¡El usuario ya no tiene advertencias!
 warns_limit_set_help: "Por favor especifica cuántas advertencias debe permitirse recibir a un usuario antes de tomar acción. Ej. <code>/setwarnlimit 5</code>"

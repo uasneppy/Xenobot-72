@@ -1578,6 +1578,8 @@ warns_settings_display: "ग्रुप में निम्नलिखि�
 warns_user_warnings_list: "इस उपयोगकर्ता को %d/%d चेतावनियां हैं, निम्नलिखित कारणों से:"
 warns_user_warnings_no_reasons: "उपयोगकर्ता को %d/%d चेतावनियां हैं, लेकिन किसी का भी कारण नहीं है।"
 warns_user_no_warnings: इस उपयोगकर्ता को कोई चेतावनी नहीं मिली है!
+warns_expiry_note: "{duration} से पुरानी चेतावनियाँ नहीं गिनी जातीं।"
+warns_settings_expiry: "<b>चेतावनियाँ इसके बाद समाप्त होती हैं:</b> {duration}"
 warns_removed_by: "चेतावनी %s द्वारा हटाई गई।"
 warns_no_warns_to_remove: उपयोगकर्ता को पहले से कोई चेतावनी नहीं है!
 warns_limit_set_help: "कृपया निर्दिष्ट करें कि एक उपयोगकर्ता को कार्रवाई से पहले कितनी चेतावनियां मिलनी चाहिए। उदा. <code>/setwarnlimit 5</code>"

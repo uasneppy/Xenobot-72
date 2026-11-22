@@ -870,6 +870,8 @@ warns_settings_display: "Группа имеет следующие настро
 warns_user_warnings_list: "У этого пользователя %d/%d предупреждений по следующим причинам:"
 warns_user_warnings_no_reasons: "У пользователя %d/%d предупреждений, но нет причин ни для одного из них."
 warns_user_no_warnings: У этого пользователя нет предупреждений!
+warns_expiry_note: "Предупреждения старше {duration} не учитываются."
+warns_settings_expiry: "<b>Предупреждения истекают через:</b> {duration}"
 warns_removed_by: "Предупреждение удалено %s."
 warns_no_warns_to_remove: У пользователя уже нет предупреждений!
 warns_limit_set_help: "Пожалуйста, укажите, сколько предупреждений должен получить пользователь до применения действия. Например, <code>/setwarnlimit 5</code>"
