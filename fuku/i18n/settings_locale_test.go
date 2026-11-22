@@ -1442,8 +1442,10 @@ var settingsMsgAutoLiteralTokens = []string{
 	"<code>{first}</code>", "<code>{last}</code>", "<code>{fullname}</code>", "<code>{username}</code>",
 	"<code>{mention}</code>", "<code>{id}</code>", "<code>{chatname}</code>", "<code>{admin}</code>",
 	"<code>{reason}</code>", "<code>{action}</code>", "<code>{count}</code>", "<code>{limit}</code>", "<code>{rules}</code>",
-	// The end of a captcha mute (Phase 24, plan 24-04).
+	// The end of a captcha mute (Phase 24, plan 24-04), and of a timed mute or ban (Phase 26, plan 26-03).
 	"<code>{until}</code>",
+	// How long a timed mute or ban lasts (Phase 26, plan 26-03).
+	"<code>{duration}</code>",
 }
 
 // settingsMsgWaitTextMreqKey is the text prompt of the Member requirements family's event messages (Phase 24).

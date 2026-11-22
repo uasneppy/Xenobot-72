@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
@@ -202,6 +203,57 @@ func TestSettingsMessagesAutoFamily(t *testing.T) {
 
 		if calls := settingsEditNewSends(env.settingsEnv, env.chat.Id, groupMark, false); len(calls) != 0 {
 			t.Errorf("the previews sent %d messages into the group, want none: %+v", len(calls), calls)
+		}
+	})
+
+	t.Run("timed sample", func(t *testing.T) {
+		env := &settingsMsgEnv{settingsEnv: newSettingsEnvWith(t, settingsEnvOptions{RealLocale: true})}
+		settingsMsgCleanup(t, env.chat.Id)
+		listEditAdmin(env.settingsEnv, env.chat, env.admin, false)
+		settingsEditSetLanguages(t, env.admin.Id, "en", env.chat.Id, "uk")
+		now := time.Date(2026, 11, 22, 9, 30, 0, 0, time.UTC)
+		mreqSwap(t, &punishNow, func() time.Time { return now })
+		admin := env.admin
+		uk := i18n.MustNewTranslator("uk")
+		fullPreview := func(code string) string {
+			t.Helper()
+			mark := settingsEditMarkSends(env.settingsEnv, admin.Id)
+			env.pressPrivate(admin, env.updateID(), env.privateFields(env.chat.Id, "a", settingsActMsgFull, settingsMsgEventField, code))
+			sent := settingsEditNewSends(env.settingsEnv, admin.Id, mark, false)
+			if len(sent) != 2 {
+				t.Fatalf("Full preview of %s sent %d messages, want the header and the message: %+v", code, len(sent), sent)
+			}
+			return fmt.Sprint(rulesCallParams(t, sent[1])["text"])
+		}
+
+		// The warn limit's default preview keeps its untimed sample action, byte for byte.
+		mention := formatting.MentionHtml(admin.Id, admin.FirstName)
+		limitText, _ := uk.GetString("warns_limit_muted")
+		reason, _ := uk.GetString("settings_msg_sample_reason")
+		if got, want := fullPreview("wl"), fmt.Sprintf(limitText, 3, 3, mention)+"\n - "+reason; got != want {
+			t.Errorf("Full preview of the default warn limit = %q, want %q", got, want)
+		}
+
+		// A stored flood text fills {duration} in the group's language and {until} one hour after the clock.
+		settingsMsgSeed(t, env.chat.Id, eventmsg.EventFlood, "Muted {duration} until {until}", false)
+		until := formatChatTime(now.Add(time.Hour), chatClockOf(env.chat.Id), "02.01.2006 15:04")
+		if got, want := fullPreview("fl"), "Muted "+punishDurationLabel(uk, 3600)+" until "+until; got != want {
+			t.Errorf("Full preview of the timed flood text = %q, want %q", got, want)
+		}
+		// The flood's default private text keeps no Until line for the sample's untimed mute.
+		mark := settingsEditMarkSends(env.settingsEnv, admin.Id)
+		env.pressPrivate(admin, env.updateID(), env.privateFields(env.chat.Id, "a", settingsActMsgFull, settingsMsgEventField, "fl",
+			settingsMsgDestField, settingsMsgDestPMCode))
+		sent := settingsEditNewSends(env.settingsEnv, admin.Id, mark, false)
+		if len(sent) != 2 {
+			t.Fatalf("Full preview of the flood's private copy sent %d messages, want 2: %+v", len(sent), sent)
+		}
+		untilLine, _ := uk.GetString("eventmsg_pm_until", i18n.TranslationParams{"until": until})
+		if got := fmt.Sprint(rulesCallParams(t, sent[1])["text"]); strings.Contains(got, untilLine) || strings.Contains(got, until) {
+			t.Errorf("the default private copy preview %q carries the sample end, want none", got)
+		}
+		if label := punishDurationLabel(uk, 3600); label != "1 год" {
+			t.Errorf("the Ukrainian sample duration = %q, want 1 год", label)
 		}
 	})
 }

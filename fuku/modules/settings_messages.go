@@ -84,6 +84,10 @@ const (
 // (Percent, {percent}), the trigger kind whose sentence, filled with the sample numbers, is the preview's {reason}
 // (Trigger, a models.LockdownTrigger* kind) and NoReason, which leaves {reason} empty (the lift has none). A manual
 // event has the zero value, so its previews fill none of them; the manual lockdown keeps the sample reason that way.
+// Secs (Phase 26, D-18) is the sample duration of an automatic event that a timed mute or ban can raise (the warn
+// limit, the flood, the blacklist and the forward blocklist, 3600): a preview of a custom text fills {duration} with
+// its label in the group's language and {until} that many seconds from now, while the default preview keeps the
+// sample's untimed action, so it stays as the site sends it.
 type settingsMsgSample struct {
 	Count     int
 	Limit     int
@@ -94,6 +98,7 @@ type settingsMsgSample struct {
 	Percent   int
 	Trigger   string
 	NoReason  bool
+	Secs      int
 }
 
 // settingsMsgEvent is one event of a family: the eventmsg event it edits, its two-letter code (the k
@@ -185,20 +190,20 @@ var settingsMsgAutoEvents = []settingsMsgEvent{
 	},
 	{
 		Key: eventmsg.EventWarnLimit, Code: "wl", Icon: "⛔", NameKey: "settings_msg_ev_warnlimit", DescKey: "settings_msg_desc_warnlimit",
-		Default: warnLimitDefaultReply, Sample: settingsMsgSample{Count: 3, Limit: 3, Action: "mute"},
+		Default: warnLimitDefaultReply, Sample: settingsMsgSample{Count: 3, Limit: 3, Action: "mute", Secs: 3600},
 	},
 	{
 		Key: eventmsg.EventFlood, Code: "fl", Icon: "🌊", NameKey: "settings_msg_ev_flood", DescKey: "settings_msg_desc_flood",
 		ReservedButtons: 1, Default: floodDefaultReply,
-		Sample: settingsMsgSample{Count: 6, Limit: 5, Action: "mute", ReasonKey: "eventmsg_reason_flood"},
+		Sample: settingsMsgSample{Count: 6, Limit: 5, Action: "mute", ReasonKey: "eventmsg_reason_flood", Secs: 3600},
 	},
 	{
 		Key: eventmsg.EventBlacklist, Code: "bl", Icon: "🔤", NameKey: "settings_msg_ev_blacklist", DescKey: "settings_msg_desc_blacklist",
-		Default: blacklistNoticeDefaultReply, Sample: settingsMsgSample{Action: "mute"},
+		Default: blacklistNoticeDefaultReply, Sample: settingsMsgSample{Action: "mute", Secs: 3600},
 	},
 	{
 		Key: eventmsg.EventForwardBlock, Code: "fb", Icon: "🚷", NameKey: "settings_msg_ev_fwdblock", DescKey: "settings_msg_desc_fwdblock",
-		Default: blacklistNoticeDefaultReply, Sample: settingsMsgSample{Action: "mute", ReasonKey: "staff_fwdblock_reason"},
+		Default: blacklistNoticeDefaultReply, Sample: settingsMsgSample{Action: "mute", ReasonKey: "staff_fwdblock_reason", Secs: 3600},
 	},
 	{
 		Key: eventmsg.EventCaptcha, Code: "cf", Icon: "🧩", NameKey: "settings_msg_ev_captcha", DescKey: "settings_msg_desc_captcha",
@@ -921,7 +926,9 @@ func settingsMsgWrite(ev settingsMsgEvent, dest string) func(context.Context, in
 // settingsMsgPreviewReply is the reply a preview of ev builds, as the send site builds it for a real event:
 // the presser is the punished member, the reason is the sample reason in the group's language (or the event's
 // own fixed reason, Sample.ReasonKey) and, for a timed event, the duration is settingsMsgSampleDuration and the
-// end settingsMsgSampleSpan from now; an automatic event also fills its sample count, limit and action (the
+// end settingsMsgSampleSpan from now (an automatic event with a sample duration, Sample.Secs, fills its label in the
+// group's language and the end that many seconds from punishNow, for a custom text only); an automatic event also
+// fills its sample count, limit and action (the
 // translated word in {action}, the mode word and the reason as the one stored reason for the default builder).
 // A member requirement event's sample rules (Sample.Rules) are its reason (the broken rules' phrases) and go to the
 // default builder, and its Note is what the site appends after a custom text (ev.Appended: the requirements line and
@@ -956,6 +963,12 @@ func settingsMsgPreviewReply(p *settingsPress, groupTr *i18n.Translator, ev sett
 		values.Window, in.Window = strconv.Itoa(sample.Window), sample.Window
 	}
 	values.Percent, in.Percent = sample.Percent, sample.Percent
+	// A timed mute or ban's sample duration fills the custom text's {duration} and {until} only; the default input
+	// keeps no duration, so the default preview is the untimed reply the site sends today.
+	if sample.Secs > 0 && !ev.Timed {
+		values.Duration = punishDurationLabel(groupTr, sample.Secs)
+		values.Until = punishNow().Add(time.Duration(sample.Secs) * time.Second)
+	}
 	text, _ := ev.Default(groupTr, in)
 	r := eventReply{Event: ev.Key, Target: target, Values: values, Default: text}
 	if ev.Appended != nil {
@@ -1042,7 +1055,13 @@ func settingsMsgPMPreview(ev settingsMsgEvent) func(*settingsPress, settingsEdit
 		}
 		groupTr := settingsMsgGroupTranslator(p)
 		presser := p.query.From
-		msg := composeEventPM(p.b, p.group, groupTr, spec, settingsMsgPreviewReply(p, groupTr, ev), row, eventActor{User: &presser})
+		r := settingsMsgPreviewReply(p, groupTr, ev)
+		if st.Text == "" && ev.Sample.Secs > 0 && !ev.Timed {
+			// The default private text of the sample's untimed action carries no Until line, so the default
+			// preview stays as the site sends it; only a custom text shows the sample duration.
+			r.Values.Duration, r.Values.Until = "", time.Time{}
+		}
+		msg := composeEventPM(p.b, p.group, groupTr, spec, r, row, eventActor{User: &presser})
 		if part == settingsEditPartText {
 			_, err := media.SendGreeting(p.b, presser.Id, msg.Text, "", db.TEXT, &gotgbot.InlineKeyboardMarkup{}, 0)
 			return err

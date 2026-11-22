@@ -1659,7 +1659,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   IntroKey, WaitTextKey, HintKey, NoMedia, ReservedText, Events}`, a variable only so a test can draw more families), whose events are `settingsMsgEvent{Key, Code, Icon, NameKey,
   DescKey, ReservedButtons, Default, Timed, Sample, NoSilent, Appended}` (`Default` the send site's own `eventDefaultReply` builder, `Timed` true for the events whose
   preview fills `{duration}` and `{until}`, `Sample` a `settingsMsgSample{Count, Limit int; Action, ReasonKey string; Rules, Window, Percent int; Trigger string;
-  NoReason bool}` of the values a preview of an automatic event fills in, zero for a manual event (a lockdown event's `Window` is its sample
+  NoReason bool; Secs int}` of the values a preview of an automatic event fills in, zero for a manual event (`Secs`, Phase 26 plan 26-03, D-18,
+  is the sample duration of an event a timed mute or ban can raise, 3600 on the warn limit, the flood, the blacklist and the forward
+  blocklist: a preview of a custom text fills `{duration}` with `punishDurationLabel` in the group's language and `{until}` that many
+  seconds after `punishNow`, while the default input keeps no duration, so every default preview is byte for byte the untimed reply, and
+  the default private copy preview of those four events drops the sample end, so it shows no Until line; a lockdown event's `Window` is its sample
   window in seconds, shown by `{window}` as a number, `Percent` its share of new members, `Trigger` the trigger kind whose
   `lockdownTriggerSentence` with the sample numbers is the preview's `{reason}`, and `NoReason` leaves `{reason}` empty, Phase 25), `NoSilent` for an event that cannot be silenced, `Appended` what the send site appends
   after a custom text; a family's `NoMedia` gives its events the text and buttons parts only and its `ReservedText` is copied to its group
@@ -1670,9 +1674,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   unmute `um` 🔊 (`unmuteDefaultReply`); and the Automatic family (`a`, 🤖, `settings_msg_fam_auto` Automatic actions, intro
   `settings_msg_fam_auto_intro`, prompt `settings_msg_wait_text_auto`, hint `settings_msg_hint_auto`; Phase 23 plan 23-03, D-24), drawn after
   it, `settingsMsgAutoEvents`: warn `wn` 🚩 (reserved 1, the Remove warn row, `warnDefaultReply`, sample 1 of 3, action warn), warn limit
-  `wl` ⛔ (`warnLimitDefaultReply`, sample 3 of 3, mute), flood `fl` 🌊 (reserved 1, the admin row, `floodDefaultReply`, sample 6 messages of 5,
-  mute, reason `eventmsg_reason_flood`), blacklist `bl` 🔤 (`blacklistNoticeDefaultReply`, mute) and forward blocklist `fb` 🚷
-  (`blacklistNoticeDefaultReply`, mute, reason `staff_fwdblock_reason`), then (Phase 24 plan 24-04, D-28) the failed captcha `cf` 🧩
+  `wl` ⛔ (`warnLimitDefaultReply`, sample 3 of 3, mute, 1 hour), flood `fl` 🌊 (reserved 1, the admin row, `floodDefaultReply`, sample 6 messages of 5,
+  mute, reason `eventmsg_reason_flood`, 1 hour), blacklist `bl` 🔤 (`blacklistNoticeDefaultReply`, mute, 1 hour) and forward blocklist `fb` 🚷
+  (`blacklistNoticeDefaultReply`, mute, reason `staff_fwdblock_reason`, 1 hour), then (Phase 24 plan 24-04, D-28) the failed captcha `cf` 🧩
   (`captchaFailureDefaultReply`, sample a kick with 2 removed messages, reason `eventmsg_reason_captcha`) and the AI spam notice `ai` 🧠
   (`aispamNoticeDefaultReply`, sample the delete word, reason `eventmsg_reason_aispam`), none timed, each with the name and description keys
   `settings_msg_ev_<event>` and `settings_msg_desc_<event>`, and no new action code, field or right (the family reuses `hl he hs hr hc hv hf
@@ -1752,7 +1756,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `b`) and edits the message into the part's prompt: the text part's is the family's (`settings_msg_wait_text_manual`, which lists the
   Welcome placeholders the event fills for the punished member and the group, the event's `{admin}`, `{reason}`, `{duration}` and `{until}`,
   and says the default's reason line is not added to a custom text, D-11; the Automatic family's `settings_msg_wait_text_auto` lists `{admin}`,
-  `{reason}`, `{action}`, `{count}` and `{limit}` and says the bot adds the Remove warn button itself) with "Up to" 4096, or 1024 while a media is stored; media and
+  `{reason}`, `{action}`, `{count}`, `{limit}`, `{duration}` and `{until}`, says `{duration}` and `{until}` are how long and until when a
+  timed mute or ban lasts (and `{until}` when a captcha mute ends, Phase 26 plan 26-03) and that the bot adds the Remove warn button itself) with "Up to" 4096, or 1024 while a media is stored; media and
   buttons show the editor's own prompts. Cancel ends that wait as on Welcome. Remove clears its part at once with no card through the part's
   apply function (an empty text, no file and type 0, or no buttons); a row with nothing left and Silent off reads Default and the send path
   sends today's reply. The typed reply runs the editor branch of the typed-reply door (no new door, D-23): `authorize(def.EditRight)` (the
@@ -1782,7 +1787,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   punished member and the admin (`{admin}` their full name, never "an admin"), the reason is `settings_msg_sample_reason` (or the event's own
   fixed reason, `Sample.ReasonKey`: the flood's and the forward blocklist's) and, for
   `/tban` and `/tmute` (`Timed`), the duration is `settingsMsgSampleDuration` (`2 hours`, the untranslated form a timed reply shows) and
-  `{until}` `settingsMsgSampleSpan` (2 h) from now in the chat's zone; an automatic event also fills its sample `{count}` and `{limit}` and
+  `{until}` `settingsMsgSampleSpan` (2 h) from now in the chat's zone (an automatic event with `Sample.Secs` fills its duration label in the
+  group's language and the end that many seconds after `punishNow`, for a custom text only); an automatic event also fills its sample `{count}` and `{limit}` and
   `{action}` (`eventActionWord` of `Sample.Action`), and its default input carries the same count and limit, the mode word and the reason as
   the one stored reason, with no `Rows`, so a preview's default has no keyboard (D-27); the default text is the event's own `Default` builder, all in the
   group's language (`lang.GetGroupLanguage`), and it is sent by `media.SendGreetingMessage` to `query.From.Id` only, with no reply target
@@ -6530,7 +6536,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestSettingsParityWarnTimed` (`nt` against `/setwarnmode tmute 6h` and `tban 1d`, the same row and cache),
   `TestSettingsDriftWarnTimed` (`/setwarnmode tmute 90m` drawn with no preset marked; a page `tban` 6 h applied by `applyWarn` at
   the limit with `until_date` now plus 21600, `punishNow` fixed), `TestSettingsAuthorityParityWarnTimed` and
-  `TestSettingsWarnsTimedForged` (eleven forged `nt` and `nd` presses refused in step 1 with no lookup). The earlier Warnings tests
+  `TestSettingsWarnsTimedForged` (eleven forged `nt` and `nd` presses refused in step 1 with no lookup). The Messages page's
+  `TestSettingsMessagesAutoFamily` gains `timed sample` (a stored flood text previews `{duration}` as `1 год` in the group's Ukrainian and
+  `{until}` one hour after a fixed `punishNow`; the warn limit's default preview and the flood's default private copy preview stay
+  untimed), and `TestSettingsEditLocaleTokens` holds `<code>{duration}</code>` and `<code>{until}</code>` in `settings_msg_wait_text_auto`. The earlier Warnings tests
   took the timed row as a width edit only (`[5 3 2]` to `[5 3 2 2]`, the navigation row's index 2 to 3).
 
 ## Commits
