@@ -6112,6 +6112,32 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   closes the gap plan 24-05 left: a custom requirement mute notice the requirement pacer gives up on (four 429s) is sent again with the
   same custom text and its "I fixed it" row, and the mute is never lifted. `TestEventPMTextsFitEveryLocale` also measures each
   requirement event's default private text with the reason of all eight rule phrases.
+  `TestScreeningMessagesEndToEnd` (`screening_messages_e2e_test.go`, plan 24-08, about 1 to 3 s) is the phase's end-to-end proof through
+  the real dispatcher with only Telegram, Cloudflare's siteverify and TypeSafe faked, one environment per subtest on the toolkit
+  `screeningMessagesE2E` (`newScreeningMessagesE2E(t, real)`: Phase 23's `autoMessagesE2E` with the Greetings and MemberRequirements
+  modules on its dispatcher beside the settings environment's Captcha module, the requirement pacer fast, the enforcement switch on,
+  every requirement job awaited and `captchaFailureNoticeLife` at 20 ms; `joiner`, `openScreening` and `setScreeningPart` and
+  `setScreeningText` (each page step a press of the drawn button, each part a typed private message), `captchaOn`, `joinCaptcha` (a real
+  `chat_member` join through the greetings module that meets the captcha), `expire` (the attempt's expiry moved into the past, then
+  `expireCaptchaAttempt`), `joinAndFail`, `breakRule` (the last-name rule's punishment, then a plain message of a member without a last
+  name), `aispamOn` (the TypeSafe stand-in answering spam, the notice pacer fast, the AI burst trigger off through `raidSettingsLookup`,
+  `LoadAISpam`), `spam`, `turnstile` (the web captcha's runtime over the environment's bot and Redis with a Cloudflare stand-in whose every
+  answer is a failed solve), `clock` (a settable deletion clock that also dates the fake's messages), `captchaGolden` and `reqGolden`).
+  Subtests: `owner sets the captcha message` (a typed text, the hub reading Custom; the join's math challenge unchanged, the member's
+  message held and deleted, the timeout kicks first and then posts the custom text with the kick word and 1, no reply and no queue row,
+  deleted after its life), `web check` (a Turnstile join, a held message, a failed verify answered `failed` with `kick` and the custom text
+  posted once; the same verify again replays the answer and posts nothing), `requirement mute` (no media part and no Silent switch; a
+  typed text and a link button; the member is muted first, then the custom text, a blank line and the requirements line, with the link
+  button then "I fixed it" and a 24 hour `bot:punish_auto` row; the member adds a last name and taps the kept button 20 minutes later:
+  unmuted, the notice edited to the fix text with no keyboard and its row moved to the tap plus the timer), `requirement warn` (a custom
+  text with `{reason}` followed by the requirements line, a 900 s row), `ai notice` (nothing stored: deleted, nothing posted, no
+  `fuku:aispam:notice:*` key; the drawn Notice switch turns it on; the member's next spam is deleted and noticed, the third inside five
+  minutes deleted quietly, three other members' spam all deleted with two more notices, three in the stopped minute), `nothing stored`
+  (real locales: a captcha kick, a requirement kick and a requirement mute equal `goldenScreenCaptchaKick`, `goldenScreenReqKick` and
+  `goldenScreenReqMute` with the case's IDs put in, each with its queue state), `refused` (real locales: a custom captcha photo refused
+  with a 400 comes after the kick and is followed by the golden default once) and `pm copies` (the requirement mute's private copy
+  switched on from its private copy screen sends the default copy with the broken rule on the reason line; the captcha's copy on and the
+  cap at 2 in a stopped minute: three joiners fail the captcha, all kicked and noticed, exactly two copies).
 
 ## Commits
 
