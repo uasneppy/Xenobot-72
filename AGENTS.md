@@ -3940,7 +3940,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   eighteen specs in all, each with its default text `eventmsg_pm_<event>` (the requirement texts say the member does not
   meet the group's requirements and never repeat the reason, whose line lists the broken rules; `eventmsg_pm_mreqwarn`
   names the count, the limit and the action, and `eventmsg_pm_mreqmute` tells the member to tap "I fixed it" under the
-  group's notice and carries no button, D-35). `/dban`, `/dkick` and `/dmute` use their parent event's copy, the silent
+  group's notice and carries no button, D-35). The five lockdown events of Phase 25 (`lockdown`, `lockjoin`, `lockflood`,
+  `lockai`, `locklift`) have no spec and never will (D-04, D-35, PMSG-05): `offerReplyPM` returns at once for them, so no
+  private copy, Details button or `#PM_COPY` line is ever sent for a lockdown message, whatever pm row a group stored
+  (`TestEventPMSpecs` holds the five keys spec-less, `TestLockdownEventsSendNoPrivateCopy` the behaviour). `/dban`, `/dkick` and `/dmute` use their parent event's copy, the silent
   variants never reach `replyEvent` and send none, and the channel `/ban` and `/unban` are not events. `replyEvent` reads the
   messages once (through `postEvent`), runs the unchanged group step (`postEventGroup`, pinned by `TestLegacyModerationRequests`) and then
   `offerReplyPM`, whatever the group step did (posted, Silent, the refusal fallback, a send error): it offers a copy only
@@ -6335,6 +6338,21 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   menu custom` (the redraw with its notice, the wake, and the custom notice once as a new message), `group menu quiet` (Silent, and
   a refused custom message, post nothing beyond the menu) and `tally after silent` (a Silent lift that finishes inline with one kept
   joiner posts no notice and the tally as before).
+  `TestLockdownMessagesLeaveOtherSurfacesAlone` and `TestLockdownEventsSendNoPrivateCopy` (`lockdown_message_surfaces_test.go`, plan
+  25-06, about 1 s together) are the behavioural half of EVT-10, beside the structural `TestEventEngineCallers`. Their toolkit
+  (`lockdownStoreEverySurfaceMessage`: each of the five lockdown events stored for each chat with the sentinel text
+  `lockdownSurfaceSentinel` and a URL button labelled `lockdownSurfaceLabel`, Silent off, a private copy row with the sentinel
+  switched on and both private copy options on; `lockdownWantNoSentinel` over the recorded requests, every parameter as
+  `lockdownParamText` renders it; `lockdownWantNoPrivateSend`, no request with a positive `chat_id` or `from_chat_id`) drives the
+  real dispatcher, the worker cycles and the real senders, and each case first proves it reached its surface. The first test's
+  subtests: `lockdown flow` (one `banEnv` with a log channel: `/lockdown`, a joiner, the alert in the Staff Group and the log channel,
+  a reminder made due with `ageAlert`, "Ban N recent joiners" through the alert's button with its card report and its
+  `#LOCKDOWN_BAN` post, the alert's Lift Confirm, the alert copies closed and the tally: no request to the Staff Group or the log
+  channel carries a sentinel, and in the group only the start reply and the lift notice do), `cannot lock` (the warning's two copies),
+  `staff action` (a staff `/mute`'s card and summary), `captcha challenge` and `log post`. The second test's subtests: `no spec`
+  (`eventPMSpecFor` and `eventPMWouldOffer` are false for the five keys with their pm rows on, while a ban's is true), `manual
+  start`, `automatic start`, `lift by command` and `lift by button` (each posts its stored group message and sends nothing in
+  private, edits no keyboard and posts no `#PM_COPY` line).
 
 ## Commits
 

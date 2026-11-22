@@ -3,6 +3,7 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -122,6 +123,18 @@ func lockdownWantNoPrivateSend(t *testing.T, client *moduleBotClient, what strin
 			if _, ok := call.Params[key]; ok && staffParamInt(call.Params, key) > 0 {
 				t.Errorf("%s: %s went to the private chat %v, want nothing in private", what, call.Method, call.Params[key])
 			}
+		}
+	}
+}
+
+// lockdownWantNoPMCopyTrace fails when a request carries a Details button or a #PM_COPY line, or when the
+// client edited a keyboard (the Details button is added by an edit of the group message's keyboard).
+func lockdownWantNoPMCopyTrace(t *testing.T, client *moduleBotClient, what string) {
+	t.Helper()
+	for _, call := range lockdownSurfaceCalls(client) {
+		request := lockdownSurfaceRequest(call)
+		if call.Method == "editMessageReplyMarkup" || strings.Contains(request, "pmcopy_") || strings.Contains(request, "#PM_COPY") {
+			t.Errorf("%s: %s carries a private copy's trace: %s", what, call.Method, request)
 		}
 	}
 }
@@ -331,5 +344,110 @@ func TestLockdownMessagesLeaveOtherSurfacesAlone(t *testing.T) {
 			t.Fatalf("requests to the log channel = %d, want the one post", got)
 		}
 		lockdownWantNoSentinel(t, calls, "the log post")
+	})
+}
+
+// lockdownNoCopyEnv is a lockdown environment for the private copy cases: every lockdown message stored for
+// its chat, a private copy row of each switched on with both options on, a log channel taking the admin
+// category, a fast private copy pacer and the private copy jobs awaited when the test ends.
+func lockdownNoCopyEnv(t *testing.T) *lockdownEnv {
+	t.Helper()
+	env := newLockdownEnv(t)
+	withFastPMCopyPacer(t)
+	raidCleanup(t, env.chat.Id)
+	setStaffLogChannel(t, env.chat.Id, uniqueModuleChatID())
+	lockdownStoreEverySurfaceMessage(t, env.chat.Id)
+	env.fake.setBotMember(env.chat.Id, lockdownBotAdminJSON(true, true, true))
+	t.Cleanup(pmCopyJobs.wait)
+	return env
+}
+
+// lockdownWantNoCopy fails unless the group received a message carrying the stored message of event (the
+// site was reached) and nothing was sent, edited or copied in private, with no Details button and no
+// #PM_COPY line.
+func lockdownWantNoCopy(t *testing.T, env *lockdownEnv, event, what string) {
+	t.Helper()
+	waitEventPM(t)
+	found := false
+	for _, text := range lockdownSurfaceTexts(env, env.chat.Id) {
+		if text == lockdownSurfaceText(event) || strings.HasPrefix(text, lockdownSurfaceText(event)+"\n") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("%s: the group received %q, want the stored %s message, so the case proves nothing",
+			what, lockdownSurfaceTexts(env, env.chat.Id), event)
+	}
+	lockdownWantNoPrivateSend(t, env.fake.moduleBotClient, what)
+	lockdownWantNoPMCopyTrace(t, env.fake.moduleBotClient, what)
+}
+
+// TestLockdownEventsSendNoPrivateCopy proves D-04 and D-35 (PMSG-05): no lockdown event has a private copy
+// spec, and with a private copy row of each lockdown event stored and switched on (both options on), a manual
+// start, an automatic start and a lift by /unlockdown and by the alert's button post their group message and
+// send nothing to any private chat, add no Details button and post no #PM_COPY line.
+func TestLockdownEventsSendNoPrivateCopy(t *testing.T) {
+	t.Run("no spec", func(t *testing.T) {
+		env := lockdownNoCopyEnv(t)
+		storeEventPM(t, env.chat.Id, eventmsg.EventBan, "control", true)
+		msgs, err := eventmsg.GetFresh(context.Background(), env.chat.Id)
+		if err != nil {
+			t.Fatalf("GetFresh error = %v", err)
+		}
+		site := eventSite{Bot: env.bot, Chat: &env.chat}
+		target := gotgbot.User{Id: env.admin.Id, FirstName: env.admin.FirstName}
+		if !eventPMWouldOffer(site, eventReply{Event: eventmsg.EventBan, Target: target}, msgs) {
+			t.Fatal("setup: a ban with its private copy on would offer no copy, so the case proves nothing")
+		}
+		for _, event := range lockdownSurfaceEvents {
+			if spec, ok := eventPMSpecFor(event); ok {
+				t.Errorf("spec of %s = %+v, want none", event, spec)
+			}
+			if msgs.Resolve(event, eventmsg.DestPM).Silent {
+				t.Fatalf("setup: the private copy row of %s is not switched on", event)
+			}
+			if eventPMWouldOffer(site, eventReply{Event: event, Target: target}, msgs) {
+				t.Errorf("a %s reply would offer a private copy, want none", event)
+			}
+		}
+	})
+
+	t.Run("manual start", func(t *testing.T) {
+		env := lockdownNoCopyEnv(t)
+
+		env.send(env.admin, "/lockdown raid")
+
+		lockdownEventWantStarted(t, env, env.admin.Id)
+		lockdownWantNoCopy(t, env, eventmsg.EventLockdown, "the manual start")
+	})
+
+	t.Run("automatic start", func(t *testing.T) {
+		env := lockdownNoCopyEnv(t)
+
+		raidFire(env.bot, &env.chat, raidTrigger{Kind: models.LockdownTriggerFlood, Count: 30, Window: 30, Percent: 80})
+		raidPosts.wait()
+
+		lockdownEventWantStarted(t, env, env.bot.Id)
+		lockdownWantNoCopy(t, env, eventmsg.EventLockFlood, "the automatic start")
+	})
+
+	t.Run("lift by command", func(t *testing.T) {
+		env := lockdownNoCopyEnv(t)
+		row := env.lockAsAdmin("raid")
+
+		env.send(env.admin, "/unlockdown")
+
+		lockdownLiftWantLifted(t, env, row, env.admin.Id)
+		lockdownWantNoCopy(t, env, eventmsg.EventLockLift, "the lift by command")
+	})
+
+	t.Run("lift by button", func(t *testing.T) {
+		env := lockdownNoCopyEnv(t)
+		card := askToLiftLockdown(t, env)
+
+		pressLockdownButton(env, env.admin, card.staffChat, card.msgID, card.confirm)
+
+		lockdownLiftWantLifted(t, env, card.row, env.admin.Id)
+		lockdownWantNoCopy(t, env, eventmsg.EventLockLift, "the lift by the alert's button")
 	})
 }

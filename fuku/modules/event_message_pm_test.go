@@ -183,6 +183,18 @@ func TestEventPMSpecs(t *testing.T) {
 	if _, ok := eventPMSpecFor("warning"); ok {
 		t.Fatal("spec of an unknown event exists, want none")
 	}
+	// Phase 25 (D-04, D-35): no lockdown event has a private copy; the count above stays eighteen.
+	for _, event := range []string{
+		eventmsg.EventLockdown,
+		eventmsg.EventLockJoinSurge,
+		eventmsg.EventLockFlood,
+		eventmsg.EventLockAIBurst,
+		eventmsg.EventLockLift,
+	} {
+		if spec, ok := eventPMSpecFor(event); ok {
+			t.Fatalf("spec of the lockdown event %s = %+v, want none", event, spec)
+		}
+	}
 
 	panics := func(t *testing.T, name string, register func()) {
 		t.Helper()
