@@ -154,6 +154,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - Phase 28 adds zero goroutines and zero shutdown drains: `advThresholdsFor` (`fuku/modules/advthresholds.go`) runs synchronously
   under a bounded 2 s context via the `skipLocal` Redis cache (`chat_advanced_thresholds:<chat>`), so the 70 s worst case and
   `stop_grace_period: 75s` are unchanged.
+- Phase 29 adds zero goroutines, zero handler groups, and zero shutdown drains: Plain tone (`msgs.Options.PlainTone` read inside the
+  existing `eventMessagesLookup` under `event_messages:<chat>` in `skipLocal`) and Copy Settings (`applyCopySettings`, one-time Redis
+  confirmation tokens under `fuku:settings:copy:<token>`) run synchronously inside the calling handler under bounded contexts, so the
+  70 s worst case and `stop_grace_period: 75s` are unchanged.
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
 - The Turnstile web captcha is configured in `main` (`registerCaptchaWeb`) when `config.AppConfig.CaptchaWebConfigured()`
   holds: all four of `CAPTCHA_WEB_BASE_URL`, `TELEGRAM_MINI_APP_SHORT_NAME`, `TURNSTILE_SITE_KEY` and
@@ -1325,6 +1329,33 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `lockdownReminderEvery`); and Option A `captcha_timeout_mins` (`effectiveCaptchaTimeout` in `captcha.go` and `settings_captcha.go`,
   P28-02) overrides `sendCaptcha` (`ExpiresAt`, Turnstile TTL, timeout timer, challenge text) and `/captcha` status while leaving
   `captcha_settings.timeout` (`1..10` SQL CHECK), `/captchatime`, the Captcha page stepper, and `/export` untouched.
+- Plain tone on the Messages page (`settings_messages.go`, `event_message_plain.go`, `event_message.go`, `event_message_pm.go`,
+  Phase 29, TUNE-08) adds action code `settingsActMsgPlainTone = "ht"` (`Fields: []string{"v"}` `"0"`/`"1"`, private field `c`
+  required in step 1, `Right: settingsRightChangeInfo`, routed through `applyEventPlainTone` -> `eventmsg.SetPlainTone`), expanding
+  the Messages hub keyboard widths from `[2 2 1 1 2]` to `[2 2 1 1 1 2]` and showing `settings_state_msg_plain` on Main when Plain
+  tone is on with 0 custom messages (`settings_state_msg_n` when `n > 0`). All 23 pure plain-tone group builders live in
+  `fuku/modules/event_message_plain.go` (outside `eventEngineEntries` so `TestEventEngineCallers` and `TestPMCopyCallers` require no
+  allow-list changes), wired lazily via `eventReply.PlainDefault` in `postEventSent` (`event_message.go`) and `eventPMSpec.PlainKey` in
+  `composeEventPM` / `eventPMDefaultText` (`event_message_pm.go`), plus group/PM preview builders on the Messages page. When
+  `PlainTone` is `false` (default), `PlainDefault` is never called and output is byte-identical to MSG-11 goldens; when `true`, any
+  stored custom text (`row.Text != ""`) takes precedence untouched while uncustomised defaults, media/buttons-only rows, and refused
+  custom-send fallbacks use neutral factual wording with all inline rows (Unban, Unmute, Remove warn, Rules, "I fixed it", Appeal)
+  and deletion timers preserved.
+- The Copy Settings page (`settings_copy.go`, `copy_settings.go`, page `cp`, `Order` 82, icon `📋`, `settings_page_copy`, Phase 29,
+  TUNE-09) is `PrivateOnly` (`PrivateNoteKey` `settings_copy_group_note`), `Hidden` in Staff Groups (`settingsCopyHidden`), and has a
+  static zero-I/O `MainState` (`settings_state_copy`). Action codes: `cg` (paginate target picker, `v` `1..999`, `settingsRightAdmin`),
+  `ck` (pick target group, `t` canonical negative int64 `t != c`, `settingsRightAdmin`), and `cy` (confirm Yes, `k` 16-char base64url
+  token, `settingsRightAdmin`); every `Validate` requires private field `c` in step 1 (0 `getChatMember` calls on forged or group-menu
+  presses). Both `ck` (ask) and `cy` (confirmed Yes) run live dual-group verification (`settingsCopyVerifySource` +
+  `settingsCopyVerifyTarget`: fresh non-Staff-Group check failing closed on DB error, live `lockdownLiveMember`, `settingsGate`,
+  non-creator admin dual rights `CanChangeInfo && CanRestrictMembers` per `P29-02`, and live `GetChatWithContext` `group`/`supergroup`),
+  mapping every target-side refusal (bot not in chat 4xx, non-admin, owner-only gate, missing write right, non-group type, Staff Group)
+  to the single uniform opaque alert `settings_pick_unavailable`. `ck` stores a pair-bound one-time confirmation record in Redis under
+  `fuku:settings:copy:<token>` (TTL 5m, `SET NX`, failing closed with `settings_copy_unavailable` when Redis is nil), and `cy` peeks
+  user/source binding before atomically consuming the token via a Lua `GET+DEL` script (`settings_card_expired` on expiry/replay) and
+  calling `applyCopySettings` (full mirror across all 6 areas per `P29-01`, `P29-03`, `P29-04`, dropping all target cache keys and
+  never linking the two groups). With `cp` registered at `Order` 82, Main has 29 registered pages total (`settingsMainOwnerRows = 16`,
+  `staffOwnerRows = settingsMainOwnerRows - 3`).
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
@@ -3107,6 +3138,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   not deliver its copy with the group's Details option on (`pmCopyAddDetails`) and read only by the `pmcopy_` deep link
   (`pmCopyDetailsGet`); a view deletes nothing. Redis only (no Redis, no record and no button); it sits outside the
   `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it.
+- `fuku:settings:copy:<token>` is the one-time confirmation card token of the private Copy Settings page (`settings_copy.go`,
+  Phase 29 plan 29-05, TUNE-09): JSON of `settingsCopyCardRecord` (`u` user ID, `s` source chat ID, `t` target chat ID), written on
+  `ck` via `SET NX` with TTL `settingsCardLifetime` (5 minutes) using a 12-byte `crypto/rand` unpadded base64url token (16 chars,
+  96-bit entropy, never logged). On `cy`, the handler peeks the record with `GET` to verify `u == presser.Id && s == sourceChatID`
+  (so a wrong-user or wrong-source callback answers `common_callback_invalid_request` without burning the real owner's card), re-runs
+  live dual-group verification, and then atomically consumes the key via a 2-line Lua `GET` + `DEL` script (`settingsCopyConsumeScript`)
+  before executing `applyCopySettings`. It fails closed (`settings_copy_unavailable` when Redis is nil, `settings_card_expired` on
+  missing/expired/replayed tokens) and sits outside the `fuku:cache:` prefix so `CLEAR_CACHE_ON_STARTUP` keeps it.
 - `fuku:aispam:notice:{<chat>}:u:<user>` and `fuku:aispam:notice:{<chat>}:m:<unix minute>` are the caps of the AI spam notice
   (`aispam_notice.go`, Phase 24, EVT-05, D-22): one Lua script (`aispamNoticeScript`, under `raidRedisTimeout`, the chat ID a
   hash tag) sets the member latch with `SET NX EX 300` (`aispamNoticeUserWindow`, 5 minutes) and answers no when it was already
@@ -3246,18 +3285,30 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   notice with no row reads Silent like a private copy, `Resolve` and the part writers' insert default use it (storing a
   text alone never turns the notice on; only `SetSilent(false)` does), and every other event reads exactly as before. It is never part of backup,
   export, import or reset in Phase 21 or 22, `pm` rows included (`TestEventMessagesStayOutOfBackup`; Phase 30 decides).
-- `chat_event_message_options` (migration 20261120120000) holds a group's two options of the private copies, one row per
+- `chat_event_message_options` (migration 20261120120000; `plain_tone` added by migration `20261123130000_add_event_message_plain_tone.sql`,
+  Phase 29 plan 29-02, TUNE-08) holds a group's event-message options, one row per
   chat under the inline primary key `pk_chat_event_message_options`: `pm_details` (a private copy that was not delivered
-  adds a Details button to the group message), `pm_log` (it leaves one line in the group's log channel), `updated_by` and
-  `updated_at`, every column `NOT NULL` with a zero default and no foreign key; a chat with no row has both options off.
+  adds a Details button to the group message), `pm_log` (it leaves one line in the group's log channel), `plain_tone` (switches
+  uncustomised default group replies and private copies across all 23 events to neutral plain-tone wording), `updated_by` and
+  `updated_at`, every column `NOT NULL` with a zero default and no foreign key; a chat with no row has all three options off.
   `models.ChatEventMessageOptions` maps it with no `default:` tag. It is read by `eventmsg.GetFresh` right after the message
-  rows into `Messages.Options` (`eventmsg.Options{PMDetails, PMLog}`), so it lives under the same `event_messages:<chat>` key
+  rows into `Messages.Options` (`eventmsg.Options{PMDetails, PMLog, PlainTone}`), so it lives under the same `event_messages:<chat>` key
   in `skipLocal` and the send path gets the rows and the options in one cached read; a failed read is the read's error, never
-  default options, and a value an earlier build cached has no `Options` and reads both off (the safe direction).
-  `eventmsg.SetPMDetails` and `eventmsg.SetPMLog` (`ctx, chatID, on, by`) are column-targeted `INSERT ... ON CONFLICT (chat_id)
-  DO UPDATE` of their own option plus `updated_by` and `updated_at`, so a Go false is written and the two never clobber each
-  other, and each drops the key after the write. It is never part of backup, export, import or reset in Phase 22
-  (`TestEventMessagesStayOutOfBackup`; Phase 30 decides).
+  default options, and a value an earlier build cached without `PlainTone` decodes it as `false` (the safe direction).
+  `eventmsg.SetPMDetails`, `eventmsg.SetPMLog`, and `eventmsg.SetPlainTone` (`ctx, chatID, on, by`) are column-targeted `INSERT ... ON CONFLICT (chat_id)
+  DO UPDATE` of their own option plus `updated_by` and `updated_at`, so a Go false is written and the three never clobber each
+  other, and each drops the key after the write. `eventmsg.ReplaceAllValidated` (`fuku/db/eventmsg/validate_write.go`, Phase 29 plan
+  29-04, shared with Phase 30 `MSG-10`) validates candidate `Message` rows against the exact editor rules (`ValidateMessage`: valid
+  event/dest, no `DestPM` for lockdown events, media kind in `STICKER..ANIMATION`, `NoMedia` for `mreq*` group notices, button URLs via
+  `content.ValidButtonURL`, non-empty button labels, total buttons + `{rules}` tokens + `ReservedButtonsFor(event, dest)` <= 100, widest
+  row via `keyboard.BuildKeyboard` <= 8, raw rune and visible UTF-16 length <= `4096`/`1024` minus `ReservedTextFor(event, dest)` `600`
+  for `mreq*` and `400` for `lock*`, and `NoSilent` normalization for `EventReqMute`), then atomically replaces `chat_event_messages`
+  and upserts/deletes `chat_event_message_options` in one DB transaction and drops `event_messages:<chat>`. For antiflood action
+  mirroring in Copy Settings, `antiflood.SetFloodActionPreserveOffContext` (`fuku/db/antiflood/repository.go`) explicitly writes
+  `flood_limit = 0` on insert (using `.Select("chat_id", "flood_limit", "action", "action_secs")` + `OnConflict`) so GORM never applies
+  `models.AntifloodSettings`'s `default:5` tag to turn antiflood on in a target group that had no row (`P29-04`). `chat_event_messages`
+  and `chat_event_message_options` remain outside backup, export, import, and reset in Phase 29 (`TestEventMessagesStayOutOfBackup`;
+  Phase 30 decides).
 - `chat_escalation` (migration 20261122140000, Phase 26 plan 26-08, TUNE-02, D-28) is one group's escalation ladder, one row
   per chat under the inline primary key `pk_chat_escalation`: `enabled`, five step pairs `step1_action` to `step5_action`
   (`VARCHAR(8) NOT NULL DEFAULT ''`) and `step1_secs` to `step5_secs` (`INTEGER NOT NULL DEFAULT 0`), each pair under its own
@@ -7054,6 +7105,36 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   - **P28-04:** On transient `advThresholdsLookup` errors, hot paths log one IDs-only debug/warn line (never chat titles or user
     text) and fall back to zero `advthresholds.Thresholds{}` (compiled defaults) so a transient DB fault never disables raid
     detection, screening, reminders, or captcha.
+- Phase 29 test families (Plain tone switch across all 23 events & 18 PM copies and private Copy Settings page; TUNE-08, TUNE-09,
+  MSG-11, EVT-10). The immutable MSG-11 golden `TestLegacyPhase29Baseline` (`fuku/modules/phase29_legacy_request_test.go`, plan 29-01,
+  pinning all 23 group defaults, all 18 PM defaults, and pre-copy target isolation across all 6 tuning areas and excluded tables) was
+  recorded alone on `ca060519` before any production change and is never re-recorded. Repository, migration, backup, and locale suites:
+  `TestPlainToneOption` & `TestEventMsgValidateAndReplaceAll` (`fuku/db/eventmsg`), `TestEventMessagePlainToneMigration*`
+  (`fuku/db/migrations`), `TestSetFloodActionPreserveOffAndGetFresh` (`fuku/db/antiflood`), `TestReplaceLadder` (`fuku/db/escalation`),
+  `TestReplaceDefaultsAndShortcuts` (`fuku/db/modtuning`), `TestReplaceAll` (`fuku/db/advthresholds`),
+  `TestEventMessagesStayOutOfBackup` (`fuku/db/backup`), and `fuku/i18n/settings_locale_test.go` + `TestEventMsgLocaleKeys`. Runtime,
+  UI, safeguard, and E2E suites in `fuku/modules`: `TestPlainToneEveryEventEveryLocale` & `TestPlainToneRuntime`
+  (`event_message_plain_test.go`), `TestEventMsgValidateWriteMatchesSettingsPage` & `TestCopySettingsMirrorAndExclusions`
+  (`copy_settings_test.go`), `TestSettingsCopyPage` (`settings_copy_test.go`), `TestPhase29Codes`, `TestPhase29ReadsCreateNothing`,
+  and `TestPhase29StaffPrivacyAndLogs` (`settings_phase29_test.go`), and `TestPhase29EndToEnd` (`phase29_e2e_test.go`).
+  Provisional owner decisions recorded for Phase 29:
+  - **P29-01 (Full Mirror on Copy):** Copying overwrites the target group's event messages and moderation tuning in scope to match the
+    source group completely; an empty or default source entry clears the target's custom message, switch, option, escalation ladder,
+    manual default, reason shortcuts, or advanced thresholds so the target ends up identical to the source across all 6 copied areas
+    (`chat_event_messages`, `chat_event_message_options`, `warns_settings`/`antiflood_settings`/`blacklists` action tuning,
+    `chat_escalation`, `chat_manual_defaults`/`chat_reason_shortcuts`, and `chat_advanced_thresholds`).
+  - **P29-02 (Authority in Both Groups):** Both source and target groups are verified live at ask (`ck`) and again at confirmed Yes
+    (`cy`) via `lockdownLiveMember` + `settingsGate` + `GetChatWithContext` (`group`/`supergroup` only) + fresh non-Staff-Group check
+    (failing closed on DB error). For non-creator admins admitted by `chat_settings_access`, target verification requires BOTH
+    `can_change_info` AND `can_restrict_members` in the target group; every target-side refusal returns the uniform opaque alert
+    `settings_pick_unavailable` revealing nothing about the target group.
+  - **P29-03 (Blacklist Action Without Copying Words):** Blacklist words themselves are never copied or deleted; only the source
+    group's blacklist action and timed duration (`action`, `action_secs`, or `"warn", 0` when the source has no blacklist words) are
+    applied to the target group's existing blacklist words (if any) via `blacklists.SetBlacklistActionTimedContext`.
+  - **P29-04 (Warns & Antiflood Tuning Scope):** Copy Settings copies `warns_settings` tuning (`warn_mode`, `warn_mode_secs`,
+    `warn_expiry_days` — preserving the target's `warn_limit` or default 3 and never touching `warns_users`) and `antiflood_settings`
+    tuning (`action`, `action_secs` via `antiflood.SetFloodActionPreserveOffContext` — preserving the target's `flood_limit` and
+    `delete_antiflood_message`, and inserting `flood_limit = 0` when the target has no row so antiflood is never accidentally enabled).
 
 ## Commits
 
