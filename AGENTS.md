@@ -151,6 +151,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - Phase 27 adds no drain: manual command defaults (`manualDefaultsFor`), reason shortcut expansion (`expandManualReason`) and
   appeal link lookup (`manualAppealURLFor`) start no goroutine and run inside the calling handler under bounded 2 s contexts,
   so the worst case above and `stop_grace_period: 75s` are unchanged.
+- Phase 28 adds zero goroutines and zero shutdown drains: `advThresholdsFor` (`fuku/modules/advthresholds.go`) runs synchronously
+  under a bounded 2 s context via the `skipLocal` Redis cache (`chat_advanced_thresholds:<chat>`), so the 70 s worst case and
+  `stop_grace_period: 75s` are unchanged.
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
 - The Turnstile web captcha is configured in `main` (`registerCaptchaWeb`) when `config.AppConfig.CaptchaWebConfigured()`
   holds: all four of `CAPTCHA_WEB_BASE_URL`, `TELEGRAM_MINI_APP_SHORT_NAME`, `TURNSTILE_SITE_KEY` and
@@ -1301,6 +1304,27 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `<code>word</code> → full text` via `settingsListEntry.Detail` and writes route through `applyReasonShortcutAdd` (non-overwriting)
   and `applyReasonShortcutRemoveByID` in `modtuning_settings.go`. With `q` and `rs` registered, Main has 27 registered pages total
   (15 owner rows / 12 full pairs for regular groups; Staff Group Main hides both `q` and `rs`).
+- The Advanced thresholds page (`settings_advthresholds.go`, page `av`, `Order` 81, icon `🎛`, `settings_page_advanced`, Phase 28,
+  TUNE-07) exposes all 12 tunable thresholds across 6 areas (`rw` Raid windows, `nm` New-member share & age, `ab` AI spam bars,
+  `mr` Member req cap & pause, `lr` Lockdown reminder, `ct` Captcha timeout), showing current value, default, and allowed range
+  with curated safe presets, per-item reset, and per-area reset. It is `PrivateOnly` (`PrivateNoteKey` `settings_adv_group_note`:
+  group menus make 0 DB reads) and `Hidden` in Staff Groups via fresh `settingsAdvStaffLookup`. Viewing `av`, `aa`, and `ao`
+  requires live `settingsRightAdmin` + the settings owner gate; writes and resets (`as`, `ar`, `ax`) require live
+  `settingsRightRestrict` (P28-03) and route through `applyAdvancedThreshold`, `resetAdvancedThreshold`, and `resetAdvancedArea`
+  (`advthresholds.go`). Action codes: `aa` (area screen, `k`), `ao` (item screen, `t`), `as` (set preset, `t`, `v`), `ar` (reset
+  item, `t`), `ax` (reset area, `k`); every `Validate` requires private field `c` and exact allow-listed codes/presets in step 1
+  (0 `getChatMember` calls and 0 DB reads on forged or group-menu presses). With `av` registered, Main has 28 registered pages
+  total (`settingsMainOwnerRows = 16`, Staff Group Main hides `av` too so `staffOwnerRows = settingsMainOwnerRows - 3`).
+  Runtime wiring keeps 0 extra DB round trips on warm message paths (`chat_advanced_thresholds:` is cached in Redis and listed in
+  `skipLocal`) and fails to compiled defaults on transient read errors (P28-04): all 5 `raidRecentWindow` sites (`recordRaidJoins`,
+  `recordRaidFloodItem`, `raidSnapshotFlooders`, `raidAICheckCandidate`, `raidSnapshotAISpammers`) plus join/flood/AI burst windows
+  use derived TTLs (`max(raidJoinedTTL, max(joinWindow, recentWindow)+1h)`, `max(raidFloodTTL, floodWindow*2)`,
+  `max(raidAITTL, aiWindow*2)`); `memberreq_ai.go` fixes cross-chat singleflight verdict leakage by returning raw `Probability` from
+  shared flight `"n:"+plan.key` and evaluating each caller's own `bar` (`memberReqAIBar` default `0.90`, `memberReqAIWatchSatisfiedBar`
+  in `memberreq_watch.go`); unset (`0`) columns preserve package-var test seams (`memberReqCapPerMinute`, `memberReqPause`,
+  `lockdownReminderEvery`); and Option A `captcha_timeout_mins` (`effectiveCaptchaTimeout` in `captcha.go` and `settings_captcha.go`,
+  P28-02) overrides `sendCaptcha` (`ExpiresAt`, Turnstile TTL, timeout timer, challenge text) and `/captcha` status while leaving
+  `captcha_settings.timeout` (`1..10` SQL CHECK), `/captchatime`, the Captcha page stepper, and `/export` untouched.
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
@@ -3278,6 +3302,16 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `WHERE id = ? AND chat_id = ? RETURNING word`. Both cache prefixes `chat_manual_defaults:` and `chat_reason_shortcuts:` are
   listed in `skipLocal` (`fuku/db/cache/local.go`) so changes take effect on the very next command on every replica
   (`TestSkipLocalManualDefaultsKey`, `TestSkipLocalReasonShortcutsKey`).
+- `chat_advanced_thresholds` (migration `20261123120000_add_advanced_thresholds.sql`, Phase 28 plan 28-02, TUNE-07, model in
+  `fuku/db/models/advthresholds.go`, repository in `fuku/db/advthresholds/repository.go`) stores per-group advanced detection and
+  screening thresholds (`pk_chat_advanced_thresholds` on `chat_id`, no foreign key on `chats`, excluded from backup/export/import/reset,
+  `TestAdvThresholdsExcludedFromBackup`). All 12 integer threshold columns default to `0` (`0` = unset / compiled constant) with 12
+  inline named `CHECK` constraints (`col = 0 OR col BETWEEN min AND max`) mirrored in Go `SpecFor` bounds and GORM tags. Reads
+  (`Get`/`GetFresh`) create no rows; writes (`SetField`, `ResetField`, `ResetArea`) validate bounds before any DB write, use
+  column-targeted `ON CONFLICT (chat_id) DO UPDATE` so concurrent edits to different fields never clobber each other, and drop the
+  cache key (`ResetAll` deletes the row and drops the key). The prefix `chat_advanced_thresholds:` is listed in `skipLocal`
+  (`fuku/db/cache/local.go`, `TestSkipLocalAdvancedThresholdsKey`) so changes act on the next relevant event on every replica with
+  0 DB round trips on warm hot paths.
 - `UpdateRecord` skips zero values. Use `UpdateRecordWithZeroValues` to write `false`/`0`/`""`. Both return
   `gorm.ErrRecordNotFound` when no row matched.
 - Check `TableName()` before raw SQL: `ConnectionSettings→connection` (per user), `ConnectionChatSettings→
@@ -6985,6 +7019,41 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   - **P27-05:** Both Manual defaults (`q`) and Reason shortcuts (`rs`) are `PrivateOnly` and `Hidden` in Staff Groups, enforce live
     `settingsRightRestrict` on all writes and `settingsRightAdmin` on read/view/duration/pager/Cancel actions, and both tables stay
     outside backup/export/import/reset (Phase 30 decides).
+- Phase 28 test families (advanced thresholds; TUNE-07, MSG-11, EVT-10). The immutable MSG-11 golden
+  `TestLegacyPhase28DefaultThresholds` (`fuku/modules/advthresholds_phase28_legacy_request_test.go`, plan 28-01, pinning unchanged
+  default raid join/flood/AI windows, new-member share/floor/24 h age, `raidAIImageBar` 0.85, `memberReqAIBar` 0.90, member-req
+  10/min cap & 10-min pause, 1-hour `lockdownReminderEvery`, and default captcha timeout) was recorded alone before any production
+  change and is never re-recorded. The drift guard `TestAdvancedThresholdDefaultsMatchConstants` (`fuku/modules/advthresholds_raid_test.go`)
+  compares every `models.Default*` constant and zero-`Thresholds` resolver against the live compiled module constants so any constant
+  drift fails immediately. Repository, cache, migration, backup, and locale suites: `fuku/db/advthresholds`,
+  `TestSkipLocalAdvancedThresholdsKey` (`fuku/db/cache`), `TestAdvancedThresholdsMigration*` (`fuku/db/migrations`),
+  `TestAdvThresholdsExcludedFromBackup` (`fuku/db/backup`), and `fuku/i18n/settings_locale_test.go`. Runtime wiring, UI, safeguard,
+  and E2E suites in `fuku/modules`: `TestAdvancedThresholdsRaidWiring` (`advthresholds_raid_test.go`),
+  `TestAdvancedThresholdsAIAndMemberReq` (`advthresholds_ai_mreq_test.go`), `TestAdvancedThresholdsLockdownAndCaptcha`
+  (`advthresholds_lockdown_captcha_test.go`), `TestSettingsAdvancedThresholds` (`settings_advthresholds_test.go`),
+  `TestPhase28Codes`, `TestPhase28ReadsCreateNothing`, and `TestPhase28StaffPrivacyAndLogs` (`settings_phase28_test.go`), and
+  `TestAdvancedThresholdsEndToEnd` (`advthresholds_e2e_test.go`, in-process miniredis real-dispatcher proof across UI edits, live
+  flood lockdown, lockdown reminder, extended captcha timeout, and resets).
+  Provisional owner decisions recorded for Phase 28:
+  - **P28-01:** Storing `0` in any `chat_advanced_thresholds` column means unset/compiled default; selecting a threshold's default
+    preset in `applyAdvancedThreshold` normalizes storage back to `0`. Safe bounds: `raid_join_window_secs` `15..600` (default `60`),
+    `raid_flood_window_secs` `10..300` (default `30`), `raid_ai_window_secs` `30..900` (default `120`), `raid_flood_new_percent`
+    `20..100` (default `60`), `raid_flood_min_accounts` `2..20` (default `3`), `raid_recent_hours` `1..168` (default `24`),
+    `raid_ai_image_bar_pct` `50..99` (default `85` = `0.85`), `member_req_ai_bar_pct` `50..99` (default `90` = `0.90`),
+    `member_req_cap_per_min` `3..100` (default `10`), `member_req_pause_mins` `1..60` (default `10`), `lockdown_reminder_mins`
+    `15..1440` (default `60`), `captcha_timeout_mins` `0` or `11..60` (default `0`, deferring to `captcha_settings.timeout`).
+  - **P28-02:** Extended captcha timeout above 10 minutes uses Option A (`chat_advanced_thresholds.captcha_timeout_mins` `11..60`,
+    `0` = unset) overriding `sendCaptcha` (`ExpiresAt`, Turnstile challenge TTL, timeout timer, challenge text) and displaying the
+    effective timeout in `/captcha` status and `settings_captcha` body while leaving `captcha_settings.timeout` (`1..10` SQL CHECK),
+    `/captchatime`, the Captcha page 1..10 stepper, and `/export` untouched; resetting `ctm` restores `captcha_settings.timeout`
+    without clobbering it.
+  - **P28-03:** Viewing Advanced (`av`), area (`aa`), and item (`ao`) screens requires live `settingsRightAdmin` + the settings
+    owner gate (private chat only, hidden in Staff Groups); writing or resetting (`as`, `ar`, `ax`) requires live
+    `settingsRightRestrict` (group creator or `can_restrict_members`), and `chat_advanced_thresholds` stays outside
+    backup/export/import/reset.
+  - **P28-04:** On transient `advThresholdsLookup` errors, hot paths log one IDs-only debug/warn line (never chat titles or user
+    text) and fall back to zero `advthresholds.Thresholds{}` (compiled defaults) so a transient DB fault never disables raid
+    detection, screening, reminders, or captcha.
 
 ## Commits
 
