@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.2
 milestone_name: Conversations, Custom Messages and Tuning
-current_phase: 27
-current_phase_name: Manual Command Defaults, Reason Shortcuts and Appeal Button
-status: verifying
-stopped_at: Completed 27-07-PLAN.md
-last_updated: "2026-11-23T03:48:14.821Z"
-last_activity: 2026-11-22
-last_activity_desc: Phase 27 execution started
-state_head: 5fbf4d85058afccb9534ebce4264a04b6f07c301
+current_phase: 28
+current_phase_name: Advanced Thresholds
+status: executing
+stopped_at: Completed 28-01-PLAN.md
+last_updated: "2026-11-23T08:50:39.483Z"
+last_activity: 2026-11-23
+last_activity_desc: Phase 28 execution started
+state_head: 48d5c240b8aa869e2f0ab958c1902afd24957772
 progress:
   total_phases: 11
   completed_phases: 1
-  total_plans: 63
-  completed_plans: 63
+  total_plans: 69
+  completed_plans: 64
   percent: 9
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-22)
 
 **Core value:** My trusted staff can protect every one of my communities from one place. We act on a bad actor across all groups at once, and the bot never lets anyone act in a group where they aren't an admin.
-**Current focus:** Phase 27 — Manual Command Defaults, Reason Shortcuts and Appeal Button
+**Current focus:** Phase 28 — Advanced Thresholds
 
 ## Current Position
 
-Phase: 27 (Manual Command Defaults, Reason Shortcuts and Appeal Button) — EXECUTING
-Plan: 7 of 7
-Status: Phase complete — ready for verification
-Last activity: 2026-11-22 — Phase 27 execution started
+Phase: 28 (Advanced Thresholds) — EXECUTING
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-11-23 — Phase 28 execution started
 
 Progress: [█░░░░░░░░░] 9%
 
@@ -203,6 +203,7 @@ Progress: [█░░░░░░░░░] 9%
 | Phase 27 P05 | 23min | 3 tasks | 15 files |
 | Phase 27 P06 | 22min | 3 tasks | 15 files |
 | Phase 27-manual-command-defaults-reason-shortcuts-and-appeal-button P07 | 22min | 3 tasks | 3 files |
+| Phase 28-advanced-thresholds P01 | 9min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -444,8 +445,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T03:48:14.221Z
-Stopped at: Completed 27-07-PLAN.md
+Last session: 2026-11-23T08:50:38.851Z
+Stopped at: Completed 28-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
