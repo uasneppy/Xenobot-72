@@ -148,6 +148,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   are unchanged and `main.go` registers nothing for them.
 - Phase 26 adds no drain: the escalation ladder's resolver (`escalate`) starts no goroutine and the offence count runs inside the
   calling handler under its own 2 s context, so the worst case above and `stop_grace_period: 75s` are unchanged.
+- Phase 27 adds no drain: manual command defaults (`manualDefaultsFor`), reason shortcut expansion (`expandManualReason`) and
+  appeal link lookup (`manualAppealURLFor`) start no goroutine and run inside the calling handler under bounded 2 s contexts,
+  so the worst case above and `stop_grace_period: 75s` are unchanged.
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
 - The Turnstile web captcha is configured in `main` (`registerCaptchaWeb`) when `config.AppConfig.CaptchaWebConfigured()`
   holds: all four of `CAPTCHA_WEB_BASE_URL`, `TELEGRAM_MINI_APP_SHORT_NAME`, `TURNSTILE_SITE_KEY` and
@@ -1275,6 +1278,29 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestSettingsEscalationPageFitsEveryLocale` (`settings_escalation_test.go`, `settings_escalation_screens_test.go`, `escalation_settings_test.go` for
   the apply functions' `TestEscalationApply`) hold it. With the page Main has 24 state lines for the owner (`n|j` in the grid)
   and a Staff Group's Main hides it like Deletion and Messages.
+- The Manual defaults page (`settings_moddefaults.go`, page `q`, `Order` 41, icon ⚖️, `settings_page_moddefaults`, Phase 27 plan 27-05,
+  TUNE-04, TUNE-06) lets the owner or an allowed admin configure default `/ban` and `/mute` durations (Off/Permanent or the 8
+  `settingsDurationPresets`), the reason-required toggle, and the ban appeal link. It is `PrivateOnly` (`PrivateNoteKey`
+  `settings_moddef_group_note`: group Main shows `In private` with 0 DB reads) and `Hidden` in Staff Groups via fresh
+  `settingsModDefaultsStaffLookup`. Action codes: `md` (duration screen, `k` `b`|`m`, `settingsRightAdmin`), `mt` (set duration,
+  `k` `b`|`m`, `v` `0` or preset, `settingsRightRestrict`), `mr` (reason-required toggle, `v` `0`|`1`, `settingsRightRestrict`),
+  `ma` (prompt appeal link, `settingsRightRestrict`), `mc` (cancel appeal wait, `t` `"a"`, `settingsRightAdmin`), `mx` (remove
+  appeal link, `settingsRightRestrict`). Every `Validate` requires the private owner field `c` in step 1 (0 `getChatMember` calls
+  on forged or group-menu presses). The typed appeal wait registers `settingsTypedPages["q"]` (`Part: "a"`, `CancelCode: "mc"`,
+  `Right: settingsRightRestrict`, `WaitEndedKey: "settings_moddef_appeal_wait_ended"` — using the optional `WaitEndedKey` on
+  `settingsTypedPage` with fallback to `settings_tz_wait_ended_note` in `settings_input_door.go`). Writes route through
+  `applyDefaultBanSecs`, `applyDefaultMuteSecs`, `applyReasonRequired`, and `applyAppealURL` in `modtuning_settings.go`; stored
+  appeal URLs are displayed truncated to 64 runes and HTML-escaped, never written to callback data or logs.
+- The Reason shortcuts page (`settings_reasons.go`, page `rs`, `Order` 45, icon 🏷, `settings_page_reasons`, Phase 27 plan 27-06,
+  TUNE-05) is a private-only table of the v1.1 list engine (`settings_list.go`) `Hidden` in Staff Groups via fresh
+  `settingsReasonsStaffLookup`, with `Right: settingsRightRestrict`, `CountMax: 50`, and action codes `sg` (pager), `sx` (delete
+  ask), `sy` (delete confirm), `sa` (add), and `sc` (cancel). It uses the plain-text Step 2 mode (`CheckPlain`/`ApplyPlain`) on
+  `settingsListTwoStep` (`settings_list_input.go`, static parts `{rs, w, 1, r}` and `{rs, r, 2}`, skipping
+  `settings_entries_wait_content_limits` when `ApplyPlain != nil` so Filters and Notes stay byte-identical), sharing the exact
+  `StepMsgID` redelivery guard, fresh re-check before claim, and atomic claim/finish/release flow. Entries render as escaped
+  `<code>word</code> → full text` via `settingsListEntry.Detail` and writes route through `applyReasonShortcutAdd` (non-overwriting)
+  and `applyReasonShortcutRemoveByID` in `modtuning_settings.go`. With `q` and `rs` registered, Main has 27 registered pages total
+  (15 owner rows / 12 full pairs for regular groups; Staff Group Main hides both `q` and `rs`).
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
@@ -3238,6 +3264,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   rows. The counts are read only by that upsert, never cached (so no `DeleteCache` applies) and never part of backup, export,
   import or reset. No worker or sweep prunes them: a count is forgotten by comparison inside the upsert, and the rows of members
   who never offend again stay, bounded by the members ever punished while the ladder was on (accepted, D-27).
+- `chat_manual_defaults` and `chat_reason_shortcuts` (migration `20261122150000_add_manual_command_tuning.sql`, Phase 27 plan 27-02,
+  TUNE-04..TUNE-06, models in `fuku/db/models/modtuning.go`, repository in `fuku/db/modtuning/repository.go`) store per-group manual
+  command tuning with no foreign keys and stay outside backup, export, import, and reset (`TestModTuningExcludedFromBackup`; Phase 30
+  decides). `chat_manual_defaults` holds one row per chat (`pk_chat_manual_defaults`): `default_ban_secs` and `default_mute_secs`
+  (`0` or `BETWEEN 60 AND 31622400`), `reason_required` (`BOOLEAN NOT NULL DEFAULT FALSE`, no GORM `default:` tag), `appeal_url`
+  (`TEXT NOT NULL DEFAULT ''`), `updated_by`, `updated_at`; reads (`GetDefaults`/`GetDefaultsFresh`) create nothing, writes
+  (`SetDefaultBanSecs`, `SetDefaultMuteSecs`, `SetReasonRequired`, `SetAppealURL`) use column-targeted `ON CONFLICT (chat_id) DO
+  UPDATE` so concurrent edits to different fields never clobber each other, and drop the cache key. `chat_reason_shortcuts` holds
+  up to 50 shortcuts per chat (`id BIGSERIAL PRIMARY KEY`, `chat_id`, `word VARCHAR(64)` normalised trimmed/lower-case single word
+  `<= 32` runes with `uk_chat_reason_shortcuts_word (chat_id, word)`, `reason TEXT` `1..500` runes, `created_by`, `created_at`);
+  `AddShortcut` uses `ON CONFLICT (chat_id, word) DO NOTHING` (never overwriting existing words) and `RemoveShortcutByID` scopes
+  `WHERE id = ? AND chat_id = ? RETURNING word`. Both cache prefixes `chat_manual_defaults:` and `chat_reason_shortcuts:` are
+  listed in `skipLocal` (`fuku/db/cache/local.go`) so changes take effect on the very next command on every replica
+  (`TestSkipLocalManualDefaultsKey`, `TestSkipLocalReasonShortcutsKey`).
 - `UpdateRecord` skips zero values. Use `UpdateRecordWithZeroValues` to write `false`/`0`/`""`. Both return
   `gorm.ErrRecordNotFound` when no row matched.
 - Check `TableName()` before raw SQL: `ConnectionSettings→connection` (per user), `ConnectionChatSettings→
@@ -6907,6 +6947,44 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   mute send exactly `goldenNoticeWarnLimitMute`, `goldenNoticeBlacklistMute` and `goldenNoticeFloodMute` with the case's IDs put in, every
   punishment has no end date and no offence row exists). `make test-shard-check` fails on a checkout path that holds a space (the script
   does not quote it); run it from a path without one.
+- Phase 27 test families (manual command defaults, reason shortcuts, and ban appeal button; TUNE-04..TUNE-06, MSG-11, EVT-10). The
+  immutable MSG-11 golden `TestLegacyPhase27ModerationRequests` (`fuku/modules/moderation_phase27_legacy_request_test.go`, plan 27-01,
+  15 exact `goldenP27*` request JSON constants across `/ban`, `/dban`, `/sban`, `/tban`, `/kick`, `/mute`, `/dmute`, `/smute`, `/tmute`,
+  `/warn`, `/dwarn`, `/swarn`) was recorded alone before any production change and is never re-recorded (alongside
+  `TestLegacyModerationRequests`, `TestLegacyPunishmentNoticeRequests`, and `TestLegacyScreeningNoticeRequests`). Repository, cache,
+  migration, backup, and locale suites: `fuku/db/modtuning`, `TestSkipLocalManualDefaultsKey` & `TestSkipLocalReasonShortcutsKey`
+  (`fuku/db/cache`), `TestManualCommandTuningMigration*` (`fuku/db/migrations`), `TestModTuningExcludedFromBackup` (`fuku/db/backup`),
+  and `fuku/i18n/settings_locale_test.go` + `TestSettingsListKeysExist`. Behavior, UI, safeguard, and E2E suites in `fuku/modules`:
+  `TestManualCommandDefaults` (`modtuning_commands_test.go`), `TestReasonShortcutValidationAndApply` & `TestReasonShortcutExpansion`
+  (`modtuning_reasons_test.go`), `TestAppealURLValidationAndApply` & `TestAppealButtonOnBanMessages` (`modtuning_appeal_test.go`),
+  `TestSettingsModDefaults` (`settings_moddefaults_test.go`), `TestSettingsReasons` (`settings_reasons_test.go`), `TestPhase27Codes`,
+  `TestPhase27ReadsCreateNothing`, and `TestPhase27StaffPrivacyAndLogs` (`settings_phase27_test.go`: all 11 codes map to `q`/`rs`,
+  all 27 registered pages exist, step-1 refusal of extra keys and group-menu presses with 0 `getChatMember`, 0 rows on read, zero
+  Staff Group/shortcut/appeal URL leakage into UI or logs, and Staff Group Main hiding), and `TestManualDefaultsEndToEnd`
+  (`modtuning_e2e_test.go`, real dispatcher proof across private `/settings` pages `q` & `rs` and group `/ban`, `/warn`, `/tban` with
+  PM copies and log channel, then clearing settings to restore permanent default `/ban`).
+  Provisional owner decisions recorded for Phase 27:
+  - **P27-01:** Default `/ban` duration (`default_ban_secs > 0`) applies to `/ban` (user target, not channel ban), `/dban`, and `/sban`
+    (`/ban` and `/dban` emit `EventTimedBan` with `Duration` and `Until`; `/sban` stays silent); default `/mute` duration applies
+    symmetrically to `/mute`, `/dmute`, and `/smute` (`/mute` and `/dmute` emit `EventTimedMute`); explicit `/tban` and `/tmute` keep
+    their explicit duration.
+  - **P27-02:** `reason_required` covers all 14 manual user-punishment commands (`/ban` user target, `/dban`, `/sban`, `/tban`, `/kick`,
+    `/dkick`, `/skick`, `/mute`, `/dmute`, `/smute`, `/tmute`, `/warn`, `/dwarn`, `/swarn`), checked after duration extraction on
+    `/tban`/`/tmute` and refused via `replyValidationError` (`moddef_reason_required`, not queued under `bot:punish_manual`) before any
+    message deletion or punishment; channel `/ban`, `/unban`, `/unmute`, `/kickme`, automatic rules (`warnSourceAuto`), and Staff Group
+    commands are untouched.
+  - **P27-03:** Reason shortcut words are trimmed and lower-cased single words (no whitespace, no leading `/`, `<= 32` runes); full
+    reasons are trimmed plain text `1..500` runes; cap is 50 shortcuts per group; duplicates are refused without overwriting; expansion
+    matches exact single-word manual reasons case-insensitively and leaves multi-word or unknown reasons untouched (never touching
+    automatic rules or Staff Group actions).
+  - **P27-04:** Appeal button (`eventmsg_btn_appeal`) attaches to `EventBan`, `EventTimedBan`, `EventReqBan`, and automatic ban outcomes
+    (`EventWarnLimit`, `EventFlood`, `EventBlacklist`, `EventForwardBlock`, `EventCaptcha` when applied action is `ban` or effective
+    `tban`) plus their PM copies (including refused-custom PM fallbacks) as a single-button row after custom buttons within Telegram's
+    100-button limit (`EventBan` reserves 2, `EventTimedBan`/PM defs reserve 1); channel bans, silent bans, non-ban events, lockdowns,
+    and Staff Group actions never carry it.
+  - **P27-05:** Both Manual defaults (`q`) and Reason shortcuts (`rs`) are `PrivateOnly` and `Hidden` in Staff Groups, enforce live
+    `settingsRightRestrict` on all writes and `settingsRightAdmin` on read/view/duration/pager/Cancel actions, and both tables stay
+    outside backup/export/import/reset (Phase 30 decides).
 
 ## Commits
 
