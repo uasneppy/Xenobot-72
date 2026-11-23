@@ -5,16 +5,16 @@ milestone_name: Conversations, Custom Messages and Tuning
 current_phase: 28
 current_phase_name: Advanced Thresholds
 status: executing
-stopped_at: Completed 28-02-PLAN.md
-last_updated: "2026-11-23T09:11:04.726Z"
+stopped_at: Completed 28-03-PLAN.md
+last_updated: "2026-11-23T09:21:57.115Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 28 execution started
-state_head: f96d4b74633af10be59008232ac92cbc4555ecf8
+state_head: 07239e3141e8887952a047f5b7c456c97cad20a3
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 69
-  completed_plans: 65
+  completed_plans: 66
   percent: 9
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 28 (Advanced Thresholds) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 28 execution started
 
@@ -205,6 +205,7 @@ Progress: [█░░░░░░░░░] 9%
 | Phase 27-manual-command-defaults-reason-shortcuts-and-appeal-button P07 | 22min | 3 tasks | 3 files |
 | Phase 28-advanced-thresholds P01 | 9min | 2 tasks | 1 files |
 | Phase 28 P02 | 10min | 3 tasks | 19 files |
+| Phase 28 P03 | 9min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -326,6 +327,8 @@ Recent decisions affecting current work:
 - [Phase 27-manual-command-defaults-reason-shortcuts-and-appeal-button]: Documented Phase 27 tables, skipLocal prefixes, pages q & rs, action codes, zero shutdown drain, TestLegacyPhase27ModerationRequests golden, and provisional decisions P27-01..P27-05 in AGENTS.md
 - [Phase 28]: P28-01: chat_advanced_thresholds stores 0 for default and applyAdvancedThreshold normalizes submitted default values to 0
 - [Phase 28]: P28-04: advThresholdsFor bounds hot-path lookups to 2 s and falls back to compiled defaults on transient read errors
+- [Phase 28]: 28-03: memberReqAIJudge returns raw Probability (HasProbability, Fresh) from cross-chat singleflight; memberReqAIRule evaluates per-caller advMemberReqAIBar (T-28-06)
+- [Phase 28]: 28-03: memberReqLookupCachedWith gates advMemberReqAIBar reads on rules.AI and passes cache.Context to preserve the 2s read timeout (T-28-07)
 
 ### Pending Todos
 
@@ -448,8 +451,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T09:11:03.978Z
-Stopped at: Completed 28-02-PLAN.md
+Last session: 2026-11-23T09:21:56.360Z
+Stopped at: Completed 28-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
