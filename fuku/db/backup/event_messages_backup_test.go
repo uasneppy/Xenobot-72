@@ -45,6 +45,7 @@ func TestEventMessagesStayOutOfBackup(t *testing.T) {
 	require.NoError(t, eventmsg.SetSilent(ctx, srcChat, eventmsg.EventBan, eventmsg.DestPM, false, 42))
 	require.NoError(t, eventmsg.SetPMDetails(ctx, srcChat, true, 42))
 	require.NoError(t, eventmsg.SetPMLog(ctx, srcChat, true, 42))
+	require.NoError(t, eventmsg.SetPlainTone(ctx, srcChat, true, 42))
 
 	countRows := func(chatID int64) int64 {
 		t.Helper()
@@ -77,7 +78,7 @@ func TestEventMessagesStayOutOfBackup(t *testing.T) {
 	raw, err := exported.ToJSON()
 	require.NoError(t, err)
 	for _, needle := range []string{"chat_event_messages", "CUSTOM-EVENT-TEXT", "CUSTOM-FILE-ID", "CUSTOM-BUTTON",
-		"CUSTOM-PM-TEXT", "chat_event_message_options", "pm_details", "pm_log"} {
+		"CUSTOM-PM-TEXT", "chat_event_message_options", "pm_details", "pm_log", "plain_tone"} {
 		assert.NotContains(t, string(raw), needle, "the export file carries no event message (%s)", needle)
 	}
 	decoded, err := BackupFormatFromJSON(raw)
@@ -100,5 +101,5 @@ func TestEventMessagesStayOutOfBackup(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "CUSTOM-PM-TEXT", pm.Text, "a reset leaves the private copy's text as it was")
 	assert.False(t, pm.Silent, "a reset leaves the private copy's switch as it was")
-	assert.Equal(t, eventmsg.Options{PMDetails: true, PMLog: true}, kept.Options, "a reset leaves the options as they were")
+	assert.Equal(t, eventmsg.Options{PMDetails: true, PMLog: true, PlainTone: true}, kept.Options, "a reset leaves the options as they were")
 }

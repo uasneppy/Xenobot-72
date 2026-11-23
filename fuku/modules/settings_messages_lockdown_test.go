@@ -52,7 +52,7 @@ func TestSettingsMessagesLockdownFamily(t *testing.T) {
 			t.Errorf("the hub %q does not draw the bold 🚨 Lockdown section after the Member requirements one and before the private copies", text)
 		}
 		settingsMsgWantLockdownStates(t, text, nil)
-		settingsMsgWantWidths(t, "the hub", keyboard, 2, 2, 1, 1, 2)
+		settingsMsgWantWidths(t, "the hub", keyboard, 2, 2, 1, 1, 1, 2)
 
 		cell, ok := settingsMsgButtonWith(t, keyboard, "a", settingsActMsgFamily, "t", "l")
 		if !ok || !strings.HasPrefix(cell.Text, "🚨 ") || !containsMarker(cell.Text, "settings_msg_fam_lockdown") ||

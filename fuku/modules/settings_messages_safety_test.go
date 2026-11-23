@@ -34,6 +34,7 @@ var settingsMsgValidPresses = map[string][]string{
 	// Phase 22: the private copy's switch, the hub's option toggle and the d=p form of every event and editor code.
 	settingsActMsgPM:               {"a", settingsActMsgPM, settingsMsgEventField, "bn", "v", "1"},
 	settingsActMsgPMOption:         {"a", settingsActMsgPMOption, "t", "d", "v", "1"},
+	settingsActMsgPlainTone:        {"a", settingsActMsgPlainTone, "v", "1"},
 	settingsActMsgEvent + " d=p":   {"a", settingsActMsgEvent, settingsMsgEventField, "bn", settingsMsgDestField, settingsMsgDestPMCode},
 	settingsActMsgSet + " d=p":     {"a", settingsActMsgSet, "t", settingsEditPartText, settingsMsgEventField, "bn", settingsMsgDestField, settingsMsgDestPMCode},
 	settingsActMsgRemove + " d=p":  {"a", settingsActMsgRemove, "t", settingsEditPartText, settingsMsgEventField, "bn", settingsMsgDestField, settingsMsgDestPMCode},
@@ -171,13 +172,15 @@ func settingsMsgForgedPresses() []settingsMsgForgedPress {
 			forged = append(forged, settingsMsgForgedPress{name: name + " of an unknown family", kv: settingsMsgWith(kv, "t", "z")})
 		case settingsActMsgPMOption:
 			forged = append(forged, settingsMsgForgedPress{name: name + " of an unknown option", kv: settingsMsgWith(kv, "t", "x")})
+		case settingsActMsgPlainTone:
+			// ht carries only v (checked in the switch below).
 		default:
 			forged = append(forged, settingsMsgForgedPress{name: name + " of an unknown event", kv: settingsMsgWith(kv, settingsMsgEventField, "zz")})
 		}
 		switch code {
 		case settingsActMsgSet, settingsActMsgRemove, settingsActMsgCancel, settingsActMsgPreview:
 			forged = append(forged, settingsMsgForgedPress{name: name + " of an unknown part", kv: settingsMsgWith(kv, "t", "q")})
-		case settingsActMsgSilent, settingsActMsgPM, settingsActMsgPMOption:
+		case settingsActMsgSilent, settingsActMsgPM, settingsActMsgPMOption, settingsActMsgPlainTone:
 			forged = append(forged, settingsMsgForgedPress{name: name + " with v=2", kv: settingsMsgWith(kv, "v", "2")})
 		}
 		if slicesContainsKey(kv, settingsMsgDestField) {

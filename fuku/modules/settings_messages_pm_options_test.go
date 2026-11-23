@@ -16,6 +16,8 @@ import (
 	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/logchannels"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
+	"github.com/uasneppy/fuku_robot/fuku/i18n"
+	"github.com/uasneppy/fuku_robot/fuku/utils/media"
 )
 
 // The private copies block of the Messages hub (plans 22-06 and 22-07, D-24, D-25): the Details and log options'
@@ -117,7 +119,7 @@ func TestSettingsMessagesPMOptions(t *testing.T) {
 					t.Errorf("the hub %q does not read the %s option Off", text, each.name)
 				}
 			}
-			settingsMsgWantWidths(t, "the hub", keyboard, 2, 2, 1, 1, 2)
+			settingsMsgWantWidths(t, "the hub", keyboard, 2, 2, 1, 1, 1, 2)
 			toggle, fields := settingsMsgOptionToggle(t, keyboard, opt)
 			if fields["v"] != "1" || fields["c"] != strconv.FormatInt(env.chat.Id, 10) {
 				t.Errorf("the %s toggle carries %v, want v=1 for chat %d", opt.name, fields, env.chat.Id)
@@ -145,7 +147,7 @@ func TestSettingsMessagesPMOptions(t *testing.T) {
 			if !strings.Contains(text, settingsMsgOptionLine(opt, true)) || containsMarker(text, "common_settings_save_failed") {
 				t.Errorf("the redraw %q is not the hub reading %s On with no notice", text, opt.name)
 			}
-			settingsMsgWantWidths(t, "the redrawn hub", keyboard, 2, 2, 1, 1, 2)
+			settingsMsgWantWidths(t, "the redrawn hub", keyboard, 2, 2, 1, 1, 1, 2)
 			if _, fields := settingsMsgOptionToggle(t, keyboard, opt); fields["v"] != "0" {
 				t.Errorf("the redrawn toggle carries %v, want v=0", fields)
 			}
@@ -197,6 +199,243 @@ func TestSettingsMessagesPMOptions(t *testing.T) {
 			})
 		})
 	}
+
+	t.Run("plain tone switch and authority", func(t *testing.T) {
+		env := newSettingsMsgEnv(t)
+		listEditAdmin(env.settingsEnv, env.chat, env.admin, true)
+
+		if settingsMsgSendPathOptions(t, env.chat.Id).PlainTone {
+			t.Fatal("PlainTone reads on before any press")
+		}
+		m, text, keyboard := settingsMsgOpenPrivate(env, env.admin)
+		for _, key := range []string{"settings_msg_line_plain_tone", "settings_msg_hint_plain_tone"} {
+			if !containsMarker(text, key) {
+				t.Errorf("the hub %q lacks %s", text, key)
+			}
+		}
+		toggle, ok := settingsMsgButtonWith(t, keyboard, "a", settingsActMsgPlainTone)
+		if !ok {
+			t.Fatalf("the hub has no Plain tone toggle: %+v", keyboard)
+		}
+		fields := settingsButtonFields(t, toggle)
+		if fields["v"] != "1" || fields["c"] != strconv.FormatInt(env.chat.Id, 10) {
+			t.Errorf("Plain tone toggle fields = %v, want v=1 for chat %d", fields, env.chat.Id)
+		}
+		if len(toggle.CallbackData) > 64 {
+			t.Errorf("Plain tone toggle callback data is %d bytes, over 64", len(toggle.CallbackData))
+		}
+
+		// Seed PMDetails=true first to prove ht never clobbers sibling option columns.
+		if err := eventmsg.SetPMDetails(context.Background(), env.chat.Id, true, 1); err != nil {
+			t.Fatalf("SetPMDetails(true): %v", err)
+		}
+
+		text, keyboard = m.pressButton(toggle)
+		row, exists := settingsMsgStoredOptions(t, env.chat.Id)
+		if !exists || !row.PlainTone || !row.PMDetails || row.PMLog || row.UpdatedBy != env.admin.Id {
+			t.Fatalf("options row after ht v=1 = %+v (exists=%v), want PlainTone=true, PMDetails=true, PMLog=false", row, exists)
+		}
+		settingsMsgWantWidths(t, "the redrawn hub after ht", keyboard, 2, 2, 1, 1, 1, 2)
+		toggleOff, ok := settingsMsgButtonWith(t, keyboard, "a", settingsActMsgPlainTone)
+		if !ok || settingsButtonFields(t, toggleOff)["v"] != "0" {
+			t.Fatalf("redrawn Plain tone toggle = %+v, want v=0", toggleOff)
+		}
+		if !settingsMsgSendPathOptions(t, env.chat.Id).PlainTone {
+			t.Error("send path still reads PlainTone=false after ht v=1")
+		}
+
+		// Main line reports settings_state_msg_plain when no custom event messages exist.
+		mainText, _ := m.press("a", settingsActBack)
+		if line, ok := settingsMainStateLine(mainText, "settings_page_msgs"); !ok || !containsMarker(line, "settings_state_msg_plain") {
+			t.Errorf("Main Messages line with PlainTone=true = %q (ok=%v), want settings_state_msg_plain", line, ok)
+		}
+
+		// Admin without can_change_info cannot toggle Plain tone.
+		listEditAdmin(env.settingsEnv, env.chat, env.admin, false)
+		env.pressPrivate(env.admin, env.updateID(), env.privateFields(env.chat.Id, "a", settingsActMsgPlainTone, "v", "0"))
+		if answer, alert := env.lastAnswer(); !alert || !containsMarker(answer, "settings_no_change_info") {
+			t.Errorf("ht without can_change_info answered %q (alert %v), want settings_no_change_info", answer, alert)
+		}
+		if row, _ := settingsMsgStoredOptions(t, env.chat.Id); !row.PlainTone {
+			t.Error("refused ht without can_change_info flipped PlainTone off")
+		}
+
+		// Group menu press and forged v=2 are refused in step 1 with 0 Telegram lookups.
+		listEditAdmin(env.settingsEnv, env.chat, env.admin, true)
+		groupMsgID := env.openMenu(env.admin)
+		lookups := env.memberLookupsOf(env.chat.Id, env.admin.Id)
+		env.press(env.admin, groupMsgID, env.groupFields(env.admin, "a", settingsActMsgPlainTone, "v", "0"))
+		if got := settingsEditLastAnswer(env.settingsEnv); !containsMarker(got, "common_callback_invalid_request") {
+			t.Errorf("group ht answered %q, want invalid request", got)
+		}
+		env.pressPrivate(env.admin, env.updateID(), env.privateFields(env.chat.Id, "a", settingsActMsgPlainTone, "v", "2"))
+		if got := settingsEditLastAnswer(env.settingsEnv); !containsMarker(got, "common_callback_invalid_request") {
+			t.Errorf("ht v=2 answered %q, want invalid request", got)
+		}
+		if got := env.memberLookupsOf(env.chat.Id, env.admin.Id) - lookups; got != 0 {
+			t.Errorf("refused ht presses made %d member lookups, want 0", got)
+		}
+
+		// Failed write redraws stored state with save-failed notice.
+		mreqSwap(t, &eventMsgWrites.PlainTone, func(context.Context, int64, bool, int64) error {
+			return errors.New("plain tone write failed")
+		})
+		failText, _ := m.press("a", settingsActMsgPlainTone, "v", "0")
+		if !containsMarker(failText, "common_settings_save_failed") {
+			t.Errorf("failed ht drew %q, want common_settings_save_failed", failText)
+		}
+	})
+
+	t.Run("plain tone tracer ban group PM preview and custom override", func(t *testing.T) {
+		phase28InProcessMiniredis(t)
+		withFastPMCopyPacer(t)
+		t.Cleanup(pmCopyJobs.wait)
+
+		realEnv := &settingsMsgEnv{settingsEnv: newSettingsEnvWith(t, settingsEnvOptions{RealLocale: true})}
+		settingsMsgCleanup(t, realEnv.chat.Id)
+		listEditAdmin(realEnv.settingsEnv, realEnv.chat, realEnv.admin, true)
+		settingsEditSetLanguages(t, realEnv.admin.Id, "en", realEnv.chat.Id, "en")
+		tr := i18n.MustNewTranslator("en")
+
+		// Enable ban PM copy so the tracer verifies both group and PM outputs end-to-end.
+		if err := eventmsg.SetSilent(context.Background(), realEnv.chat.Id, eventmsg.EventBan, eventmsg.DestPM, false, 1); err != nil {
+			t.Fatalf("enable ban PM copy: %v", err)
+		}
+
+		// Toggle Plain tone ON through the Messages hub button (a=ht&v=1).
+		m, _, keyboard := settingsMsgOpenPrivate(realEnv, realEnv.admin)
+		toggleOn, ok := settingsMsgButtonWith(t, keyboard, "a", settingsActMsgPlainTone)
+		if !ok {
+			t.Fatalf("hub lacks Plain tone button: %+v", keyboard)
+		}
+		_, keyboard = m.pressButton(toggleOn)
+		if !settingsMsgSendPathOptions(t, realEnv.chat.Id).PlainTone {
+			t.Fatal("PlainTone is not enabled after pressing ht v=1")
+		}
+
+		target := gotgbot.User{Id: 7001, FirstName: "Alice"}
+		reason := "spam"
+		banIn := eventDefaultInput{Target: target, Reason: reason}
+		wantPlainGroup := banPlainDefaultReply(tr, banIn)
+		if !strings.Contains(wantPlainGroup, "was banned.") || strings.Contains(wantPlainGroup, "🔨") || strings.Contains(wantPlainGroup, "🚫") {
+			t.Fatalf("unexpected plain group ban text: %q", wantPlainGroup)
+		}
+		spec, _ := eventPMSpecFor(eventmsg.EventBan)
+		wantPlainPM := eventPMDefaultText(tr, spec, &realEnv.chat, eventValues{Reason: reason}, "", true)
+		if !strings.Contains(wantPlainPM, "You were banned from <b>") || strings.Contains(wantPlainPM, "🚫") {
+			t.Fatalf("unexpected plain PM ban text: %q", wantPlainPM)
+		}
+
+		// 1. postEventSent with Plain tone ON emits plain group text AND plain PM text.
+		sendBan := func() (string, string) {
+			t.Helper()
+			var gotGroup string
+			pmMark := len(realEnv.fake.sentTo(target.Id))
+			defText, defOpts := banDefaultReply(tr, banIn)
+			site := eventSite{
+				Bot:   realEnv.bot,
+				Chat:  &realEnv.chat,
+				Tr:    tr,
+				Actor: eventActor{User: &realEnv.admin},
+				Kind:  "bot:punish_manual",
+				SendDefault: func(text string, _ *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+					gotGroup = text
+					return &gotgbot.Message{MessageId: 5001, Chat: realEnv.chat}, nil
+				},
+				SendCustom: func(msg media.GreetingMessage) (*gotgbot.Message, error) {
+					gotGroup = msg.Text
+					return &gotgbot.Message{MessageId: 5002, Chat: realEnv.chat}, nil
+				},
+				Schedule: func(*gotgbot.Message) {},
+			}
+			_, err := postEventSent(site, eventReply{
+				Event:        eventmsg.EventBan,
+				Target:       target,
+				Values:       eventValues{Reason: reason},
+				Default:      defText,
+				PlainDefault: func() string { return banPlainDefaultReply(tr, banIn) },
+				Opts:         defOpts,
+			})
+			if err != nil {
+				t.Fatalf("postEventSent(EventBan): %v", err)
+			}
+			waitEventPM(t)
+			pmSent := realEnv.fake.sentTo(target.Id)[pmMark:]
+			if len(pmSent) != 1 {
+				t.Fatalf("PM deliveries = %d, want 1", len(pmSent))
+			}
+			return gotGroup, fmt.Sprint(pmSent[0].Params["text"])
+		}
+
+		gotGroup, gotPM := sendBan()
+		if gotGroup != wantPlainGroup {
+			t.Errorf("Plain tone group ban = %q, want %q", gotGroup, wantPlainGroup)
+		}
+		if gotPM != wantPlainPM {
+			t.Errorf("Plain tone PM ban = %q, want %q", gotPM, wantPlainPM)
+		}
+
+		// 2. Full previews (group and PM) reflect Plain tone when no custom text is stored.
+		sampleReason, _ := tr.GetString("settings_msg_sample_reason")
+		wantGroupPreview := banPlainDefaultReply(tr, eventDefaultInput{Target: realEnv.admin, Reason: sampleReason})
+		previewGroup := gotgbot.Chat{Id: realEnv.chat.Id, Type: "supergroup", Title: "Test Chat"}
+		wantPMPreview := eventPMDefaultText(tr, spec, &previewGroup, eventValues{Reason: sampleReason}, "", true)
+
+		mark := settingsEditMarkSends(realEnv.settingsEnv, realEnv.admin.Id)
+		realEnv.pressPrivate(realEnv.admin, realEnv.updateID(), realEnv.privateFields(realEnv.chat.Id,
+			"a", settingsActMsgFull, settingsMsgEventField, "bn"))
+		sent := settingsEditNewSends(realEnv.settingsEnv, realEnv.admin.Id, mark, false)
+		if len(sent) != 2 || fmt.Sprint(rulesCallParams(t, sent[1])["text"]) != wantGroupPreview {
+			t.Errorf("group Full preview with PlainTone=true = %+v, want text %q", sent, wantGroupPreview)
+		}
+
+		mark = settingsEditMarkSends(realEnv.settingsEnv, realEnv.admin.Id)
+		realEnv.pressPrivate(realEnv.admin, realEnv.updateID(), realEnv.privateFields(realEnv.chat.Id,
+			"a", settingsActMsgFull, settingsMsgEventField, "bn", settingsMsgDestField, settingsMsgDestPMCode))
+		sent = settingsEditNewSends(realEnv.settingsEnv, realEnv.admin.Id, mark, false)
+		if len(sent) != 2 || fmt.Sprint(rulesCallParams(t, sent[1])["text"]) != wantPMPreview {
+			t.Errorf("PM Full preview with PlainTone=true = %+v, want text %q", sent, wantPMPreview)
+		}
+
+		// 3. Custom ban text overrides Plain tone in both group and PM sends and previews.
+		if err := eventmsg.SetText(context.Background(), realEnv.chat.Id, eventmsg.EventBan, eventmsg.DestGroup, "Custom group ban {first}", 1); err != nil {
+			t.Fatalf("SetText group ban: %v", err)
+		}
+		if err := eventmsg.SetText(context.Background(), realEnv.chat.Id, eventmsg.EventBan, eventmsg.DestPM, "Custom PM ban {first}", 1); err != nil {
+			t.Fatalf("SetText PM ban: %v", err)
+		}
+		gotGroup, gotPM = sendBan()
+		if gotGroup != "Custom group ban "+target.FirstName {
+			t.Errorf("custom group ban with PlainTone=true = %q, want custom override", gotGroup)
+		}
+		if gotPM != "Custom PM ban "+target.FirstName {
+			t.Errorf("custom PM ban with PlainTone=true = %q, want custom override", gotPM)
+		}
+
+		// 4. Removing custom text and toggling Plain tone OFF via ht v=0 restores TestLegacyPhase29Baseline byte-for-byte.
+		if err := eventmsg.SetText(context.Background(), realEnv.chat.Id, eventmsg.EventBan, eventmsg.DestGroup, "", 1); err != nil {
+			t.Fatalf("clear group ban text: %v", err)
+		}
+		if err := eventmsg.SetText(context.Background(), realEnv.chat.Id, eventmsg.EventBan, eventmsg.DestPM, "", 1); err != nil {
+			t.Fatalf("clear PM ban text: %v", err)
+		}
+		toggleOff, ok := settingsMsgButtonWith(t, keyboard, "a", settingsActMsgPlainTone)
+		if !ok || settingsButtonFields(t, toggleOff)["v"] != "0" {
+			t.Fatalf("hub lacks ht v=0 button: %+v", keyboard)
+		}
+		m.pressButton(toggleOff)
+		if settingsMsgSendPathOptions(t, realEnv.chat.Id).PlainTone {
+			t.Fatal("PlainTone is still on after pressing ht v=0")
+		}
+		gotGroup, gotPM = sendBan()
+		if gotGroup != goldenP29GroupDefaults[eventmsg.EventBan] {
+			t.Errorf("tone-off restored group ban = %q, want baseline %q", gotGroup, goldenP29GroupDefaults[eventmsg.EventBan])
+		}
+		wantBaselinePM := eventPMDefaultText(tr, spec, &realEnv.chat, eventValues{Reason: reason}, "", false)
+		if gotPM != wantBaselinePM {
+			t.Errorf("tone-off restored PM ban = %q, want %q", gotPM, wantBaselinePM)
+		}
+	})
 }
 
 // settingsMsgOptionEffect counts what a blocked copy's job did for the option after the /ban that punished member: the

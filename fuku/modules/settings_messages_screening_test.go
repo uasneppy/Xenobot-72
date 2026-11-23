@@ -51,7 +51,7 @@ func TestSettingsMessagesScreeningFamily(t *testing.T) {
 		}
 		settingsMsgWantAutoStates(t, text, nil)
 		settingsMsgWantReqStates(t, text)
-		settingsMsgWantWidths(t, "the hub", keyboard, 2, 2, 1, 1, 2)
+		settingsMsgWantWidths(t, "the hub", keyboard, 2, 2, 1, 1, 1, 2)
 
 		// Since Phase 25 the Member requirements cell opens the second row, beside the Lockdown family's cell.
 		cell, ok := settingsMsgButtonWith(t, keyboard, "a", settingsActMsgFamily, "t", "r")

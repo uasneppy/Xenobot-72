@@ -389,16 +389,19 @@ func TestEventMessagesUpsert(t *testing.T) {
 	t.Run("options writers never clobber", func(t *testing.T) {
 		chatID := freshChat(t)
 		var wg sync.WaitGroup
-		errs := make(chan error, 8)
-		for i := range 8 {
+		errs := make(chan error, 9)
+		for i := range 9 {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				if i%2 == 0 {
+				switch i % 3 {
+				case 0:
 					errs <- SetPMDetails(ctx, chatID, true, int64(i+1))
-					return
+				case 1:
+					errs <- SetPMLog(ctx, chatID, true, int64(i+1))
+				default:
+					errs <- SetPlainTone(ctx, chatID, true, int64(i+1))
 				}
-				errs <- SetPMLog(ctx, chatID, true, int64(i+1))
 			}()
 		}
 		wg.Wait()
@@ -419,8 +422,8 @@ func TestEventMessagesUpsert(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if msgs.Options != (Options{PMDetails: true, PMLog: true}) {
-			t.Errorf("options = %+v, want both on", msgs.Options)
+		if msgs.Options != (Options{PMDetails: true, PMLog: true, PlainTone: true}) {
+			t.Errorf("options = %+v, want all three options on", msgs.Options)
 		}
 	})
 }
@@ -674,6 +677,18 @@ func TestEventMessagesPM(t *testing.T) {
 		if got := mustOptions(t, chatID); got != (Options{PMLog: true}) {
 			t.Fatalf("after SetPMDetails false = %+v, want a Go false written and the log kept", got)
 		}
+		if err := SetPlainTone(ctx, chatID, true, 8); err != nil {
+			t.Fatalf("SetPlainTone true: %v", err)
+		}
+		if got := mustOptions(t, chatID); got != (Options{PMLog: true, PlainTone: true}) {
+			t.Fatalf("after SetPlainTone true = %+v, want plain tone on and pm_log kept without clobbering pm_details", got)
+		}
+		if err := SetPlainTone(ctx, chatID, false, 9); err != nil {
+			t.Fatalf("SetPlainTone false: %v", err)
+		}
+		if got := mustOptions(t, chatID); got != (Options{PMLog: true}) {
+			t.Fatalf("after SetPlainTone false = %+v, want a Go false written and pm_log kept", got)
+		}
 		if n := optionsRows(t, chatID); n != 1 {
 			t.Errorf("chat has %d options rows, want 1", n)
 		}
@@ -681,8 +696,8 @@ func TestEventMessagesPM(t *testing.T) {
 		if err := db.DB.Raw(`SELECT updated_by FROM chat_event_message_options WHERE chat_id = ?`, chatID).Scan(&by).Error; err != nil {
 			t.Fatal(err)
 		}
-		if by != 7 {
-			t.Errorf("updated_by = %d, want the last writer 7", by)
+		if by != 9 {
+			t.Errorf("updated_by = %d, want the last writer 9", by)
 		}
 		if n := rowCount(t, chatID); n != 0 {
 			t.Errorf("the option writers created %d message rows", n)
@@ -702,6 +717,7 @@ func TestEventMessagesPM(t *testing.T) {
 		}{
 			{"SetPMDetails", func() error { return SetPMDetails(ctx, chatID, true, 2) }, Options{PMDetails: true, PMLog: true}},
 			{"SetPMLog", func() error { return SetPMLog(ctx, chatID, false, 2) }, Options{PMDetails: true}},
+			{"SetPlainTone", func() error { return SetPlainTone(ctx, chatID, true, 2) }, Options{PMDetails: true, PMLog: true, PlainTone: true}},
 		}
 		for _, w := range writers {
 			msgs, err := Get(ctx, chatID)
@@ -713,8 +729,8 @@ func TestEventMessagesPM(t *testing.T) {
 			if err := db.DB.Exec(`DELETE FROM chat_event_message_options WHERE chat_id = ?`, chatID).Error; err != nil {
 				t.Fatal(err)
 			}
-			if err := db.DB.Exec(`INSERT INTO chat_event_message_options (chat_id, pm_details, pm_log, updated_by, updated_at)
-				VALUES (?, ?, ?, 0, ?)`, chatID, true, true, time.Now()).Error; err != nil {
+			if err := db.DB.Exec(`INSERT INTO chat_event_message_options (chat_id, pm_details, pm_log, plain_tone, updated_by, updated_at)
+				VALUES (?, ?, ?, ?, 0, ?)`, chatID, true, true, false, time.Now()).Error; err != nil {
 				t.Fatal(err)
 			}
 			cached, err := Get(ctx, chatID)

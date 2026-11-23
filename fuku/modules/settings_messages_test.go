@@ -79,8 +79,8 @@ func TestSettingsMessagesOpens(t *testing.T) {
 		t.Fatalf("Main has no 📨 Messages cell: %+v", mainKeyboard)
 	}
 
-	// The hub: intro, the four family headings, the event lines with their states, the private copies block,
-	// [2] [2] [1] [1] [2] (the Member requirements and Lockdown family cells share the second row since Phase 25).
+	// The hub: intro, the four family headings, the event lines with their states, Plain tone and the private copies block,
+	// [2] [2] [1] [1] [1] [2] (the Member requirements and Lockdown family cells share the second row since Phase 25).
 	text, keyboard := m.pressButton(cell)
 	for _, key := range []string{"settings_msg_intro", "settings_msg_fam_manual", "settings_msg_fam_auto", "settings_msg_fam_mreq", "settings_msg_fam_lockdown"} {
 		if !containsMarker(text, key) {
@@ -90,8 +90,8 @@ func TestSettingsMessagesOpens(t *testing.T) {
 	settingsMsgWantStates(t, text, map[string]string{
 		eventmsg.EventBan: "settings_msg_state_custom", eventmsg.EventKick: "settings_msg_state_silent",
 	})
-	settingsMsgWantWidths(t, "the hub", keyboard, 2, 2, 1, 1, 2)
-	if back := settingsButtonFields(t, keyboard[4][0]); back["a"] != settingsActBack {
+	settingsMsgWantWidths(t, "the hub", keyboard, 2, 2, 1, 1, 1, 2)
+	if back := settingsButtonFields(t, keyboard[5][0]); back["a"] != settingsActBack {
 		t.Errorf("the hub's Back carries %v, want Back to Main", back)
 	}
 
@@ -168,6 +168,13 @@ func TestSettingsMessagesMainState(t *testing.T) {
 
 	if line := mainLine(t); !containsMarker(line, "settings_state_default") {
 		t.Errorf("Main's Messages line with nothing stored = %q, want Default", line)
+	}
+
+	if err := eventmsg.SetPlainTone(context.Background(), env.chat.Id, true, 1); err != nil {
+		t.Fatalf("SetPlainTone(true) error = %v", err)
+	}
+	if line := mainLine(t); !containsMarker(line, "settings_state_msg_plain") {
+		t.Errorf("Main's Messages line with Plain tone on and no custom events = %q, want Plain tone", line)
 	}
 
 	settingsMsgSeed(t, env.chat.Id, eventmsg.EventTimedBan, "Out for a while", false)

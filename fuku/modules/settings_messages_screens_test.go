@@ -164,13 +164,13 @@ func settingsMsgScreens(t *testing.T, view settingsView, notices []string) map[s
 		"all custom": settingsMsgAllCustom(t, false), "all silent": settingsMsgAllCustom(t, true),
 		"nothing": {ChatID: -1001234567890, Rows: map[string]eventmsg.Message{}},
 	}
-	// Every private copy option is on with every event custom, so the hub's block is drawn with its longest state words.
-	stored["all custom"].Options = eventmsg.Options{PMDetails: true, PMLog: true}
+	// Every option is on with every event custom, so the hub's blocks are drawn with their longest state words.
+	stored["all custom"].Options = eventmsg.Options{PMDetails: true, PMLog: true, PlainTone: true}
 	// Every event custom with its private copy on as well: every event line carries the private copy mark (Phase 22).
 	stored["every private copy on"] = settingsMsgEveryPMOn(t)
 	for i, notice := range notices {
 		for name, msgs := range stored {
-			add(fmt.Sprintf("hub %s notice %d", name, i), renderSettingsMsgHub(view, msgs, notice), "[2 2 1 1 2]")
+			add(fmt.Sprintf("hub %s notice %d", name, i), renderSettingsMsgHub(view, msgs, notice), "[2 2 1 1 1 2]")
 			for _, fam := range settingsMsgFamilies {
 				if len(fam.Events) == 0 {
 					continue
@@ -333,7 +333,7 @@ func TestSettingsMessagesCallbackBytes(t *testing.T) {
 	for code, want := range map[string]int{
 		settingsActMsgFamily: 37, settingsActMsgEvent: 42,
 		settingsActMsgSet: 46, settingsActMsgRemove: 46, settingsActMsgPreview: 46, settingsActMsgCancel: 46, settingsActMsgSilent: 42,
-		settingsActMsgFull: 42, settingsActMsgPM: 42, settingsActMsgPMOption: 41, settingsActOpen: 37, settingsActBack: 33, settingsActClose: 33,
+		settingsActMsgFull: 42, settingsActMsgPM: 42, settingsActMsgPMOption: 41, settingsActMsgPlainTone: 37, settingsActOpen: 37, settingsActBack: 33, settingsActClose: 33,
 	} {
 		if got := sizes[code]; got != want {
 			t.Errorf("the largest %s button is %d bytes, the plans fixed %d", code, got, want)
