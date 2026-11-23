@@ -208,10 +208,15 @@ func TestEventPMSpecs(t *testing.T) {
 	saved := eventPMSpecs
 	t.Cleanup(func() { eventPMSpecs = saved })
 	eventPMSpecs = map[string]eventPMSpec{}
-	panics(t, "an unknown event", func() { registerEventPM("nope", eventPMSpec{DefaultKey: "eventmsg_pm_ban"}) })
+	panics(t, "an unknown event", func() {
+		registerEventPM("nope", eventPMSpec{DefaultKey: "eventmsg_pm_ban", PlainKey: "eventmsg_plain_pm_ban"})
+	})
 	panics(t, "an empty key", func() { registerEventPM(eventmsg.EventBan, eventPMSpec{}) })
-	registerEventPM(eventmsg.EventBan, eventPMSpec{DefaultKey: "eventmsg_pm_ban"})
-	panics(t, "a duplicate", func() { registerEventPM(eventmsg.EventBan, eventPMSpec{DefaultKey: "eventmsg_pm_ban"}) })
+	panics(t, "an empty plain key", func() { registerEventPM(eventmsg.EventBan, eventPMSpec{DefaultKey: "eventmsg_pm_ban"}) })
+	registerEventPM(eventmsg.EventBan, eventPMSpec{DefaultKey: "eventmsg_pm_ban", PlainKey: "eventmsg_plain_pm_ban"})
+	panics(t, "a duplicate", func() {
+		registerEventPM(eventmsg.EventBan, eventPMSpec{DefaultKey: "eventmsg_pm_ban", PlainKey: "eventmsg_plain_pm_ban"})
+	})
 	if len(eventPMSpecs) != 1 {
 		t.Fatalf("specs after the refused registrations = %d, want 1", len(eventPMSpecs))
 	}

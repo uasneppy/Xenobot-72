@@ -266,7 +266,7 @@ func TestEventPMLimits(t *testing.T) {
 	autoEnv := func(t *testing.T) (*botSite, func(time.Duration)) {
 		t.Helper()
 		s := newEventPMSite(t)
-		withTestEventPM(t, "pmtest_auto", eventPMSpec{DefaultKey: "eventmsg_pm_ban", Automatic: true})
+		withTestEventPM(t, "pmtest_auto", eventPMSpec{DefaultKey: "eventmsg_pm_ban", PlainKey: "eventmsg_plain_pm_ban", Automatic: true})
 		var mu sync.Mutex
 		now := time.Date(2026, 11, 19, 12, 0, 5, 0, time.UTC)
 		mreqSwap(t, &pmCopyNow, func() time.Time { mu.Lock(); defer mu.Unlock(); return now })
@@ -492,13 +492,13 @@ func TestEventPMLogsCarryIDsOnly(t *testing.T) {
 			release()
 		}},
 		{name: "capped", mustSee: "automatic cap", failure: true, run: func(t *testing.T, s *botSite) {
-			withTestEventPM(t, "pmtest_auto", eventPMSpec{DefaultKey: "eventmsg_pm_ban", Automatic: true})
+			withTestEventPM(t, "pmtest_auto", eventPMSpec{DefaultKey: "eventmsg_pm_ban", PlainKey: "eventmsg_plain_pm_ban", Automatic: true})
 			mreqSwap(t, &pmCopyAutoCapPerMinute, 0)
 			eventPMWaitBeforeRestore(t)
 			eventPMOfferTo(s, s.chat.Id, "pmtest_auto", eventPMMember, storedText+" "+reason)
 		}},
 		{name: "fail closed", mustSee: "automatic cap", failure: true, run: func(t *testing.T, s *botSite) {
-			withTestEventPM(t, "pmtest_auto", eventPMSpec{DefaultKey: "eventmsg_pm_ban", Automatic: true})
+			withTestEventPM(t, "pmtest_auto", eventPMSpec{DefaultKey: "eventmsg_pm_ban", PlainKey: "eventmsg_plain_pm_ban", Automatic: true})
 			mreqSwap(t, &pmCopyRedisClient, func() *redis.Client { return nil })
 			eventPMWaitBeforeRestore(t)
 			eventPMOfferTo(s, s.chat.Id, "pmtest_auto", eventPMMember, storedText+" "+reason)

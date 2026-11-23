@@ -262,7 +262,7 @@ func TestEventPMDetails(t *testing.T) {
 
 	t.Run("capped", func(t *testing.T) {
 		s := newEventPMSite(t)
-		withTestEventPM(t, "pmtest_details_auto", eventPMSpec{DefaultKey: "eventmsg_pm_ban", Automatic: true})
+		withTestEventPM(t, "pmtest_details_auto", eventPMSpec{DefaultKey: "eventmsg_pm_ban", PlainKey: "eventmsg_plain_pm_ban", Automatic: true})
 		mreqSwap(t, &pmCopyAutoCapPerMinute, 0)
 		eventPMWaitBeforeRestore(t)
 		offerEventPM(offer(s, "pmtest_details_auto", nil))

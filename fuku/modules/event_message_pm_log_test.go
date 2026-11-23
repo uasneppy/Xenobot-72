@@ -157,7 +157,7 @@ func TestEventPMLogLine(t *testing.T) {
 	t.Run("capped", func(t *testing.T) {
 		s := newEventPMSite(t)
 		eventPMLogLink(t, s)
-		withTestEventPM(t, "pmtest_log_auto", eventPMSpec{DefaultKey: "eventmsg_pm_ban", Automatic: true})
+		withTestEventPM(t, "pmtest_log_auto", eventPMSpec{DefaultKey: "eventmsg_pm_ban", PlainKey: "eventmsg_plain_pm_ban", Automatic: true})
 		mreqSwap(t, &pmCopyAutoCapPerMinute, 0)
 		eventPMWaitBeforeRestore(t)
 		offerEventPM(eventPMOffer{
