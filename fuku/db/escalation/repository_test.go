@@ -427,3 +427,64 @@ func TestOffenceCountConcurrent(t *testing.T) {
 		}
 	})
 }
+
+func TestReplaceLadder(t *testing.T) {
+	ctx := context.Background()
+	chatID := escalationChat(t)
+
+	// Prime cache with default ladder.
+	if _, err := Get(ctx, chatID); err != nil {
+		t.Fatal(err)
+	}
+
+	want := Ladder{
+		Enabled: true,
+		Steps: []Step{
+			{Action: ActionTMute, Secs: 600},
+			{Action: ActionKick},
+			{Action: ActionTBan, Secs: 86400},
+		},
+		ForgetDays: 14,
+	}
+	if err := ReplaceLadder(ctx, chatID, want, 9); err != nil {
+		t.Fatalf("ReplaceLadder: %v", err)
+	}
+	got, err := Get(ctx, chatID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("Get after ReplaceLadder = %+v, want %+v", *got, want)
+	}
+
+	// Invalid input must return ErrInvalidValue and leave the existing row untouched.
+	for name, bad := range map[string]Ladder{
+		"forget days too high": {Enabled: true, ForgetDays: MaxForgetDays + 1},
+		"invalid step action":  {Enabled: true, Steps: []Step{{Action: "explode"}}, ForgetDays: 14},
+		"timed step zero secs": {Enabled: true, Steps: []Step{{Action: ActionTMute, Secs: 0}}, ForgetDays: 14},
+		"too many steps":       {Enabled: true, Steps: make([]Step, MaxSteps+1), ForgetDays: 14},
+	} {
+		if err := ReplaceLadder(ctx, chatID, bad, 9); !errors.Is(err, ErrInvalidValue) {
+			t.Errorf("ReplaceLadder(%s) err = %v, want ErrInvalidValue", name, err)
+		}
+	}
+	still, err := GetFresh(ctx, chatID)
+	if err != nil || !reflect.DeepEqual(*still, want) {
+		t.Fatalf("after invalid ReplaceLadder = %+v, err=%v; want untouched %+v", still, err, want)
+	}
+
+	// Default/empty ladder (ForgetDays=0 normalizes to DefaultForgetDays) deletes the row and drops cache.
+	if err := ReplaceLadder(ctx, chatID, Ladder{}, 9); err != nil {
+		t.Fatalf("ReplaceLadder default: %v", err)
+	}
+	if n := ladderRows(t, chatID); n != 0 {
+		t.Fatalf("ladderRows after default ReplaceLadder = %d, want 0", n)
+	}
+	after, err := Get(ctx, chatID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(*after, Defaults()) {
+		t.Fatalf("Get after default ReplaceLadder = %+v, want %+v", *after, Defaults())
+	}
+}

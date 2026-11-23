@@ -145,6 +145,33 @@ func SetAppealURL(ctx context.Context, chatID int64, rawURL string, by int64) er
 	return upsertDefaults(ctx, row, "appeal_url")
 }
 
+// ReplaceDefaults atomically replaces all four manual-default columns of chatID and drops
+// chat_manual_defaults:<chat>. Invalid durations or over-long appeal URLs return ErrInvalidValue
+// before touching the database. When defs is the zero Defaults, any existing row is deleted.
+func ReplaceDefaults(ctx context.Context, chatID int64, defs Defaults, by int64) error {
+	if !ValidDefaultDuration(defs.DefaultBanSecs) ||
+		!ValidDefaultDuration(defs.DefaultMuteSecs) ||
+		utf8.RuneCountInString(defs.AppealURL) > models.ManualAppealURLMaxRunes {
+		return ErrInvalidValue
+	}
+	if defs == (Defaults{}) {
+		if db.DB == nil {
+			return fukuerrors.Wrap(errNoDatabase, "reset manual defaults")
+		}
+		if err := db.DB.WithContext(ctx).Where("chat_id = ?", chatID).Delete(&models.ChatManualDefaults{}).Error; err != nil {
+			return fukuerrors.Wrapf(err, "reset manual defaults of chat %d", chatID)
+		}
+		cache.DeleteCache(DefaultsCacheKey(chatID))
+		return nil
+	}
+	row := defaultRow(chatID, by)
+	row.DefaultBanSecs = defs.DefaultBanSecs
+	row.DefaultMuteSecs = defs.DefaultMuteSecs
+	row.ReasonRequired = defs.ReasonRequired
+	row.AppealURL = defs.AppealURL
+	return upsertDefaults(ctx, row, "default_ban_secs", "default_mute_secs", "reason_required", "appeal_url")
+}
+
 func defaultRow(chatID, by int64) *models.ChatManualDefaults {
 	return &models.ChatManualDefaults{
 		ChatId:    chatID,
@@ -291,6 +318,54 @@ func AddShortcut(ctx context.Context, chatID int64, word, reason string, by int6
 		cache.DeleteCache(ShortcutsCacheKey(chatID))
 	}
 	return added, nil
+}
+
+// ReplaceShortcuts atomically replaces all chat_reason_shortcuts rows of chatID in one
+// transaction and drops chat_reason_shortcuts:<chat> after commit. Count, word/reason bounds,
+// and duplicate words are validated before opening the transaction so invalid input leaves the
+// database untouched.
+func ReplaceShortcuts(ctx context.Context, chatID int64, entries []ShortcutEntry, by int64) error {
+	if len(entries) > models.ReasonShortcutsCapMax {
+		return ErrInvalidValue
+	}
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.Word == "" || utf8.RuneCountInString(entry.Word) > models.ReasonShortcutWordMaxRunes ||
+			entry.Reason == "" || utf8.RuneCountInString(entry.Reason) > models.ReasonShortcutTextMaxRunes {
+			return ErrInvalidValue
+		}
+		if _, dup := seen[entry.Word]; dup {
+			return ErrInvalidValue
+		}
+		seen[entry.Word] = struct{}{}
+	}
+	if db.DB == nil {
+		return fukuerrors.Wrap(errNoDatabase, "replace reason shortcuts")
+	}
+	now := time.Now()
+	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatReasonShortcut{}).Error; err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			rec := models.ChatReasonShortcut{
+				ChatId:    chatID,
+				Word:      entry.Word,
+				Reason:    entry.Reason,
+				CreatedBy: by,
+				CreatedAt: now,
+			}
+			if err := tx.Create(&rec).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fukuerrors.Wrapf(err, "replace reason shortcuts of chat %d", chatID)
+	}
+	cache.DeleteCache(ShortcutsCacheKey(chatID))
+	return nil
 }
 
 // RemoveShortcutByID deletes one reason shortcut by ID only when it belongs to chatID. It returns

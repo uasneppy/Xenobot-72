@@ -313,3 +313,103 @@ func TestManualDefaultsAndShortcutsCRUD(t *testing.T) {
 		}
 	})
 }
+
+func TestReplaceDefaultsAndShortcuts(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("ReplaceDefaults validates, replaces, clears on zero, and drops cache", func(t *testing.T) {
+		chatID := modTuningChat(t)
+		if _, err := GetDefaults(ctx, chatID); err != nil {
+			t.Fatal(err)
+		}
+
+		want := Defaults{
+			DefaultBanSecs:  86400,
+			DefaultMuteSecs: 3600,
+			ReasonRequired:  true,
+			AppealURL:       "https://example.com/appeal",
+		}
+		if err := ReplaceDefaults(ctx, chatID, want, 11); err != nil {
+			t.Fatalf("ReplaceDefaults: %v", err)
+		}
+		got, err := GetDefaults(ctx, chatID)
+		if err != nil || got != want {
+			t.Fatalf("GetDefaults = %+v, %v; want %+v", got, err, want)
+		}
+
+		// Invalid inputs leave DB untouched.
+		if err := ReplaceDefaults(ctx, chatID, Defaults{DefaultBanSecs: 10}, 11); !errors.Is(err, ErrInvalidValue) {
+			t.Errorf("invalid ban secs err = %v, want ErrInvalidValue", err)
+		}
+		if err := ReplaceDefaults(ctx, chatID, Defaults{AppealURL: strings.Repeat("a", models.ManualAppealURLMaxRunes+1)}, 11); !errors.Is(err, ErrInvalidValue) {
+			t.Errorf("over-long appeal URL err = %v, want ErrInvalidValue", err)
+		}
+		if still, err := GetDefaultsFresh(ctx, chatID); err != nil || still != want {
+			t.Fatalf("after invalid ReplaceDefaults = %+v, %v; want untouched %+v", still, err, want)
+		}
+
+		// Zero Defaults clears the row and drops cache.
+		if err := ReplaceDefaults(ctx, chatID, Defaults{}, 11); err != nil {
+			t.Fatalf("ReplaceDefaults zero: %v", err)
+		}
+		if n := defaultsRowCount(t, chatID); n != 0 {
+			t.Fatalf("defaultsRowCount after zero = %d, want 0", n)
+		}
+		if after, err := GetDefaults(ctx, chatID); err != nil || after != (Defaults{}) {
+			t.Fatalf("GetDefaults after clear = %+v, %v; want zero", after, err)
+		}
+	})
+
+	t.Run("ReplaceShortcuts validates, replaces atomically, clears on empty, and drops cache", func(t *testing.T) {
+		chatID := modTuningChat(t)
+		if _, err := AddShortcut(ctx, chatID, "old", "Old reason", 1); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := GetShortcuts(ctx, chatID); err != nil {
+			t.Fatal(err)
+		}
+
+		entries := []ShortcutEntry{
+			{Word: "spam", Reason: "Unsolicited ads"},
+			{Word: "rude", Reason: "Harassment"},
+		}
+		if err := ReplaceShortcuts(ctx, chatID, entries, 11); err != nil {
+			t.Fatalf("ReplaceShortcuts: %v", err)
+		}
+		got, err := GetShortcuts(ctx, chatID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 2 || got["spam"] != "Unsolicited ads" || got["rude"] != "Harassment" {
+			t.Fatalf("GetShortcuts = %v, want spam + rude", got)
+		}
+
+		// Invalid inputs leave existing shortcuts untouched.
+		tooMany := make([]ShortcutEntry, models.ReasonShortcutsCapMax+1)
+		for i := range tooMany {
+			tooMany[i] = ShortcutEntry{Word: "w", Reason: "r"}
+		}
+		if err := ReplaceShortcuts(ctx, chatID, tooMany, 11); !errors.Is(err, ErrInvalidValue) {
+			t.Errorf("too many shortcuts err = %v, want ErrInvalidValue", err)
+		}
+		if err := ReplaceShortcuts(ctx, chatID, []ShortcutEntry{{Word: "", Reason: "r"}}, 11); !errors.Is(err, ErrInvalidValue) {
+			t.Errorf("empty word err = %v, want ErrInvalidValue", err)
+		}
+		if err := ReplaceShortcuts(ctx, chatID, []ShortcutEntry{{Word: "dup", Reason: "a"}, {Word: "dup", Reason: "b"}}, 11); !errors.Is(err, ErrInvalidValue) {
+			t.Errorf("duplicate word err = %v, want ErrInvalidValue", err)
+		}
+		still, err := GetShortcutsFresh(ctx, chatID)
+		if err != nil || len(still) != 2 || still["spam"] != "Unsolicited ads" {
+			t.Fatalf("after invalid ReplaceShortcuts = %v, %v", still, err)
+		}
+
+		// Empty slice clears all shortcuts and drops cache.
+		if err := ReplaceShortcuts(ctx, chatID, nil, 11); err != nil {
+			t.Fatalf("ReplaceShortcuts empty: %v", err)
+		}
+		after, err := GetShortcuts(ctx, chatID)
+		if err != nil || len(after) != 0 {
+			t.Fatalf("GetShortcuts after empty = %v, %v; want empty", after, err)
+		}
+	})
+}

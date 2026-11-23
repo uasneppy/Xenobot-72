@@ -264,3 +264,48 @@ func TestAdvancedThresholdsCRUD(t *testing.T) {
 		}
 	})
 }
+
+func TestReplaceAll(t *testing.T) {
+	ctx := context.Background()
+	chatID := advThresholdsChat(t)
+
+	if _, err := Get(ctx, chatID); err != nil {
+		t.Fatal(err)
+	}
+
+	want := Thresholds{
+		RaidJoinWindowSecs:   45,
+		RaidFloodNewPercent:  65,
+		MemberReqCapPerMin:   15,
+		LockdownReminderMins: 60,
+		CaptchaTimeoutMins:   15,
+	}
+	if err := ReplaceAll(ctx, chatID, want, 7); err != nil {
+		t.Fatalf("ReplaceAll: %v", err)
+	}
+	got, err := Get(ctx, chatID)
+	if err != nil || got != want {
+		t.Fatalf("Get after ReplaceAll = %+v, %v; want %+v", got, err, want)
+	}
+
+	// Out-of-bounds value returns ErrInvalidValue and leaves DB untouched.
+	bad := want
+	bad.CaptchaTimeoutMins = models.MaxCaptchaTimeoutMins + 1
+	if err := ReplaceAll(ctx, chatID, bad, 7); !errors.Is(err, ErrInvalidValue) {
+		t.Fatalf("ReplaceAll(bad) err = %v, want ErrInvalidValue", err)
+	}
+	if still, err := GetFresh(ctx, chatID); err != nil || still != want {
+		t.Fatalf("after invalid ReplaceAll = %+v, %v; want untouched %+v", still, err, want)
+	}
+
+	// Zero thresholds deletes the row and drops cache.
+	if err := ReplaceAll(ctx, chatID, Thresholds{}, 7); err != nil {
+		t.Fatalf("ReplaceAll zero: %v", err)
+	}
+	if n := advThresholdsRowCount(t, chatID); n != 0 {
+		t.Fatalf("advThresholdsRowCount after zero = %d, want 0", n)
+	}
+	if after, err := Get(ctx, chatID); err != nil || after != (Thresholds{}) {
+		t.Fatalf("Get after zero ReplaceAll = %+v, %v; want zero", after, err)
+	}
+}

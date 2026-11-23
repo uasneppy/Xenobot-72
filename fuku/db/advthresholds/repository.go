@@ -417,6 +417,28 @@ func ResetAll(ctx context.Context, chatID int64) error {
 	return nil
 }
 
+// ReplaceAll validates all 12 threshold fields against their specs and atomically replaces chatID's
+// chat_advanced_thresholds row (or deletes it via ResetAll when th has no customized fields),
+// dropping chat_advanced_thresholds:<chat> after commit.
+func ReplaceAll(ctx context.Context, chatID int64, th Thresholds, by int64) error {
+	for _, spec := range allSpecs {
+		v := th.Value(spec.Field)
+		if v != 0 && (v < spec.Min || v > spec.Max) {
+			return ErrInvalidValue
+		}
+	}
+	if th.CustomizedCount() == 0 {
+		return ResetAll(ctx, chatID)
+	}
+	row := baseRow(chatID, by)
+	cols := make([]string, len(allSpecs))
+	for i, spec := range allSpecs {
+		setRowField(row, spec.Field, th.Value(spec.Field))
+		cols[i] = spec.Column
+	}
+	return upsertColumns(ctx, row, cols...)
+}
+
 func baseRow(chatID, updatedBy int64) *models.ChatAdvancedThresholds {
 	return &models.ChatAdvancedThresholds{
 		ChatId:    chatID,

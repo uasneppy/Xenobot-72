@@ -3,6 +3,7 @@ package antiflood
 import (
 	"context"
 	"errors"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -93,6 +94,48 @@ func SetFloodActionContext(ctx context.Context, chatID int64, mode string, secs 
 		"action_secs": secs,
 	}
 	return upsertChatField(ctx, chatID, updates)
+}
+
+// GetFloodFreshContext reads a chat's antiflood_settings row directly from the database without
+// using the cache and without creating a row. When no row exists, it returns default settings
+// (Limit: 0, Action: "mute", ActionSecs: 0), false, nil.
+func GetFloodFreshContext(ctx context.Context, chatID int64) (*models.AntifloodSettings, bool, error) {
+	if db.DB == nil {
+		return nil, false, errors.New("database not initialized")
+	}
+	var row models.AntifloodSettings
+	err := db.DB.WithContext(ctx).Where("chat_id = ?", chatID).Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return &models.AntifloodSettings{ChatId: chatID, Limit: 0, Action: defaultFloodsettingsMode}, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return &row, true, nil
+}
+
+// SetFloodActionPreserveOffContext writes ONLY action and action_secs for chatID, preserving an
+// existing row's flood_limit and delete_antiflood_message. When chatID has no antiflood_settings
+// row yet, it inserts flood_limit = 0 explicitly (bypassing GORM's default:5 tag) so Copy Settings
+// never silently turns antiflood on for an unconfigured target group (P29-04). Drops
+// antiflood:<chat> after a successful write.
+func SetFloodActionPreserveOffContext(ctx context.Context, chatID int64, mode string, secs int) error {
+	if db.DB == nil {
+		return errors.New("database not initialized")
+	}
+	now := time.Now()
+	const sqlStmt = `INSERT INTO antiflood_settings (chat_id, flood_limit, action, action_secs, delete_antiflood_message, created_at, updated_at)
+VALUES (?, 0, ?, ?, ?, ?, ?)
+ON CONFLICT (chat_id) DO UPDATE SET
+	action = EXCLUDED.action,
+	action_secs = EXCLUDED.action_secs,
+	updated_at = EXCLUDED.updated_at`
+	if err := db.DB.WithContext(ctx).Exec(sqlStmt, chatID, mode, secs, false, now, now).Error; err != nil {
+		log.Errorf("[Database] SetFloodActionPreserveOffContext: %v - %d", err, chatID)
+		return err
+	}
+	cache.DeleteCache(cache.CacheKey("antiflood", chatID))
+	return nil
 }
 
 func SetFloodMsgDel(chatID int64, val bool) error {

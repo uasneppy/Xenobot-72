@@ -444,3 +444,73 @@ func TestLoadAntifloodStats(t *testing.T) {
 		}
 	})
 }
+
+func TestSetFloodActionPreserveOffAndGetFresh(t *testing.T) {
+	skipIfNoDb(t)
+	utilsCache.SetupTestMemoryMarshaler(t)
+	ctx := context.Background()
+
+	t.Run("unconfigured chat stays off (Limit == 0) and drops cache", func(t *testing.T) {
+		chatID := -time.Now().UnixNano() - 101
+		t.Cleanup(func() {
+			db.DB.Where("chat_id = ?", chatID).Delete(&models.AntifloodSettings{})
+		})
+
+		got, exists, err := GetFloodFreshContext(ctx, chatID)
+		if err != nil {
+			t.Fatalf("GetFloodFreshContext: %v", err)
+		}
+		if exists || got.Limit != 0 || got.Action != "mute" || got.ActionSecs != 0 {
+			t.Fatalf("GetFloodFreshContext(empty) = %+v, exists=%v", got, exists)
+		}
+		var n int64
+		if err := db.DB.Model(&models.AntifloodSettings{}).Where("chat_id = ?", chatID).Count(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Fatalf("GetFloodFreshContext created %d rows", n)
+		}
+
+		// Prime cache with default (Limit 0, mute).
+		_ = GetFloodContext(ctx, chatID)
+
+		if err := SetFloodActionPreserveOffContext(ctx, chatID, "tmute", 3600); err != nil {
+			t.Fatalf("SetFloodActionPreserveOffContext: %v", err)
+		}
+		cached := GetFloodContext(ctx, chatID)
+		if cached.Limit != 0 || cached.Action != "tmute" || cached.ActionSecs != 3600 || cached.DeleteAntifloodMessage {
+			t.Fatalf("after preserve-off write (cached) = %+v, want Limit=0 tmute/3600 Delete=false", cached)
+		}
+		fresh, exists, err := GetFloodFreshContext(ctx, chatID)
+		if err != nil || !exists {
+			t.Fatalf("GetFloodFreshContext after write = %+v, exists=%v, err=%v", fresh, exists, err)
+		}
+		if fresh.Limit != 0 || fresh.Action != "tmute" || fresh.ActionSecs != 3600 || fresh.DeleteAntifloodMessage {
+			t.Fatalf("after preserve-off write (fresh) = %+v, want Limit=0 tmute/3600 Delete=false", fresh)
+		}
+	})
+
+	t.Run("existing chat preserves flood_limit and delete_antiflood_message", func(t *testing.T) {
+		chatID := -time.Now().UnixNano() - 202
+		t.Cleanup(func() {
+			db.DB.Where("chat_id = ?", chatID).Delete(&models.AntifloodSettings{})
+		})
+
+		if err := SetFloodContext(ctx, chatID, 7); err != nil {
+			t.Fatalf("SetFloodContext: %v", err)
+		}
+		if err := SetFloodMsgDelContext(ctx, chatID, true); err != nil {
+			t.Fatalf("SetFloodMsgDelContext: %v", err)
+		}
+		// Prime cache.
+		_ = GetFloodContext(ctx, chatID)
+
+		if err := SetFloodActionPreserveOffContext(ctx, chatID, "tban", 7200); err != nil {
+			t.Fatalf("SetFloodActionPreserveOffContext: %v", err)
+		}
+		got := GetFloodContext(ctx, chatID)
+		if got.Limit != 7 || !got.DeleteAntifloodMessage || got.Action != "tban" || got.ActionSecs != 7200 {
+			t.Fatalf("after preserve-off update = %+v, want Limit=7 Delete=true tban/7200", got)
+		}
+	})
+}

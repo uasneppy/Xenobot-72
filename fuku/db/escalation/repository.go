@@ -225,6 +225,53 @@ func SetForgetDays(ctx context.Context, chatID int64, days int, by int64) error 
 	return upsert(ctx, row, "forget_days")
 }
 
+// ReplaceLadder atomically replaces chatID's entire escalation ladder (enabled, all five steps,
+// and forget_days) and drops chat_escalation:<chat>. ForgetDays == 0 is normalized to
+// DefaultForgetDays. Invalid values return ErrInvalidValue before touching the database. When the
+// normalized ladder matches Defaults() (disabled, no steps, DefaultForgetDays), any existing row
+// is deleted so the target mirrors an unconfigured source cleanly.
+func ReplaceLadder(ctx context.Context, chatID int64, ladder Ladder, by int64) error {
+	forgetDays := ladder.ForgetDays
+	if forgetDays == 0 {
+		forgetDays = DefaultForgetDays
+	}
+	if !ValidForgetDays(forgetDays) || len(ladder.Steps) > MaxSteps {
+		return ErrInvalidValue
+	}
+	hasSteps := false
+	for _, s := range ladder.Steps {
+		if s == (Step{}) {
+			continue
+		}
+		if !ValidStep(s) {
+			return ErrInvalidValue
+		}
+		hasSteps = true
+	}
+	if !ladder.Enabled && !hasSteps && forgetDays == DefaultForgetDays {
+		if db.DB == nil {
+			return fukuerrors.Wrap(errNoDatabase, "reset the escalation ladder")
+		}
+		if err := db.DB.WithContext(ctx).Where("chat_id = ?", chatID).Delete(&models.ChatEscalation{}).Error; err != nil {
+			return fukuerrors.Wrapf(err, "reset the escalation ladder of chat %d", chatID)
+		}
+		cache.DeleteCache(CacheKey(chatID))
+		return nil
+	}
+	row := defaultRow(chatID, by)
+	row.Enabled = ladder.Enabled
+	row.ForgetDays = forgetDays
+	columns := make([]string, 0, 2+2*MaxSteps)
+	columns = append(columns, "enabled", "forget_days")
+	for n := 1; n <= MaxSteps; n++ {
+		if n <= len(ladder.Steps) {
+			setRowStep(row, n, ladder.Steps[n-1])
+		}
+		columns = append(columns, stepColumns(n)...)
+	}
+	return upsert(ctx, row, columns...)
+}
+
 func defaultRow(chatID, by int64) *models.ChatEscalation {
 	return &models.ChatEscalation{ChatId: chatID, ForgetDays: DefaultForgetDays, UpdatedBy: by, UpdatedAt: time.Now()}
 }
