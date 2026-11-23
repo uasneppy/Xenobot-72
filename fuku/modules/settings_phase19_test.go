@@ -93,7 +93,7 @@ func TestSettingsPhase19Codes(t *testing.T) {
 			}
 			seen[pg.Key] = true
 		}
-		want := []string{"s", "v", "l", "c", "f", "q", "n", "j", "k", "rs", "b", "i", "w", "g", "r", "e", "x", "h", "m", "d", "t", "u", "z", "o", "y", "p", "a"}
+		want := []string{"s", "v", "l", "c", "f", "q", "n", "j", "k", "rs", "b", "i", "w", "g", "r", "e", "x", "h", "m", "av", "d", "t", "u", "z", "o", "y", "p", "a"}
 		if got := slices.Sorted(maps.Keys(seen)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
 			t.Errorf("registered pages = %v, want %v", got, slices.Sorted(slices.Values(want)))
 		}
