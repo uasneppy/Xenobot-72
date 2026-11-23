@@ -54,7 +54,7 @@ Scope rule for the whole milestone (owner decision, 2026-11-18): every message a
 - [x] **TUNE-04**: Manual commands have per-group defaults: a default duration for `/mute` and `/ban` given without one, and a "reason required" switch that refuses a punishment with no reason.
 - [x] **TUNE-05**: Reason shortcuts: the owner saves short words that expand to a full reason text when used as the reason of a manual punishment.
 - [x] **TUNE-06**: An appeal button: the owner sets one link or contact per group, and it is added to ban messages and their PM copies when set.
-- [ ] **TUNE-07**: An Advanced page exposes per-group thresholds that are code constants today, each inside safe bounds and with a reset to default: the raid windows, the new-member share and age, the AI spam bars, the member requirement cap and pause, the lockdown reminder interval and a captcha timeout above 10 minutes.
+- [x] **TUNE-07**: An Advanced page exposes per-group thresholds that are code constants today, each inside safe bounds and with a reset to default: the raid windows, the new-member share and age, the AI spam bars, the member requirement cap and pause, the lockdown reminder interval and a captcha timeout above 10 minutes.
 - [ ] **TUNE-08**: A plain-tone switch per group replaces the bot's themed default texts with neutral ones for the events of this milestone, in all 8 languages.
 - [ ] **TUNE-09**: Copy settings: from a group's settings the owner copies the custom messages and tuning values of another group they own, after a confirmation that says what will be overwritten. The person must be allowed to change settings in both groups, checked live.
 
@@ -120,7 +120,7 @@ Each requirement maps to exactly one phase. MSG-11 and EVT-10 are rules that hol
 | TUNE-04 | Phase 27 | Complete |
 | TUNE-05 | Phase 27 | Complete |
 | TUNE-06 | Phase 27 | Complete |
-| TUNE-07 | Phase 28 | Pending |
+| TUNE-07 | Phase 28 | Complete |
 | TUNE-08 | Phase 29 | Pending |
 | TUNE-09 | Phase 29 | Pending |
 | BKP-01 | Phase 30 | Pending |

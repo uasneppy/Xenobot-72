@@ -4,17 +4,17 @@ milestone: v1.2
 milestone_name: Conversations, Custom Messages and Tuning
 current_phase: 28
 current_phase_name: Advanced Thresholds
-status: executing
-stopped_at: Completed 28-05-PLAN.md
-last_updated: "2026-11-23T12:41:22.794Z"
+status: verifying
+stopped_at: Completed 28-06-PLAN.md
+last_updated: "2026-11-23T13:00:32.174Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 28 execution started
-state_head: 21a06b35584b61e60e9d0c4ea5af381e8603fc85
+state_head: 8cc83a26ed7a39f6ed21e0ad12ca825264a425c3
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 69
-  completed_plans: 68
+  completed_plans: 69
   percent: 9
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 
 Phase: 28 (Advanced Thresholds) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-23 — Phase 28 execution started
 
 Progress: [█░░░░░░░░░] 9%
@@ -208,6 +208,7 @@ Progress: [█░░░░░░░░░] 9%
 | Phase 28 P03 | 9min | 3 tasks | 5 files |
 | Phase 28 P04 | 29min | 3 tasks | 4 files |
 | Phase 28 P05 | 21min | 3 tasks | 14 files |
+| Phase 28 P06 | 17min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -333,6 +334,7 @@ Recent decisions affecting current work:
 - [Phase 28]: 28-03: memberReqLookupCachedWith gates advMemberReqAIBar reads on rules.AI and passes cache.Context to preserve the 2s read timeout (T-28-07)
 - [Phase 28]: P28-02: Option A extended captcha timeout (11..60 min) wired via effectiveCaptchaTimeout into sendCaptcha, /captcha status, and settings_captcha body without altering captcha_settings.timeout (1..10), /captchatime, stepper, or backups
 - [Phase 28]: P28-03: Private Advanced page av requires live settingsRightAdmin + owner gate for views (av, aa, ao) and live settingsRightRestrict for all writes/resets (as, ar, ax).
+- [Phase 28]: P28-01..P28-04, zero new shutdown drain, chat_advanced_thresholds skipLocal, page av, and Phase 28 safeguard/E2E/golden suites recorded in AGENTS.md
 
 ### Pending Todos
 
@@ -455,8 +457,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T12:41:22.024Z
-Stopped at: Completed 28-05-PLAN.md
+Last session: 2026-11-23T13:00:31.364Z
+Stopped at: Completed 28-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
