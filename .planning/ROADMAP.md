@@ -65,7 +65,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 27: Manual Command Defaults, Reason Shortcuts and Appeal Button** - Default durations, a reason-required switch, saved reason words and an appeal link on ban messages
 - [x] **Phase 28: Advanced Thresholds** - Per-group detection and screening limits that are code constants today, inside safe bounds (completed 2026-11-23)
 - [x] **Phase 29: Plain Tone and Copy Settings** - Neutral default texts per group and a confirmed copy of one group's messages and tuning to another (completed 2026-11-23)
-- [ ] **Phase 30: Backup Page and Custom Messages in Backups** - Export, import and reset from the private chat, and custom messages inside `/export` and `/import`
+- [x] **Phase 30: Backup Page and Custom Messages in Backups** - Export, import and reset from the private chat, and custom messages inside `/export` and `/import` (completed 2026-11-24)
 
 **Coverage:** 40/40 Custom Messages and Tuning requirements mapped (Phase 20 has its own brief, not these IDs), each to exactly one phase (see the Traceability table in `REQUIREMENTS.md`).
 
@@ -360,7 +360,7 @@ Plans:
   3. The person presses Import and sends the file in the private chat. The bot shows what will be imported, and a two-tap card confirms. It runs the same import as `/import`, with the same checks, the same report of what was left out and the same rate limit, and only for the group's live owner. Custom messages are restored with the editor's checks, and an old export without them imports as before.
   4. The owner resets all or chosen modules to their defaults behind a two-tap card, as `/reset` does, with its rate limit. Anyone who is not the live owner is refused and nothing changes.
   5. A stale, expired or forged card or press changes nothing, and the page and the commands leave the same stored result.
-**Plans**: 5/5 plans executed
+**Plans**: 5/5 plans complete
 Plans:
 - [x] 30-01-PLAN.md — MSG-11 goldens of /export, /import, /reset command replies, refusals, confirm cards, and old-export baseline, committed alone (wave 1)
 - [x] 30-02-PLAN.md — eventmsg.ReplaceAllValidatedTx, BackupModuleMessages = "messages" in fuku/db/backup, backup_module_messages in 8 locales, and MSG-10 backup tests (wave 2)
@@ -386,4 +386,4 @@ Phases execute in numeric order: 20 → 21 → 22 → 23 → 24 → 25 → 26 �
 | 27. Manual Command Defaults, Reason Shortcuts and Appeal Button | v1.2 | 7/7 | In Progress | - |
 | 28. Advanced Thresholds | v1.2 | 6/6 | Complete    | 2026-11-23 |
 | 29. Plain Tone and Copy Settings | v1.2 | 6/6 | Complete    | 2026-11-23 |
-| 30. Backup Page and Custom Messages in Backups | v1.2 | 5/5 | In Progress | - |
+| 30. Backup Page and Custom Messages in Backups | v1.2 | 5/5 | Complete    | 2026-11-24 |
