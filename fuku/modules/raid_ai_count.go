@@ -81,24 +81,30 @@ for i = 1, 2 do redis.call('PEXPIRE', KEYS[i], ARGV[6]) end
 return {redis.call('ZCARD', KEYS[1]), redis.call('ZCARD', KEYS[2])}
 `)
 
-// recordRaidAIVerdict adds one spam verdict of userID to the chat's AI sets and returns
-// their sizes: the verdict items and the accounts in the window. One script call under
-// raidRedisTimeout; an error is returned for the caller to log and treat as "no
-// information".
+// recordRaidAIVerdict adds one spam verdict of userID to the chat's AI sets using raidAIWindow
+// and returns their sizes: the verdict items and the accounts in the window.
 func recordRaidAIVerdict(client *redis.Client, chatID, userID int64, itemKey string) (items, accounts int, err error) {
+	return recordRaidAIVerdictWith(client, chatID, userID, itemKey, raidAIWindow)
+}
+
+// recordRaidAIVerdictWith adds one spam verdict of userID to the chat's AI sets using aiWindow
+// and derived TTL max(raidAITTL, aiWindow*2). One script call under raidRedisTimeout; an error is
+// returned for the caller to log and treat as "no information".
+func recordRaidAIVerdictWith(client *redis.Client, chatID, userID int64, itemKey string, aiWindow time.Duration) (items, accounts int, err error) {
 	keys := []string{
 		raidKey(chatID, raidPartAIVerdicts),
 		raidKey(chatID, raidPartAIAccounts),
 	}
+	aiTTL := max(raidAITTL, aiWindow*2)
 	ctx, cancel := context.WithTimeout(cache.Context, raidRedisTimeout)
 	defer cancel()
 	sizes, err := raidAIVerdictScript.Run(ctx, client, keys,
 		raidNow().UnixMilli(),
-		raidAIWindow.Milliseconds(),
+		aiWindow.Milliseconds(),
 		itemKey,
 		strconv.FormatInt(userID, 10),
 		raidAICap,
-		raidAITTL.Milliseconds(),
+		aiTTL.Milliseconds(),
 	).Int64Slice()
 	if err != nil {
 		return 0, 0, err
@@ -187,7 +193,10 @@ func raidAIRecordVerdict(b *gotgbot.Bot, chat gotgbot.Chat, userID int64, itemKe
 		return
 	}
 
-	items, accounts, err := recordRaidAIVerdict(client, chat.Id, userID, itemKey)
+	th := advThresholdsFor(context.Background(), chat.Id)
+	aiWindow := advRaidAIWindow(th)
+
+	items, accounts, err := recordRaidAIVerdictWith(client, chat.Id, userID, itemKey, aiWindow)
 	if err != nil {
 		log.Debugf("[RaidDetection] AI verdict counter write for chat %d, user %d failed: %v", chat.Id, userID, err)
 		return
@@ -198,7 +207,7 @@ func raidAIRecordVerdict(b *gotgbot.Bot, chat gotgbot.Chat, userID int64, itemKe
 	raidAIFireAsync(b, chat, raidTrigger{
 		Kind:    models.LockdownTriggerAIBurst,
 		Count:   items,
-		Window:  int(raidAIWindow / time.Second),
+		Window:  int(aiWindow / time.Second),
 		Percent: 0,
 	})
 }
@@ -248,11 +257,12 @@ func raidSnapshotAISpammers(chatID int64) (int, error) {
 		raidKey(chatID, raidPartJoined),
 		raidKey(chatID, raidPartAISpammers),
 	}
+	recentWindow := advRaidRecentWindow(advThresholdsFor(context.Background(), chatID))
 	ctx, cancel := context.WithTimeout(cache.Context, raidRedisTimeout)
 	defer cancel()
 	return raidAISpammersScript.Run(ctx, client, keys,
 		raidNow().UnixMilli(),
-		raidRecentWindow.Milliseconds(),
+		recentWindow.Milliseconds(),
 		raidFloodersMax,
 		raidFloodersTTL.Milliseconds(),
 	).Int()

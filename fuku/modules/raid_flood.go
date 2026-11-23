@@ -205,13 +205,19 @@ func raidFloodStartsWithSlash(text string) bool {
 // raidFloodMinAccounts different new accounts. percent is the new members' share of the
 // items, rounded down, 0 when there are none.
 func raidFloodCounts(items, newItems, accounts, threshold int) (fire bool, percent int) {
+	return raidFloodCountsFor(items, newItems, accounts, threshold, raidFloodNewPercent, raidFloodMinAccounts)
+}
+
+// raidFloodCountsFor evaluates the flood rule with explicit new-member share percentage and
+// minimum distinct new accounts.
+func raidFloodCountsFor(items, newItems, accounts, threshold, newPercent, minAccounts int) (fire bool, percent int) {
 	if items <= 0 {
 		return false, 0
 	}
 	percent = newItems * 100 / items
 	fire = items >= threshold &&
-		newItems*100 >= raidFloodNewPercent*items &&
-		accounts >= raidFloodMinAccounts
+		newItems*100 >= newPercent*items &&
+		accounts >= minAccounts
 	return fire, percent
 }
 
@@ -236,26 +242,34 @@ func raidFloodSenderCounts(b *gotgbot.Bot, ctx *ext.Context) (int64, bool) {
 	return userID, true
 }
 
-// recordRaidFloodItem adds one item to the chat's flood sets and returns their sizes. One
-// script call under raidRedisTimeout; an error is returned for the caller to log and
-// treat as "no information".
+// recordRaidFloodItem adds one item to the chat's flood sets using the compiled default windows.
 func recordRaidFloodItem(client *redis.Client, chatID, userID int64, itemKey string) (items, newItems, accounts int, err error) {
+	return recordRaidFloodItemWith(client, chatID, userID, itemKey, raidFloodWindow, raidRecentWindow)
+}
+
+// recordRaidFloodItemWith adds one item to the chat's flood sets using explicit flood and recent
+// windows and derived TTL max(raidFloodTTL, floodWindow*2). One script call under
+// raidRedisTimeout; an error is returned for the caller to log and treat as "no information".
+func recordRaidFloodItemWith(
+	client *redis.Client, chatID, userID int64, itemKey string, floodWindow, recentWindow time.Duration,
+) (items, newItems, accounts int, err error) {
 	keys := []string{
 		raidKey(chatID, raidPartFloodItems),
 		raidKey(chatID, raidPartFloodNew),
 		raidKey(chatID, raidPartFloodAccounts),
 		raidKey(chatID, raidPartJoined),
 	}
+	floodTTL := max(raidFloodTTL, floodWindow*2)
 	ctx, cancel := context.WithTimeout(cache.Context, raidRedisTimeout)
 	defer cancel()
 	sizes, err := raidFloodScript.Run(ctx, client, keys,
 		raidNow().UnixMilli(),
-		raidFloodWindow.Milliseconds(),
-		raidRecentWindow.Milliseconds(),
+		floodWindow.Milliseconds(),
+		recentWindow.Milliseconds(),
 		itemKey,
 		strconv.FormatInt(userID, 10),
 		raidFloodCap,
-		raidFloodTTL.Milliseconds(),
+		floodTTL.Milliseconds(),
 	).Int64Slice()
 	if err != nil {
 		return 0, 0, 0, err
@@ -327,16 +341,23 @@ func raidFloodCountUpdate(b *gotgbot.Bot, ctx *ext.Context, late bool) error {
 		return ext.ContinueGroups
 	}
 
-	items, newItems, accounts, err := recordRaidFloodItem(client, chat.Id, userID, itemKey)
+	th := advThresholdsFor(context.Background(), chat.Id)
+	floodWindow := advRaidFloodWindow(th)
+	recentWindow := advRaidRecentWindow(th)
+
+	items, newItems, accounts, err := recordRaidFloodItemWith(client, chat.Id, userID, itemKey, floodWindow, recentWindow)
 	if err != nil {
 		log.Debugf("[RaidDetection] flood counter write for chat %d failed: %v", chat.Id, err)
 		return ext.ContinueGroups
 	}
-	if fire, percent := raidFloodCounts(items, newItems, accounts, settings.FloodThreshold); fire {
+	if fire, percent := raidFloodCountsFor(
+		items, newItems, accounts, settings.FloodThreshold,
+		advRaidFloodNewPercent(th), advRaidFloodMinAccounts(th),
+	); fire {
 		raidFire(b, chat, raidTrigger{
 			Kind:    models.LockdownTriggerFlood,
 			Count:   items,
-			Window:  int(raidFloodWindow / time.Second),
+			Window:  int(floodWindow / time.Second),
 			Percent: percent,
 		})
 	}
@@ -385,11 +406,12 @@ func raidSnapshotFlooders(chatID int64) (int, error) {
 		raidKey(chatID, raidPartJoined),
 		raidKey(chatID, raidPartFlooders),
 	}
+	recentWindow := advRaidRecentWindow(advThresholdsFor(context.Background(), chatID))
 	ctx, cancel := context.WithTimeout(cache.Context, raidRedisTimeout)
 	defer cancel()
 	return raidFloodersScript.Run(ctx, client, keys,
 		raidNow().UnixMilli(),
-		raidRecentWindow.Milliseconds(),
+		recentWindow.Milliseconds(),
 		raidFloodersMax,
 		raidFloodersTTL.Milliseconds(),
 	).Int()

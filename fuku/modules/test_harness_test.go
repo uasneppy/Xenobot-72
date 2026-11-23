@@ -389,6 +389,7 @@ func TestMain(m *testing.M) {
 		&models.ChatOffence{},
 		&models.ChatManualDefaults{},
 		&models.ChatReasonShortcut{},
+		&models.ChatAdvancedThresholds{},
 		&models.ChatAdminIndex{},
 	); err != nil {
 		fmt.Printf("AutoMigrate failed: %v\n", err)

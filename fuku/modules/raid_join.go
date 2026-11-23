@@ -184,7 +184,10 @@ func raidRecordAndFire(b *gotgbot.Bot, chat *gotgbot.Chat, settings *models.Chat
 	if len(userIDs) == 0 {
 		return
 	}
-	count, err := recordRaidJoins(chat.Id, userIDs)
+	th := advThresholdsFor(context.Background(), chat.Id)
+	joinWindow := advRaidJoinWindow(th)
+	recentWindow := advRaidRecentWindow(th)
+	count, err := recordRaidJoinsWith(chat.Id, userIDs, joinWindow, recentWindow)
 	if err != nil {
 		log.Debugf("[RaidDetection] join counter write for chat %d failed: %v", chat.Id, err)
 		return
@@ -193,7 +196,7 @@ func raidRecordAndFire(b *gotgbot.Bot, chat *gotgbot.Chat, settings *models.Chat
 		raidFire(b, chat, raidTrigger{
 			Kind:   models.LockdownTriggerJoinSurge,
 			Count:  count,
-			Window: int(raidJoinWindow / time.Second),
+			Window: int(joinWindow / time.Second),
 		})
 	}
 }

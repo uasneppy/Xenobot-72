@@ -139,11 +139,12 @@ func raidAICheckCandidate(client *redis.Client, chatID, userID int64, hash strin
 		raidKey(chatID, raidPartJoined),
 		raidKey(chatID, raidPartAIRepeat+":"+strconv.FormatInt(userID, 10)),
 	}
+	recentWindow := advRaidRecentWindow(advThresholdsFor(context.Background(), chatID))
 	ctx, cancel := context.WithTimeout(cache.Context, raidRedisTimeout)
 	defer cancel()
 	answer, err := raidAICandidateScript.Run(ctx, client, keys,
 		raidNow().UnixMilli(),
-		raidRecentWindow.Milliseconds(),
+		recentWindow.Milliseconds(),
 		strconv.FormatInt(userID, 10),
 		hash,
 		raidAIRepeatHistory,

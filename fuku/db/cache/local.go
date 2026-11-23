@@ -58,6 +58,8 @@ var (
 
 	chatManualDefaultsPrefix  = CacheKey("chat_manual_defaults") + ":"
 	chatReasonShortcutsPrefix = CacheKey("chat_reason_shortcuts") + ":"
+
+	chatAdvancedThresholdsPrefix = CacheKey("chat_advanced_thresholds") + ":"
 )
 
 // skipLocal reports whether key must never be served from process memory.
@@ -104,6 +106,10 @@ func skipLocal(key string) bool {
 	// The chat_manual_defaults and chat_reason_shortcuts keys are read on every manual moderation
 	// command: a default duration, reason-required switch, appeal link, or shortcut change must
 	// act on every replica at the very next command, not after CACHE_LOCAL_TTL seconds.
+	//
+	// The chat_advanced_thresholds key holds per-group overrides for raid detection, member
+	// requirements, lockdown reminders, and captcha timeout: a threshold change or reset must
+	// act on every replica on the very next event, not after CACHE_LOCAL_TTL seconds.
 	return strings.HasPrefix(key, captchaPendingPrefix) ||
 		strings.HasPrefix(key, staffGroupPrefix) ||
 		strings.HasPrefix(key, staffLinkOfPrefix) ||
@@ -115,7 +121,8 @@ func skipLocal(key string) bool {
 		strings.HasPrefix(key, eventMessagesPrefix) ||
 		strings.HasPrefix(key, chatEscalationPrefix) ||
 		strings.HasPrefix(key, chatManualDefaultsPrefix) ||
-		strings.HasPrefix(key, chatReasonShortcutsPrefix)
+		strings.HasPrefix(key, chatReasonShortcutsPrefix) ||
+		strings.HasPrefix(key, chatAdvancedThresholdsPrefix)
 }
 
 func localSettings() (ttl, size int) {
