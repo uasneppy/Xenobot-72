@@ -39,6 +39,7 @@ import (
 // copy is unchanged.
 type eventPMSpec struct {
 	DefaultKey string
+	PlainKey   string
 	Automatic  bool
 	UntilLine  bool
 }
@@ -71,7 +72,7 @@ func eventPMSpecFor(event string) (eventPMSpec, bool) {
 func init() {
 	// The seven manual events of Phase 21 (D-06): /dban, /dkick and /dmute share their parent's
 	// event, and the silent variants never reach replyEvent, so they send no copy.
-	registerEventPM(eventmsg.EventBan, eventPMSpec{DefaultKey: "eventmsg_pm_ban", Automatic: false})
+	registerEventPM(eventmsg.EventBan, eventPMSpec{DefaultKey: "eventmsg_pm_ban", PlainKey: "eventmsg_plain_pm_ban", Automatic: false})
 	registerEventPM(eventmsg.EventTimedBan, eventPMSpec{DefaultKey: "eventmsg_pm_tban", Automatic: false})
 	registerEventPM(eventmsg.EventKick, eventPMSpec{DefaultKey: "eventmsg_pm_kick", Automatic: false})
 	registerEventPM(eventmsg.EventMute, eventPMSpec{DefaultKey: "eventmsg_pm_mute", Automatic: false})
@@ -388,11 +389,11 @@ func pmCopySend(ctx context.Context, o eventPMOffer, msg media.GreetingMessage) 
 // and the {rules} button), followed by r.PMNote on a new line; with none it is the event's default
 // private text (eventPMDefaultText). The keyboard is the stored buttons and the {rules} button only,
 // never the bot's own Unban or Unmute row, which are group callbacks; the media is the row's file.
-func composeEventPM(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator, spec eventPMSpec, r eventReply, row eventmsg.Message, actor eventActor) media.GreetingMessage {
+func composeEventPM(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator, spec eventPMSpec, r eventReply, row eventmsg.Message, actor eventActor, plain bool) media.GreetingMessage {
 	buttons := row.Buttons
 	var text string
 	if row.Text == "" {
-		text = eventPMDefaultText(tr, spec, chat, r.Values, r.PMNote)
+		text = eventPMDefaultText(tr, spec, chat, r.Values, r.PMNote, plain)
 	} else {
 		target := r.Target
 		text, buttons = renderEventText(b, chat, &target, row.Text, row.Buttons, eventPlaceholderValues(tr, chat.Id, actor, r.Values))
@@ -420,7 +421,7 @@ func composeEventPM(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator, spe
 // with the same end) for a spec with UntilLine when {until} is set (a timed warn limit, flood, blacklist
 // or forward blocklist action), the reason line (eventmsg_pm_reason with the reason escaped) when a reason
 // was given and the note when set. It never names the acting admin.
-func eventPMDefaultText(tr *i18n.Translator, spec eventPMSpec, chat *gotgbot.Chat, values eventValues, note string) string {
+func eventPMDefaultText(tr *i18n.Translator, spec eventPMSpec, chat *gotgbot.Chat, values eventValues, note string, plain bool) string {
 	params := i18n.TranslationParams{
 		"group": staffDisplayTitle(chat.Title), "until": "", "count": "", "limit": "",
 		"action": html.EscapeString(values.Action),
@@ -434,7 +435,11 @@ func eventPMDefaultText(tr *i18n.Translator, spec eventPMSpec, chat *gotgbot.Cha
 	if !values.Until.IsZero() {
 		params["until"] = formatChatTime(values.Until, chatClockOf(chat.Id), "02.01.2006 15:04")
 	}
-	text, _ := tr.GetString(spec.DefaultKey, params)
+	key := spec.DefaultKey
+	if plain && spec.PlainKey != "" {
+		key = spec.PlainKey
+	}
+	text, _ := tr.GetString(key, params)
 	lines := []string{text}
 	if spec.UntilLine && !values.Until.IsZero() {
 		until, _ := tr.GetString("eventmsg_pm_until", i18n.TranslationParams{"until": params["until"]})

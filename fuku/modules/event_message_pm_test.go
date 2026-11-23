@@ -335,7 +335,7 @@ func TestEventPMDefaultTexts(t *testing.T) {
 		}
 		chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: title}
 		action := eventActionWord(tr, "warn")
-		got := eventPMDefaultText(tr, spec, &chat, eventValues{Reason: rules, Count: 1, Limit: 3, Action: action}, "")
+		got := eventPMDefaultText(tr, spec, &chat, eventValues{Reason: rules, Count: 1, Limit: 3, Action: action}, "", false)
 		want := eventPMAutoDefault(t, "eventmsg_pm_mreqwarn", i18n.TranslationParams{
 			"group": escaped, "count": "1", "limit": "3", "action": action,
 		}, html.EscapeString(rules))

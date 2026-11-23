@@ -201,8 +201,16 @@ func banReplyWithButton(c *moderationCtx, t *target) error {
 			Opts:    opts,
 		})
 	} else {
-		text, opts := banDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
-		err = c.replyEvent(eventReply{Event: eventmsg.EventBan, Target: member, Values: eventValues{Reason: t.reason}, Default: text, Opts: opts})
+		banIn := eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal}
+		text, opts := banDefaultReply(c.Tr, banIn)
+		err = c.replyEvent(eventReply{
+			Event:        eventmsg.EventBan,
+			Target:       member,
+			Values:       eventValues{Reason: t.reason},
+			Default:      text,
+			PlainDefault: func() string { return banPlainDefaultReply(c.Tr, banIn) },
+			Opts:         opts,
+		})
 	}
 	if err != nil {
 		log.Error(err)

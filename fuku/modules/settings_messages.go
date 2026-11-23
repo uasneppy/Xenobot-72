@@ -68,6 +68,8 @@ const (
 	// settingsActMsgPMOption is the action code of a toggle of the hub's private copies block (fields t, an option code
 	// of settingsMsgPMOptions, and v, the absolute target "0" or "1").
 	settingsActMsgPMOption = "ho"
+	// settingsActMsgPlainTone is the action code of the hub's Plain tone switch (field v, the absolute target "0" or "1").
+	settingsActMsgPlainTone = "ht"
 	// settingsMsgSampleDuration is the duration a preview of a timed event fills in: the form the duration
 	// takes in a timed reply (the command's own duration text, which is not translated).
 	settingsMsgSampleDuration = "2 hours"
@@ -118,6 +120,7 @@ type settingsMsgEvent struct {
 	DescKey         string
 	ReservedButtons int
 	Default         eventDefaultReply
+	PlainDefault    func(tr *i18n.Translator, in eventDefaultInput) string
 	Timed           bool
 	Sample          settingsMsgSample
 	NoSilent        bool
@@ -147,7 +150,7 @@ type settingsMsgFamily struct {
 var settingsMsgManualEvents = []settingsMsgEvent{
 	{
 		Key: eventmsg.EventBan, Code: "bn", Icon: "🚫", NameKey: "settings_msg_ev_ban", DescKey: "settings_msg_desc_ban",
-		ReservedButtons: 2, Default: banDefaultReply,
+		ReservedButtons: 2, Default: banDefaultReply, PlainDefault: banPlainDefaultReply,
 	},
 	{
 		Key: eventmsg.EventTimedBan, Code: "tb", Icon: "⏳", NameKey: "settings_msg_ev_tban", DescKey: "settings_msg_desc_tban",
@@ -375,6 +378,9 @@ func init() {
 		settingsActMsgPMOption: {
 			Fields: []string{"t", "v"}, Right: settingsRightChangeInfo, Validate: settingsMsgPMOptionFields, Run: settingsMsgRunPMOption,
 		},
+		settingsActMsgPlainTone: {
+			Fields: []string{"v"}, Right: settingsRightChangeInfo, Validate: settingsMsgPlainToneFields, Run: settingsMsgRunPlainTone,
+		},
 	}
 	maps.Copy(actions, settingsMsgEditActions())
 	registerSettingsPage(settingsPage{
@@ -594,6 +600,12 @@ func settingsMsgPMOptionFields(fields map[string]string) bool {
 	return ok
 }
 
+// settingsMsgPlainToneFields is the Validate of ht: the private owner field and a target value of
+// exactly "0" or "1".
+func settingsMsgPlainToneFields(fields map[string]string) bool {
+	return settingsListPrivateField(fields) && settingsEditSwitchValue(fields["v"])
+}
+
 // settingsMsgAnyPM reports whether some event of the page has a private copy spec, so the hub's private copies block
 // has something to set.
 func settingsMsgAnyPM() bool {
@@ -690,8 +702,9 @@ func settingsMsgReadNow(chatID int64) (*eventmsg.Messages, error) {
 }
 
 // settingsMsgMainState is the Messages line of Main: one fresh database read and no Telegram call. Default
-// when no event is customised and no private copy is on, "{n} custom" otherwise (settingsMsgCountChanged), the
-// unknown mark when the read failed. It is called only in a private menu (PrivateOnly).
+// when no event is customised, no private copy is on and Plain tone is off, Plain tone when no event is
+// customised and Plain tone is on, "{n} custom" otherwise (settingsMsgCountChanged), the unknown mark when
+// the read failed. It is called only in a private menu (PrivateOnly).
 func settingsMsgMainState(_ *gotgbot.Bot, tr *i18n.Translator, group *gotgbot.Chat) (string, bool) {
 	msgs, err := settingsMsgReadNow(group.Id)
 	if err != nil {
@@ -699,6 +712,9 @@ func settingsMsgMainState(_ *gotgbot.Bot, tr *i18n.Translator, group *gotgbot.Ch
 	}
 	if n := settingsMsgCountChanged(msgs); n > 0 {
 		return settingsText(tr, "settings_state_msg_n", i18n.TranslationParams{"n": n}), true
+	}
+	if msgs.Options.PlainTone {
+		return settingsText(tr, "settings_state_msg_plain"), true
 	}
 	return settingsText(tr, "settings_state_default"), true
 }
@@ -797,6 +813,27 @@ func settingsMsgRunPMOption(p *settingsPress) *settingsScreen {
 	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
 	defer cancel()
 	res := opt.Apply(ctx, p.group.Id, p.fields["v"] == "1", p.query.From.Id)
+	return settingsMsgRedrawHubApplied(p, res)
+}
+
+// settingsMsgRunPlainTone serves ht, the hub's Plain tone switch (Phase 29, TUNE-08): it writes the
+// absolute target through applyEventPlainTone, its one write path, with the presser as the writer
+// (no same-value shortcut), and redraws the hub from the messages the write read back.
+func settingsMsgRunPlainTone(p *settingsPress) *settingsScreen {
+	if !settingsEditSwitchValue(p.fields["v"]) {
+		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
+	defer cancel()
+	res := applyEventPlainTone(ctx, p.group.Id, p.fields["v"] == "1", p.query.From.Id)
+	return settingsMsgRedrawHubApplied(p, res)
+}
+
+// settingsMsgRedrawHubApplied redraws the Messages hub after an option write: from the messages the
+// write read back, reloaded when the read-back is missing, or the stored state with the save-failed
+// notice when the write failed.
+func settingsMsgRedrawHubApplied(p *settingsPress, res eventMsgOptionsResult) *settingsScreen {
 	if res.Messages != nil {
 		screen := renderSettingsMsgHub(p.view(), res.Messages, "")
 		return &screen
@@ -845,6 +882,7 @@ func settingsMsgStateFromMessage(msg eventmsg.Message) settingsEditState {
 // private copy spec, so the event screen's line can say it after any redraw.
 func settingsMsgStateFor(msgs *eventmsg.Messages, ev settingsMsgEvent, dest string) settingsEditState {
 	st := settingsMsgStateFromMessage(msgs.Resolve(ev.Key, dest))
+	st.PlainTone = msgs.Options.PlainTone
 	if dest == eventmsg.DestGroup {
 		st.PMOn = settingsMsgPMOn(msgs, ev)
 	}
@@ -941,7 +979,7 @@ func settingsMsgWrite(ev settingsMsgEvent, dest string) func(context.Context, in
 // numbers, or nothing for Sample.NoReason (the lift). The default text is the event's own builder in the group's language, with no bot rows. The
 // reply carries no options and no KeepRows, so composeEventMessage adds no bot row: the Unban, Unmute, Remove warn and
 // I fixed it buttons are live callbacks that must never reach a private chat (D-27).
-func settingsMsgPreviewReply(p *settingsPress, groupTr *i18n.Translator, ev settingsMsgEvent) eventReply {
+func settingsMsgPreviewReply(p *settingsPress, groupTr *i18n.Translator, ev settingsMsgEvent, plainTone bool) eventReply {
 	target := p.query.From
 	values := eventValues{Reason: settingsText(groupTr, "settings_msg_sample_reason")}
 	sample := ev.Sample
@@ -974,6 +1012,11 @@ func settingsMsgPreviewReply(p *settingsPress, groupTr *i18n.Translator, ev sett
 		values.Until = punishNow().Add(time.Duration(sample.Secs) * time.Second)
 	}
 	text, _ := ev.Default(groupTr, in)
+	if plainTone && ev.PlainDefault != nil {
+		if plain := ev.PlainDefault(groupTr, in); plain != "" {
+			text = plain
+		}
+	}
 	r := eventReply{Event: ev.Key, Target: target, Values: values, Default: text}
 	if ev.Appended != nil {
 		r.Note = ev.Appended(groupTr, in)
@@ -1000,7 +1043,7 @@ func settingsMsgPreview(ev settingsMsgEvent) func(*settingsPress, settingsEditPa
 			return errors.New("settings messages: no such part to preview")
 		}
 		groupTr := settingsMsgGroupTranslator(p)
-		r := settingsMsgPreviewReply(p, groupTr, ev)
+		r := settingsMsgPreviewReply(p, groupTr, ev, st.PlainTone)
 		presser := p.query.From
 		actor := eventActor{User: &presser}
 		if part == settingsEditPartText {
@@ -1062,7 +1105,7 @@ func settingsMsgPMPreview(ev settingsMsgEvent) func(*settingsPress, settingsEdit
 		}
 		groupTr := settingsMsgGroupTranslator(p)
 		presser := p.query.From
-		r := settingsMsgPreviewReply(p, groupTr, ev)
+		r := settingsMsgPreviewReply(p, groupTr, ev, st.PlainTone)
 		if st.Text == "" && ev.Sample.Secs > 0 && !ev.Timed {
 			// The default private text of the sample's untimed action carries no Until line, so the default
 			// preview stays as the site sends it; only a custom text shows the sample duration.
@@ -1071,7 +1114,7 @@ func settingsMsgPMPreview(ev settingsMsgEvent) func(*settingsPress, settingsEdit
 		if part == "" && eventSupportsAppeal(r) {
 			r.AppealURL = manualAppealURLFor(p.group.Id)
 		}
-		msg := composeEventPM(p.b, p.group, groupTr, spec, r, row, eventActor{User: &presser})
+		msg := composeEventPM(p.b, p.group, groupTr, spec, r, row, eventActor{User: &presser}, st.PlainTone)
 		if part == settingsEditPartText {
 			_, err := media.SendGreeting(p.b, presser.Id, msg.Text, "", db.TEXT, &gotgbot.InlineKeyboardMarkup{}, 0)
 			return err
@@ -1125,6 +1168,17 @@ func renderSettingsMsgHub(v settingsView, msgs *eventmsg.Messages, notice string
 		}
 	}
 	settingsDelGrid(k, cells)
+	plainOn := msgs.Options.PlainTone
+	body = append(body, "", settingsText(tr, "settings_msg_line_plain_tone", i18n.TranslationParams{"state": settingsStateWord(tr, plainOn)}))
+	body = append(body, settingsText(tr, "settings_msg_hint_plain_tone"))
+	plainTarget := "1"
+	if plainOn {
+		plainTarget = "0"
+	}
+	plainLabel := settingsText(tr, "settings_btn_msg_plain_tone", i18n.TranslationParams{"state": settingsStateIcon(plainOn)})
+	if button, ok := k.button(plainLabel, map[string]string{"a": settingsActMsgPlainTone, "v": plainTarget}); ok {
+		k.row(button)
+	}
 	if settingsMsgAnyPM() {
 		body = append(body, "", settingsMsgPMIcon+" <b>"+settingsText(tr, "settings_msg_pm_title")+"</b>")
 		for _, opt := range settingsMsgPMOptions {

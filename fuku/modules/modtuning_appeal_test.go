@@ -758,7 +758,7 @@ func TestAppealButtonOnBanMessages(t *testing.T) {
 			Event:     eventmsg.EventBan,
 			Target:    gotgbot.User{Id: 42, FirstName: "Ann"},
 			AppealURL: appealURL,
-		}, eventmsg.Message{Buttons: makeButtons(100)}, eventActor{})
+		}, eventmsg.Message{Buttons: makeButtons(100)}, eventActor{}, false)
 		if pmMsg.Keyboard == nil || pmCopyButtonCount(pmMsg.Keyboard.InlineKeyboard) != 100 {
 			t.Fatalf("100-button PM copy count = %d, want 100", pmCopyButtonCount(pmMsg.Keyboard.InlineKeyboard))
 		}

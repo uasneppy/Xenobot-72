@@ -38,13 +38,15 @@ func (m Message) HasContent() bool {
 	return m.Text != "" || m.FileID != "" || len(m.Buttons) > 0
 }
 
-// Options is a group's two options of the private copies of its event messages. Both are off for
-// a chat with no options row.
+// Options is a group's event message options. All options are off for a chat with no options row.
 type Options struct {
 	// PMDetails adds a Details button to the group message when a private copy was not delivered.
 	PMDetails bool
 	// PMLog posts one line in the group's log channel when a private copy was not delivered.
 	PMLog bool
+	// PlainTone switches uncustomised default event messages (group replies and private copies)
+	// to neutral plain-tone wording (TUNE-08).
+	PlainTone bool
 }
 
 // Messages is every stored event message of one chat, keyed by rowKey(event, dest), and the
@@ -137,7 +139,11 @@ func GetFresh(ctx context.Context, chatID int64) (*Messages, error) {
 		return nil, fukuerrors.Wrapf(err, "read the event message options of chat %d", chatID)
 	}
 	if len(options) == 1 {
-		msgs.Options = Options{PMDetails: options[0].PMDetails, PMLog: options[0].PMLog}
+		msgs.Options = Options{
+			PMDetails: options[0].PMDetails,
+			PMLog:     options[0].PMLog,
+			PlainTone: options[0].PlainTone,
+		}
 	}
 	return msgs, nil
 }
@@ -208,6 +214,18 @@ func SetPMDetails(ctx context.Context, chatID int64, on bool, by int64) error {
 func SetPMLog(ctx context.Context, chatID int64, on bool, by int64) error {
 	row := models.ChatEventMessageOptions{PMLog: on}
 	if err := upsertOptions(ctx, chatID, by, &row, "write the private copy log option", "pm_log"); err != nil {
+		return err
+	}
+	cache.DeleteCache(CacheKey(chatID))
+	return nil
+}
+
+// SetPlainTone stores the group's Plain tone option (TUNE-08); a Go false is written. It writes
+// only plain_tone (plus updated_by and updated_at), so it never clobbers pm_details or pm_log,
+// and drops event_messages:<chat> (which is in skipLocal) after the write.
+func SetPlainTone(ctx context.Context, chatID int64, on bool, by int64) error {
+	row := models.ChatEventMessageOptions{PlainTone: on}
+	if err := upsertOptions(ctx, chatID, by, &row, "write the plain tone option", "plain_tone"); err != nil {
 		return err
 	}
 	cache.DeleteCache(CacheKey(chatID))

@@ -1745,8 +1745,8 @@ func settingsPrivacyPhase22Screens(tr *i18n.Translator, chatID int64) map[string
 	note, _ := tr.GetString("eventmsg_pm_unmute_lockdown")
 	values := eventValues{Reason: "spam", Duration: "2 hours", Until: time.Now().Add(2 * time.Hour)}
 	for event, spec := range eventPMSpecs {
-		screens["phase 22 default "+event] = settingsScreen{Text: eventPMDefaultText(tr, spec, &chat, values, "")}
-		screens["phase 22 default with the note "+event] = settingsScreen{Text: eventPMDefaultText(tr, spec, &chat, values, note)}
+		screens["phase 22 default "+event] = settingsScreen{Text: eventPMDefaultText(tr, spec, &chat, values, "", false)}
+		screens["phase 22 default with the note "+event] = settingsScreen{Text: eventPMDefaultText(tr, spec, &chat, values, note, false)}
 		offer := eventPMOffer{Chat: chat, Event: event, UserID: 42, TargetName: "Ann"}
 		screens["phase 22 log line blocked "+event] = settingsScreen{Text: pmCopyLogText(tr, offer, pmCopyBlocked)}
 		screens["phase 22 log line failed "+event] = settingsScreen{Text: pmCopyLogText(tr, offer, pmCopyUnknown)}

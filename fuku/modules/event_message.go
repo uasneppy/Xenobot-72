@@ -111,6 +111,7 @@ type eventReply struct {
 	Target       gotgbot.User
 	Values       eventValues
 	Default      string
+	PlainDefault func() string
 	Opts         *gotgbot.SendMessageOpts
 	Note         string
 	PMNote       string
@@ -456,6 +457,11 @@ func postEventSent(site eventSite, r eventReply) (eventGroupPost, error) {
 		log.Debugf("[EventMessage] the %s message of chat %d for user %d was not admitted, nothing was posted", r.Event, site.Chat.Id, r.Target.Id)
 		return eventGroupPost{}, nil
 	}
+	if msgs.Options.PlainTone && r.PlainDefault != nil {
+		if plain := r.PlainDefault(); plain != "" {
+			r.Default = plain
+		}
+	}
 	post, err := postEventGroup(site, r, msgs)
 	offerReplyPM(site, r, msgs, post)
 	return post, err
@@ -589,7 +595,7 @@ func offerReplyPM(site eventSite, r eventReply, msgs *eventmsg.Messages, post ev
 		Chat:       *site.Chat,
 		Event:      r.Event,
 		UserID:     r.Target.Id,
-		Message:    composeEventPM(site.Bot, site.Chat, site.Tr, spec, r, row, site.Actor),
+		Message:    composeEventPM(site.Bot, site.Chat, site.Tr, spec, r, row, site.Actor, msgs.Options.PlainTone),
 		Custom:     row.HasContent(),
 		AppealRow:  eventAppealRow(site.Tr, r.AppealURL),
 		Options:    msgs.Options,
@@ -607,7 +613,7 @@ func offerReplyPM(site eventSite, r eventReply, msgs *eventmsg.Messages, post ev
 		offer.Tr = site.Tr
 	}
 	if offer.Custom {
-		offer.Fallback = eventPMDefaultText(site.Tr, spec, site.Chat, r.Values, r.PMNote)
+		offer.Fallback = eventPMDefaultText(site.Tr, spec, site.Chat, r.Values, r.PMNote, msgs.Options.PlainTone)
 	}
 	offerEventPM(offer)
 }

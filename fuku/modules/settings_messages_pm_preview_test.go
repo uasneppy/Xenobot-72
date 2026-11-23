@@ -208,7 +208,7 @@ func TestSettingsMessagesPMPreview(t *testing.T) {
 		spec, _ := eventPMSpecFor(eventmsg.EventBan)
 		// The press's group is the getChat answer of the fake, whose title is "Test Chat".
 		group := gotgbot.Chat{Id: realEnv.chat.Id, Type: "supergroup", Title: "Test Chat"}
-		want := eventPMDefaultText(spanish, spec, &group, eventValues{Reason: reason}, "")
+		want := eventPMDefaultText(spanish, spec, &group, eventValues{Reason: reason}, "", false)
 		params := rulesCallParams(t, sent[1])
 		if got := fmt.Sprint(params["text"]); sent[1].Method != "sendMessage" || got != want {
 			t.Errorf("Full preview of the default private copy = %s %q, want the Spanish default private text %q", sent[1].Method, got, want)

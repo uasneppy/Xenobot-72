@@ -18,6 +18,7 @@ var eventMsgWrites = struct {
 	Buttons   func(ctx context.Context, chatID int64, event, dest string, buttons []db.Button, by int64) error
 	PMDetails func(ctx context.Context, chatID int64, on bool, by int64) error
 	PMLog     func(ctx context.Context, chatID int64, on bool, by int64) error
+	PlainTone func(ctx context.Context, chatID int64, on bool, by int64) error
 }{
 	Silent:    eventmsg.SetSilent,
 	Text:      eventmsg.SetText,
@@ -25,6 +26,7 @@ var eventMsgWrites = struct {
 	Buttons:   eventmsg.SetButtons,
 	PMDetails: eventmsg.SetPMDetails,
 	PMLog:     eventmsg.SetPMLog,
+	PlainTone: eventmsg.SetPlainTone,
 }
 
 // eventMsgApplyResult is what an event message apply function returns: the outcome, the stored
@@ -166,4 +168,15 @@ func applyEventPMDetails(ctx context.Context, chatID int64, on bool, by int64) e
 func applyEventPMLog(ctx context.Context, chatID int64, on bool, by int64) eventMsgOptionsResult {
 	writeErr := eventMsgWrites.PMLog(ctx, chatID, on, by)
 	return eventMsgOptionsReadBack(ctx, chatID, "log", writeErr)
+}
+
+// applyEventPlainTone stores the group's Plain tone option (Phase 29, TUNE-08): with it on,
+// uncustomised default event messages (group replies and private copies) use neutral plain-tone
+// wording while custom messages remain untouched. It is the option's one write path, which has no
+// command, and it judges no person's rights (the press pipeline judged them). The value is absolute,
+// so a repeated call stores the same row. The repository drops event_messages:<chat>, which is in
+// skipLocal, so the send path reads the new option at the very next event on every replica.
+func applyEventPlainTone(ctx context.Context, chatID int64, on bool, by int64) eventMsgOptionsResult {
+	writeErr := eventMsgWrites.PlainTone(ctx, chatID, on, by)
+	return eventMsgOptionsReadBack(ctx, chatID, "plain tone", writeErr)
 }

@@ -349,6 +349,9 @@ type settingsEditState struct {
 	// PMOn is whether an event message's private copy is switched on (the pm row's Silent is false), read by
 	// an event definition's Load and Draw only, so the group message's screen can say it.
 	PMOn bool
+	// PlainTone is whether the group's event messages use neutral plain-tone defaults (Phase 29, TUNE-08),
+	// read by an event definition's Load and Preview hooks only.
+	PlainTone bool
 }
 
 // settingsEditScreenOpts are the extras of one drawing: a notice line and the bot's username

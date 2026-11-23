@@ -105,7 +105,7 @@ func TestEventPMTextsFitEveryLocale(t *testing.T) {
 				values := eventValues{Reason: eventPMWorstReason, Duration: "366 days", Count: 100, Limit: 100, Action: longestAction, Until: until}
 				// The default private text with every placeholder filled, then the same text with the lockdown note, which only
 				// /unmute adds, measured for every event because a note only adds its own length.
-				text := eventPMDefaultText(tr, spec, &chat, values, "")
+				text := eventPMDefaultText(tr, spec, &chat, values, "", false)
 				eventPMWantFilled(t, event+" default", text, 4096)
 				// The events whose action can be a timed mute or ban (Phase 26, D-17: the warn limit, the flood, the blacklist
 				// and the forward blocklist) end their text with the Until line before the reason when an end is set, and
@@ -127,13 +127,13 @@ func TestEventPMTextsFitEveryLocale(t *testing.T) {
 				if slices.ContainsFunc(settingsMsgReqEvents, func(ev settingsMsgEvent) bool { return ev.Key == event }) {
 					rules := values
 					rules.Reason = memberReqRulesText(tr, mreqAllRulesMask())
-					text := eventPMDefaultText(tr, spec, &chat, rules, "")
+					text := eventPMDefaultText(tr, spec, &chat, rules, "", false)
 					eventPMWantFilled(t, event+" default with every rule", text, 4096)
 					if !strings.Contains(text, html.EscapeString(rules.Reason)) {
 						t.Errorf("%s default %q does not list every broken rule", event, text)
 					}
 				}
-				withNote := eventPMDefaultText(tr, spec, &chat, values, note)
+				withNote := eventPMDefaultText(tr, spec, &chat, values, note, false)
 				eventPMWantFilled(t, event+" default with the lockdown note", withNote, 4096)
 				if !strings.HasSuffix(withNote, "\n"+note) {
 					t.Errorf("%s default with the note %q does not end with the note", event, withNote)
@@ -171,7 +171,7 @@ func TestEventPMTextsFitEveryLocale(t *testing.T) {
 
 			// The Details record of the worst default copy is what the deep link shows: its record and its URL button fit.
 			rec := pmCopyDetailsRecordOf(eventPMOffer{Chat: chat, Event: events[0], UserID: eventPMMember},
-				media.GreetingMessage{Text: eventPMDefaultText(tr, eventPMSpecs[events[0]], &chat, eventValues{Reason: eventPMWorstReason}, note), MsgType: db.TEXT})
+				media.GreetingMessage{Text: eventPMDefaultText(tr, eventPMSpecs[events[0]], &chat, eventValues{Reason: eventPMWorstReason}, note, false), MsgType: db.TEXT})
 			eventPMWantFilled(t, "the Details record's text", rec.Text, 4096)
 			if url := "https://t.me/" + strings.Repeat("b", 32) + "?start=" + pmCopyDetailsPrefix + strings.Repeat("A", pmCopyTokenLen); len(url) > 200 {
 				t.Errorf("the Details URL is %d bytes", len(url))
@@ -307,10 +307,10 @@ func TestEventPMPrivacy(t *testing.T) {
 				spec, _ := eventPMSpecFor(event)
 				label := code + " " + event
 				r := eventReply{Event: event, Target: target, Values: values, PMNote: note}
-				def := composeEventPM(s.bot, &s.chat, tr, spec, r, eventmsg.Message{}, tapper)
+				def := composeEventPM(s.bot, &s.chat, tr, spec, r, eventmsg.Message{}, tapper, false)
 				custom := composeEventPM(s.bot, &s.chat, tr, spec, r, eventmsg.Message{
 					Text: eventPMPrivacyCustom, Buttons: models.ButtonArray{{Name: "Site", Url: "https://example.com"}},
-				}, tapper)
+				}, tapper, false)
 				wantClean(t, label+" default copy", def.Text)
 				wantClean(t, label+" custom copy", custom.Text)
 				if strings.Contains(custom.Text, eventPMPrivacyTapper) || !strings.Contains(custom.Text, anon) {
