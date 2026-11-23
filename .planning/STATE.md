@@ -5,16 +5,16 @@ milestone_name: Conversations, Custom Messages and Tuning
 current_phase: 29
 current_phase_name: Plain Tone and Copy Settings
 status: executing
-stopped_at: Completed 29-02-PLAN.md
-last_updated: "2026-11-23T14:07:53.426Z"
+stopped_at: Completed 29-03-PLAN.md
+last_updated: "2026-11-23T14:31:36.763Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 29 execution started
-state_head: 40659d85595af7b61936f5b00dd2e43045b5fb53
+state_head: 14df5f1e754a339657b789f09992f6c997200f6b
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 75
-  completed_plans: 71
+  completed_plans: 72
   percent: 18
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 29 (Plain Tone and Copy Settings) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 29 execution started
 
@@ -212,6 +212,7 @@ Progress: [██░░░░░░░░] 18%
 | Phase 28 P06 | 17min | 3 tasks | 3 files |
 | Phase 29 P01 | 6min | 2 tasks | 1 files |
 | Phase 29 P02 | 23 min | 3 tasks | 36 files |
+| Phase 29 P03 | 22min | 3 tasks | 25 files |
 
 ## Accumulated Context
 
@@ -340,6 +341,8 @@ Recent decisions affecting current work:
 - [Phase 28]: P28-01..P28-04, zero new shutdown drain, chat_advanced_thresholds skipLocal, page av, and Phase 28 safeguard/E2E/golden suites recorded in AGENTS.md
 - [Phase 29]: Drove tone_off_all_18_pm_defaults through postEventSent + waitEventPM over phase28InProcessMiniredis to stay decoupled from Plan 29-02 PM composer signature changes with zero localhost TCP dials
 - [Phase 29]: 29-02: Lazy eventReply.PlainDefault evaluated in postEventSent after site.Admit with pure builders in event_message_plain.go outside eventEngineEntries; PlainTone threaded via settingsEditState to previews.
+- [Phase 29]: Used Action: {action} phrasing in plain-tone flood, blacklist/fwdblock, and captcha templates for cross-language grammar parity across all 8 locales
+- [Phase 29]: Spliced user/admin HTML mentions post-interpolation via eventPlainRender (lockdownNameToken + lockdownSplice) to prevent HTML injection and secondary placeholder expansion
 
 ### Pending Todos
 
@@ -462,8 +465,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T14:07:52.503Z
-Stopped at: Completed 29-02-PLAN.md
+Last session: 2026-11-23T14:31:35.828Z
+Stopped at: Completed 29-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
