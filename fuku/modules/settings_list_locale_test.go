@@ -33,6 +33,9 @@ func settingsListExtraKeys() []string {
 		// The Blocked sources page's prompt lines, the action screen's intro and hint, the saved notice and its refusal.
 		"settings_fwd_wait", "settings_fwd_wait_rules", "settings_fwd_action_hint", "settings_fwd_saved", "settings_fwd_refuse_one",
 		"settings_bl_action_intro", "settings_btn_bl_action",
+		// The Reason shortcuts page's two-step prompts and refusals (Phase 27, plan 27-06).
+		"settings_rsn_wait_word", "settings_rsn_wait_word_rules", "settings_rsn_wait_text", "settings_rsn_wait_text_rules",
+		"settings_rsn_refuse_word", "settings_rsn_refuse_text_long", "settings_rsn_refuse_exists", "settings_rsn_refuse_cap",
 	}
 	for _, part := range settingsListParts {
 		keys = append(keys, part.WordKey)
