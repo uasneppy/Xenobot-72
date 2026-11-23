@@ -882,6 +882,22 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_adv_saved":           {40, 60},
 	"settings_adv_reset_item_done": {50, 70},
 	"settings_adv_reset_area_done": {56, 80},
+
+	// The Copy settings page (Phase 29, plan 29-05, TUNE-09): private-only page title,
+	// Main state, group note, picker intro/empty, confirm card (header, 6 overwritten areas,
+	// excluded items + one-time note), Yes button, copied notices, and Redis-unavailable alert.
+	"settings_page_copy":             {14, 18},
+	"settings_state_copy":            {14, 20},
+	"settings_copy_group_note":       {160, 220},
+	"settings_copy_intro":            {220, 310},
+	"settings_copy_empty":            {170, 240},
+	"settings_copy_confirm_head":     {110, 150},
+	"settings_copy_confirm_areas":    {480, 660},
+	"settings_copy_confirm_keep":     {320, 440},
+	"settings_btn_copy_yes":          {18, 20},
+	"settings_notice_copied":         {110, 150},
+	"settings_notice_copied_skipped": {150, 210},
+	"settings_copy_unavailable":      {120, 160},
 }
 
 // settingsAlertKeys are shown as answerCallbackQuery alerts: plain text, no tag, at most
@@ -899,6 +915,7 @@ var settingsAlertKeys = []string{
 	"settings_gate_owner_only",
 	"settings_access_owner_only",
 	"settings_pick_unavailable",
+	"settings_copy_unavailable",
 	"settings_edit_unavailable",
 	"settings_edit_prompt_stale",
 	"settings_edit_wait_expired",
@@ -1098,6 +1115,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 		{"📜", "settings_page_rules"},
 		{"🛂", "settings_page_mreq"},
 		{"🎛", "settings_page_advanced"},
+		{"📋", "settings_page_copy"},
 		{"🧹", "settings_page_del"},
 		{"🚩", "settings_page_warns"},
 		{"⚖️", "settings_page_moddefaults"},
@@ -1208,6 +1226,8 @@ func TestSettingsLabelLengths(t *testing.T) {
 		"settings_btn_moddef_appeal_set", "settings_btn_moddef_appeal_remove",
 		// The Reason shortcuts list page's Add button (Phase 27, plan 27-06).
 		"settings_btn_rsn_add",
+		// The Copy settings confirm card's Yes button (Phase 29, plan 29-05).
+		"settings_btn_copy_yes",
 	}
 	// The editor's half-width switch cells (Phase 12, UI-SPEC check 2): the template with
 	// {state} replaced by the icon alone is at most 20 code points, so a name is at most 18.
