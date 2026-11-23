@@ -284,14 +284,14 @@ Plans:
   2. With "reason required" on, a punishment with no reason is refused with a short reply and nothing happens. With a reason, it runs. It is off by default.
   3. The owner adds a reason shortcut (a word and its full text) on a page, browses the list and deletes an entry behind a two-tap card. `/ban @user spam` then shows the full text as the reason in the group message, the PM copy, the warn reason and the log post. A word that is not a shortcut is used as typed.
   4. With an appeal link set, a ban message (default or custom) and its PM copy carry the button. With none set, they carry none. The link passes the editor's link check.
-**Plans**: 5/7 plans executed
+**Plans**: 6/7 plans executed
 Plans:
 - [x] 27-01-PLAN.md — goldens of manual command duration refusals, missing-reason and untimed replies, committed alone (wave 1)
 - [x] 27-02-PLAN.md — tracer: manual command tuning storage, modtuning repo with skipLocal, backup exclusion, PG integrity, and default ban/mute duration + reason-required end to end (wave 2)
 - [x] 27-03-PLAN.md — reason shortcut validation/apply and expansion across manual punishments, PM copies, warns, and log channel (wave 3)
 - [x] 27-04-PLAN.md — appeal URL validation and appeal button on ban messages, PM copies, and Messages previews (wave 4)
 - [x] 27-05-PLAN.md — private Manual defaults settings page (q), duration picker, reason-required switch, and appeal link typed wait (wave 5)
-- [ ] 27-06-PLAN.md — private Reason shortcuts list page (rs) with plain-text two-step add, browse/page, and two-tap delete card (wave 6)
+- [x] 27-06-PLAN.md — private Reason shortcuts list page (rs) with plain-text two-step add, browse/page, and two-tap delete card (wave 6)
 - [ ] 27-07-PLAN.md — safety, privacy, Staff Group sweep, AGENTS.md update, end-to-end dispatcher proof, and phase gates (wave 7)
 **UI hint**: yes
 
@@ -363,7 +363,7 @@ Phases execute in numeric order: 20 → 21 → 22 → 23 → 24 → 25 → 26 �
 | 24. Captcha, AI Spam and Member Requirement Notices | v1.2 | 0/TBD | Not started | - |
 | 25. Lockdown Messages | v1.2 | 0/TBD | Not started | - |
 | 26. Timed Punishments, Escalation and Warn Expiry | v1.2 | 0/TBD | Not started | - |
-| 27. Manual Command Defaults, Reason Shortcuts and Appeal Button | v1.2 | 5/7 | In Progress | - |
+| 27. Manual Command Defaults, Reason Shortcuts and Appeal Button | v1.2 | 6/7 | In Progress | - |
 | 28. Advanced Thresholds | v1.2 | 0/TBD | Not started | - |
 | 29. Plain Tone and Copy Settings | v1.2 | 0/TBD | Not started | - |
 | 30. Backup Page and Custom Messages in Backups | v1.2 | 0/TBD | Not started | - |
