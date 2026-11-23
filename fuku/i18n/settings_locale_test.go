@@ -664,6 +664,7 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	// seven event names and descriptions, the two state words and the group note.
 	"settings_page_msgs":            {14, 18},
 	"settings_state_msg_n":          {16, 22},
+	"settings_state_msg_plain":      {16, 22},
 	"settings_msg_intro":            {360, 440},
 	"settings_msg_fam_manual":       {16, 18},
 	"settings_msg_fam_manual_intro": {230, 270},
@@ -707,6 +708,10 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_btn_msg_pm_open": {24, 34},
 	// The previews of the private copy (Phase 22, plan 22-05): the line sent before a preview of the private copy.
 	"settings_msg_preview_header_pm": {140, 196},
+	// Plain tone switch on the Messages hub (Phase 29, TUNE-08): its line, its full-width toggle and its hint.
+	"settings_msg_line_plain_tone": {30, 42},
+	"settings_btn_msg_plain_tone":  {24, 34},
+	"settings_msg_hint_plain_tone": {160, 224},
 	// The hub's private copies block (Phase 22, plan 22-06): the Details option's line, its full-width toggle and the
 	// options hint.
 	"settings_msg_line_pm_details": {30, 42},
@@ -1177,6 +1182,8 @@ func TestSettingsLabelLengths(t *testing.T) {
 		"settings_btn_msg_silent", "settings_btn_msg_pm", "settings_btn_msg_pm_details", "settings_btn_msg_pm_log",
 		// The AI spam notice's Notice switch (Phase 24, plan 24-04).
 		"settings_btn_msg_notice",
+		// The Messages hub's Plain tone switch (Phase 29, TUNE-08).
+		"settings_btn_msg_plain_tone",
 	}
 	// The full-width buttons whose label is the whole button (Phase 22, plan 22-04: the event screen's row that
 	// opens the private copy), at most 40 code points.
@@ -1701,6 +1708,8 @@ func TestSettingsEditLocaleTokens(t *testing.T) {
 		{"settings_btn_msg_silent", []string{"{state}"}},
 		{"settings_msg_line_pm", []string{"{state}"}},
 		{"settings_btn_msg_pm", []string{"{state}"}},
+		{"settings_msg_line_plain_tone", []string{"{state}"}},
+		{"settings_btn_msg_plain_tone", []string{"{state}"}},
 		{"settings_msg_line_pm_details", []string{"{state}"}},
 		{"settings_btn_msg_pm_details", []string{"{state}"}},
 		{"settings_msg_line_pm_log", []string{"{state}"}},

@@ -59,6 +59,9 @@ var eventMsgLocaleLimits = map[string]eventMsgLimit{
 	"eventmsg_reason_captcha":     {60, 90},
 	"eventmsg_reason_aispam":      {60, 90},
 	"eventmsg_mreq_rules":         {60, 90},
+	// Plain tone defaults (Phase 29, TUNE-08).
+	"eventmsg_plain_ban":          {120, 180},
+	"eventmsg_plain_pm_ban":       {140, 200},
 }
 
 // eventMsgNotDefaultText are the eventmsg_pm_ keys that are not an event's default private text, so they do
@@ -121,7 +124,8 @@ func TestEventMsgLocaleKeys(t *testing.T) {
 					failures = append(failures, fmt.Sprintf("%s: %s has placeholders %v, en.yml has %v", lang, key, got, want))
 				}
 				// The default private texts name the group; the neutral Details reply must name nothing (D-20).
-				if strings.HasPrefix(key, "eventmsg_pm_") && !eventMsgNotDefaultText[key] && !strings.Contains(text, "<b>{group}</b>") {
+				isPMDefault := (strings.HasPrefix(key, "eventmsg_pm_") && !eventMsgNotDefaultText[key]) || strings.HasPrefix(key, "eventmsg_plain_pm_")
+				if isPMDefault && !strings.Contains(text, "<b>{group}</b>") {
 					failures = append(failures, fmt.Sprintf("%s: %s does not name the group as <b>{group}</b>", lang, key))
 				}
 				if key == "eventmsg_pm_details_none" && (strings.Contains(text, "{") || strings.Contains(text, "<b>")) {
