@@ -154,7 +154,7 @@ func TestManualDefaultsEndToEnd(t *testing.T) {
 	//    reply, and verifies the rendered list line is HTML-escaped.
 	menu.tap("a", settingsActBack)
 	menu.tap("a", settingsActOpen, "p", settingsPageReasons)
-	menu.tap("a", "sa")
+	menu.tap("a", "sm")
 	if !e.redis.Exists(settingsInputKey(e.owner.Id)) {
 		t.Fatal("step 2: tapping Add on page rs left no active typed wait")
 	}

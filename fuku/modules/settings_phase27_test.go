@@ -38,15 +38,15 @@ func settingsPhase27Codes(minute string) []settingsPhase27Code {
 		{settingsActModDefAppealPrompt, settingsPageModDefaults, nil},
 		{settingsActModDefAppealCancel, settingsPageModDefaults, []string{"t", settingsModDefAppealPart}},
 		{settingsActModDefAppealRemove, settingsPageModDefaults, nil},
-		{"sg", settingsPageReasons, []string{"v", "1"}},
+		{"sq", settingsPageReasons, []string{"v", "1"}},
 		{"sx", settingsPageReasons, []string{"r", "5", "v", "1"}},
 		{"sy", settingsPageReasons, []string{"r", "5", "e", minute}},
-		{"sa", settingsPageReasons, nil},
+		{"sm", settingsPageReasons, nil},
 		{"sc", settingsPageReasons, []string{"t", "w"}},
 	}
 }
 
-// TestPhase27Codes verifies every Phase 27 action code (md, mt, mr, ma, mc, mx on page q; sg, sx, sy, sa, sc
+// TestPhase27Codes verifies every Phase 27 action code (md, mt, mr, ma, mk, mx on page q; sq, sx, sy, sm, sc
 // on page rs) maps to its page, is no core code, leaves every prior page registered, and refuses both an
 // extra key and a group-menu press (u instead of c) in step 1 with 0 getChatMember calls.
 func TestPhase27Codes(t *testing.T) {
@@ -262,7 +262,7 @@ func TestPhase27StaffPrivacyAndLogs(t *testing.T) {
 
 	// Exercise page rs (Reason shortcuts): open, two-step add, two-tap delete, re-add for /ban.
 	press("a", settingsActOpen, "p", settingsPageReasons)
-	press("a", "sa")
+	press("a", "sm")
 	env.sendPrivate(moderator, sentinelWord)
 	env.sendPrivate(moderator, sentinelReason)
 
@@ -272,7 +272,7 @@ func TestPhase27StaffPrivacyAndLogs(t *testing.T) {
 	}
 	press("a", "sx", "r", strconv.FormatInt(entries[0].ID, 10), "v", "1")
 	press("a", "sy", "r", strconv.FormatInt(entries[0].ID, 10), "e", settingsCardExpiry(time.Now()))
-	press("a", "sa")
+	press("a", "sm")
 	env.sendPrivate(moderator, sentinelWord)
 	env.sendPrivate(moderator, sentinelReason)
 	press("a", settingsActBack)
