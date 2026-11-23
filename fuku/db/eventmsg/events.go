@@ -159,6 +159,83 @@ func DefaultSilentFor(event, dest string) bool {
 	return DefaultSilent(dest) || (dest == DestGroup && OffByDefault(event))
 }
 
+// HasPM reports whether event supports a private copy destination (DestPM). The five lockdown
+// events are group-only notices and have no private copy; all other valid events support DestPM.
+func HasPM(event string) bool {
+	if !ValidEvent(event) {
+		return false
+	}
+	switch event {
+	case EventLockdown, EventLockJoinSurge, EventLockFlood, EventLockAIBurst, EventLockLift:
+		return false
+	default:
+		return true
+	}
+}
+
+// NoMedia reports whether event and destination refuse media attachments. The four member
+// requirement group notices append the requirements line and remedies and never carry media.
+func NoMedia(event, dest string) bool {
+	if dest != DestGroup {
+		return false
+	}
+	switch event {
+	case EventReqWarn, EventReqKick, EventReqBan, EventReqMute:
+		return true
+	default:
+		return false
+	}
+}
+
+// NoSilent reports whether event and destination cannot be silenced. The member requirement mute
+// group notice carries the member's "I fixed it" button, so the send path never silences it.
+func NoSilent(event, dest string) bool {
+	return dest == DestGroup && event == EventReqMute
+}
+
+// ReservedButtonsFor returns the number of inline keyboard buttons the bot appends itself for
+// event and destination (such as Unban, Unmute, Remove warn, "I fixed it", or Appeal), matching
+// the Messages settings editor so Copy Settings and backup import enforce the exact same cap.
+func ReservedButtonsFor(event, dest string) int {
+	switch dest {
+	case DestGroup:
+		switch event {
+		case EventBan:
+			return 2
+		case EventTimedBan, EventMute, EventWarn, EventFlood, EventReqBan, EventReqMute:
+			return 1
+		default:
+			return 0
+		}
+	case DestPM:
+		switch event {
+		case EventBan, EventTimedBan, EventReqBan:
+			return 1
+		default:
+			return 0
+		}
+	default:
+		return 0
+	}
+}
+
+// ReservedTextFor returns the UTF-16 visible length reserved for bot-appended lines on event and
+// destination (member requirement lines/remedies and lockdown technical notes on group notices;
+// private copies append nothing).
+func ReservedTextFor(event, dest string) int {
+	if dest != DestGroup {
+		return 0
+	}
+	switch event {
+	case EventReqWarn, EventReqKick, EventReqBan, EventReqMute:
+		return MreqTextReserve
+	case EventLockdown, EventLockJoinSurge, EventLockFlood, EventLockAIBurst, EventLockLift:
+		return LockdownTextReserve
+	default:
+		return 0
+	}
+}
+
 // validate checks an event and a destination and returns the matching error for the first that
 // is unknown.
 func validate(event, dest string) error {
