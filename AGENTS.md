@@ -158,6 +158,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   existing `eventMessagesLookup` under `event_messages:<chat>` in `skipLocal`) and Copy Settings (`applyCopySettings`, one-time Redis
   confirmation tokens under `fuku:settings:copy:<token>`) run synchronously inside the calling handler under bounded contexts, so the
   70 s worst case and `stop_grace_period: 75s` are unchanged.
+- Phase 30 adds zero goroutines, zero handler groups, and zero shutdown drains: `BackupModuleMessages` (`"messages"`),
+  `eventmsg.ReplaceAllValidatedTx`, the shared backup apply helpers in `fuku/modules/backup.go`, cross-replica Redis backup tokens
+  (`fuku:settings:backup:import:<token>` and `fuku:settings:backup:reset:<token>`), and the private Backup settings page `ba` (reusing
+  the existing typed-reply door at group `1`) run synchronously inside the calling handler under bounded contexts, so the 70 s worst
+  case and `stop_grace_period: 75s` are unchanged.
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
 - The Turnstile web captcha is configured in `main` (`registerCaptchaWeb`) when `config.AppConfig.CaptchaWebConfigured()`
   holds: all four of `CAPTCHA_WEB_BASE_URL`, `TELEGRAM_MINI_APP_SHORT_NAME`, `TURNSTILE_SITE_KEY` and
@@ -1354,8 +1359,28 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `fuku:settings:copy:<token>` (TTL 5m, `SET NX`, failing closed with `settings_copy_unavailable` when Redis is nil), and `cy` peeks
   user/source binding before atomically consuming the token via a Lua `GET+DEL` script (`settings_card_expired` on expiry/replay) and
   calling `applyCopySettings` (full mirror across all 6 areas per `P29-01`, `P29-03`, `P29-04`, dropping all target cache keys and
-  never linking the two groups). With `cp` registered at `Order` 82, Main has 29 registered pages total (`settingsMainOwnerRows = 16`,
+  never linking the two groups). With `cp` registered at `Order` 82, Main had 29 registered pages total (`settingsMainOwnerRows = 16`,
   `staffOwnerRows = settingsMainOwnerRows - 3`).
+- The Backup page (`settings_backup.go`, `backup.go`, page `ba`, `Order` 83, icon `💾`, `settings_page_backup`, Phase 30, BKP-01..03,
+  MSG-10) is `PrivateOnly` (`PrivateNoteKey` `settings_bkp_group_note`), `Hidden` in Staff Groups (`settingsBackupHidden`, failing
+  closed on fresh DB errors via `settingsBackupVerifyNonStaff`), and has a static zero-I/O `MainState` (`settings_state_backup`).
+  Module selection is stateless via a canonical 20-bit lowercase hex mask `m` (`0`..`fffff`) mapping bits `0..19` to
+  `backup.AllExportableModules()` (including `"messages"`), with per-module toggles plus Select all (`m=fffff`) and Clear (`m=0`)
+  (`P30-04`). Action codes (every `Validate` requires private field `c` in step 1, producing 0 `getChatMember` calls on forged or
+  group-menu presses): `bv` (stateless bitmask redraw `m`, `settingsRightAdmin`), `be` (Export selected modules `m`,
+  `settingsRightAdminBotAdmin`, refuses `m=0` with `settings_bkp_pick_one`, delegates to `applyBackupExport` under `AcquireExport` and
+  delivers `.json` only to `query.From.Id`), `bi` (opens private `.json` document wait registered on
+  `settingsTypedPages[settingsPageBackup]`, part `i`, `CancelCode` `bl`, `Right` `settingsRightOwnerBotAdmin`, `WaitEndedKey`
+  `settings_bkp_import_wait_ended`, keeping the wait alive on plain text or invalid/corrupt files), `bl` (cancels active wait, `t=i`,
+  `settingsRightAdmin`), `bj` (Import confirm Yes, `k` 16-char base64url token, `settingsRightOwnerBotAdmin`, peeks user/chat binding
+  before atomic Lua `GET+DEL` + `AcquireImport` + `applyBackupImport` / `formatBackupImportSuccess`), `br` (Reset confirm ask, `m`,
+  `settingsRightOwnerBotAdmin`, refuses `m=0` with `settings_bkp_pick_one`, stores one-time Redis reset token), and `bu` (Reset confirm
+  Yes, `k`, `settingsRightOwnerBotAdmin`, peeks user/chat binding before atomic Lua `GET+DEL` + `AcquireReset` + `applyBackupReset` /
+  `formatBackupResetSuccess`). Both `/export`, `/import`, `/reset` and the Backup page call the shared apply helpers in
+  `fuku/modules/backup.go` (`applyBackupExport`, `downloadAndParseBackupFile`, `applyBackupImport`, `formatBackupImportSuccess`,
+  `applyBackupReset`, `formatBackupResetSuccess`) and share `BackupRateLimiter`. With `ba` registered at `Order` 83, Main has 30
+  registered pages total (`settingsMainOwnerRows = 17`, Staff Group Main hides `ba` too so `staffOwnerRows = settingsMainOwnerRows - 4`
+  and Staff Group Main state lines = `len(settingsMainTitleKeys) - 7`).
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
@@ -3146,6 +3171,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   live dual-group verification, and then atomically consumes the key via a 2-line Lua `GET` + `DEL` script (`settingsCopyConsumeScript`)
   before executing `applyCopySettings`. It fails closed (`settings_copy_unavailable` when Redis is nil, `settings_card_expired` on
   missing/expired/replayed tokens) and sits outside the `fuku:cache:` prefix so `CLEAR_CACHE_ON_STARTUP` keeps it.
+- `fuku:settings:backup:import:<token>` and `fuku:settings:backup:reset:<token>` are the cross-replica one-time confirmation card
+  tokens of the private Backup settings page (`fuku/modules/backup.go`, `fuku/modules/settings_backup.go`, Phase 30 plans 30-03 &
+  30-04, BKP-02, BKP-03, `P30-01`): JSON of `settingsBackupImportRecord` (`u` user ID, `c` chat ID, `m` modules, `b` parsed
+  `*backup.BackupFormat`, capped at 2 MiB `maxSettingsBackupRedisBytes` and decoded with `json.Decoder.UseNumber()` to preserve
+  64-bit integer IDs) and `settingsBackupResetRecord` (`u`, `c`, `m`), written via `SET NX` with TTL `settingsCardLifetime` (5 minutes)
+  using 12-byte `crypto/rand` unpadded base64url tokens (16 chars, 96-bit entropy, never logged). On `bj` / `bu`, the handler peeks the
+  record with `GET` to verify `u == presser.Id && c == groupID` (so wrong-user or wrong-chat presses answer
+  `common_callback_invalid_request` without burning the real owner's card), re-verifies fresh non-Staff-Group status, and then
+  atomically consumes the key via `settingsCopyConsumeScript` (Lua `GET` + `DEL`) before checking `AcquireImport` / `AcquireReset` and
+  applying the import or reset. Both fail closed (`settings_bkp_unavailable` when Redis is nil, `settings_card_expired` on
+  missing/expired/replayed tokens) and sit outside the `fuku:cache:` prefix so `CLEAR_CACHE_ON_STARTUP` keeps them.
 - `fuku:aispam:notice:{<chat>}:u:<user>` and `fuku:aispam:notice:{<chat>}:m:<unix minute>` are the caps of the AI spam notice
   (`aispam_notice.go`, Phase 24, EVT-05, D-22): one Lua script (`aispamNoticeScript`, under `raidRedisTimeout`, the chat ID a
   hash tag) sets the member latch with `SET NX EX 300` (`aispamNoticeUserWindow`, 5 minutes) and answers no when it was already
@@ -3306,9 +3342,18 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and upserts/deletes `chat_event_message_options` in one DB transaction and drops `event_messages:<chat>`. For antiflood action
   mirroring in Copy Settings, `antiflood.SetFloodActionPreserveOffContext` (`fuku/db/antiflood/repository.go`) explicitly writes
   `flood_limit = 0` on insert (using `.Select("chat_id", "flood_limit", "action", "action_secs")` + `OnConflict`) so GORM never applies
-  `models.AntifloodSettings`'s `default:5` tag to turn antiflood on in a target group that had no row (`P29-04`). `chat_event_messages`
-  and `chat_event_message_options` remain outside backup, export, import, and reset in Phase 29 (`TestEventMessagesStayOutOfBackup`;
-  Phase 30 decides).
+  `models.AntifloodSettings`'s `default:5` tag to turn antiflood on in a target group that had no row (`P29-04`). In Phase 30 (MSG-10,
+  plan 30-02), `eventmsg.ReplaceAllValidatedTx(tx *gorm.DB, chatID int64, rows []Message, opts Options, by int64) (WriteReport, error)`
+  was extracted in `fuku/db/eventmsg/validate_write.go` so `eventmsg.ReplaceAllValidated` and `backup.importMessages` share one
+  transaction-participating validated writer without opening nested transactions inside `withBackupTx`: `BackupModuleMessages = "messages"`
+  (`MessagesBackup{Messages []models.ChatEventMessage, Options *models.ChatEventMessageOptions}` in `fuku/db/backup/types.go`, bringing
+  `AllExportableModules()` to 20 modules) exports `chat_event_messages` (ordered by `event ASC, dest ASC`) and
+  `chat_event_message_options`, imports them through `ReplaceAllValidatedTx` (counting rejected rows and unknown future event keys in
+  `ImportReport.Skipped` and invalidating `event_messages:<chat>` only after transaction commit), and clears both tables plus
+  `event_messages:<chat>` on `ClearChatData` / `/reset` of all modules or `"messages"` (`P30-02`). Old exports omitting `"messages"`
+  import cleanly without modifying existing custom messages or options (while `"messages": {}` resets to defaults). Moderation tuning
+  and conversation tables (`chat_escalation`, `chat_offences`, `chat_manual_defaults`, `chat_reason_shortcuts`,
+  `chat_advanced_thresholds`, `chat_conversations`) and Staff Group tables remain excluded from backups (`P30-03`).
 - `chat_escalation` (migration 20261122140000, Phase 26 plan 26-08, TUNE-02, D-28) is one group's escalation ladder, one row
   per chat under the inline primary key `pk_chat_escalation`: `enabled`, five step pairs `step1_action` to `step5_action`
   (`VARCHAR(8) NOT NULL DEFAULT ''`) and `step1_secs` to `step5_secs` (`INTEGER NOT NULL DEFAULT 0`), each pair under its own
@@ -7135,6 +7180,31 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
     `warn_expiry_days` — preserving the target's `warn_limit` or default 3 and never touching `warns_users`) and `antiflood_settings`
     tuning (`action`, `action_secs` via `antiflood.SetFloodActionPreserveOffContext` — preserving the target's `flood_limit` and
     `delete_antiflood_message`, and inserting `flood_limit = 0` when the target has no row so antiflood is never accidentally enabled).
+- Phase 30 test families (Custom messages in backups and private Backup settings page `ba`; MSG-10, BKP-01, BKP-02, BKP-03, MSG-11,
+  EVT-10). The immutable MSG-11 golden `TestLegacyPhase30Baseline` (`fuku/modules/phase30_legacy_request_test.go`, plan 30-01, pinning
+  `/export`, `/import`, `/reset`, old-export preservation, and unconfigured default ban replies) was recorded alone on `f73400f4` before
+  any production edit and is never re-recorded. Repository, backup, and locale suites: `TestReplaceAllValidatedTx` (`fuku/db/eventmsg`),
+  `TestEventMessagesInBackup`, `TestEventMessagesImportValidationAndSkipped`, `TestOldExportWithoutMessagesAndOmittedFields`, and
+  `TestAllModulesRoundTripEveryMeaningfulField` (`fuku/db/backup`), and `fuku/i18n/settings_locale_test.go` (covering all 18 Backup
+  page keys, 2 alerts, and all 20 `backup_module_*` labels `<= 20` runes with checkbox prefix across all 8 languages). Runtime, UI,
+  safeguard, and E2E suites in `fuku/modules`: `TestSharedBackupApplyHelpers` and `TestSettingsBackupRedisTokens` (`backup_test.go`),
+  `TestSettingsBackupPage` (`settings_backup_test.go`), `TestPhase30Codes`, `TestPhase30ReadsCreateNothing`, and
+  `TestPhase30StaffPrivacyAndLogs` (`settings_phase30_test.go`), and `TestPhase30EndToEnd` (`phase30_e2e_test.go`).
+  Provisional owner decisions recorded for Phase 30:
+  - **P30-01 (Cross-Replica Pending Backup State):** Pending Backup page Import and Reset confirmations are stored in Redis under
+    `fuku:settings:backup:import:<token>` (serialized parsed `BackupFormat` capped at 2 MiB `maxSettingsBackupRedisBytes`) and
+    `fuku:settings:backup:reset:<token>` (TTL `settingsCardLifetime` 5m, `SET NX`, peek-and-bind check before atomic Lua `GET+DEL`),
+    failing closed when Redis is unavailable rather than re-downloading Telegram files at Yes or relying on single-replica in-memory
+    maps.
+  - **P30-02 (Reset Clears Custom Messages and Options):** Because `"messages"` (`BackupModuleMessages`) is an exportable backup
+    module, `/reset` (all modules or `messages`) and `ClearChatData` clear `chat_event_messages` and `chat_event_message_options` and
+    drop `event_messages:<chat>`, restoring default replies and turning `pm_details`, `pm_log`, and `plain_tone` off.
+  - **P30-03 (Tuning and Staff Tables Stay Outside Backups):** Moderation tuning and conversation tables (`chat_escalation`,
+    `chat_offences`, `chat_manual_defaults`, `chat_reason_shortcuts`, `chat_advanced_thresholds`, `chat_conversations`) and Staff Group
+    tables remain excluded from `AllExportableModules()`, export, import, and reset.
+  - **P30-04 (Stateless 20-Module Bitmask Selector):** The private Backup page `ba` opens with all 20 modules selected (`m=fffff`) and
+    toggles individual modules, Select all (`m=fffff`), or Clear (`m=0`) statelessly via a canonical lowercase hex bitmask in callback
+    data (`bv`), requiring at least one selected module before Export (`be`) or Reset (`br`).
 
 ## Commits
 
