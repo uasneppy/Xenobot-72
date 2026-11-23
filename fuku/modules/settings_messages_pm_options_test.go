@@ -230,7 +230,7 @@ func TestSettingsMessagesPMOptions(t *testing.T) {
 			t.Fatalf("SetPMDetails(true): %v", err)
 		}
 
-		text, keyboard = m.pressButton(toggle)
+		_, keyboard = m.pressButton(toggle)
 		row, exists := settingsMsgStoredOptions(t, env.chat.Id)
 		if !exists || !row.PlainTone || !row.PMDetails || row.PMLog || row.UpdatedBy != env.admin.Id {
 			t.Fatalf("options row after ht v=1 = %+v (exists=%v), want PlainTone=true, PMDetails=true, PMLog=false", row, exists)

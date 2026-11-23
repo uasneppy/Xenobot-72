@@ -11,7 +11,6 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
-	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
@@ -126,20 +125,7 @@ func pmCopyDetailsGet(ctx context.Context, token string) (pmCopyDetailsRecord, b
 	if client == nil {
 		return pmCopyDetailsRecord{}, false, errPMCopyNoRedis
 	}
-	getCtx, cancel := context.WithTimeout(ctx, raidRedisTimeout)
-	defer cancel()
-	value, err := client.Get(getCtx, pmCopyDetailsKey(token)).Bytes()
-	if errors.Is(err, redis.Nil) {
-		return pmCopyDetailsRecord{}, false, nil
-	}
-	if err != nil {
-		return pmCopyDetailsRecord{}, false, err
-	}
-	var rec pmCopyDetailsRecord
-	if err := json.Unmarshal(value, &rec); err != nil {
-		return pmCopyDetailsRecord{}, false, err
-	}
-	return rec, true, nil
+	return redisGetJSON[pmCopyDetailsRecord](ctx, client, pmCopyDetailsKey(token))
 }
 
 // pmCopyButtonCount is the number of buttons in rows.

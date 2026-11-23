@@ -1296,17 +1296,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settings_moddef_group_note`: group Main shows `In private` with 0 DB reads) and `Hidden` in Staff Groups via fresh
   `settingsModDefaultsStaffLookup`. Action codes: `md` (duration screen, `k` `b`|`m`, `settingsRightAdmin`), `mt` (set duration,
   `k` `b`|`m`, `v` `0` or preset, `settingsRightRestrict`), `mr` (reason-required toggle, `v` `0`|`1`, `settingsRightRestrict`),
-  `ma` (prompt appeal link, `settingsRightRestrict`), `mc` (cancel appeal wait, `t` `"a"`, `settingsRightAdmin`), `mx` (remove
+  `ma` (prompt appeal link, `settingsRightRestrict`), `mk` (cancel appeal wait, `t` `"a"`, `settingsRightAdmin`), `mx` (remove
   appeal link, `settingsRightRestrict`). Every `Validate` requires the private owner field `c` in step 1 (0 `getChatMember` calls
-  on forged or group-menu presses). The typed appeal wait registers `settingsTypedPages["q"]` (`Part: "a"`, `CancelCode: "mc"`,
+  on forged or group-menu presses). The typed appeal wait registers `settingsTypedPages["q"]` (`Part: "a"`, `CancelCode: "mk"`,
   `Right: settingsRightRestrict`, `WaitEndedKey: "settings_moddef_appeal_wait_ended"` — using the optional `WaitEndedKey` on
   `settingsTypedPage` with fallback to `settings_tz_wait_ended_note` in `settings_input_door.go`). Writes route through
   `applyDefaultBanSecs`, `applyDefaultMuteSecs`, `applyReasonRequired`, and `applyAppealURL` in `modtuning_settings.go`; stored
   appeal URLs are displayed truncated to 64 runes and HTML-escaped, never written to callback data or logs.
 - The Reason shortcuts page (`settings_reasons.go`, page `rs`, `Order` 45, icon 🏷, `settings_page_reasons`, Phase 27 plan 27-06,
   TUNE-05) is a private-only table of the v1.1 list engine (`settings_list.go`) `Hidden` in Staff Groups via fresh
-  `settingsReasonsStaffLookup`, with `Right: settingsRightRestrict`, `CountMax: 50`, and action codes `sg` (pager), `sx` (delete
-  ask), `sy` (delete confirm), `sa` (add), and `sc` (cancel). It uses the plain-text Step 2 mode (`CheckPlain`/`ApplyPlain`) on
+  `settingsReasonsStaffLookup`, with `Right: settingsRightRestrict`, `CountMax: 50`, and action codes `sq` (pager), `sx` (delete
+  ask), `sy` (delete confirm), `sm` (add), and `sc` (cancel). It uses the plain-text Step 2 mode (`CheckPlain`/`ApplyPlain`) on
   `settingsListTwoStep` (`settings_list_input.go`, static parts `{rs, w, 1, r}` and `{rs, r, 2}`, skipping
   `settings_entries_wait_content_limits` when `ApplyPlain != nil` so Filters and Notes stay byte-identical), sharing the exact
   `StepMsgID` redelivery guard, fresh re-check before claim, and atomic claim/finish/release flow. Entries render as escaped
@@ -3592,7 +3592,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and a cancel included, and it is taken before the budget, so a flight that cannot get a slot spends no unit. The flight's
   value is `memberReqAIAnswer{Verdict, Sticky}`. A paused breaker, a used-up budget and a gate that could not be had while the
   flight's context is live are a sticky unknown (a state of the system), and so are no Redis client, a failed state read
-  (`memberReqAIPrepare`, noted by `memberReqAIRule` through the plan's `sticky` field, because the prepare step runs before the
+  (`memberReqAIPrepareBar`, noted by `memberReqAIRule` through the plan's `sticky` field, because the prepare step runs before the
   flight), a failed cache re-read inside the flight and a budget counter that failed (Phase 15 review WR-03: a Redis outage
   would otherwise defer every weaker name punishment in every group whose AI action is stricter); a cancelled context is a
   plain unknown (shutdown is not a state), and so is every provider answer that is not a probability (a 5xx, a timeout, a 400). The name check has its own breaker

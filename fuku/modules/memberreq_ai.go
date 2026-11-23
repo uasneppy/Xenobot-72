@@ -315,11 +315,6 @@ func memberReqAIFinal(verdict memberReqVerdict) memberReqAIPlan {
 	return memberReqAIPlan{verdict: verdict, done: true}
 }
 
-// memberReqAIPrepare is the read step of the rule with the default memberReqAIBar.
-func memberReqAIPrepare(ctx context.Context, chatID, userID int64, mode memberReqLookupMode) memberReqAIPlan {
-	return memberReqAIPrepareBar(ctx, chatID, userID, mode, memberReqAIBar)
-}
-
 // memberReqAIPrepareBar is the read step of the rule: no names is unknown, an AI that is not
 // configured and names that are not judgeable are inert, no Redis or a Redis read error is
 // a sticky unknown (the cost guard: with the cache unreadable the provider is not asked; a Redis

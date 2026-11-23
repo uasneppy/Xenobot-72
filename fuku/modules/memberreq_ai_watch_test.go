@@ -254,7 +254,7 @@ func TestMemberReqWatcherAI(t *testing.T) {
 		}
 	})
 
-	t.Run("the AI part adds exactly three GETs and a group with name rules only keeps its single GET", func(t *testing.T) {
+	t.Run("the AI part adds three GETs and the bar and a group with name rules only keeps its single GET", func(t *testing.T) {
 		env, _ := mreqAIWatchEnv(t, models.RequirementActionMute)
 		member := mreqAIOrdinary(env)
 		settings, err := memberreq.GetSettingsFresh(context.Background(), env.chat.Id)
@@ -262,10 +262,14 @@ func TestMemberReqWatcherAI(t *testing.T) {
 			t.Fatal(err)
 		}
 		names := memberReqNamesOf(member)
+		// Warm the group's AI bar first: a cold read of it is a GET and a SET, a warm one a GET.
+		advThresholdsFor(context.Background(), env.chat.Id)
 		before := env.redis.CommandCount()
 		memberReqLookupCached(settings, env.chat.Id, member.Id, "value", names)
-		if got := env.redis.CommandCount() - before; got != 4 {
-			t.Errorf("Redis commands of the AI-only read = %d, want 4 (the pass key and three AI keys)", got)
+		// The pass key, the three AI keys and, since Phase 28, the group's AI bar (the
+		// chat_advanced_thresholds key, which is in skipLocal, so one GET per read).
+		if got := env.redis.CommandCount() - before; got != 5 {
+			t.Errorf("Redis commands of the AI-only read = %d, want 5 (the pass key, three AI keys and the AI bar)", got)
 		}
 
 		env.mreqRules(map[memberreq.Rule]int{memberreq.RuleAI: models.RequirementActionOff, memberreq.RuleLastName: models.RequirementActionWarn})

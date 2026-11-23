@@ -39,12 +39,12 @@ const (
 	settingsActCopyPick = "ck"
 	settingsActCopyYes  = "cy"
 
-	// settingsCopyTokenPrefix is the Redis key prefix for one-time copy confirmation cards,
+	// settingsCopyCardKeyPrefix is the Redis key prefix for one-time copy confirmation cards,
 	// outside fuku:cache: so cache clears do not wipe in-flight confirmations.
-	settingsCopyTokenPrefix = "fuku:settings:copy:"
-	// settingsCopyTokenBytes is 96 bits of entropy (16 unpadded base64url chars).
-	settingsCopyTokenBytes = 12
-	settingsCopyTokenLen   = 16
+	settingsCopyCardKeyPrefix = "fuku:settings:copy:"
+	// settingsCopyCardIDBytes is 96 bits of entropy (16 unpadded base64url chars).
+	settingsCopyCardIDBytes = 12
+	settingsCopyCardIDLen   = 16
 
 	// settingsCopyWriteTimeout bounds one full 9-table copy execution.
 	settingsCopyWriteTimeout = 15 * time.Second
@@ -151,7 +151,7 @@ func settingsCopyPickValid(fields map[string]string) bool {
 }
 
 func settingsCopyTokenValid(token string) bool {
-	if len(token) != settingsCopyTokenLen {
+	if len(token) != settingsCopyCardIDLen {
 		return false
 	}
 	for i := 0; i < len(token); i++ {
@@ -169,11 +169,11 @@ func settingsCopyYesValid(fields map[string]string) bool {
 }
 
 func settingsCopyTokenKey(token string) string {
-	return settingsCopyTokenPrefix + token
+	return settingsCopyCardKeyPrefix + token
 }
 
 func settingsCopyNewToken() (string, error) {
-	raw := make([]byte, settingsCopyTokenBytes)
+	raw := make([]byte, settingsCopyCardIDBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
@@ -214,20 +214,7 @@ func settingsCopyPeekToken(ctx context.Context, token string) (settingsCopyToken
 	if client == nil {
 		return settingsCopyTokenRecord{}, false, errSettingsCopyNoRedis
 	}
-	getCtx, cancel := context.WithTimeout(ctx, raidRedisTimeout)
-	defer cancel()
-	raw, err := client.Get(getCtx, settingsCopyTokenKey(token)).Bytes()
-	if errors.Is(err, redis.Nil) {
-		return settingsCopyTokenRecord{}, false, nil
-	}
-	if err != nil {
-		return settingsCopyTokenRecord{}, false, err
-	}
-	var rec settingsCopyTokenRecord
-	if err := json.Unmarshal(raw, &rec); err != nil {
-		return settingsCopyTokenRecord{}, false, err
-	}
-	return rec, true, nil
+	return redisGetJSON[settingsCopyTokenRecord](ctx, client, settingsCopyTokenKey(token))
 }
 
 func settingsCopyConsumeToken(ctx context.Context, token string) (settingsCopyTokenRecord, bool, error) {
