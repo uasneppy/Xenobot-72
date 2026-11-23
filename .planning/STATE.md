@@ -4,17 +4,17 @@ milestone: v1.2
 milestone_name: Conversations, Custom Messages and Tuning
 current_phase: 27
 current_phase_name: Manual Command Defaults, Reason Shortcuts and Appeal Button
-status: executing
-stopped_at: Completed 27-06-PLAN.md
-last_updated: "2026-11-23T03:24:58.715Z"
+status: verifying
+stopped_at: Completed 27-07-PLAN.md
+last_updated: "2026-11-23T03:48:14.821Z"
 last_activity: 2026-11-22
 last_activity_desc: Phase 27 execution started
-state_head: f6ff79b78d3341f501b33eda91e31aa3f5749fdb
+state_head: 5fbf4d85058afccb9534ebce4264a04b6f07c301
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 63
-  completed_plans: 62
+  completed_plans: 63
   percent: 9
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 
 Phase: 27 (Manual Command Defaults, Reason Shortcuts and Appeal Button) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-22 — Phase 27 execution started
 
 Progress: [█░░░░░░░░░] 9%
@@ -202,6 +202,7 @@ Progress: [█░░░░░░░░░] 9%
 | Phase 27-manual-command-defaults-reason-shortcuts-and-appeal-button P04 | 30min | 3 tasks | 17 files |
 | Phase 27 P05 | 23min | 3 tasks | 15 files |
 | Phase 27 P06 | 22min | 3 tasks | 15 files |
+| Phase 27-manual-command-defaults-reason-shortcuts-and-appeal-button P07 | 22min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -320,6 +321,7 @@ Recent decisions affecting current work:
 - [Phase 27]: P27-04 implemented: appeal button attaches to EventBan, EventTimedBan, EventReqBan, and automatic ban/tban outcomes (EventWarnLimit, EventFlood, EventBlacklist, EventForwardBlock, EventCaptcha) on group messages, PM copies, refused-custom PM fallbacks, and Messages Full previews, respecting the 100-button Telegram cap and skipping channel bans, silent bans, non-ban events, lockdowns, and Staff Group actions.
 - [Phase 27]: Registered Manual defaults private settings page q (Order 41, Icon ⚖️, PrivateOnly, hidden in Staff Groups) with WaitEndedKey on settingsTypedPage and live settingsRightRestrict on writes/typed appeal URL.
 - [Phase 27]: Extended settingsListTwoStep with plain-text Step 2 (CheckPlain, ApplyPlain) and registered private Reason shortcuts list page rs (Order 45, Icon 🏷, codes sg/sx/sy/sa/sc, parts w->r, hidden in Staff Groups)
+- [Phase 27-manual-command-defaults-reason-shortcuts-and-appeal-button]: Documented Phase 27 tables, skipLocal prefixes, pages q & rs, action codes, zero shutdown drain, TestLegacyPhase27ModerationRequests golden, and provisional decisions P27-01..P27-05 in AGENTS.md
 
 ### Pending Todos
 
@@ -441,8 +443,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T03:24:58.110Z
-Stopped at: Completed 27-06-PLAN.md
+Last session: 2026-11-23T03:48:14.221Z
+Stopped at: Completed 27-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
