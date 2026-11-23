@@ -493,12 +493,14 @@ func (moduleStruct) captchaCommand(bot *gotgbot.Bot, ctx *ext.Context) error {
 			status = "enabled"
 		}
 
+		timeout := effectiveCaptchaTimeout(tracing.UpdateContext(ctx), chat.Id, settings.Timeout)
+
 		tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
 		statusUsage, _ := tr.GetString("captcha_status_usage")
 		header, _ := tr.GetString("captcha_settings_header")
 		statusLine, _ := tr.GetString("captcha_settings_status", i18n.TranslationParams{"s": status})
 		modeLine, _ := tr.GetString("captcha_settings_mode", i18n.TranslationParams{"s": settings.CaptchaMode})
-		timeoutLine, _ := tr.GetString("captcha_settings_timeout", i18n.TranslationParams{"d": settings.Timeout})
+		timeoutLine, _ := tr.GetString("captcha_settings_timeout", i18n.TranslationParams{"d": timeout})
 		actionLine, _ := tr.GetString("captcha_settings_failure_action", i18n.TranslationParams{"s": settings.FailureAction})
 		attemptsLine, _ := tr.GetString("captcha_settings_max_attempts", i18n.TranslationParams{"d": settings.MaxAttempts})
 
@@ -816,6 +818,13 @@ type captchaApplyResult struct {
 	Settings *models.CaptchaSettings
 	// Err is the repository error of a failed write.
 	Err error
+}
+
+// effectiveCaptchaTimeout returns the captcha timeout in minutes for chatID: the extended
+// override stored in chat_advanced_thresholds (11..60 min) when set, otherwise baseTimeout
+// (captcha_settings.timeout, 1..10 min) (P28-02).
+func effectiveCaptchaTimeout(ctx context.Context, chatID int64, baseTimeout int) int {
+	return advCaptchaTimeout(advThresholdsFor(ctx, chatID), baseTimeout)
 }
 
 // applyCaptchaTimeout is the one path that changes a group's captcha time limit, called by
@@ -1288,7 +1297,9 @@ func SendCaptcha(bot *gotgbot.Bot, ctx *ext.Context, userID int64, userName stri
 		return err
 	}
 
-	preAttempt, err = captcha.CreateCaptchaAttemptPreMessageIfEnabled(userID, chat.Id, answer, settings.Timeout)
+	timeout := effectiveCaptchaTimeout(tracing.UpdateContext(ctx), chat.Id, settings.Timeout)
+
+	preAttempt, err = captcha.CreateCaptchaAttemptPreMessageIfEnabled(userID, chat.Id, answer, timeout)
 	if err != nil || preAttempt == nil {
 		if errors.Is(err, captcha.ErrCaptchaDisabled) {
 			return errCaptchaDisabled
@@ -1317,7 +1328,7 @@ func SendCaptcha(bot *gotgbot.Bot, ctx *ext.Context, userID int64, userName stri
 		}
 		text, _ := tr.GetString("captcha_web_welcome", i18n.TranslationParams{
 			"first":  formatting.MentionHtml(userID, userName),
-			"number": settings.Timeout,
+			"number": timeout,
 		})
 		msgText = text
 		buttonText, _ := tr.GetString("captcha_web_button")
@@ -1339,7 +1350,7 @@ func SendCaptcha(bot *gotgbot.Bot, ctx *ext.Context, userID int64, userName stri
 			log.Errorf("[Captcha] No verify buttons could be encoded for attempt %d", preAttempt.ID)
 			return errors.Join(errors.New("captcha keyboard empty: no encodable options"), rollbackCaptchaAttempt(bot, preAttempt))
 		}
-		msgText = captchaChallengeText(tr, mode, isImage, userID, userName, question, settings.Timeout)
+		msgText = captchaChallengeText(tr, mode, isImage, userID, userName, question, timeout)
 	}
 
 	var sent *gotgbot.Message

@@ -82,7 +82,7 @@ func settingsCaptchaOpen(p *settingsPress, notice string) (settingsScreen, error
 	if settings == nil {
 		return settingsScreen{}, errors.New("captcha settings: no row and no default")
 	}
-	return renderSettingsCaptcha(p.view(), settings, settingsCaptchaWebOf(p.b), notice), nil
+	return renderSettingsCaptchaWithTimeout(p.view(), settings, effectiveCaptchaTimeout(ctx, p.group.Id, settings.Timeout), settingsCaptchaWebOf(p.b), notice), nil
 }
 
 // settingsCaptchaWeb is what the page knows about the Turnstile web captcha when it draws.
@@ -135,12 +135,18 @@ func settingsCaptchaActionWord(tr *i18n.Translator, action string) string {
 	return settingsText(tr, "settings_opt_kick")
 }
 
-// renderSettingsCaptcha draws the Captcha page: the switch, the mode with its description
-// (and the fallback note when a stored Turnstile cannot run), the time limit, the failure
-// action, and a keyboard with the toggle, the mode choice, the time stepper and the action
-// choice. The Turnstile label carries the unavailable mark when no web captcha runtime is
-// installed; that costs no I/O.
+// renderSettingsCaptcha draws the Captcha page using s.Timeout as the displayed time limit.
 func renderSettingsCaptcha(v settingsView, s *models.CaptchaSettings, web settingsCaptchaWeb, notice string) settingsScreen {
+	return renderSettingsCaptchaWithTimeout(v, s, s.Timeout, web, notice)
+}
+
+// renderSettingsCaptchaWithTimeout draws the Captcha page: the switch, the mode with its
+// description (and the fallback note when a stored Turnstile cannot run), the effective time
+// limit (which may be extended above 10 min via Advanced thresholds), the failure action, and
+// a keyboard with the toggle, the mode choice, the 1..10 time stepper bound to s.Timeout, and
+// the action choice. The Turnstile label carries the unavailable mark when no web captcha
+// runtime is installed; that costs no I/O.
+func renderSettingsCaptchaWithTimeout(v settingsView, s *models.CaptchaSettings, effectiveTimeout int, web settingsCaptchaWeb, notice string) settingsScreen {
 	modeWord, modeDesc := settingsCaptchaModeWords(v.Tr, s.CaptchaMode)
 	body := []string{
 		settingsText(v.Tr, "settings_captcha_status", i18n.TranslationParams{"state": settingsStateWord(v.Tr, s.Enabled)}),
@@ -150,7 +156,7 @@ func renderSettingsCaptcha(v settingsView, s *models.CaptchaSettings, web settin
 		body = append(body, settingsText(v.Tr, "settings_captcha_fallback_note"))
 	}
 	body = append(body,
-		settingsText(v.Tr, "settings_captcha_time", i18n.TranslationParams{"n": s.Timeout}),
+		settingsText(v.Tr, "settings_captcha_time", i18n.TranslationParams{"n": effectiveTimeout}),
 		settingsText(v.Tr, "settings_captcha_action", i18n.TranslationParams{"action": settingsCaptchaActionWord(v.Tr, s.FailureAction)}),
 	)
 
@@ -190,10 +196,10 @@ func settingsCaptchaRedraw(p *settingsPress, result captchaApplyResult) *setting
 	if result.Outcome != captchaApplied {
 		notice = settingsNoticeWarn(settingsText(p.tr, result.Key))
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
+	defer cancel()
 	current := result.Settings
 	if current == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
-		defer cancel()
 		var err error
 		current, err = settingsCaptchaRead(ctx, p.group.Id)
 		if err != nil || current == nil {
@@ -202,7 +208,7 @@ func settingsCaptchaRedraw(p *settingsPress, result captchaApplyResult) *setting
 			return nil
 		}
 	}
-	screen := renderSettingsCaptcha(p.view(), current, settingsCaptchaWebOf(p.b), notice)
+	screen := renderSettingsCaptchaWithTimeout(p.view(), current, effectiveCaptchaTimeout(ctx, p.group.Id, current.Timeout), settingsCaptchaWebOf(p.b), notice)
 	return &screen
 }
 
@@ -304,6 +310,6 @@ func settingsCaptchaSetTime(p *settingsPress, value string) *settingsScreen {
 			return nil
 		}
 	}
-	screen := renderSettingsCaptcha(p.view(), current, settingsCaptchaWebOf(p.b), notice)
+	screen := renderSettingsCaptchaWithTimeout(p.view(), current, effectiveCaptchaTimeout(ctx, p.group.Id, current.Timeout), settingsCaptchaWebOf(p.b), notice)
 	return &screen
 }
