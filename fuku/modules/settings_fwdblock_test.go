@@ -346,7 +346,7 @@ func TestSettingsFwdBlockMainShape(t *testing.T) {
 	// Access and the navigation follow. Its Main has one row fewer than another chat's (settingsMainOwnerRows), because
 	// the Messages page that other chats gained in plan 21-06 does not exist in a Staff Group.
 	const (
-		staffOwnerRows = settingsMainOwnerRows - 3
+		staffOwnerRows = settingsMainOwnerRows - 4
 		groupOwner     = "s|v / l|c / f|n / k|b / i|w / g|r / e|x / m|t / u|z / o|y / p / a / close"
 		privateOwner   = "s|v / l|c / f|n / k|b / i|w / g|r / e|x / m|t / u|z / o|y / p / a / groups|close"
 		groupAdmin     = "s|v / l|c / f|n / k|b / i|w / g|r / e|x / m|t / u|z / o|y / close"

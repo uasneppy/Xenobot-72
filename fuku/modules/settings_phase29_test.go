@@ -45,10 +45,10 @@ func TestPhase29Codes(t *testing.T) {
 	allPages := []string{
 		"s", "v", "l", "c", "f", "q", "n", "j", "k", "rs",
 		"b", "i", "w", "g", "r", "e", "x", "h", "m", "av",
-		"cp", "d", "t", "u", "z", "o", "y", "p", "a",
+		"cp", "ba", "d", "t", "u", "z", "o", "y", "p", "a",
 	}
-	if len(allPages) != 29 {
-		t.Fatalf("expected 29 registered pages in test list, got %d", len(allPages))
+	if len(allPages) != 30 {
+		t.Fatalf("expected 30 registered pages in test list, got %d", len(allPages))
 	}
 	if len(settingsPages) != len(allPages) {
 		t.Errorf("registered settingsPages count = %d, want %d", len(settingsPages), len(allPages))
