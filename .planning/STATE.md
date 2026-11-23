@@ -5,16 +5,16 @@ milestone_name: Conversations, Custom Messages and Tuning
 current_phase: 21
 current_phase_name: Message Engine, Messages Page and Manual Punishments
 status: verifying
-stopped_at: Completed 30-03-PLAN.md
-last_updated: "2026-11-23T21:09:24.526Z"
+stopped_at: Completed 30-04-PLAN.md
+last_updated: "2026-11-23T21:29:48.682Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 29 complete, transitioned to Phase 21
-state_head: 0cb8ba241e148b691cdee67ba9c1ac6acbef6d77
+state_head: d8880d38428d157efb5bf11f3925230c5534649d
 progress:
   total_phases: 11
   completed_phases: 3
   total_plans: 80
-  completed_plans: 78
+  completed_plans: 79
   percent: 27
 ---
 
@@ -219,6 +219,7 @@ Progress: [███░░░░░░░] 27%
 | Phase 30 P01 | 6min | 2 tasks | 1 files |
 | Phase 30 P02 | 20min | 3 tasks | 15 files |
 | Phase 30 P03 | 9min | 2 tasks | 2 files |
+| Phase 30 P04 | 19min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -357,6 +358,7 @@ Recent decisions affecting current work:
 - [Phase 30]: Added BackupModuleMessages = "messages" (20th exportable module) covering chat_event_messages and chat_event_message_options, cleared on /reset (P30-02), while tuning and staff tables stay excluded (P30-03).
 - [Phase 30]: Kept backup_import_skipped_entries byte-identical across all 8 locales so Wave 1 golden TestLegacyPhase30Baseline stays untouched.
 - [Phase 30]: Extracted shared backup apply helpers (applyBackupExport, downloadAndParseBackupFile, applyBackupImport, formatBackupImportSuccess, applyBackupReset, formatBackupResetSuccess) and cross-replica Redis pending import/reset tokens (fuku:settings:backup:{import,reset}:, 2 MiB cap, 5m TTL, json.Number precision, peek-before-consume, atomic Lua GET+DEL) in fuku/modules/backup.go (P30-01)
+- [Phase 30]: Implemented private-only Backup settings page ba (Order 83, actions bv/be/bi/bl/bj/br/bu, stateless 20-bit hex mask m=0..fffff, settingsTypedPages[settingsPageBackup] document wait, peek-before-consume Lua GET+DEL two-tap cards, shared BackupRateLimiter and apply helpers) with 8-locale UI and TestSettingsBackupPage
 
 ### Pending Todos
 
@@ -479,8 +481,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T21:09:23.002Z
-Stopped at: Completed 30-03-PLAN.md
+Last session: 2026-11-23T21:29:47.170Z
+Stopped at: Completed 30-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

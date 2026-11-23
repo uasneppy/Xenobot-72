@@ -60,9 +60,9 @@ Scope rule for the whole milestone (owner decision, 2026-11-18): every message a
 
 ### Backup page
 
-- [ ] **BKP-01**: A private-only Backup page in `/settings` exports the group's settings: the owner or an allowed admin picks all modules or some, and the bot sends the backup file to them in the private chat. It produces the same file as `/export`, with the same rate limit and the admin right `/export` asks for.
-- [ ] **BKP-02**: The Backup page imports a backup: the person sends the file in the private chat after pressing Import, sees what will be imported and confirms with a two-tap card. It runs the same import as `/import` (same checks, same report of what was left out, same rate limit) and only for the group's live owner, as `/import` requires.
-- [ ] **BKP-03**: The Backup page resets settings to their defaults for all or chosen modules behind a two-tap card, live owner only, exactly as `/reset` does, with its rate limit.
+- [x] **BKP-01**: A private-only Backup page in `/settings` exports the group's settings: the owner or an allowed admin picks all modules or some, and the bot sends the backup file to them in the private chat. It produces the same file as `/export`, with the same rate limit and the admin right `/export` asks for.
+- [x] **BKP-02**: The Backup page imports a backup: the person sends the file in the private chat after pressing Import, sees what will be imported and confirms with a two-tap card. It runs the same import as `/import` (same checks, same report of what was left out, same rate limit) and only for the group's live owner, as `/import` requires.
+- [x] **BKP-03**: The Backup page resets settings to their defaults for all or chosen modules behind a two-tap card, live owner only, exactly as `/reset` does, with its rate limit.
 
 ## Future Requirements
 
@@ -123,9 +123,9 @@ Each requirement maps to exactly one phase. MSG-11 and EVT-10 are rules that hol
 | TUNE-07 | Phase 28 | Complete |
 | TUNE-08 | Phase 29 | Complete |
 | TUNE-09 | Phase 29 | Complete |
-| BKP-01 | Phase 30 | Pending |
-| BKP-02 | Phase 30 | Pending |
-| BKP-03 | Phase 30 | Pending |
+| BKP-01 | Phase 30 | Complete |
+| BKP-02 | Phase 30 | Complete |
+| BKP-03 | Phase 30 | Complete |
 
 **Coverage:**
 - v1.2 requirements: 40 total (MSG 11, EVT 10, PMSG 7, TUNE 9, BKP 3)
