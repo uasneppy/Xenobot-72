@@ -309,7 +309,14 @@ Plans:
   2. A value can only be set inside its bounds. An out-of-range, stale or forged press changes nothing. Reset to default puts today's constant back, for one value or one area.
   3. A changed value acts at the next relevant event on every replica. For example, a new flood window changes what counts as a flood, a new reminder interval changes when the next lockdown reminder posts, and a captcha timeout above 10 minutes applies to the next joiner.
   4. A group that changes nothing behaves exactly as today.
-**Plans**: TBD
+**Plans**: 6 plans
+Plans:
+- [ ] 28-01-PLAN.md — MSG-11 goldens of all 12 default threshold behaviors, committed alone (wave 1)
+- [ ] 28-02-PLAN.md — tracer: chat_advanced_thresholds migration, model, skipLocal repo, drift guard, backup exclusion, PG integrity, and raid windows + all 5 recent-window sites (wave 2)
+- [ ] 28-03-PLAN.md — AI spam bars (raid image bar & memberreq cross-chat singleflight + watcher fast-path) and memberreq cap/pause preserving test seams (wave 3)
+- [ ] 28-04-PLAN.md — lockdown reminder interval (both sequence sites) and extended captcha timeout Option A override (wave 4)
+- [ ] 28-05-PLAN.md — private Advanced settings page (av), 6 areas / 12 thresholds, 8 locales, Main/Staff grid updates, and UI/authority/forged/64-byte tests (wave 5)
+- [ ] 28-06-PLAN.md — safeguards (codes, non-creating reads, privacy/log sweep), E2E dispatcher proof, AGENTS.md update, and phase gates (wave 6)
 **UI hint**: yes
 
 ### Phase 29: Plain Tone and Copy Settings
@@ -364,6 +371,6 @@ Phases execute in numeric order: 20 → 21 → 22 → 23 → 24 → 25 → 26 �
 | 25. Lockdown Messages | v1.2 | 0/TBD | Not started | - |
 | 26. Timed Punishments, Escalation and Warn Expiry | v1.2 | 0/TBD | Not started | - |
 | 27. Manual Command Defaults, Reason Shortcuts and Appeal Button | v1.2 | 7/7 | In Progress | - |
-| 28. Advanced Thresholds | v1.2 | 0/TBD | Not started | - |
+| 28. Advanced Thresholds | v1.2 | 0/6 | Planned | - |
 | 29. Plain Tone and Copy Settings | v1.2 | 0/TBD | Not started | - |
 | 30. Backup Page and Custom Messages in Backups | v1.2 | 0/TBD | Not started | - |
