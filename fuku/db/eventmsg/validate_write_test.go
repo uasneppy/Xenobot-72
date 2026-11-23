@@ -4,8 +4,11 @@ package eventmsg
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"gorm.io/gorm"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/cache"
@@ -316,6 +319,124 @@ func TestEventMsgValidateAndReplaceAll(t *testing.T) {
 		}
 		if optCount != 0 {
 			t.Errorf("chat_event_message_options row count = %d, want 0", optCount)
+		}
+	})
+}
+
+func TestReplaceAllValidatedTx(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("nil tx returns error", func(t *testing.T) {
+		_, err := ReplaceAllValidatedTx(nil, -10012345, nil, Options{}, 1)
+		if err == nil {
+			t.Fatal("ReplaceAllValidatedTx(nil, ...) = nil, want error")
+		}
+		if !errors.Is(err, errNoDatabase) {
+			t.Errorf("ReplaceAllValidatedTx(nil, ...) err = %v, want errors.Is(errNoDatabase)", err)
+		}
+	})
+
+	t.Run("participates in outer transaction and rolls back completely on outer error", func(t *testing.T) {
+		utilscache.SetupTestMemoryMarshaler(t)
+		chatID := freshChat(t)
+
+		if err := SetText(ctx, chatID, EventKick, DestGroup, "original kick", 1); err != nil {
+			t.Fatalf("seed kick: %v", err)
+		}
+		if err := SetPMDetails(ctx, chatID, true, 1); err != nil {
+			t.Fatalf("seed pm_details: %v", err)
+		}
+		if _, err := Get(ctx, chatID); err != nil {
+			t.Fatalf("prime cache: %v", err)
+		}
+
+		candidate := []Message{
+			{Event: EventBan, Dest: DestGroup, Text: "new ban"},
+			{Event: EventWarn, Dest: DestGroup, Buttons: []models.Button{{Name: "Bad", Url: "javascript:alert(1)"}}},
+		}
+		newOpts := Options{PMLog: true, PlainTone: true}
+		rollbackErr := errors.New("force outer rollback")
+
+		var rollbackReport WriteReport
+		err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var txErr error
+			rollbackReport, txErr = ReplaceAllValidatedTx(tx, chatID, candidate, newOpts, 77)
+			if txErr != nil {
+				return txErr
+			}
+			return rollbackErr
+		})
+		if !errors.Is(err, rollbackErr) {
+			t.Fatalf("outer rollback tx err = %v, want %v", err, rollbackErr)
+		}
+		if rollbackReport.Written != 1 {
+			t.Errorf("rollbackReport.Written = %d, want 1", rollbackReport.Written)
+		}
+		if len(rollbackReport.Skipped) != 1 || rollbackReport.Skipped[0].Reason != "invalid_button_url" {
+			t.Errorf("rollbackReport.Skipped = %+v, want 1 invalid_button_url", rollbackReport.Skipped)
+		}
+
+		// Fresh DB read must still contain the original data, proving complete rollback.
+		afterRollback, err := GetFresh(ctx, chatID)
+		if err != nil {
+			t.Fatalf("GetFresh after rollback: %v", err)
+		}
+		if kick, ok := afterRollback.Lookup(EventKick, DestGroup); !ok || kick.Text != "original kick" {
+			t.Errorf("after rollback kick = %+v, %v, want original kick", kick, ok)
+		}
+		if _, ok := afterRollback.Lookup(EventBan, DestGroup); ok {
+			t.Errorf("rolled-back ban row leaked into DB")
+		}
+		if afterRollback.Options != (Options{PMDetails: true}) {
+			t.Errorf("after rollback options = %+v, want {PMDetails:true}", afterRollback.Options)
+		}
+
+		// Now commit the outer transaction and verify ReplaceAllValidatedTx leaves cache invalidation to the caller.
+		var commitReport WriteReport
+		err = db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var txErr error
+			commitReport, txErr = ReplaceAllValidatedTx(tx, chatID, candidate, newOpts, 77)
+			return txErr
+		})
+		if err != nil {
+			t.Fatalf("outer commit tx err = %v", err)
+		}
+		if commitReport.Written != 1 || len(commitReport.Skipped) != 1 {
+			t.Errorf("commitReport = %+v, want Written=1 Skipped=1", commitReport)
+		}
+
+		// Before caller deletes cache, cached Get still returns pre-commit cached snapshot.
+		cachedBeforeDelete, err := Get(ctx, chatID)
+		if err != nil {
+			t.Fatalf("Get before cache invalidation: %v", err)
+		}
+		if _, ok := cachedBeforeDelete.Lookup(EventKick, DestGroup); !ok {
+			t.Errorf("expected cached pre-commit kick row before caller invalidates cache")
+		}
+
+		// Fresh read sees committed rows.
+		afterCommit, err := GetFresh(ctx, chatID)
+		if err != nil {
+			t.Fatalf("GetFresh after commit: %v", err)
+		}
+		if _, ok := afterCommit.Lookup(EventKick, DestGroup); ok {
+			t.Errorf("old kick row survived committed ReplaceAllValidatedTx")
+		}
+		if ban, ok := afterCommit.Lookup(EventBan, DestGroup); !ok || ban.Text != "new ban" {
+			t.Errorf("after commit ban = %+v, %v, want new ban", ban, ok)
+		}
+		if afterCommit.Options != newOpts {
+			t.Errorf("after commit options = %+v, want %+v", afterCommit.Options, newOpts)
+		}
+
+		// After caller invalidates cache, cached Get reflects committed state.
+		cache.DeleteCache(CacheKey(chatID))
+		cachedAfterDelete, err := Get(ctx, chatID)
+		if err != nil {
+			t.Fatalf("Get after cache invalidation: %v", err)
+		}
+		if ban, ok := cachedAfterDelete.Lookup(EventBan, DestGroup); !ok || ban.Text != "new ban" {
+			t.Errorf("cached after invalidation ban = %+v, %v, want new ban", ban, ok)
 		}
 	})
 }

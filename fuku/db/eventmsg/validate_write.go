@@ -141,13 +141,13 @@ func ValidateMessage(msg Message) (Message, string) {
 	return out, ""
 }
 
-// ReplaceAllValidated validates all candidate rows, deduplicates valid rows by (event, dest)
-// (last valid wins), atomically replaces chatID's chat_event_messages and
-// chat_event_message_options in a single database transaction, and drops event_messages:<chat>
-// after commit. Rows that fail ValidateMessage are skipped and reported in WriteReport.Skipped
-// without aborting valid rows.
-func ReplaceAllValidated(ctx context.Context, chatID int64, rows []Message, opts Options, by int64) (WriteReport, error) {
-	if db.DB == nil {
+// ReplaceAllValidatedTx validates all candidate rows, deduplicates valid rows by (event, dest)
+// (last valid wins), and replaces chatID's chat_event_messages and chat_event_message_options
+// inside caller-supplied transaction tx. Rows that fail ValidateMessage are skipped and reported
+// in WriteReport.Skipped without aborting valid rows. The caller is responsible for invalidating
+// CacheKey(chatID) after tx commits.
+func ReplaceAllValidatedTx(tx *gorm.DB, chatID int64, rows []Message, opts Options, by int64) (WriteReport, error) {
+	if tx == nil {
 		return WriteReport{}, fukuerrors.Wrap(errNoDatabase, "replace event messages")
 	}
 
@@ -181,54 +181,74 @@ func ReplaceAllValidated(ctx context.Context, chatID int64, rows []Message, opts
 	}
 
 	now := time.Now()
+	if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatEventMessage{}).Error; err != nil {
+		return WriteReport{}, fukuerrors.Wrapf(err, "replace event messages of chat %d", chatID)
+	}
+	for _, row := range toWrite {
+		rec := models.ChatEventMessage{
+			ChatID:    chatID,
+			Event:     row.Event,
+			Dest:      row.Dest,
+			Text:      row.Text,
+			FileID:    row.FileID,
+			MediaType: row.MediaType,
+			Buttons:   models.ButtonArray(row.Buttons),
+			Silent:    row.Silent,
+			UpdatedBy: by,
+			UpdatedAt: now,
+		}
+		if err := tx.Create(&rec).Error; err != nil {
+			return WriteReport{}, fukuerrors.Wrapf(err, "replace event messages of chat %d", chatID)
+		}
+	}
+	if !opts.PMDetails && !opts.PMLog && !opts.PlainTone {
+		if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatEventMessageOptions{}).Error; err != nil {
+			return WriteReport{}, fukuerrors.Wrapf(err, "replace event messages of chat %d", chatID)
+		}
+	} else {
+		optRow := models.ChatEventMessageOptions{
+			ChatID:    chatID,
+			PMDetails: opts.PMDetails,
+			PMLog:     opts.PMLog,
+			PlainTone: opts.PlainTone,
+			UpdatedBy: by,
+			UpdatedAt: now,
+		}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "chat_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"pm_details", "pm_log", "plain_tone", "updated_by", "updated_at"}),
+		}).Create(&optRow).Error; err != nil {
+			return WriteReport{}, fukuerrors.Wrapf(err, "replace event messages of chat %d", chatID)
+		}
+	}
+
+	report.Written = len(toWrite)
+	return report, nil
+}
+
+// ReplaceAllValidated validates all candidate rows, deduplicates valid rows by (event, dest)
+// (last valid wins), atomically replaces chatID's chat_event_messages and
+// chat_event_message_options in a single database transaction, and drops event_messages:<chat>
+// after commit. Rows that fail ValidateMessage are skipped and reported in WriteReport.Skipped
+// without aborting valid rows.
+func ReplaceAllValidated(ctx context.Context, chatID int64, rows []Message, opts Options, by int64) (WriteReport, error) {
+	if db.DB == nil {
+		return WriteReport{}, fukuerrors.Wrap(errNoDatabase, "replace event messages")
+	}
+
+	var report WriteReport
+	var innerErr error
 	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatEventMessage{}).Error; err != nil {
-			return err
-		}
-		for _, row := range toWrite {
-			rec := models.ChatEventMessage{
-				ChatID:    chatID,
-				Event:     row.Event,
-				Dest:      row.Dest,
-				Text:      row.Text,
-				FileID:    row.FileID,
-				MediaType: row.MediaType,
-				Buttons:   models.ButtonArray(row.Buttons),
-				Silent:    row.Silent,
-				UpdatedBy: by,
-				UpdatedAt: now,
-			}
-			if err := tx.Create(&rec).Error; err != nil {
-				return err
-			}
-		}
-		if !opts.PMDetails && !opts.PMLog && !opts.PlainTone {
-			if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatEventMessageOptions{}).Error; err != nil {
-				return err
-			}
-		} else {
-			optRow := models.ChatEventMessageOptions{
-				ChatID:    chatID,
-				PMDetails: opts.PMDetails,
-				PMLog:     opts.PMLog,
-				PlainTone: opts.PlainTone,
-				UpdatedBy: by,
-				UpdatedAt: now,
-			}
-			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "chat_id"}},
-				DoUpdates: clause.AssignmentColumns([]string{"pm_details", "pm_log", "plain_tone", "updated_by", "updated_at"}),
-			}).Create(&optRow).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+		report, innerErr = ReplaceAllValidatedTx(tx, chatID, rows, opts, by)
+		return innerErr
 	})
 	if err != nil {
+		if innerErr != nil {
+			return WriteReport{}, err
+		}
 		return WriteReport{}, fukuerrors.Wrapf(err, "replace event messages of chat %d", chatID)
 	}
 
 	cache.DeleteCache(CacheKey(chatID))
-	report.Written = len(toWrite)
 	return report, nil
 }
