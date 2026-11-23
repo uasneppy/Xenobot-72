@@ -368,19 +368,31 @@ func lockdownPlanAlerts(ctx context.Context, b *gotgbot.Bot) bool {
 	return progress
 }
 
-// lockdownReminderSeq is the sequence number of the reminder due at now: how many whole
-// lockdownReminderEvery periods passed since the lockdown's alert was decided. It is 0
-// while the first period is not over, and for a lockdown whose alert was not decided.
+// lockdownReminderSeqFor is the sequence number of the reminder due at now: how many whole
+// every periods passed since the lockdown's alert was decided. It is 0 while the first period
+// is not over, when every is not positive, and for a lockdown whose alert was not decided.
 // Only the current number is ever planned, so a long outage never owes a backlog.
-func lockdownReminderSeq(ld *models.ChatLockdown, now time.Time) int {
-	if ld.AlertStartedAt == nil || lockdownReminderEvery <= 0 {
+func lockdownReminderSeqFor(ld *models.ChatLockdown, now time.Time, every time.Duration) int {
+	if ld.AlertStartedAt == nil || every <= 0 {
 		return 0
 	}
 	elapsed := now.Sub(*ld.AlertStartedAt)
 	if elapsed < 0 {
 		return 0
 	}
-	return int(elapsed / lockdownReminderEvery)
+	return int(elapsed / every)
+}
+
+// lockdownReminderSeq delegates to lockdownReminderSeqFor with the package-variable default
+// lockdownReminderEvery.
+func lockdownReminderSeq(ld *models.ChatLockdown, now time.Time) int {
+	return lockdownReminderSeqFor(ld, now, lockdownReminderEvery)
+}
+
+// lockdownReminderIntervalFor returns the effective reminder interval for chatID, deferring
+// to lockdownReminderEvery when no custom lockdown_reminder_mins override is stored.
+func lockdownReminderIntervalFor(ctx context.Context, chatID int64) time.Duration {
+	return advLockdownReminderEvery(advThresholdsFor(ctx, chatID))
 }
 
 // lockdownReminderBatch is how many lockdowns one cycle of the reminder planner reads.
@@ -423,7 +435,8 @@ func lockdownPlanReminders(ctx context.Context, _ *gotgbot.Bot) bool {
 			return progress
 		}
 		ld := &rows[i]
-		seq := lockdownReminderSeq(ld, now)
+		interval := lockdownReminderIntervalFor(ctx, ld.ChatID)
+		seq := lockdownReminderSeqFor(ld, now, interval)
 		if seq < 1 {
 			continue
 		}
@@ -773,7 +786,8 @@ func lockdownPostAlertSlot(ctx context.Context, b *gotgbot.Bot, slot *models.Cha
 	if reminder {
 		// A reminder that is behind the current one (its send failed or waited out an
 		// outage) is never posted late: only the current reminder is ever sent.
-		if slot.Seq < lockdownReminderSeq(ld, time.Now()) {
+		interval := lockdownReminderIntervalFor(ctx, ld.ChatID)
+		if slot.Seq < lockdownReminderSeqFor(ld, time.Now(), interval) {
 			if _, err := lockdown.FailAlertSlot(slot.ID, lockdownDetailSuperseded); err != nil {
 				log.Errorf("[Lockdown] reminder copy %d could not be ended: %v", slot.ID, err)
 				return false
