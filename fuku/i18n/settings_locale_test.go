@@ -796,6 +796,28 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_moddef_appeal_wait_rules": {150, 220},
 	"settings_moddef_appeal_wait_ended": {120, 180},
 	"settings_moddef_appeal_refuse_url": {140, 200},
+
+	// The Reason shortcuts list page (Phase 27, plan 27-06): its name, list page, count, Add button, two-step prompts,
+	// refusals, delete card, notices and the two part words of the typed add.
+	"settings_page_reasons":             {18, 18},
+	"settings_rsn_intro":                {180, 260},
+	"settings_rsn_count":                {28, 40},
+	"settings_rsn_empty":                {50, 80},
+	"settings_btn_rsn_add":              {20, 20},
+	"settings_rsn_delete_ask":           {150, 220},
+	"settings_rsn_removed":              {64, 100},
+	"settings_rsn_wait_word":            {190, 280},
+	"settings_rsn_wait_word_rules":      {140, 210},
+	"settings_rsn_word_line":            {40, 56},
+	"settings_rsn_wait_text":            {160, 240},
+	"settings_rsn_wait_text_rules":      {90, 140},
+	"settings_rsn_saved":                {96, 150},
+	"settings_rsn_refuse_word":          {140, 210},
+	"settings_rsn_refuse_text_long":     {110, 160},
+	"settings_rsn_refuse_exists":        {120, 180},
+	"settings_rsn_refuse_cap":           {100, 150},
+	"settings_entries_part_reason_word": {20, 28},
+	"settings_entries_part_reason_text": {20, 28},
 }
 
 // settingsAlertKeys are shown as answerCallbackQuery alerts: plain text, no tag, at most
@@ -1020,6 +1042,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 		{"🧾", "settings_page_log"},
 		{"🎭", "settings_page_anon"},
 		{"🔐", "settings_page_locks"},
+		{"🏷", "settings_page_reasons"},
 		{"🔤", "settings_page_blacklist"},
 		{"🔁", "settings_page_filters"},
 		{"📝", "settings_page_notes"},
@@ -1116,6 +1139,8 @@ func TestSettingsLabelLengths(t *testing.T) {
 		// The Manual defaults page's two-column buttons (Phase 27, plan 27-05).
 		"settings_btn_moddef_ban_dur", "settings_btn_moddef_mute_dur",
 		"settings_btn_moddef_appeal_set", "settings_btn_moddef_appeal_remove",
+		// The Reason shortcuts list page's Add button (Phase 27, plan 27-06).
+		"settings_btn_rsn_add",
 	}
 	// The editor's half-width switch cells (Phase 12, UI-SPEC check 2): the template with
 	// {state} replaced by the icon alone is at most 20 code points, so a name is at most 18.
