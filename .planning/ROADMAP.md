@@ -63,7 +63,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 25: Lockdown Messages** - 8/8 plans, verified, awaiting live checks. Custom messages for a manual lockdown, each automatic trigger and the lift, with every alert and raid-scale path unchanged
 - [ ] **Phase 26: Timed Punishments, Escalation and Warn Expiry** - Working timed bans and mutes for warn limit, blacklist and flood, an escalation ladder, and expiring warns
 - [ ] **Phase 27: Manual Command Defaults, Reason Shortcuts and Appeal Button** - Default durations, a reason-required switch, saved reason words and an appeal link on ban messages
-- [ ] **Phase 28: Advanced Thresholds** - Per-group detection and screening limits that are code constants today, inside safe bounds
+- [x] **Phase 28: Advanced Thresholds** - Per-group detection and screening limits that are code constants today, inside safe bounds (completed 2026-11-23)
 - [ ] **Phase 29: Plain Tone and Copy Settings** - Neutral default texts per group and a confirmed copy of one group's messages and tuning to another
 - [ ] **Phase 30: Backup Page and Custom Messages in Backups** - Export, import and reset from the private chat, and custom messages inside `/export` and `/import`
 
@@ -309,7 +309,7 @@ Plans:
   2. A value can only be set inside its bounds. An out-of-range, stale or forged press changes nothing. Reset to default puts today's constant back, for one value or one area.
   3. A changed value acts at the next relevant event on every replica. For example, a new flood window changes what counts as a flood, a new reminder interval changes when the next lockdown reminder posts, and a captcha timeout above 10 minutes applies to the next joiner.
   4. A group that changes nothing behaves exactly as today.
-**Plans**: 6/6 plans executed
+**Plans**: 6/6 plans complete
 Plans:
 - [x] 28-01-PLAN.md — MSG-11 goldens of all 12 default threshold behaviors, committed alone (wave 1)
 - [x] 28-02-PLAN.md — tracer: chat_advanced_thresholds migration, model, skipLocal repo, drift guard, backup exclusion, PG integrity, and raid windows + all 5 recent-window sites (wave 2)
@@ -371,6 +371,6 @@ Phases execute in numeric order: 20 → 21 → 22 → 23 → 24 → 25 → 26 �
 | 25. Lockdown Messages | v1.2 | 0/TBD | Not started | - |
 | 26. Timed Punishments, Escalation and Warn Expiry | v1.2 | 0/TBD | Not started | - |
 | 27. Manual Command Defaults, Reason Shortcuts and Appeal Button | v1.2 | 7/7 | In Progress | - |
-| 28. Advanced Thresholds | v1.2 | 6/6 | In Progress | - |
+| 28. Advanced Thresholds | v1.2 | 6/6 | Complete    | 2026-11-23 |
 | 29. Plain Tone and Copy Settings | v1.2 | 0/TBD | Not started | - |
 | 30. Backup Page and Custom Messages in Backups | v1.2 | 0/TBD | Not started | - |

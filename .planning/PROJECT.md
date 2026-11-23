@@ -243,6 +243,7 @@ The numbered requirements are in `.planning/REQUIREMENTS.md`. v1.0 and v1.1 foll
 | v1.2: PM copies are best effort (Telegram only lets a bot message someone who started it), paced on their own budget and never sent for raid-scale removals | A PM must never delay or fail a punishment, and a raid must not turn into hundreds of PMs | — Pending |
 | v1.2: group conversations are off globally (`ENABLE_CHAT=false`) and enabled per group only by the group creator from private `/settings` after a 2-tap data notice card; the bot never converses in private chats | Owner hard rules; prevents unapproved outbound AI traffic and keeps private chat strictly for settings | ✓ Verified — Phase 20 (`20-UAT.md` 8/8, `20-SECURITY.md` 18/18, `20-VERIFICATION.md` passed) |
 | v1.2: conversation replies use `AllowSendingWithoutReply: false` at handler group 13, and the prompt builder lives in leaf `fuku/utils/chatprompt` | Keeps the bot from answering messages deleted by blacklist/locks/antiflood and lets `scripts/chat-spike` test the exact production prompt; async `aispam` race accepted (AR-20-01) | ✓ Verified — Phase 20 |
+| v1.2: extended captcha timeouts (>10 min, 11..60 min) live as an overlay column `captcha_timeout_mins` in `chat_advanced_thresholds` (`skipLocal`), leaving `captcha_settings.timeout` (1..10 CHECK), `/captchatime`, and backups untouched; all 12 thresholds store `0` for default and fall back to package-var seams | Zero broken legacy captcha constraints/tests, instant cross-replica effect, clean item/area resets without clobbering Captcha page settings, and tuning stays out of backups | ✓ Verified — Phase 28 (`28-SECURITY.md` 17/17, `28-VERIFICATION.md` passed) |
 
 ## Evolution
 
@@ -262,4 +263,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-22 after Phase 20*
+*Last updated: 2026-11-23 after Phase 28*
