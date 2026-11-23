@@ -192,12 +192,17 @@ func memberReqAINamesHash(names memberReqNames) string {
 	return canon.Hash
 }
 
-// memberReqAIVerdictOf judges a probability by the bar: a breach at or above it, else a pass.
-func memberReqAIVerdictOf(probability float64) memberReqVerdict {
-	if probability >= memberReqAIBar {
+// memberReqAIVerdictOfBar judges a probability by bar: a breach at or above it, else a pass.
+func memberReqAIVerdictOfBar(probability, bar float64) memberReqVerdict {
+	if probability >= bar {
 		return memberReqBreach
 	}
 	return memberReqPass
+}
+
+// memberReqAIVerdictOf judges a probability by the default bar: a breach at or above it, else a pass.
+func memberReqAIVerdictOf(probability float64) memberReqVerdict {
+	return memberReqAIVerdictOfBar(probability, memberReqAIBar)
 }
 
 // memberReqAIRead reads a cached verdict. hit is true for a stored probability that parses;
@@ -310,13 +315,18 @@ func memberReqAIFinal(verdict memberReqVerdict) memberReqAIPlan {
 	return memberReqAIPlan{verdict: verdict, done: true}
 }
 
-// memberReqAIPrepare is the read step of the rule: no names is unknown, an AI that is not
+// memberReqAIPrepare is the read step of the rule with the default memberReqAIBar.
+func memberReqAIPrepare(ctx context.Context, chatID, userID int64, mode memberReqLookupMode) memberReqAIPlan {
+	return memberReqAIPrepareBar(ctx, chatID, userID, mode, memberReqAIBar)
+}
+
+// memberReqAIPrepareBar is the read step of the rule: no names is unknown, an AI that is not
 // configured and names that are not judgeable are inert, no Redis or a Redis read error is
 // a sticky unknown (the cost guard: with the cache unreadable the provider is not asked; a Redis
 // outage is a state of the system, so it must not defer a weaker name punishment, WR-03), and the
 // state is read in one round. mode.Fresh and mode.Classify are ignored: the AI row answers from the
 // cache whatever the mode (D-23). mode.Joining and mode.IgnoreBaseline both skip the baseline step.
-func memberReqAIPrepare(ctx context.Context, chatID, userID int64, mode memberReqLookupMode) memberReqAIPlan {
+func memberReqAIPrepareBar(ctx context.Context, chatID, userID int64, mode memberReqLookupMode, bar float64) memberReqAIPlan {
 	if mode.Names == nil {
 		return memberReqAIFinal(memberReqUnknown)
 	}
@@ -332,10 +342,16 @@ func memberReqAIPrepare(ctx context.Context, chatID, userID int64, mode memberRe
 	if err != nil {
 		return memberReqAIPlan{verdict: memberReqUnknown, done: true, sticky: true}
 	}
-	return memberReqAIDecide(canon, key, state, mode.Joining || mode.IgnoreBaseline)
+	return memberReqAIDecideBar(canon, key, state, mode.Joining || mode.IgnoreBaseline, bar)
 }
 
-// memberReqAIDecide is the decide step, on what the round read. A member who is not joining, has
+// memberReqAIDecide is the decide step using the default memberReqAIBar.
+func memberReqAIDecide(canon namecanon.Canon, key string, state memberReqAIState, skipBaseline bool) memberReqAIPlan {
+	return memberReqAIDecideBar(canon, key, state, skipBaseline, memberReqAIBar)
+}
+
+// memberReqAIDecideBar is the decide step, on what the round read, applying bar to any cached
+// probability. A member who is not joining, has
 // no marker and has a baseline equal to the current names hash passes first, with nothing written
 // and whatever the verdict cache holds (SEC-01): the baseline is the bot's record that these names
 // were accepted for this account, and the cache is keyed by the canonical string, which is global
@@ -346,12 +362,12 @@ func memberReqAIPrepare(ctx context.Context, chatID, userID int64, mode memberRe
 // rename) are judged, and so is a caller that ignores the baseline (skipBaseline: a joiner, or a
 // held member or a button press, for whom a baseline-only pass must never stand in for a
 // judgement, WR-01): for all of them the cached verdict still applies.
-func memberReqAIDecide(canon namecanon.Canon, key string, state memberReqAIState, skipBaseline bool) memberReqAIPlan {
+func memberReqAIDecideBar(canon namecanon.Canon, key string, state memberReqAIState, skipBaseline bool, bar float64) memberReqAIPlan {
 	if !skipBaseline && !state.marker && state.baseline == canon.Hash {
 		return memberReqAIFinal(memberReqPass)
 	}
 	if probability, hit := memberReqAIParseProbability(state.verdict); hit {
-		return memberReqAIPlan{canon: canon, key: key, verdict: memberReqAIVerdictOf(probability), cached: true}
+		return memberReqAIPlan{canon: canon, key: key, verdict: memberReqAIVerdictOfBar(probability, bar), cached: true}
 	}
 	if !skipBaseline && !state.marker && state.baseline == "" {
 		return memberReqAIPlan{canon: canon, key: key, verdict: memberReqPass, baselineOnly: true}
@@ -360,14 +376,22 @@ func memberReqAIDecide(canon namecanon.Canon, key string, state memberReqAIState
 }
 
 // memberReqAIRule judges whether a member's names look like a spam account (the AI row of the
-// rule table). After memberReqAIPrepare and memberReqAIDecide it either answers from the cache,
+// rule table). After memberReqAIPrepareBar and memberReqAIDecideBar it either answers from the cache,
 // records an established member's baseline and passes, or makes one provider call inside one
 // flight per verdict key (n:<hash>, so every concurrent judgement of one string is one call), on
 // a context derived from memberReqContext(). A caller whose own context ends first gets unknown.
-// The flight does only the call and the verdict write: each caller records its own baseline and
-// marker from the answer, because callers with different user IDs share the flight (D-24).
+// The flight returns the raw spam probability without baking a chat-specific verdict, so each
+// caller applies its own chat bar and records its own baseline and marker from the answer (D-24,
+// T-28-06).
 func memberReqAIRule(ctx context.Context, _ *gotgbot.Bot, chatID, userID int64, mode memberReqLookupMode) memberReqVerdict {
-	plan := memberReqAIPrepare(ctx, chatID, userID, mode)
+	if mode.Names == nil {
+		return memberReqUnknown
+	}
+	if !memberReqAIConfigured() {
+		return memberReqInert
+	}
+	bar := advMemberReqAIBar(advThresholdsFor(ctx, chatID))
+	plan := memberReqAIPrepareBar(ctx, chatID, userID, mode, bar)
 	if plan.done {
 		if plan.sticky {
 			memberReqNoteSticky(ctx)
@@ -385,7 +409,18 @@ func memberReqAIRule(ctx context.Context, _ *gotgbot.Bot, chatID, userID int64, 
 		answer, _ := memberReqFlightValue(ctx, "n:"+plan.key, func(flightCtx context.Context) memberReqAIAnswer {
 			return memberReqAIJudge(flightCtx, chatID, userID, plan)
 		})
-		verdict = answer.Verdict
+		if answer.HasProbability {
+			verdict = memberReqAIVerdictOfBar(answer.Probability, bar)
+			if answer.Fresh {
+				if verdict == memberReqBreach {
+					memberReqAIStats.breached.Add(1)
+				} else {
+					memberReqAIStats.passed.Add(1)
+				}
+			}
+		} else {
+			verdict = answer.Verdict
+		}
 		if answer.Sticky {
 			memberReqNoteSticky(ctx)
 		}
@@ -463,12 +498,17 @@ func memberReqAIBaseline(ctx context.Context, userID int64, hash string) {
 	}
 }
 
-// memberReqAIAnswer is the value of a flight: the verdict and whether an unknown verdict is sticky,
-// a state of the system (a paused breaker, a used-up budget, a gate that could not be had, an
-// unreachable Redis) and not a fault of the moment. The zero value is an unknown that is not sticky.
+// memberReqAIAnswer is the value of a shared cross-chat flight: either a raw probability
+// (HasProbability true, with Fresh set when the flight made the provider call) so each caller
+// applies its own chat bar without leaking another chat's threshold (T-28-06), or an unknown
+// Verdict (zero value) with Sticky marking a state of the system (a paused breaker, a used-up
+// budget, a gate that could not be had, an unreachable Redis) rather than a transient fault.
 type memberReqAIAnswer struct {
-	Verdict memberReqVerdict
-	Sticky  bool
+	Verdict        memberReqVerdict
+	Probability    float64
+	HasProbability bool
+	Fresh          bool
+	Sticky         bool
 }
 
 // memberReqAIStickyUnknown is an unknown that the executor does not let defer a weaker punishment.
@@ -477,9 +517,9 @@ var memberReqAIStickyUnknown = memberReqAIAnswer{Verdict: memberReqUnknown, Stic
 // memberReqAIJudge is the flight body. It reads the cache once more (a caller whose read missed
 // a moment before the previous flight wrote its verdict starts a new flight and must not make a
 // second call), then passes the guards in order (the breaker, the gate, the budgets), asks the model for the
-// canonical strings and, on a verdict, stores the probability before it answers pass or breach by
-// the bar. Every failure is unknown and caches nothing, and the gate slot is released by defer on
-// every path, a panic and a cancel included.
+// canonical strings and, on a verdict, stores and returns the raw probability without baking a
+// chat-specific pass/breach verdict. Every failure is unknown and caches nothing, and the gate
+// slot is released by defer on every path, a panic and a cancel included.
 func memberReqAIJudge(ctx context.Context, chatID, userID int64, plan memberReqAIPlan) memberReqAIAnswer {
 	probability, hit, err := memberReqAIRead(ctx, plan.key)
 	if err != nil {
@@ -488,7 +528,7 @@ func memberReqAIJudge(ctx context.Context, chatID, userID int64, plan memberReqA
 	}
 	if hit {
 		memberReqAIStats.cached.Add(1)
-		return memberReqAIAnswer{Verdict: memberReqAIVerdictOf(probability)}
+		return memberReqAIAnswer{Probability: probability, HasProbability: true}
 	}
 	client := memberReqAIClient()
 	if client == nil {
@@ -510,13 +550,7 @@ func memberReqAIJudge(ctx context.Context, chatID, userID int64, plan memberReqA
 	memberReqAIRecordSuccess(chatID)
 	memberReqAIStats.checked.Add(1)
 	memberReqCacheSetValue(ctx, plan.key, strconv.FormatFloat(answer.SpamProbability, 'f', -1, 64), memberReqAIVerdictTTL)
-	verdict := memberReqAIVerdictOf(answer.SpamProbability)
-	if verdict == memberReqBreach {
-		memberReqAIStats.breached.Add(1)
-	} else {
-		memberReqAIStats.passed.Add(1)
-	}
-	return memberReqAIAnswer{Verdict: verdict}
+	return memberReqAIAnswer{Probability: answer.SpamProbability, HasProbability: true, Fresh: true}
 }
 
 // memberReqAIAcquire checks the breaker and takes a gate slot, waiting at most memberReqAIGateWait.

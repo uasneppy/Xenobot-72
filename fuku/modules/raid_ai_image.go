@@ -191,7 +191,8 @@ func raidAIProcessImage(ctx context.Context, job raidAIJob) {
 		raidAICached.Add(1)
 	}
 
-	spam := result.probability >= raidAIImageBar
+	bar := advRaidAIImageBar(advThresholdsFor(ctx, job.chat.Id))
+	spam := result.probability >= bar
 	log.WithFields(fields).WithFields(log.Fields{
 		"decision":    aispamDecisionName(spam),
 		"probability": result.probability,
