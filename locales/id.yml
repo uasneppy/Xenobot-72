@@ -2358,6 +2358,7 @@ backup_module_pins: "Pengaturan Pin"
 backup_module_reports: "Laporan"
 backup_module_rules: "Aturan"
 backup_module_warns: "Peringatan"
+backup_module_messages: "Pesan kustom"
 
 # Callback validation strings (previously hardcoded)
 common_callback_invalid_request: "Permintaan tidak valid."

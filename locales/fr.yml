@@ -2301,6 +2301,7 @@ backup_module_pins: "Paramètres d'Épingle"
 backup_module_reports: "Signalements"
 backup_module_rules: "Règles"
 backup_module_warns: "Avertissements"
+backup_module_messages: "Messages personnalisés"
 
 # Callback validation strings (previously hardcoded)
 common_callback_invalid_request: "Demande invalide."

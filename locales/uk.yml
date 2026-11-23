@@ -1238,6 +1238,7 @@ backup_module_pins: "Закріплення"
 backup_module_reports: "Скарги"
 backup_module_rules: "Правила"
 backup_module_warns: "Попередження"
+backup_module_messages: "Власні повідомлення"
 
 # Callback validation strings (previously hardcoded)
 common_callback_invalid_request: "Некоректний запит."

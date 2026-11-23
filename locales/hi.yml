@@ -2081,6 +2081,7 @@ backup_module_pins: "पिन सेटिंग्स"
 backup_module_reports: "रिपोर्ट्स"
 backup_module_rules: "नियम"
 backup_module_warns: "चेतावनियां"
+backup_module_messages: "कस्टम संदेश"
 
 # Callback validation strings (previously hardcoded)
 common_callback_invalid_request: "अमान्य अनुरोध।"

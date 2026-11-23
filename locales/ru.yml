@@ -2173,6 +2173,7 @@ backup_module_pins: "Настройки закрепления"
 backup_module_reports: "Отчёты"
 backup_module_rules: "Правила"
 backup_module_warns: "Предупреждения"
+backup_module_messages: "Свои сообщения"
 
 # Callback validation strings (previously hardcoded)
 common_callback_invalid_request: "Неверный запрос."

@@ -1274,6 +1274,7 @@ backup_module_pins: "Pin Settings"
 backup_module_reports: "Reports"
 backup_module_rules: "Rules"
 backup_module_warns: "Warnings"
+backup_module_messages: "Custom Messages"
 
 # Callback validation strings (previously hardcoded)
 common_callback_invalid_request: "Invalid request."

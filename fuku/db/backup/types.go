@@ -113,6 +113,7 @@ const (
 	BackupModuleWarns       = "warns"
 	BackupModuleFederations = "federations"
 	BackupModuleLogChannels = "logchannels"
+	BackupModuleMessages    = "messages"
 )
 
 func AllExportableModules() []string {
@@ -136,6 +137,7 @@ func AllExportableModules() []string {
 		BackupModuleWarns,
 		BackupModuleFederations,
 		BackupModuleLogChannels,
+		BackupModuleMessages,
 	}
 }
 
@@ -218,3 +220,8 @@ type FederationsBackup struct {
 }
 
 type LogChannelsBackup = SettingBackup[models.LogChannel]
+
+type MessagesBackup struct {
+	Messages []models.ChatEventMessage       `json:"messages,omitempty"`
+	Options  *models.ChatEventMessageOptions `json:"options,omitempty"`
+}

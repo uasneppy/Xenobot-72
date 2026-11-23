@@ -12,6 +12,7 @@ import (
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	dbcache "github.com/uasneppy/fuku_robot/fuku/db/cache"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/utils/content"
 	"gorm.io/gorm"
@@ -58,6 +59,8 @@ func ExportModuleData(chatID int64, module string) (interface{}, error) {
 		return exportFederationsData(chatID)
 	case BackupModuleLogChannels:
 		return exportLogChannelsData(chatID)
+	case BackupModuleMessages:
+		return exportMessagesData(chatID)
 	default:
 		return nil, fmt.Errorf("unknown module: %s", module)
 	}
@@ -86,10 +89,12 @@ func ImportModuleData(chatID int64, module string, data interface{}) error {
 	})
 }
 
-// ImportReport is what an import left out on purpose: Skipped counts the filters, blacklist words and notes
-// that would not pass the checks the commands make (a keyword or word too broad or too long, a note name that
-// could never be fetched, a button link that is not http or https, a repeat after lower-casing), and
-// LogChannelSkipped says the log channel categories were not imported because the target has no log channel.
+// ImportReport is what an import left out on purpose: Skipped counts the filters, blacklist words,
+// notes and custom event messages that would not pass the checks the commands/editor make (a keyword
+// or word too broad or too long, a note name that could never be fetched, a button link that is not
+// http or https, an unknown event/destination, disallowed media, over-limit text/caption, or a repeat
+// after lower-casing), and LogChannelSkipped says the log channel categories were not imported because
+// the target has no log channel.
 type ImportReport struct {
 	Skipped           int
 	LogChannelSkipped bool
@@ -529,6 +534,24 @@ func exportLogChannelsData(chatID int64) (*LogChannelsBackup, error) {
 	return &LogChannelsBackup{Settings: settings}, nil
 }
 
+func exportMessagesData(chatID int64) (*MessagesBackup, error) {
+	database, err := backupDB()
+	if err != nil {
+		return nil, err
+	}
+	var rows []models.ChatEventMessage
+	if err := database.Where("chat_id = ?", chatID).
+		Order("event ASC, dest ASC").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	opts, err := findChatSetting[models.ChatEventMessageOptions](chatID)
+	if err != nil {
+		return nil, err
+	}
+	return &MessagesBackup{Messages: rows, Options: opts}, nil
+}
+
 func importModuleData(tx *gorm.DB, chatID int64, module string, data interface{}, preserveLegacyOmissions bool, report *ImportReport) ([]string, error) {
 	if err := ensureBackupChat(tx, chatID); err != nil {
 		return nil, err
@@ -571,7 +594,7 @@ func importModuleData(tx *gorm.DB, chatID int64, module string, data interface{}
 }
 
 // importListModule imports the modules whose import takes the report or the legacy flag
-// (the list modules, warns and the log channel). ok is false for every other module.
+// (the list modules, warns, log channel and custom messages). ok is false for every other module.
 func importListModule(tx *gorm.DB, chatID int64, module string, data interface{}, preserveLegacyOmissions bool, report *ImportReport) (keys []string, ok bool, err error) {
 	switch module {
 	case BackupModuleBlacklists:
@@ -584,6 +607,8 @@ func importListModule(tx *gorm.DB, chatID int64, module string, data interface{}
 		keys, err = importWarns(tx, chatID, data, preserveLegacyOmissions)
 	case BackupModuleLogChannels:
 		keys, err = importLogChannels(tx, chatID, data, report)
+	case BackupModuleMessages:
+		keys, err = importMessages(tx, chatID, data, report)
 	default:
 		return nil, false, nil
 	}
@@ -1097,6 +1122,8 @@ func clearModuleData(tx *gorm.DB, chatID int64, module string) ([]string, error)
 		return clearFederations(tx, chatID)
 	case BackupModuleLogChannels:
 		return clearLogChannels(tx, chatID)
+	case BackupModuleMessages:
+		return clearMessages(tx, chatID)
 	default:
 		return nil, fmt.Errorf("unknown module: %s", module)
 	}
@@ -1357,4 +1384,44 @@ func clearLogChannels(tx *gorm.DB, chatID int64) ([]string, error) {
 		return nil, err
 	}
 	return []string{cacheKey("log_channel", chatID)}, nil
+}
+
+func importMessages(tx *gorm.DB, chatID int64, payload interface{}, report *ImportReport) ([]string, error) {
+	var data MessagesBackup
+	if err := decodeModuleData(payload, BackupModuleMessages, &data); err != nil {
+		return nil, err
+	}
+	rows := make([]eventmsg.Message, len(data.Messages))
+	for i, row := range data.Messages {
+		rows[i] = eventmsg.Message{
+			Event:     row.Event,
+			Dest:      row.Dest,
+			Text:      row.Text,
+			FileID:    row.FileID,
+			MediaType: row.MediaType,
+			Buttons:   []models.Button(row.Buttons),
+			Silent:    row.Silent,
+		}
+	}
+	var opts eventmsg.Options
+	if data.Options != nil {
+		opts = eventmsg.Options{
+			PMDetails: data.Options.PMDetails,
+			PMLog:     data.Options.PMLog,
+			PlainTone: data.Options.PlainTone,
+		}
+	}
+	writeReport, err := eventmsg.ReplaceAllValidatedTx(tx, chatID, rows, opts, 0)
+	if err != nil {
+		return nil, err
+	}
+	report.Skipped += len(writeReport.Skipped)
+	return []string{eventmsg.CacheKey(chatID)}, nil
+}
+
+func clearMessages(tx *gorm.DB, chatID int64) ([]string, error) {
+	if _, err := eventmsg.ReplaceAllValidatedTx(tx, chatID, nil, eventmsg.Options{}, 0); err != nil {
+		return nil, err
+	}
+	return []string{eventmsg.CacheKey(chatID)}, nil
 }

@@ -2349,6 +2349,7 @@ backup_module_pins: "Configurações de Fixar"
 backup_module_reports: "Denúncias"
 backup_module_rules: "Regras"
 backup_module_warns: "Avisos"
+backup_module_messages: "Mensagens personalizadas"
 
 # Callback validation strings (previously hardcoded)
 common_callback_invalid_request: "Solicitação inválida."
