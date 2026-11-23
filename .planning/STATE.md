@@ -5,16 +5,16 @@ milestone_name: Conversations, Custom Messages and Tuning
 current_phase: 28
 current_phase_name: Advanced Thresholds
 status: executing
-stopped_at: Completed 28-04-PLAN.md
-last_updated: "2026-11-23T12:18:15.763Z"
+stopped_at: Completed 28-05-PLAN.md
+last_updated: "2026-11-23T12:41:22.794Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 28 execution started
-state_head: 325e5b6155d9699ac1ecc6ded318189f0d7068f4
+state_head: 21a06b35584b61e60e9d0c4ea5af381e8603fc85
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 69
-  completed_plans: 67
+  completed_plans: 68
   percent: 9
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 28 (Advanced Thresholds) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 28 execution started
 
@@ -207,6 +207,7 @@ Progress: [█░░░░░░░░░] 9%
 | Phase 28 P02 | 10min | 3 tasks | 19 files |
 | Phase 28 P03 | 9min | 3 tasks | 5 files |
 | Phase 28 P04 | 29min | 3 tasks | 4 files |
+| Phase 28 P05 | 21min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -331,6 +332,7 @@ Recent decisions affecting current work:
 - [Phase 28]: 28-03: memberReqAIJudge returns raw Probability (HasProbability, Fresh) from cross-chat singleflight; memberReqAIRule evaluates per-caller advMemberReqAIBar (T-28-06)
 - [Phase 28]: 28-03: memberReqLookupCachedWith gates advMemberReqAIBar reads on rules.AI and passes cache.Context to preserve the 2s read timeout (T-28-07)
 - [Phase 28]: P28-02: Option A extended captcha timeout (11..60 min) wired via effectiveCaptchaTimeout into sendCaptcha, /captcha status, and settings_captcha body without altering captcha_settings.timeout (1..10), /captchatime, stepper, or backups
+- [Phase 28]: P28-03: Private Advanced page av requires live settingsRightAdmin + owner gate for views (av, aa, ao) and live settingsRightRestrict for all writes/resets (as, ar, ax).
 
 ### Pending Todos
 
@@ -453,8 +455,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T12:18:14.994Z
-Stopped at: Completed 28-04-PLAN.md
+Last session: 2026-11-23T12:41:22.024Z
+Stopped at: Completed 28-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
