@@ -440,6 +440,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 | 24 | verification_deferred_human | /gsd-verify-work 24 |
 | 25 | verification_deferred_human | /gsd-verify-work 25 |
 | 26 | verification_deferred_human | /gsd-verify-work 26 |
+| 27 | verification_deferred_human | /gsd-verify-work 27 |
 
 ## Session Continuity
 
