@@ -5,16 +5,16 @@ milestone_name: Conversations, Custom Messages and Tuning
 current_phase: 29
 current_phase_name: Plain Tone and Copy Settings
 status: executing
-stopped_at: Completed 29-04-PLAN.md
-last_updated: "2026-11-23T14:45:22.000Z"
+stopped_at: Completed 29-05-PLAN.md
+last_updated: "2026-11-23T15:12:01.754Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 29 execution started
-state_head: 9a4025a3a6dab17fc619925cabee9973d279faca
+state_head: 567f805965c643b90a2c2475d9a9e7c0180eed4a
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 75
-  completed_plans: 73
+  completed_plans: 74
   percent: 18
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 29 (Plain Tone and Copy Settings) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 29 execution started
 
@@ -214,6 +214,7 @@ Progress: [██░░░░░░░░] 18%
 | Phase 29 P02 | 23 min | 3 tasks | 36 files |
 | Phase 29 P03 | 22min | 3 tasks | 25 files |
 | Phase 29-plain-tone-and-copy-settings P04 | 11min | 3 tasks | 13 files |
+| Phase 29 P05 | 25 min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -346,6 +347,7 @@ Recent decisions affecting current work:
 - [Phase 29]: Spliced user/admin HTML mentions post-interpolation via eventPlainRender (lockdownNameToken + lockdownSplice) to prevent HTML injection and secondary placeholder expansion
 - [Phase 29-plain-tone-and-copy-settings]: eventmsg.ReplaceAllValidated in package eventmsg (zero fuku/modules dependency) validates all event messages with editor-aligned reserves and limits for Copy Settings and Phase 30 MSG-10 reuse
 - [Phase 29-plain-tone-and-copy-settings]: antiflood.SetFloodActionPreserveOffContext uses explicit SQL INSERT with flood_limit=0 and ON CONFLICT DO UPDATE of action/action_secs to bypass GORM default:5 and keep unconfigured targets off (P29-04)
+- [Phase 29]: Private Copy Settings page cp (Order 82, actions cg/ck/cy) enforces live dual-group verification at both ask and Yes with uniform opaque settings_pick_unavailable target refusals and atomic Lua GET+DEL consumption of fuku:settings:copy:<token>
 
 ### Pending Todos
 
@@ -468,8 +470,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T14:45:10.894Z
-Stopped at: Completed 29-04-PLAN.md
+Last session: 2026-11-23T15:12:00.784Z
+Stopped at: Completed 29-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
