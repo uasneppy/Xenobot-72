@@ -2,19 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.2
 milestone_name: Conversations, Custom Messages and Tuning
-current_phase: 21
-current_phase_name: Message Engine, Messages Page and Manual Punishments
-status: verifying
-stopped_at: Phase 28 complete, ready to verify Phase 21
-last_updated: "2026-11-23T13:15:55.506Z"
+current_phase: 29
+current_phase_name: Plain Tone and Copy Settings
+status: executing
+stopped_at: Completed 29-01-PLAN.md
+last_updated: "2026-11-23T13:42:49.846Z"
 last_activity: 2026-11-23
-last_activity_desc: Phase 28 complete, transitioned to Phase 21
-state_head: 8386d7ca29072ea326fadc5a3ecbc003f543f234
+last_activity_desc: Phase 29 execution started
+state_head: b4e8da4898c43f9e7e27d0b966b2257c7463ce0e
 progress:
   total_phases: 11
   completed_phases: 2
-  total_plans: 69
-  completed_plans: 69
+  total_plans: 75
+  completed_plans: 70
   percent: 18
 ---
 
@@ -25,14 +25,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-22)
 
 **Core value:** My trusted staff can protect every one of my communities from one place. We act on a bad actor across all groups at once, and the bot never lets anyone act in a group where they aren't an admin.
-**Current focus:** Phase 28 — Advanced Thresholds
+**Current focus:** Phase 29 — Plain Tone and Copy Settings
 
 ## Current Position
 
-Phase: 21 — Message Engine, Messages Page and Manual Punishments
-Plan: 11
-Status: Phase complete — ready for verification
-Last activity: 2026-11-23 — Phase 28 complete, transitioned to Phase 21
+Phase: 29 (Plain Tone and Copy Settings) — EXECUTING
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-11-23 — Phase 29 execution started
 
 Progress: [██░░░░░░░░] 18%
 
@@ -210,6 +210,7 @@ Progress: [██░░░░░░░░] 18%
 | Phase 28 P04 | 29min | 3 tasks | 4 files |
 | Phase 28 P05 | 21min | 3 tasks | 14 files |
 | Phase 28 P06 | 17min | 3 tasks | 3 files |
+| Phase 29 P01 | 6min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -336,6 +337,7 @@ Recent decisions affecting current work:
 - [Phase 28]: P28-02: Option A extended captcha timeout (11..60 min) wired via effectiveCaptchaTimeout into sendCaptcha, /captcha status, and settings_captcha body without altering captcha_settings.timeout (1..10), /captchatime, stepper, or backups
 - [Phase 28]: P28-03: Private Advanced page av requires live settingsRightAdmin + owner gate for views (av, aa, ao) and live settingsRightRestrict for all writes/resets (as, ar, ax).
 - [Phase 28]: P28-01..P28-04, zero new shutdown drain, chat_advanced_thresholds skipLocal, page av, and Phase 28 safeguard/E2E/golden suites recorded in AGENTS.md
+- [Phase 29]: Drove tone_off_all_18_pm_defaults through postEventSent + waitEventPM over phase28InProcessMiniredis to stay decoupled from Plan 29-02 PM composer signature changes with zero localhost TCP dials
 
 ### Pending Todos
 
@@ -458,8 +460,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T13:00:31.364Z
-Stopped at: Phase 28 complete, ready to verify Phase 21
+Last session: 2026-11-23T13:42:48.983Z
+Stopped at: Completed 29-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
