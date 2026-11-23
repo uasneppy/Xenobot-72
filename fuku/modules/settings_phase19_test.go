@@ -74,10 +74,10 @@ func settingsPhase19Codes(minute string) []settingsPhase19Code {
 		{"xy", settingsPageReactions, map[string]string{"r": "5", "e": minute}},
 		{"xa", settingsPageReactions, map[string]string{}},
 		{"xc", settingsPageReactions, map[string]string{"t": "r"}},
-		{"sg", settingsPageReasons, map[string]string{"v": "1"}},
+		{"sq", settingsPageReasons, map[string]string{"v": "1"}},
 		{"sx", settingsPageReasons, map[string]string{"r": "5", "v": "1"}},
 		{"sy", settingsPageReasons, map[string]string{"r": "5", "e": minute}},
-		{"sa", settingsPageReasons, map[string]string{}},
+		{"sm", settingsPageReasons, map[string]string{}},
 		{"sc", settingsPageReasons, map[string]string{"t": "w"}},
 	}
 }

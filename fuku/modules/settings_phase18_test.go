@@ -88,10 +88,10 @@ func TestSettingsPhase18InStaffGroup(t *testing.T) {
 	if _, ok := settingsPageButton(t, m.mainKeyboard, settingsPageDeletion); ok {
 		t.Error("the chat is not a Staff Group: its Main still has the Deletion cell")
 	}
-	// Every page but Deletion, Messages and Escalation (the Escalation page is hidden in a Staff Group), plus the Blocked
-	// sources page, which exists only in a Staff Group.
-	if got := len(settingsMainLines(m.mainText)); got != len(settingsMainTitleKeys)-2 {
-		t.Errorf("a Staff Group's Main has %d state lines, want %d (every page but Deletion, Messages and Escalation, plus Blocked sources)", got, len(settingsMainTitleKeys)-2)
+	// Every page but Deletion, Messages, Escalation, Manual defaults, Reason shortcuts, Advanced thresholds and Copy
+	// settings (all hidden in a Staff Group), plus the Blocked sources page, which exists only in a Staff Group.
+	if got := len(settingsMainLines(m.mainText)); got != len(settingsMainTitleKeys)-6 {
+		t.Errorf("a Staff Group's Main has %d state lines, want %d (every page but Deletion, Messages, Escalation, Manual defaults, Reason shortcuts, Advanced thresholds and Copy settings, plus Blocked sources)", got, len(settingsMainTitleKeys)-6)
 	}
 	for _, key := range []string{
 		"settings_page_warns", "settings_page_locks", "settings_page_switches",
@@ -167,8 +167,9 @@ func TestSettingsPhase18Codes(t *testing.T) {
 		}
 		// The sixteen pages of Phase 18, the Blacklist, Filters and Notes pages of Phase 19 and the Blocked sources page of a
 		// Staff Group's forward blocklist ("v"), the Reactions page ("x"), the Messages page ("h"), the
-		// Conversations page ("p"), and no other.
-		want := []string{"s", "v", "l", "c", "f", "n", "j", "k", "b", "i", "w", "g", "r", "e", "x", "h", "m", "d", "t", "u", "z", "o", "y", "p", "a"}
+		// Conversations page ("p"), the Manual defaults ("q"), Reason shortcuts ("rs"), Advanced thresholds ("av") and Copy
+		// settings ("cp") pages, and no other.
+		want := []string{"s", "v", "l", "c", "f", "n", "j", "k", "b", "i", "w", "g", "r", "e", "x", "h", "m", "d", "t", "u", "z", "o", "y", "p", "a", "q", "rs", "av", "cp"}
 		if got := slices.Sorted(maps.Keys(seen)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
 			t.Errorf("registered pages = %v, want %v", got, slices.Sorted(slices.Values(want)))
 		}

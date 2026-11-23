@@ -170,9 +170,9 @@ func TestSettingsReasons(t *testing.T) {
 		if strings.Contains(p1Text, "<code>w09</code>") {
 			t.Errorf("page 1 unexpectedly showed entry 9:\n%s", p1Text)
 		}
-		nextBtn, ok := settingsModDefaultsFindButton(t, p1KB, map[string]string{"a": "sg", "v": "2"})
+		nextBtn, ok := settingsModDefaultsFindButton(t, p1KB, map[string]string{"a": "sq", "v": "2"})
 		if !ok {
-			t.Fatalf("page 1 lacks Next pager button (a=sg, v=2): %+v", p1KB)
+			t.Fatalf("page 1 lacks Next pager button (a=sq, v=2): %+v", p1KB)
 		}
 		for _, btn := range settingsAllButtons(p1KB) {
 			if strings.Contains(btn.CallbackData, "w02") || strings.Contains(btn.CallbackData, "rules") {
@@ -191,8 +191,8 @@ func TestSettingsReasons(t *testing.T) {
 				t.Errorf("page 2 lacks %q:\n%s", want, p2Text)
 			}
 		}
-		if _, ok := settingsModDefaultsFindButton(t, p2KB, map[string]string{"a": "sg", "v": "1"}); !ok {
-			t.Errorf("page 2 lacks Prev pager button (a=sg, v=1)")
+		if _, ok := settingsModDefaultsFindButton(t, p2KB, map[string]string{"a": "sq", "v": "1"}); !ok {
+			t.Errorf("page 2 lacks Prev pager button (a=sq, v=1)")
 		}
 	})
 
@@ -481,8 +481,8 @@ func TestSettingsReasons(t *testing.T) {
 		if !ok {
 			t.Fatalf("delete card lacks No button")
 		}
-		if noFields := settingsButtonFields(t, noBtn); noFields["a"] != "sg" || noFields["v"] != "1" {
-			t.Errorf("No fields = %v, want a=sg v=1", noFields)
+		if noFields := settingsButtonFields(t, noBtn); noFields["a"] != "sq" || noFields["v"] != "1" {
+			t.Errorf("No fields = %v, want a=sq v=1", noFields)
 		}
 		if len(settingsReasonsStored(t, env.chat.Id)) != 2 {
 			t.Fatalf("Ask mutated DB before Yes")
@@ -567,13 +567,13 @@ func TestSettingsReasons(t *testing.T) {
 		if !strings.Contains(browseText, "1. <code>alpha</code>") {
 			t.Fatalf("admin without restrict could not browse:\n%s", browseText)
 		}
-		m.press("a", "sg", "v", "1")
+		m.press("a", "sq", "v", "1")
 		if pageText, _ := m.last(); !strings.Contains(pageText, "1. <code>alpha</code>") {
 			t.Errorf("admin without restrict could not use pager:\n%s", pageText)
 		}
 
 		for name, kv := range map[string][]string{
-			"Add": {"a", "sa"},
+			"Add": {"a", "sm"},
 			"Ask": {"a", "sx", "r", strconv.FormatInt(alphaID, 10), "v", "1"},
 			"Yes": {"a", "sy", "r", strconv.FormatInt(alphaID, 10), "e", settingsCardExpiry(time.Now())},
 		} {
@@ -595,7 +595,7 @@ func TestSettingsReasons(t *testing.T) {
 			Status:             gotgbot.ChatMemberStatusAdministrator,
 			CanRestrictMembers: true,
 		})
-		m.press("a", "sa")
+		m.press("a", "sm")
 		if !env.redis.Exists(settingsInputKey(admin.Id)) {
 			t.Fatalf("admin with restrict could not start wait")
 		}
@@ -615,7 +615,7 @@ func TestSettingsReasons(t *testing.T) {
 			CanRestrictMembers: true,
 		})
 		m = settingsListOpenMenuPage(env, env.chat, admin, settingsPageReasons)
-		m.press("a", "sa")
+		m.press("a", "sm")
 		before = len(env.fake.sentTo(admin.Id))
 		settingsListDoorSay(env, admin, "demoted2")
 		settingsListDoorReply(t, env, admin, before, "settings_rsn_wait_text")
@@ -637,7 +637,7 @@ func TestSettingsReasons(t *testing.T) {
 			Status:             gotgbot.ChatMemberStatusAdministrator,
 			CanRestrictMembers: true,
 		})
-		m.press("a", "sa")
+		m.press("a", "sm")
 		if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker("settings_gate_owner_only")) {
 			t.Errorf("owner gate answered %q (alert %v), want settings_gate_owner_only", ans, alert)
 		}
@@ -663,10 +663,10 @@ func TestSettingsReasons(t *testing.T) {
 
 		gcmBefore := len(callsToChat(env.fake.staffBotClient, "getChatMember", env.chat.Id))
 		for _, kv := range [][]string{
-			{"a", "sg", "v", "1"},
+			{"a", "sq", "v", "1"},
 			{"a", "sx", "r", strconv.FormatInt(alphaID, 10), "v", "1"},
 			{"a", "sy", "r", strconv.FormatInt(alphaID, 10), "e", settingsCardExpiry(time.Now())},
-			{"a", "sa"},
+			{"a", "sm"},
 			{"a", "sc", "t", "w"},
 		} {
 			env.press(owner, groupMsg, env.groupFields(owner, kv...))
@@ -675,10 +675,10 @@ func TestSettingsReasons(t *testing.T) {
 			}
 		}
 		for _, kv := range [][]string{
-			{"a", "sg", "v", "abc"},
+			{"a", "sq", "v", "abc"},
 			{"a", "sx", "r", "012", "v", "1"},
 			{"a", "sy", "r", "1"},
-			{"a", "sa", "x", "1"},
+			{"a", "sm", "x", "1"},
 			{"a", "sc", "t", "k"},
 		} {
 			env.pressPrivate(owner, groupMsg, env.privateFields(env.chat.Id, kv...))
@@ -711,10 +711,10 @@ func TestSettingsReasons(t *testing.T) {
 		}
 		for _, kv := range [][]string{
 			{"a", settingsActOpen, "p", settingsPageReasons},
-			{"a", "sg", "v", "1"},
+			{"a", "sq", "v", "1"},
 			{"a", "sx", "r", strconv.FormatInt(alphaID, 10), "v", "1"},
 			{"a", "sy", "r", strconv.FormatInt(alphaID, 10), "e", settingsCardExpiry(time.Now())},
-			{"a", "sa"},
+			{"a", "sm"},
 			{"a", "sc", "t", "w"},
 			{"a", "sc", "t", "r"},
 		} {
@@ -773,7 +773,7 @@ func TestSettingsReasons(t *testing.T) {
 		measure("prompt_step1", renderSettingsListPrompt(private, def, "w", until, true, ""))
 		measure("prompt_step2", renderSettingsListPrompt(private, def, "r", until, true, "spam"))
 
-		for _, code := range []string{settingsActOpen, "sg", "sx", "sy", "sa", "sc"} {
+		for _, code := range []string{settingsActOpen, "sq", "sx", "sy", "sm", "sc"} {
 			if seenCodes[code] == 0 {
 				t.Errorf("code %q was never measured", code)
 			}

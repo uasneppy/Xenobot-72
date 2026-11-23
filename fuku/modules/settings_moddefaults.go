@@ -33,7 +33,7 @@ const (
 	settingsActModDefSetDur       = "mt"
 	settingsActModDefReason       = "mr"
 	settingsActModDefAppealPrompt = "ma"
-	settingsActModDefAppealCancel = "mc"
+	settingsActModDefAppealCancel = "mk"
 	settingsActModDefAppealRemove = "mx"
 
 	// Duration picker target kinds (k field).
