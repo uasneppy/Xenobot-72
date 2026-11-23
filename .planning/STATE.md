@@ -5,16 +5,16 @@ milestone_name: Conversations, Custom Messages and Tuning
 current_phase: 29
 current_phase_name: Plain Tone and Copy Settings
 status: executing
-stopped_at: Completed 29-01-PLAN.md
-last_updated: "2026-11-23T13:42:49.846Z"
+stopped_at: Completed 29-02-PLAN.md
+last_updated: "2026-11-23T14:07:53.426Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 29 execution started
-state_head: b4e8da4898c43f9e7e27d0b966b2257c7463ce0e
+state_head: 40659d85595af7b61936f5b00dd2e43045b5fb53
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 75
-  completed_plans: 70
+  completed_plans: 71
   percent: 18
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 29 (Plain Tone and Copy Settings) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 29 execution started
 
@@ -211,6 +211,7 @@ Progress: [██░░░░░░░░] 18%
 | Phase 28 P05 | 21min | 3 tasks | 14 files |
 | Phase 28 P06 | 17min | 3 tasks | 3 files |
 | Phase 29 P01 | 6min | 2 tasks | 1 files |
+| Phase 29 P02 | 23 min | 3 tasks | 36 files |
 
 ## Accumulated Context
 
@@ -338,6 +339,7 @@ Recent decisions affecting current work:
 - [Phase 28]: P28-03: Private Advanced page av requires live settingsRightAdmin + owner gate for views (av, aa, ao) and live settingsRightRestrict for all writes/resets (as, ar, ax).
 - [Phase 28]: P28-01..P28-04, zero new shutdown drain, chat_advanced_thresholds skipLocal, page av, and Phase 28 safeguard/E2E/golden suites recorded in AGENTS.md
 - [Phase 29]: Drove tone_off_all_18_pm_defaults through postEventSent + waitEventPM over phase28InProcessMiniredis to stay decoupled from Plan 29-02 PM composer signature changes with zero localhost TCP dials
+- [Phase 29]: 29-02: Lazy eventReply.PlainDefault evaluated in postEventSent after site.Admit with pure builders in event_message_plain.go outside eventEngineEntries; PlainTone threaded via settingsEditState to previews.
 
 ### Pending Todos
 
@@ -460,8 +462,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T13:42:48.983Z
-Stopped at: Completed 29-01-PLAN.md
+Last session: 2026-11-23T14:07:52.503Z
+Stopped at: Completed 29-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
