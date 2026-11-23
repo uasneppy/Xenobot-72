@@ -898,6 +898,28 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_notice_copied":         {110, 150},
 	"settings_notice_copied_skipped": {150, 210},
 	"settings_copy_unavailable":      {120, 160},
+
+	// The Backup page (Phase 30, plan 30-04, BKP-01..03, MSG-10): private-only page title,
+	// Main state, group note, intro, selection counter, action buttons, import file wait prompt
+	// and refusal, two-tap confirm buttons, and alerts.
+	"settings_page_backup":           {14, 17},
+	"settings_state_backup":          {16, 20},
+	"settings_bkp_group_note":        {160, 220},
+	"settings_bkp_intro":             {240, 340},
+	"settings_bkp_selected":          {70, 100},
+	"settings_btn_bkp_all":           {20, 20},
+	"settings_btn_bkp_none":          {20, 20},
+	"settings_btn_bkp_export":        {20, 20},
+	"settings_btn_bkp_import":        {20, 20},
+	"settings_btn_bkp_reset":         {20, 20},
+	"settings_bkp_pick_one":          {100, 140},
+	"settings_bkp_unavailable":       {120, 160},
+	"settings_bkp_import_wait":       {160, 220},
+	"settings_bkp_import_wait_rules": {180, 250},
+	"settings_bkp_import_wait_ended": {140, 200},
+	"settings_bkp_import_need_file":  {120, 170},
+	"settings_btn_bkp_import_yes":    {20, 20},
+	"settings_btn_bkp_reset_yes":     {20, 20},
 }
 
 // settingsAlertKeys are shown as answerCallbackQuery alerts: plain text, no tag, at most
@@ -916,6 +938,8 @@ var settingsAlertKeys = []string{
 	"settings_access_owner_only",
 	"settings_pick_unavailable",
 	"settings_copy_unavailable",
+	"settings_bkp_pick_one",
+	"settings_bkp_unavailable",
 	"settings_edit_unavailable",
 	"settings_edit_prompt_stale",
 	"settings_edit_wait_expired",
@@ -1116,6 +1140,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 		{"🛂", "settings_page_mreq"},
 		{"🎛", "settings_page_advanced"},
 		{"📋", "settings_page_copy"},
+		{"💾", "settings_page_backup"},
 		{"🧹", "settings_page_del"},
 		{"🚩", "settings_page_warns"},
 		{"⚖️", "settings_page_moddefaults"},
@@ -1228,6 +1253,19 @@ func TestSettingsLabelLengths(t *testing.T) {
 		"settings_btn_rsn_add",
 		// The Copy settings confirm card's Yes button (Phase 29, plan 29-05).
 		"settings_btn_copy_yes",
+		// The Backup page's action and two-tap confirm buttons (Phase 30, plan 30-04).
+		"settings_btn_bkp_all", "settings_btn_bkp_none",
+		"settings_btn_bkp_export", "settings_btn_bkp_import", "settings_btn_bkp_reset",
+		"settings_btn_bkp_import_yes", "settings_btn_bkp_reset_yes",
+	}
+	// The Backup page's 20 exportable module cells (Phase 30, plan 30-04): each is drawn with
+	// ✅ or ⬜ plus a space and its human-readable backup_module_<name> label (<= 20 code points).
+	backupModuleKeys := []string{
+		"backup_module_admin", "backup_module_antiflood", "backup_module_antiraid", "backup_module_approvals",
+		"backup_module_blacklists", "backup_module_captcha", "backup_module_connections", "backup_module_disabling",
+		"backup_module_filters", "backup_module_greetings", "backup_module_locks", "backup_module_notes",
+		"backup_module_pins", "backup_module_reactions", "backup_module_reports", "backup_module_rules",
+		"backup_module_warns", "backup_module_federations", "backup_module_logchannels", "backup_module_messages",
 	}
 	// The editor's half-width switch cells (Phase 12, UI-SPEC check 2): the template with
 	// {state} replaced by the icon alone is at most 20 code points, so a name is at most 18.
@@ -1302,6 +1340,19 @@ func TestSettingsLabelLengths(t *testing.T) {
 				label := settingsLocaleString(t, lang, data, key)
 				if runes := utf8.RuneCountInString(label); runes > gridMax {
 					t.Errorf("%s: editor button %q (%s) has %d characters, ceiling %d", lang, label, key, runes, gridMax)
+				}
+			}
+
+			for _, key := range backupModuleKeys {
+				name := settingsLocaleString(t, lang, data, key)
+				if strings.TrimSpace(name) == "" {
+					t.Errorf("%s: backup module label %s is empty", lang, key)
+				}
+				for _, icon := range []string{"✅", "⬜"} {
+					label := icon + " " + name
+					if runes := utf8.RuneCountInString(label); runes > gridMax {
+						t.Errorf("%s: backup module cell %q (%s) has %d characters, ceiling %d", lang, label, key, runes, gridMax)
+					}
 				}
 			}
 
