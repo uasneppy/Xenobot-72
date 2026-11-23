@@ -51,7 +51,7 @@
     {
       "number": "29",
       "name": "Plain Tone and Copy Settings",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "30",
@@ -61,8 +61,8 @@
   ],
   "next": {
     "command": "/gsd-progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 10 of 11 · 18% · executing"
+    "label": "Advance to the next step (verify)",
+    "reason": "Phase 2 of 11 · 27% · ready to verify"
   },
-  "updated_at": "2026-11-23T15:11:57.308Z"
+  "updated_at": "2026-11-23T16:02:01.694Z"
 }

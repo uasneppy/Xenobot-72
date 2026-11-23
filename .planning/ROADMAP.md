@@ -64,7 +64,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 26: Timed Punishments, Escalation and Warn Expiry** - Working timed bans and mutes for warn limit, blacklist and flood, an escalation ladder, and expiring warns
 - [ ] **Phase 27: Manual Command Defaults, Reason Shortcuts and Appeal Button** - Default durations, a reason-required switch, saved reason words and an appeal link on ban messages
 - [x] **Phase 28: Advanced Thresholds** - Per-group detection and screening limits that are code constants today, inside safe bounds (completed 2026-11-23)
-- [ ] **Phase 29: Plain Tone and Copy Settings** - Neutral default texts per group and a confirmed copy of one group's messages and tuning to another
+- [x] **Phase 29: Plain Tone and Copy Settings** - Neutral default texts per group and a confirmed copy of one group's messages and tuning to another (completed 2026-11-23)
 - [ ] **Phase 30: Backup Page and Custom Messages in Backups** - Export, import and reset from the private chat, and custom messages inside `/export` and `/import`
 
 **Coverage:** 40/40 Custom Messages and Tuning requirements mapped (Phase 20 has its own brief, not these IDs), each to exactly one phase (see the Traceability table in `REQUIREMENTS.md`).
@@ -334,14 +334,14 @@ Plans:
   2. From a group's settings, the owner picks another group and sees a card that names exactly what will be overwritten. After Yes, the target group has the same custom messages and tuning values.
   3. The person must be allowed to change settings in both groups, checked live. Otherwise the copy is refused, and the refusal does not reveal anything about the other group.
   4. Copying happens once. Nothing links the groups afterwards, the source is unchanged, and a stale or replayed card changes nothing.
-**Plans**: 5/6 plans executed
+**Plans**: 6/6 plans complete
 Plans:
 - [x] 29-01-PLAN.md — MSG-11 goldens of all 23 tone-off group defaults, all 18 PM defaults, and uncopied-group baseline, committed alone (wave 1)
 - [x] 29-02-PLAN.md — tracer: plain_tone migration, eventmsg.SetPlainTone, PG integrity, engine/PM/ban PlainDefault & PlainKey hooks, event_message_plain.go, and Messages hub toggle (ht) with 6 hub-width updates (wave 2)
 - [x] 29-03-PLAN.md — all 23 group & 18 PM neutral plain-tone locale keys across all 8 languages, all send sites & previews wired, exhaustive 2-tone x 8-language & custom-override tests (wave 3)
 - [x] 29-04-PLAN.md — shared validated message writer (eventmsg.ReplaceAllValidated, reusable by Phase 30 MSG-10), antiflood preserve-off & repo replace helpers, copy_settings.go core & drift/mirror/exclusion tests (wave 4)
 - [x] 29-05-PLAN.md — private Copy Settings page (cp, Order 82, codes cg/ck/cy), Redis Lua one-time confirm card, live dual-group checks with opaque refusal, 8 locales, Main/Phase-19 grid updates, and 64-byte/replay/opacity tests (wave 5)
-- [ ] 29-06-PLAN.md — safeguards (codes, non-creating reads, Staff Group privacy & IDs-only log sweep), real-dispatcher E2E proof, AGENTS.md update, golden immutability, and full local phase gates (wave 6)
+- [x] 29-06-PLAN.md — safeguards (codes, non-creating reads, Staff Group privacy & IDs-only log sweep), real-dispatcher E2E proof, AGENTS.md update, golden immutability, and full local phase gates (wave 6)
 **UI hint**: yes
 
 ### Phase 30: Backup Page and Custom Messages in Backups
@@ -379,5 +379,5 @@ Phases execute in numeric order: 20 → 21 → 22 → 23 → 24 → 25 → 26 �
 | 26. Timed Punishments, Escalation and Warn Expiry | v1.2 | 0/TBD | Not started | - |
 | 27. Manual Command Defaults, Reason Shortcuts and Appeal Button | v1.2 | 7/7 | In Progress | - |
 | 28. Advanced Thresholds | v1.2 | 6/6 | Complete    | 2026-11-23 |
-| 29. Plain Tone and Copy Settings | v1.2 | 5/6 | In Progress | - |
+| 29. Plain Tone and Copy Settings | v1.2 | 6/6 | Complete    | 2026-11-23 |
 | 30. Backup Page and Custom Messages in Backups | v1.2 | 0/TBD | Not started | - |
