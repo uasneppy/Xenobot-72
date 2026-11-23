@@ -394,7 +394,9 @@ func TestSettingsModDefaults(t *testing.T) {
 		}
 
 		// Timezone wait-ended fallback still uses settings_tz_wait_ended_note.
-		env.redis.Set(settingsInputDoneKey(owner.Id), settingsInputMarkerValue(env.chat.Id, settingsPageTimezone, settingsTimezonePart))
+		if err := env.redis.Set(settingsInputDoneKey(owner.Id), settingsInputMarkerValue(env.chat.Id, settingsPageTimezone, settingsTimezonePart)); err != nil {
+			t.Fatalf("set the wait marker: %v", err)
+		}
 		sentBefore = len(env.fake.sentTo(owner.Id))
 		settingsListDoorSay(env, owner, "Europe/Kyiv")
 		replies = env.fake.sentTo(owner.Id)[sentBefore:]

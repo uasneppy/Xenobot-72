@@ -3547,7 +3547,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and a cancel included, and it is taken before the budget, so a flight that cannot get a slot spends no unit. The flight's
   value is `memberReqAIAnswer{Verdict, Sticky}`. A paused breaker, a used-up budget and a gate that could not be had while the
   flight's context is live are a sticky unknown (a state of the system), and so are no Redis client, a failed state read
-  (`memberReqAIPrepare`, noted by `memberReqAIRule` through the plan's `sticky` field, because the prepare step runs before the
+  (`memberReqAIPrepareBar`, noted by `memberReqAIRule` through the plan's `sticky` field, because the prepare step runs before the
   flight), a failed cache re-read inside the flight and a budget counter that failed (Phase 15 review WR-03: a Redis outage
   would otherwise defer every weaker name punishment in every group whose AI action is stricter); a cancelled context is a
   plain unknown (shutdown is not a state), and so is every provider answer that is not a probability (a 5xx, a timeout, a 400). The name check has its own breaker

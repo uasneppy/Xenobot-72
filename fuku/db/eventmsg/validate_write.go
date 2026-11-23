@@ -73,48 +73,13 @@ func ValidateMessage(msg Message) (Message, string) {
 		return Message{}, "pm_not_supported"
 	}
 
-	hasMedia := false
-	if msg.FileID != "" || msg.MediaType != 0 {
-		if msg.FileID == "" || msg.MediaType == 0 || !allowedMediaType(msg.MediaType) {
-			return Message{}, "invalid_media"
-		}
-		if NoMedia(msg.Event, msg.Dest) {
-			return Message{}, "media_not_allowed"
-		}
-		hasMedia = true
+	hasMedia, reason := validateMessageMedia(msg)
+	if reason != "" {
+		return Message{}, reason
 	}
-
-	var buttons []models.Button
-	if len(msg.Buttons) > 0 {
-		buttons = make([]models.Button, len(msg.Buttons))
-		for i, btn := range msg.Buttons {
-			if strings.TrimSpace(btn.Name) == "" {
-				return Message{}, "invalid_button"
-			}
-			if !content.ValidButtonURL(btn.Url) {
-				return Message{}, "invalid_button_url"
-			}
-			buttons[i] = btn
-		}
-	}
-
-	allButtons := buttons
-	if token := rulesTokenPattern.FindStringSubmatch(msg.Text); token != nil {
-		rulesBtn := models.Button{Name: "Rules", Url: "https://t.me/bot", SameLine: token[2] == "same"}
-		if token[2] == "up" {
-			allButtons = append([]models.Button{rulesBtn}, buttons...)
-		} else {
-			allButtons = append(append([]models.Button(nil), buttons...), rulesBtn)
-		}
-	}
-	widest := 0
-	for _, row := range keyboard.BuildKeyboard(allButtons) {
-		if len(row) > widest {
-			widest = len(row)
-		}
-	}
-	if len(allButtons)+ReservedButtonsFor(msg.Event, msg.Dest) > MaxButtons || widest > MaxRowButtons {
-		return Message{}, "buttons_limit"
+	buttons, reason := validateMessageButtons(msg)
+	if reason != "" {
+		return Message{}, reason
 	}
 
 	rawLimit := MaxTextLength
@@ -231,4 +196,55 @@ func ReplaceAllValidated(ctx context.Context, chatID int64, rows []Message, opts
 	cache.DeleteCache(CacheKey(chatID))
 	report.Written = len(toWrite)
 	return report, nil
+}
+
+// validateMessageMedia checks the media part of msg and reports whether it carries media.
+func validateMessageMedia(msg Message) (bool, string) {
+	if msg.FileID == "" && msg.MediaType == 0 {
+		return false, ""
+	}
+	if msg.FileID == "" || msg.MediaType == 0 || !allowedMediaType(msg.MediaType) {
+		return false, "invalid_media"
+	}
+	if NoMedia(msg.Event, msg.Dest) {
+		return false, "media_not_allowed"
+	}
+	return true, ""
+}
+
+// validateMessageButtons checks the buttons of msg, with the {rules} button the text adds and the
+// bot's reserved buttons counted against Telegram's keyboard limits.
+func validateMessageButtons(msg Message) ([]models.Button, string) {
+	var buttons []models.Button
+	if len(msg.Buttons) > 0 {
+		buttons = make([]models.Button, len(msg.Buttons))
+		for i, btn := range msg.Buttons {
+			if strings.TrimSpace(btn.Name) == "" {
+				return nil, "invalid_button"
+			}
+			if !content.ValidButtonURL(btn.Url) {
+				return nil, "invalid_button_url"
+			}
+			buttons[i] = btn
+		}
+	}
+	allButtons := buttons
+	if token := rulesTokenPattern.FindStringSubmatch(msg.Text); token != nil {
+		rulesBtn := models.Button{Name: "Rules", Url: "https://t.me/bot", SameLine: token[2] == "same"}
+		if token[2] == "up" {
+			allButtons = append([]models.Button{rulesBtn}, buttons...)
+		} else {
+			allButtons = append(append([]models.Button(nil), buttons...), rulesBtn)
+		}
+	}
+	widest := 0
+	for _, row := range keyboard.BuildKeyboard(allButtons) {
+		if len(row) > widest {
+			widest = len(row)
+		}
+	}
+	if len(allButtons)+ReservedButtonsFor(msg.Event, msg.Dest) > MaxButtons || widest > MaxRowButtons {
+		return nil, "buttons_limit"
+	}
+	return buttons, ""
 }

@@ -187,9 +187,9 @@ func TestAdvancedThresholdsLockdownAndCaptcha(t *testing.T) {
 		t.Cleanup(restoreI18n)
 
 		if db.DB != nil && db.DB.Config != nil {
-			prevNowFunc := db.DB.Config.NowFunc
-			db.DB.Config.NowFunc = func() time.Time { return time.Now().UTC() }
-			t.Cleanup(func() { db.DB.Config.NowFunc = prevNowFunc })
+			prevNowFunc := db.DB.NowFunc
+			db.DB.NowFunc = func() time.Time { return time.Now().UTC() }
+			t.Cleanup(func() { db.DB.NowFunc = prevNowFunc })
 		}
 
 		chat := gotgbot.Chat{

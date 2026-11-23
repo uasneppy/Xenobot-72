@@ -406,7 +406,9 @@ func TestSettingsReasons(t *testing.T) {
 			{"r", "settings_entries_part_reason_text"},
 		} {
 			settingsReasonsClearWait(t, env, owner.Id)
-			env.redis.Set(settingsInputDoneKey(owner.Id), settingsInputMarkerValue(env.chat.Id, settingsPageReasons, tc.part))
+			if err := env.redis.Set(settingsInputDoneKey(owner.Id), settingsInputMarkerValue(env.chat.Id, settingsPageReasons, tc.part)); err != nil {
+				t.Fatalf("set the wait marker: %v", err)
+			}
 			before = len(env.fake.sentTo(owner.Id))
 			settingsListDoorSay(env, owner, "late message")
 			reply := settingsListDoorReply(t, env, owner, before, "settings_entries_wait_ended_note", tc.wordKey)
