@@ -154,27 +154,27 @@ var settingsMsgManualEvents = []settingsMsgEvent{
 	},
 	{
 		Key: eventmsg.EventTimedBan, Code: "tb", Icon: "⏳", NameKey: "settings_msg_ev_tban", DescKey: "settings_msg_desc_tban",
-		ReservedButtons: 1, Default: tbanDefaultReply, Timed: true,
+		ReservedButtons: 1, Default: tbanDefaultReply, PlainDefault: tbanPlainDefaultReply, Timed: true,
 	},
 	{
 		Key: eventmsg.EventKick, Code: "kk", Icon: "👢", NameKey: "settings_msg_ev_kick", DescKey: "settings_msg_desc_kick",
-		Default: kickDefaultReply,
+		Default: kickDefaultReply, PlainDefault: kickPlainDefaultReply,
 	},
 	{
 		Key: eventmsg.EventMute, Code: "mu", Icon: "🔇", NameKey: "settings_msg_ev_mute", DescKey: "settings_msg_desc_mute",
-		ReservedButtons: 1, Default: muteDefaultReply,
+		ReservedButtons: 1, Default: muteDefaultReply, PlainDefault: mutePlainDefaultReply,
 	},
 	{
 		Key: eventmsg.EventTimedMute, Code: "tm", Icon: "🔕", NameKey: "settings_msg_ev_tmute", DescKey: "settings_msg_desc_tmute",
-		Default: tmuteDefaultReply, Timed: true,
+		Default: tmuteDefaultReply, PlainDefault: tmutePlainDefaultReply, Timed: true,
 	},
 	{
 		Key: eventmsg.EventUnban, Code: "ub", Icon: "🔓", NameKey: "settings_msg_ev_unban", DescKey: "settings_msg_desc_unban",
-		Default: unbanDefaultReply,
+		Default: unbanDefaultReply, PlainDefault: unbanPlainDefaultReply,
 	},
 	{
 		Key: eventmsg.EventUnmute, Code: "um", Icon: "🔊", NameKey: "settings_msg_ev_unmute", DescKey: "settings_msg_desc_unmute",
-		Default: unmuteDefaultReply,
+		Default: unmuteDefaultReply, PlainDefault: unmutePlainDefaultReply,
 	},
 }
 
@@ -189,32 +189,32 @@ var settingsMsgManualEvents = []settingsMsgEvent{
 var settingsMsgAutoEvents = []settingsMsgEvent{
 	{
 		Key: eventmsg.EventWarn, Code: "wn", Icon: "🚩", NameKey: "settings_msg_ev_warn", DescKey: "settings_msg_desc_warn",
-		ReservedButtons: 1, Default: warnDefaultReply, Sample: settingsMsgSample{Count: 1, Limit: 3, Action: "warn"},
+		ReservedButtons: 1, Default: warnDefaultReply, PlainDefault: warnPlainDefaultReply, Sample: settingsMsgSample{Count: 1, Limit: 3, Action: "warn"},
 	},
 	{
 		Key: eventmsg.EventWarnLimit, Code: "wl", Icon: "⛔", NameKey: "settings_msg_ev_warnlimit", DescKey: "settings_msg_desc_warnlimit",
-		Default: warnLimitDefaultReply, Sample: settingsMsgSample{Count: 3, Limit: 3, Action: "mute", Secs: 3600},
+		Default: warnLimitDefaultReply, PlainDefault: warnLimitPlainDefaultReply, Sample: settingsMsgSample{Count: 3, Limit: 3, Action: "mute", Secs: 3600},
 	},
 	{
 		Key: eventmsg.EventFlood, Code: "fl", Icon: "🌊", NameKey: "settings_msg_ev_flood", DescKey: "settings_msg_desc_flood",
-		ReservedButtons: 1, Default: floodDefaultReply,
+		ReservedButtons: 1, Default: floodDefaultReply, PlainDefault: floodPlainDefaultReply,
 		Sample: settingsMsgSample{Count: 6, Limit: 5, Action: "mute", ReasonKey: "eventmsg_reason_flood", Secs: 3600},
 	},
 	{
 		Key: eventmsg.EventBlacklist, Code: "bl", Icon: "🔤", NameKey: "settings_msg_ev_blacklist", DescKey: "settings_msg_desc_blacklist",
-		Default: blacklistNoticeDefaultReply, Sample: settingsMsgSample{Action: "mute", Secs: 3600},
+		Default: blacklistNoticeDefaultReply, PlainDefault: blacklistPlainDefaultReply, Sample: settingsMsgSample{Action: "mute", Secs: 3600},
 	},
 	{
 		Key: eventmsg.EventForwardBlock, Code: "fb", Icon: "🚷", NameKey: "settings_msg_ev_fwdblock", DescKey: "settings_msg_desc_fwdblock",
-		Default: blacklistNoticeDefaultReply, Sample: settingsMsgSample{Action: "mute", ReasonKey: "staff_fwdblock_reason", Secs: 3600},
+		Default: blacklistNoticeDefaultReply, PlainDefault: blacklistPlainDefaultReply, Sample: settingsMsgSample{Action: "mute", ReasonKey: "staff_fwdblock_reason", Secs: 3600},
 	},
 	{
 		Key: eventmsg.EventCaptcha, Code: "cf", Icon: "🧩", NameKey: "settings_msg_ev_captcha", DescKey: "settings_msg_desc_captcha",
-		Default: captchaFailureDefaultReply, Sample: settingsMsgSample{Count: 2, Action: "kick", ReasonKey: "eventmsg_reason_captcha"},
+		Default: captchaFailureDefaultReply, PlainDefault: captchaFailurePlainDefaultReply, Sample: settingsMsgSample{Count: 2, Action: "kick", ReasonKey: "eventmsg_reason_captcha"},
 	},
 	{
 		Key: eventmsg.EventAISpam, Code: "ai", Icon: "🧠", NameKey: "settings_msg_ev_aispam", DescKey: "settings_msg_desc_aispam",
-		Default: aispamNoticeDefaultReply, Sample: settingsMsgSample{Action: "delete", ReasonKey: "eventmsg_reason_aispam"},
+		Default: aispamNoticeDefaultReply, PlainDefault: aispamPlainDefaultReply, Sample: settingsMsgSample{Action: "delete", ReasonKey: "eventmsg_reason_aispam"},
 	},
 }
 
@@ -227,24 +227,24 @@ var settingsMsgAutoEvents = []settingsMsgEvent{
 var settingsMsgReqEvents = []settingsMsgEvent{
 	{
 		Key: eventmsg.EventReqWarn, Code: "rw", Icon: "❗", NameKey: "settings_msg_ev_mreqwarn", DescKey: "settings_msg_desc_mreqwarn",
-		Default: memberReqNoticeDefault(models.RequirementActionWarn), Appended: memberReqNoticeAppended(models.RequirementActionWarn),
+		Default: memberReqNoticeDefault(models.RequirementActionWarn), PlainDefault: memberReqPlainNoticeDefault(models.RequirementActionWarn), Appended: memberReqNoticeAppended(models.RequirementActionWarn),
 		Sample: settingsMsgSample{Count: 1, Limit: 3, Action: "warn", Rules: memberReqRuleBits("un")},
 	},
 	{
 		Key: eventmsg.EventReqKick, Code: "rk", Icon: "👢", NameKey: "settings_msg_ev_mreqkick", DescKey: "settings_msg_desc_mreqkick",
-		Default: memberReqNoticeDefault(models.RequirementActionKick), Appended: memberReqNoticeAppended(models.RequirementActionKick),
+		Default: memberReqNoticeDefault(models.RequirementActionKick), PlainDefault: memberReqPlainNoticeDefault(models.RequirementActionKick), Appended: memberReqNoticeAppended(models.RequirementActionKick),
 		Sample: settingsMsgSample{Action: "kick", Rules: memberReqRuleBits("un")},
 	},
 	{
 		Key: eventmsg.EventReqBan, Code: "rb", Icon: "⛔", NameKey: "settings_msg_ev_mreqban", DescKey: "settings_msg_desc_mreqban",
 		ReservedButtons: 1,
-		Default:         memberReqNoticeDefault(models.RequirementActionBan), Appended: memberReqNoticeAppended(models.RequirementActionBan),
+		Default:         memberReqNoticeDefault(models.RequirementActionBan), PlainDefault: memberReqPlainNoticeDefault(models.RequirementActionBan), Appended: memberReqNoticeAppended(models.RequirementActionBan),
 		Sample: settingsMsgSample{Action: "ban", Rules: memberReqRuleBits("un")},
 	},
 	{
 		Key: eventmsg.EventReqMute, Code: "rm", Icon: "🔇", NameKey: "settings_msg_ev_mreqmute", DescKey: "settings_msg_desc_mreqmute",
 		ReservedButtons: 1, NoSilent: true,
-		Default: memberReqNoticeDefault(models.RequirementActionMute), Appended: memberReqNoticeAppended(models.RequirementActionMute),
+		Default: memberReqNoticeDefault(models.RequirementActionMute), PlainDefault: memberReqPlainNoticeDefault(models.RequirementActionMute), Appended: memberReqNoticeAppended(models.RequirementActionMute),
 		Sample: settingsMsgSample{Action: "mute", Rules: memberReqRuleBits("un", "ph")},
 	},
 }
@@ -260,26 +260,26 @@ var settingsMsgReqEvents = []settingsMsgEvent{
 var settingsMsgLockdownEvents = []settingsMsgEvent{
 	{
 		Key: eventmsg.EventLockdown, Code: "ld", Icon: "🔒", NameKey: "settings_msg_ev_lockdown", DescKey: "settings_msg_desc_lockdown",
-		Default: lockdownStartDefaultReply, Appended: lockdownStartAppended,
+		Default: lockdownStartDefaultReply, PlainDefault: lockdownStartPlainDefaultReply, Appended: lockdownStartAppended,
 	},
 	{
 		Key: eventmsg.EventLockJoinSurge, Code: "lj", Icon: "👥", NameKey: "settings_msg_ev_lockjoin", DescKey: "settings_msg_desc_lockjoin",
-		Default: lockdownAutoDefaultReply(models.LockdownTriggerJoinSurge), Appended: lockdownStartAppended,
+		Default: lockdownAutoDefaultReply(models.LockdownTriggerJoinSurge), PlainDefault: lockdownAutoPlainDefaultReply(models.LockdownTriggerJoinSurge), Appended: lockdownStartAppended,
 		Sample: settingsMsgSample{Count: 15, Window: 60, Trigger: models.LockdownTriggerJoinSurge},
 	},
 	{
 		Key: eventmsg.EventLockFlood, Code: "lf", Icon: "💬", NameKey: "settings_msg_ev_lockflood", DescKey: "settings_msg_desc_lockflood",
-		Default: lockdownAutoDefaultReply(models.LockdownTriggerFlood), Appended: lockdownStartAppended,
+		Default: lockdownAutoDefaultReply(models.LockdownTriggerFlood), PlainDefault: lockdownAutoPlainDefaultReply(models.LockdownTriggerFlood), Appended: lockdownStartAppended,
 		Sample: settingsMsgSample{Count: 30, Window: 30, Percent: 80, Trigger: models.LockdownTriggerFlood},
 	},
 	{
 		Key: eventmsg.EventLockAIBurst, Code: "la", Icon: "🧠", NameKey: "settings_msg_ev_lockai", DescKey: "settings_msg_desc_lockai",
-		Default: lockdownAutoDefaultReply(models.LockdownTriggerAIBurst), Appended: lockdownStartAppended,
+		Default: lockdownAutoDefaultReply(models.LockdownTriggerAIBurst), PlainDefault: lockdownAutoPlainDefaultReply(models.LockdownTriggerAIBurst), Appended: lockdownStartAppended,
 		Sample: settingsMsgSample{Count: 5, Window: 120, Trigger: models.LockdownTriggerAIBurst},
 	},
 	{
 		Key: eventmsg.EventLockLift, Code: "lu", Icon: "🔓", NameKey: "settings_msg_ev_locklift", DescKey: "settings_msg_desc_locklift",
-		Default: lockdownLiftDefaultReply, Appended: lockdownLiftAppended, Sample: settingsMsgSample{NoReason: true},
+		Default: lockdownLiftDefaultReply, PlainDefault: lockdownLiftPlainDefaultReply, Appended: lockdownLiftAppended, Sample: settingsMsgSample{NoReason: true},
 	},
 }
 

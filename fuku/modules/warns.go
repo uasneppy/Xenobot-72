@@ -498,6 +498,7 @@ func warnEventReply(b *gotgbot.Bot, chat *gotgbot.Chat, replyTo int64, tr *i18n.
 		Target:       u,
 		Values:       eventValues{Reason: reason, Count: res.Count, Limit: res.Limit, Action: eventActionWord(tr, "warn")},
 		Default:      text,
+		PlainDefault: func() string { return warnPlainDefaultReply(tr, in) },
 		Opts:         opts,
 		KeepRows:     [][]gotgbot.InlineKeyboardButton{{removeWarn}},
 		KeepRowsLast: true,
@@ -522,12 +523,13 @@ func warnLimitEventReply(tr *i18n.Translator, replyTo int64, u gotgbot.User, rea
 		values.Duration, values.Until = punishDurationLabel(tr, res.Secs), time.Unix(res.Until, 0)
 	}
 	return eventReply{
-		Event:   eventmsg.EventWarnLimit,
-		Target:  u,
-		Values:  values,
-		Default: text,
-		Opts:    opts,
-		Appeal:  res.Mode == "ban" || (res.Mode == "tban" && res.Secs > 0 && res.Until > 0),
+		Event:        eventmsg.EventWarnLimit,
+		Target:       u,
+		Values:       values,
+		Default:      text,
+		PlainDefault: func() string { return warnLimitPlainDefaultReply(tr, in) },
+		Opts:         opts,
+		Appeal:       res.Mode == "ban" || (res.Mode == "tban" && res.Secs > 0 && res.Until > 0),
 	}
 }
 

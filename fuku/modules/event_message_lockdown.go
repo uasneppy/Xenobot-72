@@ -234,7 +234,8 @@ func postLockdownStartEvent(
 	anonymous := actorIsAnonymous(ctx)
 	facts := lockdownStartFacts(bot)
 	starter := gotgbot.User{Id: actor.Id, FirstName: name}
-	text, opts := lockdownStartDefaultReply(tr, eventDefaultInput{Target: starter, Reason: row.Reason, Lockdown: facts})
+	startIn := eventDefaultInput{Target: starter, Reason: row.Reason, Lockdown: facts}
+	text, opts := lockdownStartDefaultReply(tr, startIn)
 	var threadID int64
 	if msg.IsTopicMessage {
 		threadID = msg.MessageThreadId
@@ -247,12 +248,13 @@ func postLockdownStartEvent(
 			return msg.Reply(b, text, opts)
 		})
 	err := postEvent(site, eventReply{
-		Event:   eventmsg.EventLockdown,
-		Target:  lockdownEventPerson(b, actor.Id, name, !anonymous),
-		Values:  eventValues{Reason: row.Reason},
-		Default: text,
-		Opts:    opts,
-		Note:    lockdownStartNotes(tr, facts),
+		Event:        eventmsg.EventLockdown,
+		Target:       lockdownEventPerson(b, actor.Id, name, !anonymous),
+		Values:       eventValues{Reason: row.Reason},
+		Default:      text,
+		PlainDefault: func() string { return lockdownStartPlainDefaultReply(tr, startIn) },
+		Opts:         opts,
+		Note:         lockdownStartNotes(tr, facts),
 	})
 	if err != nil {
 		log.Errorf("[Lockdown] reply: %v", err)
@@ -290,12 +292,13 @@ func postLockdownAutoEvent(b *gotgbot.Bot, chat *gotgbot.Chat, trig raidTrigger,
 	}
 	tr := staffChatTranslator(chat.Id)
 	facts := lockdownStartFacts(res.BotMember)
-	text, opts := lockdownAutoDefaultReply(trig.Kind)(tr, eventDefaultInput{
+	autoIn := eventDefaultInput{
 		Count:    trig.Count,
 		Window:   trig.Window,
 		Percent:  trig.Percent,
 		Lockdown: facts,
-	})
+	}
+	text, opts := lockdownAutoDefaultReply(trig.Kind)(tr, autoIn)
 	site := lockdownEventSite(b, chat, tr, eventActor{}, 0, 0, true,
 		func(text string, _ *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
 			return nil, raidSend(b, chat.Id, text)
@@ -320,9 +323,10 @@ func postLockdownAutoEvent(b *gotgbot.Bot, chat *gotgbot.Chat, trig raidTrigger,
 			Window:  strconv.Itoa(trig.Window),
 			Percent: trig.Percent,
 		},
-		Default: text,
-		Opts:    opts,
-		Note:    lockdownStartNotes(tr, facts),
+		Default:      text,
+		PlainDefault: func() string { return lockdownAutoPlainDefaultReply(trig.Kind)(tr, autoIn) },
+		Opts:         opts,
+		Note:         lockdownStartNotes(tr, facts),
 	})
 	if err != nil {
 		log.Warnf("[RaidDetection] the notice of the automatic lockdown in chat %d was not delivered: %v", chat.Id, err)
@@ -340,16 +344,18 @@ const lockdownLiftCustomWait = 30 * time.Second
 // (lockdownLiftNotes, D-16), so the page's preview and the group message are one construction.
 func lockdownLiftReply(b *gotgbot.Bot, tr *i18n.Translator, actorID int64, actorName string, res lockdownLiftResult, named bool) eventReply {
 	facts := lockdownFacts{ManualChange: res.ManualChange, Finished: res.Finished, Unbanning: res.Unbanning}
-	text, opts := lockdownLiftDefaultReply(tr, eventDefaultInput{
+	liftIn := eventDefaultInput{
 		Target:   gotgbot.User{Id: actorID, FirstName: actorName},
 		Lockdown: facts,
-	})
+	}
+	text, opts := lockdownLiftDefaultReply(tr, liftIn)
 	return eventReply{
-		Event:   eventmsg.EventLockLift,
-		Target:  lockdownEventPerson(b, actorID, actorName, named),
-		Default: text,
-		Opts:    opts,
-		Note:    lockdownLiftNotes(tr, facts),
+		Event:        eventmsg.EventLockLift,
+		Target:       lockdownEventPerson(b, actorID, actorName, named),
+		Default:      text,
+		PlainDefault: func() string { return lockdownLiftPlainDefaultReply(tr, liftIn) },
+		Opts:         opts,
+		Note:         lockdownLiftNotes(tr, facts),
 	}
 }
 

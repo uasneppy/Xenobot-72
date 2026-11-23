@@ -407,14 +407,15 @@ func memberReqPostEventNotice(ctx context.Context, b *gotgbot.Bot, c memberReqCa
 		Schedule: func(sent *gotgbot.Message) { memberReqScheduleNotice(sent, withButton) },
 	}
 	reply := eventReply{
-		Event:    memberReqEventOf(hold.Action),
-		Target:   memberReqEventTarget(user),
-		Values:   values,
-		Default:  text,
-		Opts:     opts,
-		Note:     memberReqNoticeAppended(hold.Action)(tr, in),
-		TextOnly: true,
-		Required: hold.Action == models.RequirementActionMute,
+		Event:        memberReqEventOf(hold.Action),
+		Target:       memberReqEventTarget(user),
+		Values:       values,
+		Default:      text,
+		PlainDefault: func() string { return memberReqPlainNoticeDefault(hold.Action)(tr, in) },
+		Opts:         opts,
+		Note:         memberReqNoticeAppended(hold.Action)(tr, in),
+		TextOnly:     true,
+		Required:     hold.Action == models.RequirementActionMute,
 	}
 	if withButton {
 		reply.KeepRows, reply.KeepRowsLast = rows, true

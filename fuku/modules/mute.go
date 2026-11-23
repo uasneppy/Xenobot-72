@@ -70,17 +70,27 @@ func muteReplyWithButton(c *moderationCtx, t *target) error {
 
 	member := eventTargetOf(muteUser)
 	if t.untilDate > 0 {
-		text, opts := tmuteDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
+		tmuteIn := eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal}
+		text, opts := tmuteDefaultReply(c.Tr, tmuteIn)
 		err = c.replyEvent(eventReply{
-			Event:   eventmsg.EventTimedMute,
-			Target:  member,
-			Values:  eventValues{Reason: t.reason, Duration: t.timeVal, Until: eventUntil(t.untilDate)},
-			Default: text,
-			Opts:    opts,
+			Event:        eventmsg.EventTimedMute,
+			Target:       member,
+			Values:       eventValues{Reason: t.reason, Duration: t.timeVal, Until: eventUntil(t.untilDate)},
+			Default:      text,
+			PlainDefault: func() string { return tmutePlainDefaultReply(c.Tr, tmuteIn) },
+			Opts:         opts,
 		})
 	} else {
-		text, opts := muteDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
-		err = c.replyEvent(eventReply{Event: eventmsg.EventMute, Target: member, Values: eventValues{Reason: t.reason}, Default: text, Opts: opts})
+		muteIn := eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal}
+		text, opts := muteDefaultReply(c.Tr, muteIn)
+		err = c.replyEvent(eventReply{
+			Event:        eventmsg.EventMute,
+			Target:       member,
+			Values:       eventValues{Reason: t.reason},
+			Default:      text,
+			PlainDefault: func() string { return mutePlainDefaultReply(c.Tr, muteIn) },
+			Opts:         opts,
+		})
 	}
 	if err != nil {
 		log.Error(err)
@@ -174,13 +184,15 @@ func moderationTmute(m *moduleStruct) *moderationCommand {
 			}
 
 			member := eventTargetOf(muteUser)
-			text, opts := tmuteDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
+			tmuteIn := eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal}
+			text, opts := tmuteDefaultReply(c.Tr, tmuteIn)
 			err = c.replyEvent(eventReply{
-				Event:   eventmsg.EventTimedMute,
-				Target:  member,
-				Values:  eventValues{Reason: t.reason, Duration: t.timeVal, Until: eventUntil(t.untilDate)},
-				Default: text,
-				Opts:    opts,
+				Event:        eventmsg.EventTimedMute,
+				Target:       member,
+				Values:       eventValues{Reason: t.reason, Duration: t.timeVal, Until: eventUntil(t.untilDate)},
+				Default:      text,
+				PlainDefault: func() string { return tmutePlainDefaultReply(c.Tr, tmuteIn) },
+				Opts:         opts,
 			})
 			if err != nil {
 				log.Error(err)
@@ -313,7 +325,8 @@ func moderationUnmute(m *moduleStruct) *moderationCommand {
 			}
 
 			member := eventTargetOf(muteUser)
-			text, opts := unmuteDefaultReply(c.Tr, eventDefaultInput{Target: member})
+			unmuteIn := eventDefaultInput{Target: member}
+			text, opts := unmuteDefaultReply(c.Tr, unmuteIn)
 			// During a lockdown the user is still muted by the locked default
 			// permissions, so say they can talk once it lifts. A failed read only
 			// skips the note: the unmute itself already went through. A custom
@@ -327,7 +340,21 @@ func moderationUnmute(m *moduleStruct) *moderationCommand {
 				pmNote, _ = c.Tr.GetString("eventmsg_pm_unmute_lockdown")
 				text += "\n" + note
 			}
-			err = c.replyEvent(eventReply{Event: eventmsg.EventUnmute, Target: member, Default: text, Opts: opts, Note: note, PMNote: pmNote})
+			err = c.replyEvent(eventReply{
+				Event:   eventmsg.EventUnmute,
+				Target:  member,
+				Default: text,
+				PlainDefault: func() string {
+					plain := unmutePlainDefaultReply(c.Tr, unmuteIn)
+					if note != "" {
+						plain += "\n" + note
+					}
+					return plain
+				},
+				Opts:   opts,
+				Note:   note,
+				PMNote: pmNote,
+			})
 			if err != nil {
 				log.Error(err)
 				return err

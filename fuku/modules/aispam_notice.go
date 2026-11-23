@@ -168,11 +168,12 @@ func postAISpamNotice(task aispamTask) {
 		},
 	}
 	reply := eventReply{
-		Event:   eventmsg.EventAISpam,
-		Target:  task.user,
-		Values:  eventValues{Reason: aispamEventReason(tr), Action: eventActionWord(tr, "delete")},
-		Default: text,
-		Opts:    opts,
+		Event:        eventmsg.EventAISpam,
+		Target:       task.user,
+		Values:       eventValues{Reason: aispamEventReason(tr), Action: eventActionWord(tr, "delete")},
+		Default:      text,
+		PlainDefault: func() string { return aispamPlainDefaultReply(tr, eventDefaultInput{Target: task.user}) },
+		Opts:         opts,
 	}
 	if err := postEvent(site, reply); err != nil {
 		log.WithFields(log.Fields{

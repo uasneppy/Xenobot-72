@@ -67,8 +67,16 @@ func kickReply(c *moderationCtx, t *target) error {
 	}
 
 	member := eventTargetOf(kickuser)
-	text, opts := kickDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
-	err = c.replyEvent(eventReply{Event: eventmsg.EventKick, Target: member, Values: eventValues{Reason: t.reason}, Default: text, Opts: opts})
+	kickIn := eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal}
+	text, opts := kickDefaultReply(c.Tr, kickIn)
+	err = c.replyEvent(eventReply{
+		Event:        eventmsg.EventKick,
+		Target:       member,
+		Values:       eventValues{Reason: t.reason},
+		Default:      text,
+		PlainDefault: func() string { return kickPlainDefaultReply(c.Tr, kickIn) },
+		Opts:         opts,
+	})
 	if err != nil {
 		log.Error(err)
 		return err
@@ -127,13 +135,15 @@ func moderationTban(m *moduleStruct) *moderationCommand {
 			}
 
 			member := eventTargetOf(banUser)
-			text, opts := tbanDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
+			tbanIn := eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal}
+			text, opts := tbanDefaultReply(c.Tr, tbanIn)
 			err = c.replyEvent(eventReply{
-				Event:   eventmsg.EventTimedBan,
-				Target:  member,
-				Values:  eventValues{Reason: t.reason, Duration: t.timeVal, Until: eventUntil(t.untilDate)},
-				Default: text,
-				Opts:    opts,
+				Event:        eventmsg.EventTimedBan,
+				Target:       member,
+				Values:       eventValues{Reason: t.reason, Duration: t.timeVal, Until: eventUntil(t.untilDate)},
+				Default:      text,
+				PlainDefault: func() string { return tbanPlainDefaultReply(c.Tr, tbanIn) },
+				Opts:         opts,
 			})
 			if err != nil {
 				log.Error(err)
@@ -192,13 +202,15 @@ func banReplyWithButton(c *moderationCtx, t *target) error {
 
 	member := eventTargetOf(banUser)
 	if t.untilDate > 0 {
-		text, opts := tbanDefaultReply(c.Tr, eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal})
+		tbanIn := eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal}
+		text, opts := tbanDefaultReply(c.Tr, tbanIn)
 		err = c.replyEvent(eventReply{
-			Event:   eventmsg.EventTimedBan,
-			Target:  member,
-			Values:  eventValues{Reason: t.reason, Duration: t.timeVal, Until: eventUntil(t.untilDate)},
-			Default: text,
-			Opts:    opts,
+			Event:        eventmsg.EventTimedBan,
+			Target:       member,
+			Values:       eventValues{Reason: t.reason, Duration: t.timeVal, Until: eventUntil(t.untilDate)},
+			Default:      text,
+			PlainDefault: func() string { return tbanPlainDefaultReply(c.Tr, tbanIn) },
+			Opts:         opts,
 		})
 	} else {
 		banIn := eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal}
@@ -482,8 +494,15 @@ func moderationUnban(m *moduleStruct) *moderationCommand {
 					return err
 				}
 				member := eventTargetOf(banUser)
-				text, opts := unbanDefaultReply(c.Tr, eventDefaultInput{Target: member})
-				err = c.replyEvent(eventReply{Event: eventmsg.EventUnban, Target: member, Default: text, Opts: opts})
+				unbanIn := eventDefaultInput{Target: member}
+				text, opts := unbanDefaultReply(c.Tr, unbanIn)
+				err = c.replyEvent(eventReply{
+					Event:        eventmsg.EventUnban,
+					Target:       member,
+					Default:      text,
+					PlainDefault: func() string { return unbanPlainDefaultReply(c.Tr, unbanIn) },
+					Opts:         opts,
+				})
 				if err != nil {
 					log.Error(err)
 					return err

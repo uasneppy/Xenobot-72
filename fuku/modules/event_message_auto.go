@@ -290,12 +290,13 @@ func listNoticeReply(tr *i18n.Translator, event string, target gotgbot.User, p a
 	}
 	text, opts := blacklistNoticeDefaultReply(tr, in)
 	return eventReply{
-		Event:   event,
-		Target:  target,
-		Values:  values,
-		Default: text,
-		Opts:    opts,
-		Appeal:  p.Action == "ban" || (p.Action == "tban" && timed),
+		Event:        event,
+		Target:       target,
+		Values:       values,
+		Default:      text,
+		PlainDefault: func() string { return blacklistPlainDefaultReply(tr, in) },
+		Opts:         opts,
+		Appeal:       p.Action == "ban" || (p.Action == "tban" && timed),
 	}
 }
 
@@ -346,7 +347,8 @@ func captchaFailureNoticeDelete(bot *gotgbot.Bot, chatID int64) func(*gotgbot.Me
 // today's call, and either message deletes itself after captchaFailureNoticeLife.
 func postCaptchaFailureNotice(bot *gotgbot.Bot, chatID int64, tr *i18n.Translator, target gotgbot.User, action string, stored int64) error {
 	chat := &gotgbot.Chat{Id: chatID, Type: "supergroup", Title: chats.GetChatSettings(chatID).ChatName}
-	text, opts := captchaFailureDefaultReply(tr, eventDefaultInput{Target: target, Action: action, Count: int(stored)})
+	captchaIn := eventDefaultInput{Target: target, Action: action, Count: int(stored)}
+	text, opts := captchaFailureDefaultReply(tr, captchaIn)
 	values := eventValues{Reason: captchaEventReason(tr), Action: eventActionWord(tr, action), Count: int(stored)}
 	if action == "mute" {
 		values.Until = time.Now().Add(captchaFailureMuteSpan)
@@ -362,11 +364,12 @@ func postCaptchaFailureNotice(bot *gotgbot.Bot, chatID int64, tr *i18n.Translato
 		Schedule: captchaFailureNoticeDelete(bot, chatID),
 	}
 	return postEvent(site, eventReply{
-		Event:   eventmsg.EventCaptcha,
-		Target:  target,
-		Values:  values,
-		Default: text,
-		Opts:    opts,
-		Appeal:  action == "ban" || action == "tban",
+		Event:        eventmsg.EventCaptcha,
+		Target:       target,
+		Values:       values,
+		Default:      text,
+		PlainDefault: func() string { return captchaFailurePlainDefaultReply(tr, captchaIn) },
+		Opts:         opts,
+		Appeal:       action == "ban" || action == "tban",
 	})
 }

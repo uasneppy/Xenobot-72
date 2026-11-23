@@ -49,13 +49,17 @@ type eventPMSpec struct {
 var eventPMSpecs = map[string]eventPMSpec{}
 
 // registerEventPM gives an event a private copy. It panics at init on an event eventmsg does not
-// know, an empty default key or a second registration of one event, so a wrong table never ships.
+// know, an empty default key, an empty plain key or a second registration of one event, so a wrong
+// table never ships.
 func registerEventPM(event string, spec eventPMSpec) {
 	if !eventmsg.ValidEvent(event) {
 		panic(fmt.Sprintf("registerEventPM: unknown event %q", event))
 	}
 	if spec.DefaultKey == "" {
 		panic(fmt.Sprintf("registerEventPM: event %q has no default key", event))
+	}
+	if spec.PlainKey == "" {
+		panic(fmt.Sprintf("registerEventPM: event %q has no plain key", event))
 	}
 	if _, dup := eventPMSpecs[event]; dup {
 		panic(fmt.Sprintf("registerEventPM: event %q registered twice", event))
@@ -73,32 +77,32 @@ func init() {
 	// The seven manual events of Phase 21 (D-06): /dban, /dkick and /dmute share their parent's
 	// event, and the silent variants never reach replyEvent, so they send no copy.
 	registerEventPM(eventmsg.EventBan, eventPMSpec{DefaultKey: "eventmsg_pm_ban", PlainKey: "eventmsg_plain_pm_ban", Automatic: false})
-	registerEventPM(eventmsg.EventTimedBan, eventPMSpec{DefaultKey: "eventmsg_pm_tban", Automatic: false})
-	registerEventPM(eventmsg.EventKick, eventPMSpec{DefaultKey: "eventmsg_pm_kick", Automatic: false})
-	registerEventPM(eventmsg.EventMute, eventPMSpec{DefaultKey: "eventmsg_pm_mute", Automatic: false})
-	registerEventPM(eventmsg.EventTimedMute, eventPMSpec{DefaultKey: "eventmsg_pm_tmute", Automatic: false})
-	registerEventPM(eventmsg.EventUnban, eventPMSpec{DefaultKey: "eventmsg_pm_unban", Automatic: false})
-	registerEventPM(eventmsg.EventUnmute, eventPMSpec{DefaultKey: "eventmsg_pm_unmute", Automatic: false})
+	registerEventPM(eventmsg.EventTimedBan, eventPMSpec{DefaultKey: "eventmsg_pm_tban", PlainKey: "eventmsg_plain_pm_tban", Automatic: false})
+	registerEventPM(eventmsg.EventKick, eventPMSpec{DefaultKey: "eventmsg_pm_kick", PlainKey: "eventmsg_plain_pm_kick", Automatic: false})
+	registerEventPM(eventmsg.EventMute, eventPMSpec{DefaultKey: "eventmsg_pm_mute", PlainKey: "eventmsg_plain_pm_mute", Automatic: false})
+	registerEventPM(eventmsg.EventTimedMute, eventPMSpec{DefaultKey: "eventmsg_pm_tmute", PlainKey: "eventmsg_plain_pm_tmute", Automatic: false})
+	registerEventPM(eventmsg.EventUnban, eventPMSpec{DefaultKey: "eventmsg_pm_unban", PlainKey: "eventmsg_plain_pm_unban", Automatic: false})
+	registerEventPM(eventmsg.EventUnmute, eventPMSpec{DefaultKey: "eventmsg_pm_unmute", PlainKey: "eventmsg_plain_pm_unmute", Automatic: false})
 	// The Automatic family of Phase 23 (D-28): the warn and the warn limit are manual specs, because /warn
 	// is an admin's act and never capped, while a warn or a warn limit an automatic rule raised (the
 	// blacklist's and the forward blocklist's warns) is capped through eventPMOffer.ByRule. The flood,
 	// blacklist and forward blocklist punishments are automatic, so the per-group cap bounds a flood of
 	// offenders (D-07).
-	registerEventPM(eventmsg.EventWarn, eventPMSpec{DefaultKey: "eventmsg_pm_warn", Automatic: false})
-	registerEventPM(eventmsg.EventWarnLimit, eventPMSpec{DefaultKey: "eventmsg_pm_warnlimit", Automatic: false, UntilLine: true})
-	registerEventPM(eventmsg.EventFlood, eventPMSpec{DefaultKey: "eventmsg_pm_flood", Automatic: true, UntilLine: true})
-	registerEventPM(eventmsg.EventBlacklist, eventPMSpec{DefaultKey: "eventmsg_pm_blacklist", Automatic: true, UntilLine: true})
-	registerEventPM(eventmsg.EventForwardBlock, eventPMSpec{DefaultKey: "eventmsg_pm_fwdblock", Automatic: true, UntilLine: true})
+	registerEventPM(eventmsg.EventWarn, eventPMSpec{DefaultKey: "eventmsg_pm_warn", PlainKey: "eventmsg_plain_pm_warn", Automatic: false})
+	registerEventPM(eventmsg.EventWarnLimit, eventPMSpec{DefaultKey: "eventmsg_pm_warnlimit", PlainKey: "eventmsg_plain_pm_warnlimit", Automatic: false, UntilLine: true})
+	registerEventPM(eventmsg.EventFlood, eventPMSpec{DefaultKey: "eventmsg_pm_flood", PlainKey: "eventmsg_plain_pm_flood", Automatic: true, UntilLine: true})
+	registerEventPM(eventmsg.EventBlacklist, eventPMSpec{DefaultKey: "eventmsg_pm_blacklist", PlainKey: "eventmsg_plain_pm_blacklist", Automatic: true, UntilLine: true})
+	registerEventPM(eventmsg.EventForwardBlock, eventPMSpec{DefaultKey: "eventmsg_pm_fwdblock", PlainKey: "eventmsg_plain_pm_fwdblock", Automatic: true, UntilLine: true})
 	// The screening events of Phase 24 (D-34): the failed captcha, the AI spam notice and the requirement warn,
 	// kick, ban and mute are all actions the bot takes by itself, so every one is automatic and the per-group
 	// cap of automatic copies (10 a minute, fail closed) bounds a raid of joiners or offenders. None needs
 	// eventPMOffer.ByRule: the spec alone sets the cap.
-	registerEventPM(eventmsg.EventCaptcha, eventPMSpec{DefaultKey: "eventmsg_pm_captcha", Automatic: true})
-	registerEventPM(eventmsg.EventAISpam, eventPMSpec{DefaultKey: "eventmsg_pm_aispam", Automatic: true})
-	registerEventPM(eventmsg.EventReqWarn, eventPMSpec{DefaultKey: "eventmsg_pm_mreqwarn", Automatic: true})
-	registerEventPM(eventmsg.EventReqKick, eventPMSpec{DefaultKey: "eventmsg_pm_mreqkick", Automatic: true})
-	registerEventPM(eventmsg.EventReqBan, eventPMSpec{DefaultKey: "eventmsg_pm_mreqban", Automatic: true})
-	registerEventPM(eventmsg.EventReqMute, eventPMSpec{DefaultKey: "eventmsg_pm_mreqmute", Automatic: true})
+	registerEventPM(eventmsg.EventCaptcha, eventPMSpec{DefaultKey: "eventmsg_pm_captcha", PlainKey: "eventmsg_plain_pm_captcha", Automatic: true})
+	registerEventPM(eventmsg.EventAISpam, eventPMSpec{DefaultKey: "eventmsg_pm_aispam", PlainKey: "eventmsg_plain_pm_aispam", Automatic: true})
+	registerEventPM(eventmsg.EventReqWarn, eventPMSpec{DefaultKey: "eventmsg_pm_mreqwarn", PlainKey: "eventmsg_plain_pm_mreqwarn", Automatic: true})
+	registerEventPM(eventmsg.EventReqKick, eventPMSpec{DefaultKey: "eventmsg_pm_mreqkick", PlainKey: "eventmsg_plain_pm_mreqkick", Automatic: true})
+	registerEventPM(eventmsg.EventReqBan, eventPMSpec{DefaultKey: "eventmsg_pm_mreqban", PlainKey: "eventmsg_plain_pm_mreqban", Automatic: true})
+	registerEventPM(eventmsg.EventReqMute, eventPMSpec{DefaultKey: "eventmsg_pm_mreqmute", PlainKey: "eventmsg_plain_pm_mreqmute", Automatic: true})
 }
 
 // pmCopyPacerOptions are the options of the private copies' pacer: its own Redis keys, so a burst of
