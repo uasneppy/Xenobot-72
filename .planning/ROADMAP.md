@@ -334,7 +334,14 @@ Plans:
   2. From a group's settings, the owner picks another group and sees a card that names exactly what will be overwritten. After Yes, the target group has the same custom messages and tuning values.
   3. The person must be allowed to change settings in both groups, checked live. Otherwise the copy is refused, and the refusal does not reveal anything about the other group.
   4. Copying happens once. Nothing links the groups afterwards, the source is unchanged, and a stale or replayed card changes nothing.
-**Plans**: TBD
+**Plans**: 6 plans
+Plans:
+- [ ] 29-01-PLAN.md — MSG-11 goldens of all 23 tone-off group defaults, all 18 PM defaults, and uncopied-group baseline, committed alone (wave 1)
+- [ ] 29-02-PLAN.md — tracer: plain_tone migration, eventmsg.SetPlainTone, PG integrity, engine/PM/ban PlainDefault & PlainKey hooks, event_message_plain.go, and Messages hub toggle (ht) with 6 hub-width updates (wave 2)
+- [ ] 29-03-PLAN.md — all 23 group & 18 PM neutral plain-tone locale keys across all 8 languages, all send sites & previews wired, exhaustive 2-tone x 8-language & custom-override tests (wave 3)
+- [ ] 29-04-PLAN.md — shared validated message writer (eventmsg.ReplaceAllValidated, reusable by Phase 30 MSG-10), antiflood preserve-off & repo replace helpers, copy_settings.go core & drift/mirror/exclusion tests (wave 4)
+- [ ] 29-05-PLAN.md — private Copy Settings page (cp, Order 82, codes cg/ck/cy), Redis Lua one-time confirm card, live dual-group checks with opaque refusal, 8 locales, Main/Phase-19 grid updates, and 64-byte/replay/opacity tests (wave 5)
+- [ ] 29-06-PLAN.md — safeguards (codes, non-creating reads, Staff Group privacy & IDs-only log sweep), real-dispatcher E2E proof, AGENTS.md update, golden immutability, and full local phase gates (wave 6)
 **UI hint**: yes
 
 ### Phase 30: Backup Page and Custom Messages in Backups
@@ -372,5 +379,5 @@ Phases execute in numeric order: 20 → 21 → 22 → 23 → 24 → 25 → 26 �
 | 26. Timed Punishments, Escalation and Warn Expiry | v1.2 | 0/TBD | Not started | - |
 | 27. Manual Command Defaults, Reason Shortcuts and Appeal Button | v1.2 | 7/7 | In Progress | - |
 | 28. Advanced Thresholds | v1.2 | 6/6 | Complete    | 2026-11-23 |
-| 29. Plain Tone and Copy Settings | v1.2 | 0/TBD | Not started | - |
+| 29. Plain Tone and Copy Settings | v1.2 | 0/6 | Planned | - |
 | 30. Backup Page and Custom Messages in Backups | v1.2 | 0/TBD | Not started | - |
