@@ -360,13 +360,13 @@ Plans:
   3. The person presses Import and sends the file in the private chat. The bot shows what will be imported, and a two-tap card confirms. It runs the same import as `/import`, with the same checks, the same report of what was left out and the same rate limit, and only for the group's live owner. Custom messages are restored with the editor's checks, and an old export without them imports as before.
   4. The owner resets all or chosen modules to their defaults behind a two-tap card, as `/reset` does, with its rate limit. Anyone who is not the live owner is refused and nothing changes.
   5. A stale, expired or forged card or press changes nothing, and the page and the commands leave the same stored result.
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans executed
 Plans:
 - [x] 30-01-PLAN.md — MSG-11 goldens of /export, /import, /reset command replies, refusals, confirm cards, and old-export baseline, committed alone (wave 1)
 - [x] 30-02-PLAN.md — eventmsg.ReplaceAllValidatedTx, BackupModuleMessages = "messages" in fuku/db/backup, backup_module_messages in 8 locales, and MSG-10 backup tests (wave 2)
 - [x] 30-03-PLAN.md — shared backup apply helpers (applyBackupExport, downloadAndParseBackupFile, applyBackupImport, applyBackupReset) and cross-replica Redis import/reset tokens (wave 3)
 - [x] 30-04-PLAN.md — private-only Backup page (ba, Order 83, codes bv/be/bi/bl/bj/br/bu), typed-reply document door hook, 8 locales, grid test updates, and TestSettingsBackupPage (wave 4)
-- [ ] 30-05-PLAN.md — safeguards (codes, non-creating reads, Staff Group privacy & IDs-only log sweep), real-dispatcher E2E proof, AGENTS.md update, golden immutability, and full local phase gates (wave 5)
+- [x] 30-05-PLAN.md — safeguards (codes, non-creating reads, Staff Group privacy & IDs-only log sweep), real-dispatcher E2E proof, AGENTS.md update, golden immutability, and full local phase gates (wave 5)
 **UI hint**: yes
 
 ## Progress
@@ -386,4 +386,4 @@ Phases execute in numeric order: 20 → 21 → 22 → 23 → 24 → 25 → 26 �
 | 27. Manual Command Defaults, Reason Shortcuts and Appeal Button | v1.2 | 7/7 | In Progress | - |
 | 28. Advanced Thresholds | v1.2 | 6/6 | Complete    | 2026-11-23 |
 | 29. Plain Tone and Copy Settings | v1.2 | 6/6 | Complete    | 2026-11-23 |
-| 30. Backup Page and Custom Messages in Backups | v1.2 | 4/5 | In Progress | - |
+| 30. Backup Page and Custom Messages in Backups | v1.2 | 5/5 | In Progress | - |
