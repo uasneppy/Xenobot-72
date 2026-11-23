@@ -5,16 +5,16 @@ milestone_name: Conversations, Custom Messages and Tuning
 current_phase: 28
 current_phase_name: Advanced Thresholds
 status: executing
-stopped_at: Completed 28-01-PLAN.md
-last_updated: "2026-11-23T08:50:39.483Z"
+stopped_at: Completed 28-02-PLAN.md
+last_updated: "2026-11-23T09:11:04.726Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 28 execution started
-state_head: 48d5c240b8aa869e2f0ab958c1902afd24957772
+state_head: f96d4b74633af10be59008232ac92cbc4555ecf8
 progress:
   total_phases: 11
   completed_phases: 1
   total_plans: 69
-  completed_plans: 64
+  completed_plans: 65
   percent: 9
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-22)
 ## Current Position
 
 Phase: 28 (Advanced Thresholds) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 28 execution started
 
@@ -204,6 +204,7 @@ Progress: [█░░░░░░░░░] 9%
 | Phase 27 P06 | 22min | 3 tasks | 15 files |
 | Phase 27-manual-command-defaults-reason-shortcuts-and-appeal-button P07 | 22min | 3 tasks | 3 files |
 | Phase 28-advanced-thresholds P01 | 9min | 2 tasks | 1 files |
+| Phase 28 P02 | 10min | 3 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -323,6 +324,8 @@ Recent decisions affecting current work:
 - [Phase 27]: Registered Manual defaults private settings page q (Order 41, Icon ⚖️, PrivateOnly, hidden in Staff Groups) with WaitEndedKey on settingsTypedPage and live settingsRightRestrict on writes/typed appeal URL.
 - [Phase 27]: Extended settingsListTwoStep with plain-text Step 2 (CheckPlain, ApplyPlain) and registered private Reason shortcuts list page rs (Order 45, Icon 🏷, codes sg/sx/sy/sa/sc, parts w->r, hidden in Staff Groups)
 - [Phase 27-manual-command-defaults-reason-shortcuts-and-appeal-button]: Documented Phase 27 tables, skipLocal prefixes, pages q & rs, action codes, zero shutdown drain, TestLegacyPhase27ModerationRequests golden, and provisional decisions P27-01..P27-05 in AGENTS.md
+- [Phase 28]: P28-01: chat_advanced_thresholds stores 0 for default and applyAdvancedThreshold normalizes submitted default values to 0
+- [Phase 28]: P28-04: advThresholdsFor bounds hot-path lookups to 2 s and falls back to compiled defaults on transient read errors
 
 ### Pending Todos
 
@@ -445,8 +448,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T08:50:38.851Z
-Stopped at: Completed 28-01-PLAN.md
+Last session: 2026-11-23T09:11:03.978Z
+Stopped at: Completed 28-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
