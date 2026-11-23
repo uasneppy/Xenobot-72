@@ -106,8 +106,8 @@ const (
 
 	// Cross-replica Redis key prefixes for private Backup settings page one-time confirm cards
 	// (P30-01), kept outside fuku:cache: so cache clears do not wipe in-flight confirmations.
-	settingsBackupImportTokenPrefix = "fuku:settings:backup:import:"
-	settingsBackupResetTokenPrefix  = "fuku:settings:backup:reset:"
+	settingsBackupImportCardKeyPrefix = "fuku:settings:backup:import:"
+	settingsBackupResetCardKeyPrefix  = "fuku:settings:backup:reset:"
 	// Cap serialized pending import payload in Redis at 2 MiB to bound Redis memory (T-30-05).
 	maxSettingsBackupRedisBytes = 2 * 1024 * 1024
 )
@@ -230,11 +230,11 @@ func startPendingCleanupTicker() {
 }
 
 func settingsBackupImportTokenKey(token string) string {
-	return settingsBackupImportTokenPrefix + token
+	return settingsBackupImportCardKeyPrefix + token
 }
 
 func settingsBackupResetTokenKey(token string) string {
-	return settingsBackupResetTokenPrefix + token
+	return settingsBackupResetCardKeyPrefix + token
 }
 
 func settingsBackupPutToken(ctx context.Context, keyFn func(string) string, rec any) (string, error) {
@@ -339,32 +339,35 @@ func unmarshalSettingsBackupResetRecord(raw []byte) (settingsBackupResetRecord, 
 	return rec, nil
 }
 
+func settingsBackupReadRecord[T any](
+	ctx context.Context,
+	readFn func(context.Context, func(string) string, string) ([]byte, bool, error),
+	keyFn func(string) string,
+	decodeFn func([]byte) (T, error),
+	token string,
+) (T, bool, error) {
+	var zero T
+	raw, found, err := readFn(ctx, keyFn, token)
+	if err != nil || !found {
+		return zero, found, err
+	}
+	rec, err := decodeFn(raw)
+	if err != nil {
+		return zero, false, err
+	}
+	return rec, true, nil
+}
+
 func settingsBackupPutImportToken(ctx context.Context, rec settingsBackupImportRecord) (string, error) {
 	return settingsBackupPutToken(ctx, settingsBackupImportTokenKey, rec)
 }
 
 func settingsBackupPeekImportToken(ctx context.Context, token string) (settingsBackupImportRecord, bool, error) {
-	raw, found, err := settingsBackupPeekRawToken(ctx, settingsBackupImportTokenKey, token)
-	if err != nil || !found {
-		return settingsBackupImportRecord{}, found, err
-	}
-	rec, err := unmarshalSettingsBackupImportRecord(raw)
-	if err != nil {
-		return settingsBackupImportRecord{}, false, err
-	}
-	return rec, true, nil
+	return settingsBackupReadRecord(ctx, settingsBackupPeekRawToken, settingsBackupImportTokenKey, unmarshalSettingsBackupImportRecord, token)
 }
 
 func settingsBackupConsumeImportToken(ctx context.Context, token string) (settingsBackupImportRecord, bool, error) {
-	raw, found, err := settingsBackupConsumeRawToken(ctx, settingsBackupImportTokenKey, token)
-	if err != nil || !found {
-		return settingsBackupImportRecord{}, found, err
-	}
-	rec, err := unmarshalSettingsBackupImportRecord(raw)
-	if err != nil {
-		return settingsBackupImportRecord{}, false, err
-	}
-	return rec, true, nil
+	return settingsBackupReadRecord(ctx, settingsBackupConsumeRawToken, settingsBackupImportTokenKey, unmarshalSettingsBackupImportRecord, token)
 }
 
 func settingsBackupPutResetToken(ctx context.Context, rec settingsBackupResetRecord) (string, error) {
@@ -372,27 +375,11 @@ func settingsBackupPutResetToken(ctx context.Context, rec settingsBackupResetRec
 }
 
 func settingsBackupPeekResetToken(ctx context.Context, token string) (settingsBackupResetRecord, bool, error) {
-	raw, found, err := settingsBackupPeekRawToken(ctx, settingsBackupResetTokenKey, token)
-	if err != nil || !found {
-		return settingsBackupResetRecord{}, found, err
-	}
-	rec, err := unmarshalSettingsBackupResetRecord(raw)
-	if err != nil {
-		return settingsBackupResetRecord{}, false, err
-	}
-	return rec, true, nil
+	return settingsBackupReadRecord(ctx, settingsBackupPeekRawToken, settingsBackupResetTokenKey, unmarshalSettingsBackupResetRecord, token)
 }
 
 func settingsBackupConsumeResetToken(ctx context.Context, token string) (settingsBackupResetRecord, bool, error) {
-	raw, found, err := settingsBackupConsumeRawToken(ctx, settingsBackupResetTokenKey, token)
-	if err != nil || !found {
-		return settingsBackupResetRecord{}, found, err
-	}
-	rec, err := unmarshalSettingsBackupResetRecord(raw)
-	if err != nil {
-		return settingsBackupResetRecord{}, false, err
-	}
-	return rec, true, nil
+	return settingsBackupReadRecord(ctx, settingsBackupConsumeRawToken, settingsBackupResetTokenKey, unmarshalSettingsBackupResetRecord, token)
 }
 
 // applyBackupExport runs the shared export flow used by both /export and the private Backup

@@ -21,7 +21,7 @@ import (
 // Module selection is stateless via a canonical 20-bit lowercase hex mask (m=0..fffff). Export
 // (be) requires settingsRightAdminBotAdmin and delivers the .json document to the presser's
 // private chat under AcquireExport. Import (bi -> private document wait -> bj) and Reset
-// (br -> bu) require live settingsRightOwnerBotAdmin, store cross-replica one-time Redis tokens
+// (bq -> bu) require live settingsRightOwnerBotAdmin, store cross-replica one-time Redis tokens
 // (fuku:settings:backup:{import,reset}:<token>, TTL 5m, 2 MiB cap, P30-01), verify user/chat
 // binding before atomic Lua GET+DEL consumption, and enforce AcquireImport / AcquireReset.
 
@@ -35,7 +35,7 @@ const (
 	settingsActBackupImport       = "bi"
 	settingsActBackupImportCancel = "bl"
 	settingsActBackupImportYes    = "bj"
-	settingsActBackupResetAsk     = "br"
+	settingsActBackupResetAsk     = "bq"
 	settingsActBackupResetYes     = "bu"
 
 	// settingsBackupImportPart is the typed-reply wait part for uploading a backup JSON file.
@@ -362,54 +362,76 @@ func settingsBackupFormatFailNotice(tr *i18n.Translator, key string) string {
 	return msg
 }
 
-// settingsBackupRunImportYes serves bj: peeks and verifies binding, consumes the one-time Redis
-// import token atomically via Lua GET+DEL, checks AcquireImport, runs applyBackupImport, and
-// redraws page ba.
-func settingsBackupRunImportYes(p *settingsPress) *settingsScreen {
+func settingsBackupHandleCardReadErr(p *settingsPress, kind, step string, err error) {
+	if errors.Is(err, errSettingsCopyNoRedis) {
+		p.answer(settingsText(p.tr, "settings_bkp_unavailable"), true)
+		return
+	}
+	log.Warnf("[Settings] backup %s token %s for user %d chat %d failed: %v", kind, step, p.query.From.Id, p.group.Id, err)
+	p.answer(settingsText(p.tr, "settings_check_failed"), true)
+}
+
+// settingsBackupClaimCard peeks a pending Redis confirm card, verifies caller/chat binding before
+// consuming (so cross-user or cross-chat presses never invalidate the real owner's card), runs
+// fresh Staff Group refusal, and consumes the card atomically via Lua GET+DEL.
+func settingsBackupClaimCard[T any](
+	p *settingsPress,
+	kind string,
+	peek, consume func(context.Context, string) (T, bool, error),
+	valid func(T) bool,
+) (T, bool, *settingsScreen) {
+	var zero T
 	token := p.fields["k"]
-	rec, found, err := settingsBackupPeekImportToken(context.Background(), token)
+	rec, found, err := peek(context.Background(), token)
 	if err != nil {
-		if errors.Is(err, errSettingsCopyNoRedis) {
-			p.answer(settingsText(p.tr, "settings_bkp_unavailable"), true)
-			return nil
-		}
-		log.Warnf("[Settings] backup import token peek for user %d chat %d failed: %v", p.query.From.Id, p.group.Id, err)
-		p.answer(settingsText(p.tr, "settings_check_failed"), true)
-		return nil
+		settingsBackupHandleCardReadErr(p, kind, "peek", err)
+		return zero, false, nil
 	}
 	if !found {
 		expired := settingsText(p.tr, "settings_card_expired")
 		p.answer(expired, true)
 		screen := renderSettingsBackup(p.view(), settingsBackupAllMask, settingsNoticeWarn(expired))
-		return &screen
+		return zero, false, &screen
 	}
-	// Wrong user or wrong chat must NOT consume or invalidate the real owner's token.
-	if rec.UserID != p.query.From.Id || rec.ChatID != p.group.Id || rec.Backup == nil || len(rec.Modules) == 0 {
+	if !valid(rec) {
 		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
-		return nil
+		return zero, false, nil
 	}
 	if !settingsBackupVerifyNonStaff(p) {
-		return nil
+		return zero, false, nil
 	}
-	consumed, found, err := settingsBackupConsumeImportToken(context.Background(), token)
+	consumed, found, err := consume(context.Background(), token)
 	if err != nil {
-		if errors.Is(err, errSettingsCopyNoRedis) {
-			p.answer(settingsText(p.tr, "settings_bkp_unavailable"), true)
-			return nil
-		}
-		log.Warnf("[Settings] backup import token consume for user %d chat %d failed: %v", p.query.From.Id, p.group.Id, err)
-		p.answer(settingsText(p.tr, "settings_check_failed"), true)
-		return nil
+		settingsBackupHandleCardReadErr(p, kind, "consume", err)
+		return zero, false, nil
 	}
 	if !found {
 		expired := settingsText(p.tr, "settings_card_expired")
 		p.answer(expired, true)
 		screen := renderSettingsBackup(p.view(), settingsBackupAllMask, settingsNoticeWarn(expired))
-		return &screen
+		return zero, false, &screen
 	}
-	if consumed.UserID != p.query.From.Id || consumed.ChatID != p.group.Id || consumed.Backup == nil || len(consumed.Modules) == 0 {
+	if !valid(consumed) {
 		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
-		return nil
+		return zero, false, nil
+	}
+	return consumed, true, nil
+}
+
+// settingsBackupRunImportYes serves bj: claims the one-time Redis import card atomically via Lua
+// GET+DEL, checks AcquireImport, runs applyBackupImport, and redraws page ba.
+func settingsBackupRunImportYes(p *settingsPress) *settingsScreen {
+	consumed, ok, fallback := settingsBackupClaimCard(
+		p,
+		"import",
+		settingsBackupPeekImportToken,
+		settingsBackupConsumeImportToken,
+		func(rec settingsBackupImportRecord) bool {
+			return rec.UserID == p.query.From.Id && rec.ChatID == p.group.Id && rec.Backup != nil && len(rec.Modules) > 0
+		},
+	)
+	if !ok {
+		return fallback
 	}
 	limiter := ratelimit.GetBackupRateLimiter()
 	if allowed, cooldown := limiter.AcquireImport(p.group.Id); !allowed {
@@ -430,7 +452,7 @@ func settingsBackupRunImportYes(p *settingsPress) *settingsScreen {
 	return &screen
 }
 
-// settingsBackupRunResetAsk serves br: stores a one-time Redis reset token and draws the Reset confirm card.
+// settingsBackupRunResetAsk serves bq: stores a one-time Redis reset token and draws the Reset confirm card.
 func settingsBackupRunResetAsk(p *settingsPress) *settingsScreen {
 	if !settingsBackupVerifyNonStaff(p) {
 		return nil
@@ -461,54 +483,20 @@ func settingsBackupRunResetAsk(p *settingsPress) *settingsScreen {
 	return &screen
 }
 
-// settingsBackupRunResetYes serves bu: peeks and verifies binding, consumes the one-time Redis
-// reset token atomically via Lua GET+DEL, checks AcquireReset, runs applyBackupReset, and
-// redraws page ba.
+// settingsBackupRunResetYes serves bu: claims the one-time Redis reset card atomically via Lua
+// GET+DEL, checks AcquireReset, runs applyBackupReset, and redraws page ba.
 func settingsBackupRunResetYes(p *settingsPress) *settingsScreen {
-	token := p.fields["k"]
-	rec, found, err := settingsBackupPeekResetToken(context.Background(), token)
-	if err != nil {
-		if errors.Is(err, errSettingsCopyNoRedis) {
-			p.answer(settingsText(p.tr, "settings_bkp_unavailable"), true)
-			return nil
-		}
-		log.Warnf("[Settings] backup reset token peek for user %d chat %d failed: %v", p.query.From.Id, p.group.Id, err)
-		p.answer(settingsText(p.tr, "settings_check_failed"), true)
-		return nil
-	}
-	if !found {
-		expired := settingsText(p.tr, "settings_card_expired")
-		p.answer(expired, true)
-		screen := renderSettingsBackup(p.view(), settingsBackupAllMask, settingsNoticeWarn(expired))
-		return &screen
-	}
-	// Wrong user or wrong chat must NOT consume or invalidate the real owner's token.
-	if rec.UserID != p.query.From.Id || rec.ChatID != p.group.Id || len(rec.Modules) == 0 {
-		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
-		return nil
-	}
-	if !settingsBackupVerifyNonStaff(p) {
-		return nil
-	}
-	consumed, found, err := settingsBackupConsumeResetToken(context.Background(), token)
-	if err != nil {
-		if errors.Is(err, errSettingsCopyNoRedis) {
-			p.answer(settingsText(p.tr, "settings_bkp_unavailable"), true)
-			return nil
-		}
-		log.Warnf("[Settings] backup reset token consume for user %d chat %d failed: %v", p.query.From.Id, p.group.Id, err)
-		p.answer(settingsText(p.tr, "settings_check_failed"), true)
-		return nil
-	}
-	if !found {
-		expired := settingsText(p.tr, "settings_card_expired")
-		p.answer(expired, true)
-		screen := renderSettingsBackup(p.view(), settingsBackupAllMask, settingsNoticeWarn(expired))
-		return &screen
-	}
-	if consumed.UserID != p.query.From.Id || consumed.ChatID != p.group.Id || len(consumed.Modules) == 0 {
-		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
-		return nil
+	consumed, ok, fallback := settingsBackupClaimCard(
+		p,
+		"reset",
+		settingsBackupPeekResetToken,
+		settingsBackupConsumeResetToken,
+		func(rec settingsBackupResetRecord) bool {
+			return rec.UserID == p.query.From.Id && rec.ChatID == p.group.Id && len(rec.Modules) > 0
+		},
+	)
+	if !ok {
+		return fallback
 	}
 	limiter := ratelimit.GetBackupRateLimiter()
 	if allowed, cooldown := limiter.AcquireReset(p.group.Id); !allowed {
@@ -629,18 +617,18 @@ func renderSettingsBackupImportPrompt(v settingsView, until time.Time, replaced 
 	return k.screen(settingsCompose(v, "settings_page_backup", body, "", false))
 }
 
-// renderSettingsBackupImportConfirm draws the two-tap Import confirmation card. Pure.
-func renderSettingsBackupImportConfirm(v settingsView, modules []string, token string) settingsScreen {
+// renderSettingsBackupConfirm draws a two-tap Import or Reset confirmation card. Pure.
+func renderSettingsBackupConfirm(v settingsView, bodyKey, yesBtnKey, yesAct string, modules []string, token string) settingsScreen {
 	body := []string{
-		settingsText(v.Tr, "backup_import_confirm", i18n.TranslationParams{
+		settingsText(v.Tr, bodyKey, i18n.TranslationParams{
 			"modules": strconv.Itoa(len(modules)),
 			"list":    buildModuleList(modules),
 		}),
 	}
 	k := newSettingsKeyboard(v)
 	var actionRow []gotgbot.InlineKeyboardButton
-	if yesBtn, ok := k.button(settingsText(v.Tr, "settings_btn_bkp_import_yes"), map[string]string{
-		"a": settingsActBackupImportYes,
+	if yesBtn, ok := k.button(settingsText(v.Tr, yesBtnKey), map[string]string{
+		"a": yesAct,
 		"k": token,
 	}); ok {
 		actionRow = append(actionRow, yesBtn)
@@ -656,29 +644,12 @@ func renderSettingsBackupImportConfirm(v settingsView, modules []string, token s
 	return k.screen(settingsCompose(v, "settings_page_backup", body, "", false))
 }
 
+// renderSettingsBackupImportConfirm draws the two-tap Import confirmation card. Pure.
+func renderSettingsBackupImportConfirm(v settingsView, modules []string, token string) settingsScreen {
+	return renderSettingsBackupConfirm(v, "backup_import_confirm", "settings_btn_bkp_import_yes", settingsActBackupImportYes, modules, token)
+}
+
 // renderSettingsBackupResetConfirm draws the two-tap Reset confirmation card. Pure.
 func renderSettingsBackupResetConfirm(v settingsView, modules []string, token string) settingsScreen {
-	body := []string{
-		settingsText(v.Tr, "backup_reset_confirm", i18n.TranslationParams{
-			"modules": strconv.Itoa(len(modules)),
-			"list":    buildModuleList(modules),
-		}),
-	}
-	k := newSettingsKeyboard(v)
-	var actionRow []gotgbot.InlineKeyboardButton
-	if yesBtn, ok := k.button(settingsText(v.Tr, "settings_btn_bkp_reset_yes"), map[string]string{
-		"a": settingsActBackupResetYes,
-		"k": token,
-	}); ok {
-		actionRow = append(actionRow, yesBtn)
-	}
-	if noBtn, ok := k.button(settingsText(v.Tr, "settings_btn_no"), map[string]string{
-		"a": settingsActCancel,
-		"p": settingsPageBackup,
-	}); ok {
-		actionRow = append(actionRow, noBtn)
-	}
-	k.row(actionRow...)
-	k.navRow(false)
-	return k.screen(settingsCompose(v, "settings_page_backup", body, "", false))
+	return renderSettingsBackupConfirm(v, "backup_reset_confirm", "settings_btn_bkp_reset_yes", settingsActBackupResetYes, modules, token)
 }

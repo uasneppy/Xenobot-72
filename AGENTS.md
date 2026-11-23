@@ -1373,7 +1373,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settingsTypedPages[settingsPageBackup]`, part `i`, `CancelCode` `bl`, `Right` `settingsRightOwnerBotAdmin`, `WaitEndedKey`
   `settings_bkp_import_wait_ended`, keeping the wait alive on plain text or invalid/corrupt files), `bl` (cancels active wait, `t=i`,
   `settingsRightAdmin`), `bj` (Import confirm Yes, `k` 16-char base64url token, `settingsRightOwnerBotAdmin`, peeks user/chat binding
-  before atomic Lua `GET+DEL` + `AcquireImport` + `applyBackupImport` / `formatBackupImportSuccess`), `br` (Reset confirm ask, `m`,
+  before atomic Lua `GET+DEL` + `AcquireImport` + `applyBackupImport` / `formatBackupImportSuccess`), `bq` (Reset confirm ask, `m`,
   `settingsRightOwnerBotAdmin`, refuses `m=0` with `settings_bkp_pick_one`, stores one-time Redis reset token), and `bu` (Reset confirm
   Yes, `k`, `settingsRightOwnerBotAdmin`, peeks user/chat binding before atomic Lua `GET+DEL` + `AcquireReset` + `applyBackupReset` /
   `formatBackupResetSuccess`). Both `/export`, `/import`, `/reset` and the Backup page call the shared apply helpers in
@@ -7204,7 +7204,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
     tables remain excluded from `AllExportableModules()`, export, import, and reset.
   - **P30-04 (Stateless 20-Module Bitmask Selector):** The private Backup page `ba` opens with all 20 modules selected (`m=fffff`) and
     toggles individual modules, Select all (`m=fffff`), or Clear (`m=0`) statelessly via a canonical lowercase hex bitmask in callback
-    data (`bv`), requiring at least one selected module before Export (`be`) or Reset (`br`).
+    data (`bv`), requiring at least one selected module before Export (`be`) or Reset (`bq`).
 
 ## Commits
 

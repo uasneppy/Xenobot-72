@@ -358,7 +358,7 @@ func TestSettingsBackupPage(t *testing.T) {
 			t.Error("be with m=0 unexpectedly sent document")
 		}
 		for _, key := range env.redis.Keys() {
-			if strings.HasPrefix(key, settingsBackupResetTokenPrefix) {
+			if strings.HasPrefix(key, settingsBackupResetCardKeyPrefix) {
 				t.Errorf("br with m=0 unexpectedly wrote Redis key %q", key)
 			}
 		}
