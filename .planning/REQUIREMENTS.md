@@ -20,7 +20,7 @@ Scope rule for the whole milestone (owner decision, 2026-11-18): every message a
 - [ ] **MSG-07**: Each event has a Silent switch for the group message. Silent means the bot acts and posts nothing in the group for that event; the default is not silent.
 - [ ] **MSG-08**: Viewing the Messages page needs the live admin check and the owner gate like every settings page; every change needs `can_change_info`, judged live on every press and every typed message.
 - [ ] **MSG-09**: The existing "Bot messages" deletion timers apply to custom messages exactly as to the default ones.
-- [ ] **MSG-10**: Custom messages are part of `/export` and `/import`, with the same link and length checks the editor applies; an old export without them imports as before.
+- [x] **MSG-10**: Custom messages are part of `/export` and `/import`, with the same link and length checks the editor applies; an old export without them imports as before.
 - [ ] **MSG-11**: Every existing reply and notice is byte-identical for a group with no custom message, proved by characterization tests recorded before the send sites are changed.
 
 ### Events
@@ -95,7 +95,7 @@ Each requirement maps to exactly one phase. MSG-11 and EVT-10 are rules that hol
 | MSG-07 | Phase 21 | Pending |
 | MSG-08 | Phase 21 | Pending |
 | MSG-09 | Phase 21 | Pending |
-| MSG-10 | Phase 30 | Pending |
+| MSG-10 | Phase 30 | Complete |
 | MSG-11 | Phase 21 | Pending |
 | EVT-01 | Phase 21 | Pending |
 | EVT-02 | Phase 23 | Pending |
