@@ -1,141 +1,80 @@
 {
   "version": "1.0",
-  "timestamp": "2026-11-22T21:12:01.612Z",
-  "phase": "27",
-  "phase_name": "Manual Command Defaults, Reason Shortcuts and Appeal Button",
-  "phase_dir": ".planning/phases/27-manual-command-defaults-reason-shortcuts-and-appeal-button",
-  "plan": 6,
+  "timestamp": "2026-11-23T16:33:46.185Z",
+  "phase": "30",
+  "phase_name": "Backup Page and Custom Messages in Backups",
+  "phase_dir": ".planning/phases/30-backup-page-and-custom-messages-in-backups",
+  "plan": 1,
   "task": 1,
-  "total_tasks": 7,
+  "total_tasks": 5,
   "status": "paused",
   "completed_tasks": [
     {
-      "id": "phase-20",
-      "name": "Phase 20 UAT (8/8), retroactive STRIDE security audit (18/18), goal verification (8/8), and transition to Phase 21",
+      "id": 0,
+      "name": "Phase 29 (Plain Tone and Copy Settings) verified, accepted, and transitioned complete; Phase 30 context, pattern mapping (30-PATTERNS.md), and all 5 plans (30-01-PLAN.md .. 30-05-PLAN.md) created, validated, and committed",
       "status": "done",
-      "commit": "64373e71..a1150aa8"
-    },
-    {
-      "id": "defer-21-26",
-      "name": "Deferred live verification for Phases 21-26 in STATE.md (owner choice) and started autonomous run from Phase 27",
-      "status": "done",
-      "commit": "49a7d135"
-    },
-    {
-      "id": "27-plan",
-      "name": "Auto-generated 27-CONTEXT.md, mapped 23/23 analogs in 27-PATTERNS.md, and planned 7 plans (27-01..27-07) with unique threat IDs T-27-01..T-27-19",
-      "status": "done",
-      "commit": "b7393953, 580c08e5"
-    },
-    {
-      "id": "27-01",
-      "name": "MSG-11 characterization goldens committed alone (moderation_phase27_legacy_request_test.go, 17/17 subtests PASS)",
-      "status": "done",
-      "commit": "71dbf865, c4ae041a"
-    },
-    {
-      "id": "27-02",
-      "name": "Tracer: migration 20261122150000_add_manual_command_tuning.sql, fuku/db/modtuning repo + skipLocal + backup exclusion, default ban/mute durations & reason_required in bans.go/mute.go/warns.go",
-      "status": "done",
-      "commit": "537258e4..fa95390e"
-    },
-    {
-      "id": "27-03",
-      "name": "Reason shortcuts validation, apply helpers, and single-word expansion into manual punishments (group, PM, warns, logs; HTML-escaped)",
-      "status": "done",
-      "commit": "7ee9f123..7f76543d"
-    },
-    {
-      "id": "27-04",
-      "name": "Appeal URL validation (content.ValidButtonURL), eventmsg_btn_appeal in 8 locales, attachment to ban messages/PM copies/previews + 100-button cap",
-      "status": "done",
-      "commit": "44ac320f..7400cb52"
-    },
-    {
-      "id": "27-05",
-      "name": "WaitEndedKey fix on settingsTypedPage, private Manual defaults page (q, Order 41, codes md/mt/mr/ma/mc/mx), 8 locales, Main grid & authority tests (9/9 subtests PASS)",
-      "status": "done",
-      "commit": "d69471ee..c1f6633a"
+      "commit": "7baddd66"
     }
   ],
   "remaining_tasks": [
     {
-      "id": "27-06",
-      "name": "Plain-text Step 2 hook on settings_list_input.go + private Reason shortcuts list page (rs, Order 45, codes sg/sx/sy/sa/sc) + 8 locales & tests (executor killed before any file edits)",
+      "id": 1,
+      "name": "Plan 30-01 (Wave 1): Standalone MSG-11 characterization golden (TestLegacyPhase30Baseline in fuku/modules/phase30_legacy_request_test.go), committed alone",
       "status": "not_started"
     },
     {
-      "id": "27-07",
-      "name": "Phase 27 safeguard tests (settings_phase27_test.go), E2E dispatcher proof (modtuning_e2e_test.go), AGENTS.md update, and local phase gates",
+      "id": 2,
+      "name": "Plan 30-02 (Wave 2): eventmsg.ReplaceAllValidatedTx + BackupModuleMessages = 'messages' in fuku/db/backup + 8-locale backup_module_messages + event_messages_backup_test.go update",
       "status": "not_started"
     },
     {
-      "id": "27-verify",
-      "name": "Phase 27 security audit (27-SECURITY.md), goal verification (27-VERIFICATION.md), and transition",
+      "id": 3,
+      "name": "Plan 30-03 (Wave 3): Shared apply seams in fuku/modules/backup.go + cross-replica Redis Lua token store (fuku:settings:backup:import:<token> & fuku:settings:backup:reset:<token>)",
       "status": "not_started"
     },
     {
-      "id": "28-30",
-      "name": "Discuss/plan/execute Phases 28 (Advanced Thresholds), 29 (Plain Tone and Copy Settings), and 30 (Backup Page and Custom Messages in Backups), then milestone audit/complete",
+      "id": 4,
+      "name": "Plan 30-04 (Wave 4): Private-only Backup settings page ba (Order 83, codes bv/be/bi/bl/bj/br/bu) + private document wait in settings_input_door.go + 8-locale UI + TestSettingsBackupPage",
+      "status": "not_started"
+    },
+    {
+      "id": 5,
+      "name": "Plan 30-05 (Wave 5): Safeguards (TestPhase30Codes, TestPhase30ReadsCreateNothing, TestPhase30StaffPrivacyAndLogs), real-dispatcher E2E (TestPhase30EndToEnd), AGENTS.md update, and Phase 30 verification/security audit",
       "status": "not_started"
     }
   ],
-  "blockers": [
-    {
-      "description": "Project-local .claude/gsd-core/bin/gsd-tools.cjs fails with MODULE_NOT_FOUND './vendor/re2js.cjs'",
-      "type": "technical",
-      "workaround": "Always invoke global CLI: node /Users/denyspetrenko/.agents/gsd-core/bin/gsd-tools.cjs"
-    },
-    {
-      "description": "No PostgreSQL, Docker daemon, golangci-lint, or gosec installed locally",
-      "type": "external",
-      "workaround": "PostgreSQL-only migration tests skip cleanly without DATABASE_URL; run go vet -tags testtools ./... and gofmt locally; track CI gates as human_needed"
-    },
-    {
-      "description": "Sandbox blocks localhost TCP binds for miniredis/httptest tests; macOS APFS case-insensitive zoneinfo causes pre-existing TestSettingsTimezoneTyped / TestChatClockReadsTheGroup mismatch",
-      "type": "external",
-      "workaround": "Run targeted non-miniredis unit/fake-client tests sandboxed; run full/networked Go tests only if needed or in CI"
-    }
-  ],
+  "blockers": [],
   "async_jobs": [],
   "human_actions_pending": [
     {
-      "action": "Push local commits on branch claude/sharp-goodall-f23ang to origin when ready (currently 26 commits ahead before pause commit)",
-      "context": "All work since 3173b0db (Phase 26 finish, Phase 20 UAT/Security/Verification/Transition, Phase 27 plans 27-01..27-05) is local only",
-      "blocking": false
-    },
-    {
-      "action": "Live Telegram, PostgreSQL, lint, and gosec checks deferred for Phases 21-26 (recorded in STATE.md Deferred Verification)",
-      "context": "Owner opted to defer live checks for Phases 21-26 and continue building Phases 27-30 autonomously",
-      "blocking": false
-    },
-    {
-      "action": "Review Phase 27 provisional owner decisions P27-01..P27-05 once Phase 27 completes",
-      "context": "Default durations on /dban,/sban,/dmute,/smute; reason_required command scope; single-word case-insensitive shortcut cap 50; appeal button on manual + automatic bans; settingsRightRestrict on pages q and rs",
+      "action": "Deferred live Telegram/PostgreSQL/CI verification items for Phases 21-27 recorded in .planning/STATE.md under ## Deferred Verification (and Phase 30 post-execution verification when Phase 30 completes)",
+      "context": "User accepted Phases 20, 28, and 29 as passed and deferred Phases 21-27 live/CI checks until Phase 30 code execution is complete",
       "blocking": false
     }
   ],
   "decisions": [
     {
-      "decision": "Deferred Phases 21-26 live verification in STATE.md and started /gsd-autonomous from Phase 27",
-      "rationale": "Owner selected this option at Phase 21 human_needed pause so autonomous build proceeds through Phases 27-30",
-      "phase": "27"
+      "decision": "Accepted Phase 29 ('All good — continue'), marked 29-VERIFICATION.md passed, and transitioned Phase 29 complete",
+      "rationale": "All 21/22 code truths, 18/18 security threats (29-SECURITY.md), 8-locale checks, MSG-11 goldens, EVT-10 caller guards, and real-dispatcher E2E tests passed under -race",
+      "phase": "29"
     },
     {
-      "decision": "P27-01..P27-05 provisional defaults for Phase 27",
-      "rationale": "workflow.skip_discuss=true; conservative reversible defaults matching Phases 21-26 conventions and EVT-10/MSG-11 invariants",
-      "phase": "27"
+      "decision": "Transaction-safe eventmsg.ReplaceAllValidatedTx for MSG-10 backup import",
+      "rationale": "fuku/db/backup runs imports inside withBackupTx; extracting ReplaceAllValidatedTx avoids nested GORM transactions that deadlock on SQLite file DBs while keeping one validation source of truth",
+      "phase": "30"
     },
     {
-      "decision": "Page keys q (Order 41, Manual defaults) and rs (Order 45, Reason shortcuts), list action codes sg/sx/sy/sa/sc",
-      "rationale": "25/26 single-letter page keys were already taken; verified zero collisions and <=64-byte Telegram callbacks",
-      "phase": "27"
+      "decision": "Cross-replica Redis token storage for Backup page Import and Reset confirmations (P30-01)",
+      "rationale": "fuku:settings:backup:import:<token> (2 MiB cap, 5m TTL) and fuku:settings:backup:reset:<token> (5m TTL) consumed via Lua GET+DEL (settingsCopyConsumeScript) allow any replica to confirm a private Backup page card",
+      "phase": "30"
+    },
+    {
+      "decision": "Custom messages join AllExportableModules() as 'messages' while tuning tables stay out of backup (P30-02, P30-03)",
+      "rationale": "Fulfils MSG-10 (/export, /import, /reset include custom messages and options) while keeping chat_escalation, chat_offences, chat_manual_defaults, chat_reason_shortcuts, chat_advanced_thresholds, and chat_conversations out of backup per ROADMAP Phase 30 notes",
+      "phase": "30"
     }
   ],
-  "uncommitted_files": [
-    " M .planning/state.json",
-    "?? .planning/phases/27-manual-command-defaults-reason-shortcuts-and-appeal-button/27-PATTERNS.md"
-  ],
-  "next_action": "Run /gsd-execute-phase 27 (resumes cleanly at Wave 5 / Plan 27-06, then 27-07, then Phase 27 verification), or /gsd-autonomous --from 27 to finish Phase 27 and continue through Phases 28-30.",
-  "context_notes": "Phase 27 Plans 27-01 through 27-05 are fully implemented, tested, and committed with zero regressions and immutable MSG-11 goldens intact. Plan 27-06 executor had just started thinking and was killed cleanly before making any edits. Branch is claude/sharp-goodall-f23ang."
+  "uncommitted_files": [],
+  "next_action": "Execute Phase 30 plans sequentially starting with Wave 1 Plan 30-01 (30-01-PLAN.md -> 30-05-PLAN.md) via /gsd-autonomous --from 30 or /gsd-execute-phase 30",
+  "context_notes": "Clean working tree at commit 7baddd66. Phase 30 is fully planned and validated (30-CONTEXT.md, 30-PATTERNS.md, 30-01-PLAN.md through 30-05-PLAN.md committed). Plan 30-01 executor subagent was terminated immediately upon /gsd-pause-work before writing any files."
 }
