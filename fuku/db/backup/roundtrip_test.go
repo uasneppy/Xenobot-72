@@ -10,6 +10,7 @@ import (
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/chats"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/federations"
 	"github.com/uasneppy/fuku_robot/fuku/db/logchannels"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
@@ -132,6 +133,17 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	require.NoError(t, db.DB.Create(&models.Warns{
 		UserId: warnUserID, ChatId: srcChat, NumWarns: 2, Reasons: models.StringArray{"one", "two"}, WarnTimes: warnTimes,
 	}).Error)
+	require.NoError(t, db.DB.Create(&models.ChatEventMessage{
+		ChatID: srcChat, Event: eventmsg.EventBan, Dest: eventmsg.DestGroup,
+		Text: "custom ban", FileID: "ban-photo", MediaType: db.PHOTO, Buttons: buttons, Silent: false,
+	}).Error)
+	require.NoError(t, db.DB.Create(&models.ChatEventMessage{
+		ChatID: srcChat, Event: eventmsg.EventBan, Dest: eventmsg.DestPM,
+		Text: "custom pm ban", Buttons: buttons, Silent: false,
+	}).Error)
+	require.NoError(t, db.DB.Create(&models.ChatEventMessageOptions{
+		ChatID: srcChat, PMDetails: true, PMLog: true, PlainTone: true,
+	}).Error)
 
 	// Existing destination data must be replaced, not merged.
 	require.NoError(t, db.DB.Create(&models.Reactions{
@@ -142,6 +154,9 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.Warns{
 		UserId: staleWarnUserID, ChatId: dstChat, NumWarns: 1, Reasons: models.StringArray{"stale"},
+	}).Error)
+	require.NoError(t, db.DB.Create(&models.ChatEventMessage{
+		ChatID: dstChat, Event: eventmsg.EventKick, Dest: eventmsg.DestGroup, Text: "stale kick",
 	}).Error)
 
 	fed, err := federations.CreateFederation(fedOwnerID, "Backup Fed")
@@ -337,6 +352,28 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	assert.Equal(t, dstLogChannelID, logsData.Settings.LogChannelID)
 	assert.False(t, logsData.Settings.CatAdmin)
 	assert.True(t, logsData.Settings.CatReports)
+
+	messagesData, err := exportMessagesData(dstChat)
+	require.NoError(t, err)
+	require.Len(t, messagesData.Messages, 2, "stale destination custom message must be replaced")
+	assert.Equal(t, eventmsg.EventBan, messagesData.Messages[0].Event)
+	assert.Equal(t, eventmsg.DestGroup, messagesData.Messages[0].Dest)
+	assert.Equal(t, "custom ban", messagesData.Messages[0].Text)
+	assert.Equal(t, "ban-photo", messagesData.Messages[0].FileID)
+	assert.Equal(t, db.PHOTO, messagesData.Messages[0].MediaType)
+	assert.Equal(t, buttons, messagesData.Messages[0].Buttons)
+	assert.False(t, messagesData.Messages[0].Silent)
+	assert.Equal(t, eventmsg.EventBan, messagesData.Messages[1].Event)
+	assert.Equal(t, eventmsg.DestPM, messagesData.Messages[1].Dest)
+	assert.Equal(t, "custom pm ban", messagesData.Messages[1].Text)
+	assert.Empty(t, messagesData.Messages[1].FileID)
+	assert.Zero(t, messagesData.Messages[1].MediaType)
+	assert.Equal(t, buttons, messagesData.Messages[1].Buttons)
+	assert.False(t, messagesData.Messages[1].Silent)
+	require.NotNil(t, messagesData.Options)
+	assert.True(t, messagesData.Options.PMDetails)
+	assert.True(t, messagesData.Options.PMLog)
+	assert.True(t, messagesData.Options.PlainTone)
 }
 
 func TestExportChatDataReturnsDatabaseErrors(t *testing.T) {
