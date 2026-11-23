@@ -132,7 +132,7 @@ func TestLegacyPhase30Baseline(t *testing.T) {
 	t.Run("export_command_private_delivery_refusals_and_rate_limit", func(t *testing.T) {
 		chat := phase30NewEnglishChat(t, "Phase 30 Backup Group")
 		require.NoError(t, notes.AddNote(chat.Id, "welcome", "hello", "", nil, db.TEXT, false, false, false, true, false, false))
-		rules.SetChatRules(chat.Id, "Be kind")
+		require.NoError(t, rules.SetChatRules(chat.Id, "Be kind"))
 
 		client := phase30NewBackupClient(nonOwnerAdmin)
 		bot := newModuleTestBot(client)
@@ -362,7 +362,7 @@ func TestLegacyPhase30Baseline(t *testing.T) {
 
 		// 7. Cancel (xi) on a fresh chat answers and edits with exact cancelled text, leaving rules untouched.
 		cancelChat := phase30NewEnglishChat(t, "Phase 30 Import Cancel Group")
-		rules.SetChatRules(cancelChat.Id, "Keep existing rules")
+		require.NoError(t, rules.SetChatRules(cancelChat.Id, "Keep existing rules"))
 		cancelClient := phase30NewBackupClient(nonOwnerAdmin)
 		cancelClient.responses["getFile"] = json.RawMessage(`{"file_id":"json-file-id","file_path":"backups/p30.json"}`)
 		cancelBot := newModuleTestBot(cancelClient)
@@ -399,7 +399,7 @@ func TestLegacyPhase30Baseline(t *testing.T) {
 	t.Run("reset_command_owner_gate_confirm_card_and_execution", func(t *testing.T) {
 		chat := phase30NewEnglishChat(t, "Phase 30 Reset Group")
 		require.NoError(t, notes.AddNote(chat.Id, "welcome", "hello", "", nil, db.TEXT, false, false, false, true, false, false))
-		rules.SetChatRules(chat.Id, "Resettable rules")
+		require.NoError(t, rules.SetChatRules(chat.Id, "Resettable rules"))
 
 		client := phase30NewBackupClient(nonOwnerAdmin)
 		bot := newModuleTestBot(client)
@@ -457,7 +457,7 @@ func TestLegacyPhase30Baseline(t *testing.T) {
 		// 5. Cancel (xr) on a fresh chat answers and edits with exact cancelled text, keeping DB intact.
 		cancelChat := phase30NewEnglishChat(t, "Phase 30 Reset Cancel Group")
 		require.NoError(t, notes.AddNote(cancelChat.Id, "stay", "keep me", "", nil, db.TEXT, false, false, false, true, false, false))
-		rules.SetChatRules(cancelChat.Id, "Stay rules")
+		require.NoError(t, rules.SetChatRules(cancelChat.Id, "Stay rules"))
 		cancelClient := phase30NewBackupClient(nonOwnerAdmin)
 		cancelBot := newModuleTestBot(cancelClient)
 

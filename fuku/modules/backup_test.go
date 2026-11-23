@@ -787,7 +787,7 @@ func TestBackupCallbackHandlerConfirmsPendingReset(t *testing.T) {
 	chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Backup Chat"}
 	owner := gotgbot.User{Id: 777000, FirstName: "Telegram"}
 	require.NoError(t, chats.EnsureChatInDb(chat.Id, chat.Title))
-	rules.SetChatRules(chat.Id, "rules before reset")
+	require.NoError(t, rules.SetChatRules(chat.Id, "rules before reset"))
 	token, err := storePendingReset(chat.Id, []string{"rules"})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -1164,7 +1164,7 @@ func TestSharedBackupApplyHelpers(t *testing.T) {
 		require.NoError(t, chats.EnsureChatInDb(chatID, "Shared Reset Group"))
 		cleanupSharedBackupTestChat(t, chatID)
 
-		rules.SetChatRules(chatID, "Rules to clear")
+		require.NoError(t, rules.SetChatRules(chatID, "Rules to clear"))
 		require.NoError(t, eventmsg.SetText(bg, chatID, eventmsg.EventBan, eventmsg.DestGroup, "Custom ban to clear", 777000))
 		require.NoError(t, eventmsg.SetPlainTone(bg, chatID, true, 777000))
 		require.NoError(t, notes.AddNote(chatID, "keep", "untouched note", "", nil, db.TEXT, false, false, false, true, false, false))

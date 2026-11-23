@@ -596,9 +596,16 @@ func renderSettingsBackup(v settingsView, mask uint32, notice string) settingsSc
 
 // renderSettingsBackupImportPrompt draws the private wait prompt asking for a backup .json document. Pure.
 func renderSettingsBackupImportPrompt(v settingsView, until time.Time, replaced bool) settingsScreen {
+	return renderSettingsTypedPrompt(v, "settings_page_backup", "settings_bkp_import_wait", "settings_bkp_import_wait_rules",
+		settingsActBackupImportCancel, settingsBackupImportPart, until, replaced)
+}
+
+// renderSettingsTypedPrompt draws a single-value typed-reply prompt: the wait text, its rules, the end time, the
+// replaced note when another wait was replaced, and one Cancel button. Pure.
+func renderSettingsTypedPrompt(v settingsView, pageKey, waitKey, rulesKey, cancelAct, part string, until time.Time, replaced bool) settingsScreen {
 	body := []string{
-		settingsText(v.Tr, "settings_bkp_import_wait"),
-		settingsText(v.Tr, "settings_bkp_import_wait_rules"),
+		settingsText(v.Tr, waitKey),
+		settingsText(v.Tr, rulesKey),
 		"",
 		settingsText(v.Tr, "settings_edit_wait_footer", i18n.TranslationParams{
 			"time": formatChatTime(until, chatClockOf(v.GroupID), "15:04"),
@@ -608,13 +615,10 @@ func renderSettingsBackupImportPrompt(v settingsView, until time.Time, replaced 
 		body = append(body, "", settingsText(v.Tr, "settings_edit_replaced_note"))
 	}
 	k := newSettingsKeyboard(v)
-	if cancelBtn, ok := k.button(settingsText(v.Tr, "settings_btn_edit_cancel"), map[string]string{
-		"a": settingsActBackupImportCancel,
-		"t": settingsBackupImportPart,
-	}); ok {
+	if cancelBtn, ok := k.button(settingsText(v.Tr, "settings_btn_edit_cancel"), map[string]string{"a": cancelAct, "t": part}); ok {
 		k.row(cancelBtn)
 	}
-	return k.screen(settingsCompose(v, "settings_page_backup", body, "", false))
+	return k.screen(settingsCompose(v, pageKey, body, "", false))
 }
 
 // renderSettingsBackupConfirm draws a two-tap Import or Reset confirmation card. Pure.
