@@ -110,4 +110,25 @@ func TestPunishTimedCore(t *testing.T) {
 			t.Error("autoPunishment.Timed must hold for tmute and tban only")
 		}
 	})
+
+	t.Run("applyTimedPunishment clamps 366d below upper limit", func(t *testing.T) {
+		now := time.Unix(1_800_000_000, 0)
+		mreqSwap(t, &punishNow, func() time.Time { return now })
+		bot := newModuleTestBot(&moduleBotClient{})
+		until, err := applyTimedPunishment(bot, -1001, 42, "tmute", punishMaxSecs)
+		if err != nil {
+			t.Fatalf("applyTimedPunishment(punishMaxSecs) error = %v", err)
+		}
+		want := now.Unix() + int64(punishMaxSecs) - int64(punishMaxMargin/time.Second)
+		if until != want {
+			t.Fatalf("applyTimedPunishment(punishMaxSecs) until = %d, want %d", until, want)
+		}
+		short, err := applyTimedPunishment(bot, -1001, 42, "tban", 3600)
+		if err != nil {
+			t.Fatalf("applyTimedPunishment(3600) error = %v", err)
+		}
+		if short != now.Unix()+3600 {
+			t.Fatalf("applyTimedPunishment(3600) until = %d, want %d", short, now.Unix()+3600)
+		}
+	})
 }

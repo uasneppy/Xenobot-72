@@ -30,6 +30,10 @@ const (
 	// treats an until_date less than 30 s away as permanent, plus 5 s for the request's flight (the
 	// staff rule's lead, staffUntilMinLead).
 	punishMinLead = 35 * time.Second
+	// punishMaxMargin is how far below Telegram's 366-day upper limit an outgoing until_date is
+	// clamped so minor clock skew between the bot and Telegram servers cannot push a 366d timed
+	// restriction past 366 days into a permanent one.
+	punishMaxMargin = 60 * time.Second
 )
 
 // punishNow is the clock of the timed punishments (their end dates; later the escalation ladder and
@@ -172,12 +176,16 @@ func applyTimedPunishment(b *gotgbot.Bot, chatID, userID int64, action string, s
 	if action != "tmute" && action != "tban" {
 		return 0, fmt.Errorf("applyTimedPunishment: %q is not a timed action", action)
 	}
-	until, ok := punishUntil(punishNow(), secs)
+	now := punishNow()
+	until, ok := punishUntil(now, secs)
 	if !ok || punishUntilTooClose(until) {
-		if punishTimeRanOutWarn.allow(chatID, punishNow()) {
+		if punishTimeRanOutWarn.allow(chatID, now) {
 			log.Warnf("[Punish] the end date of a timed %s in chat %d cannot be sent; nothing was sent", action, chatID)
 		}
 		return 0, errPunishTimeRanOut
+	}
+	if maxUntil := now.Unix() + int64(punishMaxSecs) - int64(punishMaxMargin/time.Second); until > maxUntil {
+		until = maxUntil
 	}
 	var err error
 	if action == "tmute" {
