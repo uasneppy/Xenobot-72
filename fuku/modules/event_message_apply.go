@@ -134,15 +134,15 @@ type eventMsgOptionsResult struct {
 	Err      error
 }
 
-// eventMsgOptionsReadBack finishes a write of one of the group's private copy options: on success it reads the chat's
+// eventMsgOptionsReadBack finishes a write of one of the group's event message options: on success it reads the chat's
 // messages back fresh. what names the option in the log lines, which carry the chat ID and the option only.
 func eventMsgOptionsReadBack(ctx context.Context, chatID int64, what string, writeErr error) eventMsgOptionsResult {
 	msgs, outcome, err := applyReadBack(ctx, writeErr,
 		func(e error) {
-			log.Errorf("[EventMessages] storing the private copy %s option failed for chat %d: %v", what, chatID, e)
+			log.Errorf("[EventMessages] storing the event message %s option failed for chat %d: %v", what, chatID, e)
 		},
 		func(e error) {
-			log.Warnf("[EventMessages] read back the private copy options of chat %d after the %s option: %v", chatID, what, e)
+			log.Warnf("[EventMessages] read back the event message options of chat %d after the %s option: %v", chatID, what, e)
 		},
 		func(c context.Context) (*eventmsg.Messages, error) {
 			return eventmsg.GetFresh(c, chatID)
