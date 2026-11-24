@@ -505,3 +505,39 @@ func TestEventPMDetailsDeepLinkFallbackAndNeutral(t *testing.T) {
 		}
 	})
 }
+
+func TestEventPMDetailsSkipsResolvedInteractiveMessage(t *testing.T) {
+	phase28InProcessMiniredis(t)
+	mreqSwap(t, &pmCopyBotUsername, func(*gotgbot.Bot) string { return "testbot" })
+
+	const (
+		chatID = int64(-100777888999)
+		msgID  = int64(505)
+	)
+	pmCopyMarkGroupActionResolved(chatID, msgID)
+
+	client := &pmDetailsMockClient{}
+	b := &gotgbot.Bot{Token: "1:test", BotClient: client}
+
+	interactiveOffer := eventPMOffer{
+		Bot:          b,
+		Chat:         gotgbot.Chat{Id: chatID},
+		Event:        eventmsg.EventBan,
+		UserID:       eventPMMember,
+		GroupMsgID:   msgID,
+		GroupRows:    [][]gotgbot.InlineKeyboardButton{{{Text: "Unban", CallbackData: "unrestrict:a=unban;u=42"}}},
+		DetailsLabel: "Details",
+	}
+	pmCopyAddDetails(t.Context(), interactiveOffer, media.GreetingMessage{Text: "Banned", MsgType: db.TEXT})
+	if len(client.calls) != 0 {
+		t.Fatalf("interactive resolved message still edited reply markup: %+v", client.calls)
+	}
+
+	urlOnlyOffer := interactiveOffer
+	urlOnlyOffer.GroupMsgID = msgID + 1
+	urlOnlyOffer.GroupRows = [][]gotgbot.InlineKeyboardButton{{{Text: "Appeal", Url: "https://example.com/appeal"}}}
+	pmCopyAddDetails(t.Context(), urlOnlyOffer, media.GreetingMessage{Text: "Banned", MsgType: db.TEXT})
+	if len(client.calls) != 1 || client.calls[0].method != "editMessageReplyMarkup" {
+		t.Fatalf("URL-only message calls = %+v, want one editMessageReplyMarkup", client.calls)
+	}
+}

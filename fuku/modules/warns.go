@@ -818,6 +818,7 @@ func (moduleStruct) rmWarnButton(b *gotgbot.Bot, ctx *ext.Context) error {
 		return ext.EndGroups
 	}
 
+	pmCopyMarkGroupActionResolved(chat.Id, query.Message.GetMessageId())
 	_, _, err := query.Message.EditText(b, &gotgbot.EditMessageTextOpts{Text: replyText, ParseMode: formatting.HTML})
 	if err != nil {
 		log.Error(err)

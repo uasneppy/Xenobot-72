@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
@@ -42,7 +44,93 @@ const (
 	pmCopyTokenLen = 22
 	// pmCopyMaxButtons is Telegram's limit of buttons in one inline keyboard.
 	pmCopyMaxButtons = 100
+	// pmCopyResolvedTTL bounds how long a resolved group action message is remembered so a delayed
+	// pmCopyAddDetails edit cannot overwrite the cleared keyboard and resurrect an action button.
+	pmCopyResolvedTTL = 2 * time.Minute
+	// pmCopyResolvedMax caps the in-process resolved-action map.
+	pmCopyResolvedMax = 4096
 )
+
+var (
+	// errPMCopyActionResolved signals that the group message's interactive action button was already
+	// resolved before pmCopyAddDetails reached Telegram.
+	errPMCopyActionResolved = errors.New("private copy details: group action already resolved")
+	pmCopyResolvedMu        sync.Mutex
+	pmCopyResolvedActions   = map[[2]int64]time.Time{}
+)
+
+func pmCopyResolvedKey(chatID, msgID int64) string {
+	return "fuku:pmcopy:{" + strconv.FormatInt(chatID, 10) + "}:res:" + strconv.FormatInt(msgID, 10)
+}
+
+func pmCopyHasInteractiveRows(rows [][]gotgbot.InlineKeyboardButton) bool {
+	for _, row := range rows {
+		for _, btn := range row {
+			if btn.CallbackData != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// pmCopyMarkGroupActionResolved records that an interactive action button on (chatID, msgID) has been
+// resolved and its keyboard cleared, so a racing pmCopyAddDetails edit will not restore stale rows.
+func pmCopyMarkGroupActionResolved(chatID, msgID int64) {
+	if chatID == 0 || msgID == 0 {
+		return
+	}
+	now := pmCopyNow()
+	key := [2]int64{chatID, msgID}
+	pmCopyResolvedMu.Lock()
+	if len(pmCopyResolvedActions) >= pmCopyResolvedMax {
+		for k, exp := range pmCopyResolvedActions {
+			if !now.Before(exp) {
+				delete(pmCopyResolvedActions, k)
+			}
+		}
+		if len(pmCopyResolvedActions) >= pmCopyResolvedMax {
+			for k := range pmCopyResolvedActions {
+				delete(pmCopyResolvedActions, k)
+				break
+			}
+		}
+	}
+	pmCopyResolvedActions[key] = now.Add(pmCopyResolvedTTL)
+	pmCopyResolvedMu.Unlock()
+
+	if client := pmCopyRedisClient(); client != nil {
+		setCtx, cancel := context.WithTimeout(context.Background(), raidRedisTimeout)
+		defer cancel()
+		_ = client.Set(setCtx, pmCopyResolvedKey(chatID, msgID), "1", pmCopyResolvedTTL).Err()
+	}
+}
+
+func pmCopyGroupActionResolved(ctx context.Context, chatID, msgID int64) bool {
+	if chatID == 0 || msgID == 0 {
+		return false
+	}
+	now := pmCopyNow()
+	key := [2]int64{chatID, msgID}
+	pmCopyResolvedMu.Lock()
+	if exp, ok := pmCopyResolvedActions[key]; ok {
+		if now.Before(exp) {
+			pmCopyResolvedMu.Unlock()
+			return true
+		}
+		delete(pmCopyResolvedActions, key)
+	}
+	pmCopyResolvedMu.Unlock()
+
+	if client := pmCopyRedisClient(); client != nil {
+		checkCtx, cancel := context.WithTimeout(ctx, raidRedisTimeout)
+		defer cancel()
+		if n, err := client.Exists(checkCtx, pmCopyResolvedKey(chatID, msgID)).Result(); err == nil && n > 0 {
+			return true
+		}
+	}
+	return false
+}
 
 // pmCopyBotUsername is the bot username the Details URL is built with. A variable only so a test can take it
 // away; the default is the cached username every deep link button uses.
@@ -171,6 +259,11 @@ func pmCopyAddDetails(ctx context.Context, o eventPMOffer, msg media.GreetingMes
 		log.Debugf("[EventMessage] no Details button for user %d in chat %d: the group message has no room for a button", o.UserID, o.Chat.Id)
 		return
 	}
+	interactive := pmCopyHasInteractiveRows(o.GroupRows)
+	if interactive && pmCopyGroupActionResolved(ctx, o.Chat.Id, o.GroupMsgID) {
+		log.Debugf("[EventMessage] no Details button for user %d in chat %d: the group message action was already resolved", o.UserID, o.Chat.Id)
+		return
+	}
 	token, err := pmCopyDetailsPut(ctx, pmCopyDetailsRecordOf(o, msg))
 	if err != nil {
 		log.Debugf("[EventMessage] no Details button for user %d in chat %d: the record could not be stored", o.UserID, o.Chat.Id)
@@ -185,6 +278,9 @@ func pmCopyAddDetails(ctx context.Context, o eventPMOffer, msg media.GreetingMes
 		Url:  "https://t.me/" + username + "?start=" + pmCopyDetailsPrefix + token,
 	}})
 	editErr := pmCopyPaced(ctx, func(callCtx context.Context) error {
+		if interactive && pmCopyGroupActionResolved(callCtx, o.Chat.Id, o.GroupMsgID) {
+			return errPMCopyActionResolved
+		}
 		_, _, err := o.Bot.EditMessageReplyMarkupWithContext(callCtx, &gotgbot.EditMessageReplyMarkupOpts{
 			ChatId:      o.Chat.Id,
 			MessageId:   o.GroupMsgID,
@@ -192,6 +288,10 @@ func pmCopyAddDetails(ctx context.Context, o eventPMOffer, msg media.GreetingMes
 		})
 		return err
 	})
+	if errors.Is(editErr, errPMCopyActionResolved) {
+		log.Debugf("[EventMessage] skipped Details button edit for user %d in chat %d: the group message action was already resolved", o.UserID, o.Chat.Id)
+		return
+	}
 	if editErr != nil {
 		log.Warnf("[EventMessage] the Details button of chat %d could not be added (code %d)", o.Chat.Id, pmCopyErrCode(editErr))
 	}

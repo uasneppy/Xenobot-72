@@ -977,6 +977,7 @@ func (moduleStruct) unrestrictButtonHandler(b *gotgbot.Bot, ctx *ext.Context) er
 		helpText = fmt.Sprintf(temp, formatting.MentionHtml(user.Id, user.FirstName))
 	}
 
+	pmCopyMarkGroupActionResolved(chat.Id, msg.GetMessageId())
 	editErr := editUnrestrictMessage(b, msg, ctx.EffectiveMessage, helpText)
 	if editErr != nil {
 		log.Error(editErr)
