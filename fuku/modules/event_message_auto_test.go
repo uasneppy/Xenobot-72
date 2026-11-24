@@ -248,3 +248,19 @@ func TestAutoEventDefaults(t *testing.T) {
 		})
 	}
 }
+
+func TestBlacklistNoticeDefaultReplyEscapesHTML(t *testing.T) {
+	tr := i18n.MustNewTranslator("en")
+	target := gotgbot.User{Id: 42, FirstName: "Ann"}
+	text, _ := blacklistNoticeDefaultReply(tr, eventDefaultInput{
+		Target: target,
+		Action: "mute",
+		Reason: "Blacklisted word: '<tag>&x'",
+	})
+	if strings.Contains(text, "<tag>") {
+		t.Fatalf("untimed blacklist notice left raw HTML tag unescaped: %q", text)
+	}
+	if !strings.Contains(text, "Blacklisted word: '&lt;tag&gt;&amp;x'") {
+		t.Fatalf("untimed blacklist notice = %q, want escaped <, >, &", text)
+	}
+}

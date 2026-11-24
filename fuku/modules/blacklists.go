@@ -367,8 +367,12 @@ func (m moduleStruct) addBlacklist(b *gotgbot.Bot, ctx *ext.Context) error {
 		result := applyBlacklistAdd(updateCtx, chat.Id, args, existing)
 
 		if len(result.TooLong) > 0 {
+			escaped := make([]string, 0, len(result.TooLong))
+			for _, word := range result.TooLong {
+				escaped = append(escaped, html.EscapeString(word))
+			}
 			text, _ := tr.GetString(strings.ToLower(m.moduleName) + "_blacklist_word_too_long")
-			_, err := msg.Reply(b, fmt.Sprintf(text, strings.Join(result.TooLong, ", ")), formatting.Shtml())
+			_, err := msg.Reply(b, fmt.Sprintf(text, strings.Join(escaped, ", ")), formatting.Shtml())
 			if err != nil {
 				log.Error(err)
 			}
@@ -389,8 +393,12 @@ func (m moduleStruct) addBlacklist(b *gotgbot.Bot, ctx *ext.Context) error {
 		}
 
 		if len(result.Already) >= 1 {
+			escaped := make([]string, 0, len(result.Already))
+			for _, word := range result.Already {
+				escaped = append(escaped, html.EscapeString(word))
+			}
 			temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_blacklist_already_blacklisted")
-			text += temp + fmt.Sprintf("\n - %s\n\n", strings.Join(result.Already, "\n - "))
+			text += temp + fmt.Sprintf("\n - %s\n\n", strings.Join(escaped, "\n - "))
 		}
 		if len(result.Added) >= 1 {
 			newBlacklist := make([]string, 0, len(result.Added))

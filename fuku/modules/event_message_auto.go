@@ -140,15 +140,19 @@ var blacklistNoticeTimedKeys = map[string]string{
 	"tban":  "blacklists_bl_watcher_tbanned_user",
 }
 
+// telegramHTMLTextEscaper escapes the three characters Telegram's HTML parse mode treats as
+// markup in text (<, >, &) without altering quotes, keeping legacy golden notices byte-identical.
+var telegramHTMLTextEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
 // blacklistNoticeDefaultReply is the default punishment notice of the blacklist and the forward
 // blocklist, which send one template with a different reason: blacklists_bl_watcher_muted_user,
 // _kicked_user or _banned_user by in.Action with the mention of the sender's full name (a sender chat's
-// title) and in.Reason spliced as today, unescaped (the blacklist's filled reason, or the forward
-// blocklist's staff_fwdblock_reason). The options are formatting.Shtml(). An action with no notice has
-// no text. It returns today's request byte for byte. An applied timed action (in.Action tmute or tban
-// with in.Secs set) reads blacklists_bl_watcher_tmuted_user or _tbanned_user instead, with the mention,
-// the duration in the translator's language and the reason HTML-escaped (D-15); a timed action with no
-// duration has no text.
+// title) and in.Reason with Telegram HTML text characters (<, >, &) escaped (the blacklist's filled
+// reason, or the forward blocklist's staff_fwdblock_reason). The options are formatting.Shtml(). An
+// action with no notice has no text. It returns today's request byte for byte for plain reasons. An
+// applied timed action (in.Action tmute or tban with in.Secs set) reads blacklists_bl_watcher_tmuted_user
+// or _tbanned_user instead, with the mention, the duration in the translator's language and the reason
+// HTML-escaped (D-15); a timed action with no duration has no text.
 func blacklistNoticeDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
 	name := formatting.GetFullName(in.Target.FirstName, in.Target.LastName)
 	if key, ok := blacklistNoticeTimedKeys[in.Action]; ok && in.Secs > 0 {
@@ -164,7 +168,7 @@ func blacklistNoticeDefaultReply(tr *i18n.Translator, in eventDefaultInput) (str
 		return "", formatting.Shtml()
 	}
 	temp, _ := tr.GetString(key)
-	return fmt.Sprintf(temp, formatting.MentionHtml(in.Target.Id, name), in.Reason), formatting.Shtml()
+	return fmt.Sprintf(temp, formatting.MentionHtml(in.Target.Id, name), telegramHTMLTextEscaper.Replace(in.Reason)), formatting.Shtml()
 }
 
 // The default replies are held to the eventDefaultReply shape at compile time.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"slices"
 	"strconv"
 	"strings"
@@ -759,7 +760,7 @@ func (m *moduleStruct) setFloodMode(b *gotgbot.Bot, ctx *ext.Context) error {
 			}
 		default:
 			temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_setfloodmode_unknown_type")
-			_, err := msg.Reply(b, fmt.Sprintf(temp, args[0]), formatting.Shtml())
+			_, err := msg.Reply(b, fmt.Sprintf(temp, html.EscapeString(args[0])), formatting.Shtml())
 			if err != nil {
 				return err
 			}
