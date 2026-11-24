@@ -380,8 +380,8 @@ func runEventPM(ctx context.Context, o eventPMOffer) {
 // pmCopySend makes one paced send of msg to the member's private chat and returns its class and its
 // Telegram error code (0 for none).
 func pmCopySend(ctx context.Context, o eventPMOffer, msg media.GreetingMessage) (pmCopyOutcome, int) {
-	err := pmCopyPaced(ctx, func(context.Context) error {
-		_, sendErr := media.SendGreetingMessage(o.Bot, o.UserID, msg)
+	err := pmCopyPaced(ctx, func(callCtx context.Context) error {
+		_, sendErr := media.SendGreetingMessageWithContext(callCtx, o.Bot, o.UserID, msg)
 		return sendErr
 	})
 	return pmCopyClassify(err), pmCopyErrCode(err)
