@@ -916,9 +916,10 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_bkp_unavailable":       {120, 160},
 	"settings_bkp_import_wait":       {160, 220},
 	"settings_bkp_import_wait_rules": {180, 250},
-	"settings_bkp_import_wait_ended": {140, 200},
-	"settings_bkp_import_need_file":  {120, 170},
-	"settings_btn_bkp_import_yes":    {20, 20},
+	"settings_bkp_import_wait_ended":      {140, 200},
+	"settings_bkp_import_need_file":       {120, 170},
+	"settings_bkp_import_file_too_large":  {140, 200},
+	"settings_btn_bkp_import_yes":         {20, 20},
 	"settings_btn_bkp_reset_yes":     {20, 20},
 }
 

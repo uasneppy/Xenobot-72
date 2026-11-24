@@ -579,9 +579,21 @@ func TestSettingsBackupPage(t *testing.T) {
 			t.Fatalf("marshal validBkp: %v", err)
 		}
 
+		oversizedBkp := backup.NewBackupFormat(env.chat.Id, env.chat.Title, owner.Id, []string{
+			backup.BackupModuleRules,
+		})
+		oversizedBkp.Data[backup.BackupModuleRules] = map[string]any{
+			"rules": strings.Repeat("x", maxSettingsBackupRedisBytes+64),
+		}
+		oversizedBytes, err := oversizedBkp.ToJSON()
+		if err != nil {
+			t.Fatalf("marshal oversizedBkp: %v", err)
+		}
+
 		backupSetDownloadPayload(t, map[string][]byte{
-			"backups/corrupt.json": []byte(`{not valid json`),
-			"backups/valid.json":   validBytes,
+			"backups/corrupt.json":   []byte(`{not valid json`),
+			"backups/oversized.json": oversizedBytes,
+			"backups/valid.json":     validBytes,
 		})
 
 		// 3a. Plain text message during wait -> refused with settings_bkp_import_need_file + Cancel, wait stays alive!
@@ -620,6 +632,21 @@ func TestSettingsBackupPage(t *testing.T) {
 		}
 		if !env.redis.Exists(settingsInputKey(owner.Id)) {
 			t.Fatal("corrupt json refusal unexpectedly cleared wait")
+		}
+
+		// 3d. Valid .json document exceeding maxSettingsBackupRedisBytes (2 MiB) -> refused with
+		// settings_bkp_import_file_too_large, wait stays alive!
+		env.fake.responses["getFile"] = json.RawMessage(`{"file_id":"big-json","file_path":"backups/oversized.json"}`)
+		sentBefore = len(env.fake.sentTo(owner.Id))
+		sendPrivateMessage(env, owner, gotgbot.Message{
+			Document: &gotgbot.Document{FileId: "big-json", FileName: "oversized.json"},
+		})
+		replies = env.fake.sentTo(owner.Id)[sentBefore:]
+		if len(replies) != 1 || !strings.Contains(sentText(replies[0]), staffMarker("settings_bkp_import_file_too_large")) {
+			t.Errorf("oversized json reply = %+v, want settings_bkp_import_file_too_large", replies)
+		}
+		if !env.redis.Exists(settingsInputKey(owner.Id)) {
+			t.Fatal("oversized json refusal unexpectedly cleared wait")
 		}
 
 		// 4. Valid .json document -> stores fuku:settings:backup:import:<token>, clears wait, closes prompt, sends two-tap confirm card!

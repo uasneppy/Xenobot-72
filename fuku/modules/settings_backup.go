@@ -341,7 +341,7 @@ func settingsBackupImportTyped(r *settingsInputReply) {
 	if err != nil {
 		r.releaseWait(claim)
 		if errors.Is(err, errSettingsBackupPayloadTooLarge) {
-			r.refuse(r.text("backup_import_file_too_large"))
+			r.refuse(r.text("settings_bkp_import_file_too_large"))
 			return
 		}
 		log.Warnf("[Settings] backup import token write for user %d chat %d failed: %v", r.user.Id, r.wait.GroupID, err)
