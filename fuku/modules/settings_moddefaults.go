@@ -358,21 +358,8 @@ func settingsModDefNotice(tr *i18n.Translator, outcome modTuningOutcome, savedKe
 
 // renderSettingsModDefAppealPrompt draws the typed-reply prompt for setting the appeal link.
 func renderSettingsModDefAppealPrompt(v settingsView, until time.Time, replaced bool) settingsScreen {
-	body := []string{
-		settingsText(v.Tr, "settings_moddef_appeal_wait"),
-		settingsText(v.Tr, "settings_moddef_appeal_wait_rules"),
-		"",
-		settingsText(v.Tr, "settings_edit_wait_footer", i18n.TranslationParams{"time": formatChatTime(until, chatClockOf(v.GroupID), "15:04")}),
-	}
-	if replaced {
-		body = append(body, "", settingsText(v.Tr, "settings_edit_replaced_note"))
-	}
-	k := newSettingsKeyboard(v)
-	if cancel, ok := k.button(settingsText(v.Tr, "settings_btn_edit_cancel"),
-		map[string]string{"a": settingsActModDefAppealCancel, "t": settingsModDefAppealPart}); ok {
-		k.row(cancel)
-	}
-	return k.screen(settingsCompose(v, "settings_page_moddefaults", body, "", false))
+	return renderSettingsTypedPrompt(v, "settings_page_moddefaults", "settings_moddef_appeal_wait", "settings_moddef_appeal_wait_rules",
+		settingsActModDefAppealCancel, settingsModDefAppealPart, until, replaced)
 }
 
 // settingsModDefRunAppealPrompt serves ma: opens a typed-reply wait for the appeal link.

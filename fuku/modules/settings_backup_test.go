@@ -20,6 +20,7 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/require"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/backup"
@@ -135,7 +136,7 @@ func backupSeedSampleData(t *testing.T, chat gotgbot.Chat, actorID int64) {
 	}, eventmsg.Options{PMDetails: true, PlainTone: true}, actorID); err != nil {
 		t.Fatalf("seed eventmsg(%d): %v", chat.Id, err)
 	}
-	rules.SetChatRules(chat.Id, "Group rules line")
+	require.NoError(t, rules.SetChatRules(chat.Id, "Group rules line"))
 	if err := notes.AddNote(chat.Id, "faq", "Read the FAQ", "", nil, db.TEXT, false, false, false, true, false, false); err != nil {
 		t.Fatalf("seed note(%d): %v", chat.Id, err)
 	}
@@ -902,7 +903,7 @@ func TestSettingsBackupPage(t *testing.T) {
 		}
 
 		// 4. Second reset within cooldown is refused by AcquireReset with backup_reset_rate_limited.
-		rules.SetChatRules(env.chat.Id, "Should survive rate-limited reset")
+		require.NoError(t, rules.SetChatRules(env.chat.Id, "Should survive rate-limited reset"))
 		env.pressPrivate(owner, privMsg, env.privateFields(env.chat.Id, "a", settingsActBackupResetAsk, "m", maskStr))
 		_, cardKB2 := env.lastEdit(owner.Id, privMsg)
 		yesBtn2, ok := settingsAdvFindButton(t, cardKB2, map[string]string{"a": settingsActBackupResetYes})
@@ -1067,7 +1068,7 @@ func TestSettingsBackupPage(t *testing.T) {
 		}
 
 		// 3. TTL expiry via miniredis FastForward -> both bj and bu answer settings_card_expired and change nothing.
-		rules.SetChatRules(env.chat.Id, "Survive expiry")
+		require.NoError(t, rules.SetChatRules(env.chat.Id, "Survive expiry"))
 		expImpToken, err := settingsBackupPutImportToken(context.Background(), settingsBackupImportRecord{
 			UserID:  owner.Id,
 			ChatID:  env.chat.Id,

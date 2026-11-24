@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
+	"github.com/stretchr/testify/require"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/backup"
@@ -161,7 +162,7 @@ func TestPhase30EndToEnd(t *testing.T) {
 	}, eventmsg.Options{PlainTone: true}, owner.Id); err != nil {
 		t.Fatalf("seed eventmsg: %v", err)
 	}
-	rules.SetChatRules(chat.Id, initialRules)
+	require.NoError(t, rules.SetChatRules(chat.Id, initialRules))
 
 	// =========================================================================
 	// Part 2: Export via Backup Page (be) & /export Parity (BKP-01, MSG-10)

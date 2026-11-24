@@ -14,6 +14,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/backup"
@@ -300,7 +301,7 @@ func TestPhase30StaffPrivacyAndLogs(t *testing.T) {
 	}, eventmsg.Options{PMDetails: true, PlainTone: true}, owner.Id); err != nil {
 		t.Fatalf("seed eventmsg: %v", err)
 	}
-	rules.SetChatRules(group.Id, sentinelRules)
+	require.NoError(t, rules.SetChatRules(group.Id, sentinelRules))
 
 	// Capture every logrus line at DebugLevel across the entire Phase 30 flow.
 	logger := log.StandardLogger()
