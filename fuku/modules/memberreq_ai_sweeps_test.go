@@ -384,9 +384,9 @@ func mreqAILogButton(t *testing.T, shape mreqAIShape) []string {
 
 	ai.setDefault(shape.step)
 	if shape.hangs {
-		mreqSwap(t, &memberReqLookupFlightTimeout, 600*time.Millisecond)
+		mreqSwap(t, &memberReqLookupFlightTimeout, mreqHangFlightTimeout)
 		// Runs before the row cleanups: the abandoned flight has ended by its own timeout.
-		t.Cleanup(func() { time.Sleep(700 * time.Millisecond) })
+		t.Cleanup(func() { time.Sleep(mreqHangSettle) })
 	}
 	if shape.stops {
 		restoreMemberReqRunner(t)

@@ -144,6 +144,8 @@ func settingsEditCheckGreetingText(in settingsEditCheckInput) settingsEditVerdic
 	if settingsEditPartIsSet(in.State, settingsEditPartMedia) {
 		dataType, limit = in.State.MediaType, settingsEditCaptionLimit
 	}
+	// The room the bot adds after the text (a requirement notice's requirements line) is held back from the limit.
+	limit -= in.Def.ReservedText
 	// The commands count the stored HTML before they trim it, so the same count is made here.
 	if refusal := content.TextLengthRefusal(stored, dataType, in.Language); refusal != "" {
 		return settingsEditVerdict{RefusalText: refusal}
@@ -160,7 +162,7 @@ func settingsEditCheckGreetingText(in settingsEditCheckInput) settingsEditVerdic
 	// The {rules} button this text adds at a join is counted against the stored buttons, as the
 	// buttons part counts it against the stored text, so neither part can make a join's welcome
 	// a keyboard Telegram refuses.
-	if total, widest := settingsEditButtonRows(in.State.Buttons, stored); total > settingsEditMaxButtons || widest > settingsEditMaxRowButtons {
+	if total, widest := settingsEditButtonRows(in.State.Buttons, stored); total+in.Def.ReservedButtons > settingsEditMaxButtons || widest > settingsEditMaxRowButtons {
 		return settingsEditRefusal("settings_edit_refuse_buttons_limit", nil)
 	}
 	return settingsEditVerdict{OK: true, Text: stored}
@@ -193,14 +195,47 @@ func settingsEditMinimalUser() *gotgbot.User {
 	return &gotgbot.User{Id: 1, FirstName: "A"}
 }
 
+// settingsEditEventMinimalReplacer clears optional event placeholders on the minimal dry-run pass
+// and replaces {admin} with a one-letter name (since {admin} is never empty at runtime).
+var settingsEditEventMinimalReplacer = strings.NewReplacer(
+	"{admin}", "A",
+	"{reason}", "",
+	"{duration}", "",
+	"{until}", "",
+	"{action}", "",
+	"{count}", "",
+	"{limit}", "",
+	"{window}", "",
+	"{percent}", "",
+)
+
+// settingsEditEventWorstReplacer fills {admin} with a worst-case 129-unit full name (64 + space + 64)
+// and {until} with a 16-unit timestamp ("02.01.2006 15:04") on the worst-case dry-run pass.
+var settingsEditEventWorstReplacer = strings.NewReplacer(
+	"{admin}", strings.Repeat("W", 64)+" "+strings.Repeat("L", 64),
+	"{until}", "02.01.2006 15:04",
+)
+
 // settingsEditFilledLongest fills stored for the owner, the worst-case member and the minimal
 // member, the way a real join fills it, and returns the longest visible length (UTF-16 units)
-// and whether the minimal member's text is blank.
+// and whether the minimal member's text is blank. For event messages, event placeholders are
+// substituted before FillPlaceholders so optional tokens that can render empty are caught on
+// the minimal pass and {admin}/{until} are measured at worst-case width.
 func settingsEditFilledLongest(in settingsEditCheckInput, stored string) (longest int, minimalBlank bool) {
 	owner := in.Owner
+	worst := settingsEditWorstUser()
 	minimal := settingsEditMinimalUser()
-	for _, user := range []*gotgbot.User{&owner, settingsEditWorstUser(), minimal} {
-		filled := formatting.FillPlaceholders(stored, user, in.GroupTitle, settingsEditFillCount)
+	for _, user := range []*gotgbot.User{&owner, worst, minimal} {
+		text := stored
+		if in.Def.Kind == settingsEditEvent {
+			switch user {
+			case minimal:
+				text = settingsEditEventMinimalReplacer.Replace(text)
+			case worst:
+				text = settingsEditEventWorstReplacer.Replace(text)
+			}
+		}
+		filled := formatting.FillPlaceholders(text, user, in.GroupTitle, settingsEditFillCount)
 		if n := formatting.VisibleLength(filled); n > longest {
 			longest = n
 		}
@@ -267,15 +302,19 @@ func settingsEditRulesHeadings(title string) []string {
 }
 
 // settingsEditCheckMedia accepts exactly one message with media of a kind the commands store (a
-// video note, which cannot carry the text, and everything that is not media are refused) and
-// holds the stored text to the caption limit, because the text is sent as its caption. The
-// Rules page shares every predicate and measures the heading in.
+// video note, which cannot carry the text, a sticker on an event with ReservedText > 0 whose
+// mandatory appended notes require caption-capable media, and everything that is not media are
+// refused) and holds the stored text to the caption limit, because the text is sent as its caption.
+// The Rules page shares every predicate and measures the heading in.
 func settingsEditCheckMedia(in settingsEditCheckInput) settingsEditVerdict {
 	if in.Msg.Text != "" {
 		return settingsEditRefusal("settings_edit_refuse_need_media", nil)
 	}
 	fileID, dataType := content.ExtractMedia(in.Msg)
 	if dataType == -1 || dataType == db.VIDEO_NOTE {
+		return settingsEditRefusal("settings_edit_refuse_need_media", nil)
+	}
+	if dataType == db.STICKER && in.Def.ReservedText > 0 {
 		return settingsEditRefusal("settings_edit_refuse_need_media", nil)
 	}
 	if refusal, refused := settingsEditMediaCaptionRefusal(in, dataType); refused {
@@ -286,7 +325,8 @@ func settingsEditCheckMedia(in settingsEditCheckInput) settingsEditVerdict {
 
 // settingsEditMediaCaptionRefusal refuses a typed media when the stored text could not be its caption: the
 // Welcome and Goodbye text filled in for the worst-case member, the Rules heading plus text in the longest
-// language, both held to 1024 units. It reports whether it refused.
+// language, both held to 1024 units (less the definition's ReservedText for a hooked message). It reports whether
+// it refused.
 func settingsEditMediaCaptionRefusal(in settingsEditCheckInput, dataType int) (settingsEditVerdict, bool) {
 	stored := in.State.Text
 	if in.Def.Kind == settingsEditRules {
@@ -298,14 +338,16 @@ func settingsEditMediaCaptionRefusal(in settingsEditCheckInput, dataType int) (s
 	if content.TextLengthRefusal(stored, dataType, in.Language) != "" {
 		return settingsEditOverLimit("settings_edit_refuse_media_text_long", utf8.RuneCountInString(stored), settingsEditCaptionLimit), true
 	}
-	if longest, _ := settingsEditFilledLongest(in, stored); longest > settingsEditCaptionLimit {
-		return settingsEditOverLimit("settings_edit_refuse_media_text_long", longest, settingsEditCaptionLimit), true
+	limit := settingsEditCaptionLimit - in.Def.ReservedText
+	if longest, _ := settingsEditFilledLongest(in, stored); longest > limit {
+		return settingsEditOverLimit("settings_edit_refuse_media_text_long", longest, limit), true
 	}
 	return settingsEditVerdict{}, false
 }
 
 // settingsEditCheckButtons reads the button lines of a typed message with the commands' parser
-// and refuses what the commands would drop silently or Telegram would refuse at a join.
+// and refuses what the commands would drop silently or Telegram would refuse at a join. The buttons the
+// bot adds itself (ReservedButtons, the Unban row of an event message) count against the limit.
 func settingsEditCheckButtons(in settingsEditCheckInput) settingsEditVerdict {
 	if in.Msg.Text == "" {
 		return settingsEditRefusal("settings_edit_refuse_need_text", nil)
@@ -338,7 +380,7 @@ func settingsEditCheckButtons(in settingsEditCheckInput) settingsEditVerdict {
 		storedText = ""
 	}
 	total, widest := settingsEditButtonRows(buttons, storedText)
-	if total > settingsEditMaxButtons || widest > settingsEditMaxRowButtons {
+	if total+in.Def.ReservedButtons > settingsEditMaxButtons || widest > settingsEditMaxRowButtons {
 		return settingsEditRefusal("settings_edit_refuse_buttons_limit", nil)
 	}
 	return settingsEditVerdict{OK: true, Buttons: buttons}

@@ -14,9 +14,10 @@ import (
 )
 
 // InitDataMaxAge is how old the auth_date of a signed initData may be (D-02). It covers the
-// longest captcha attempt (10 minutes, captcha_settings.timeout) plus one minute, so a page
-// opened when a challenge was sent still verifies until the attempt ends (C7).
-const InitDataMaxAge = 11 * time.Minute
+// longest captcha attempt (60 minutes, chat_advanced_thresholds.captcha_timeout_mins) plus
+// one minute, so a page opened when a challenge was sent still verifies until the attempt
+// ends (C7).
+const InitDataMaxAge = 61 * time.Minute
 
 // initDataMaxFuture is the clock skew accepted for an auth_date ahead of the server.
 const initDataMaxFuture = time.Minute

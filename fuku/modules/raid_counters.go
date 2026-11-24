@@ -94,22 +94,34 @@ return redis.call('ZCOUNT', KEYS[1], '(' .. (now - tonumber(ARGV[2])), '+inf')
 `)
 
 // recordRaidJoins stores the joins of userIDs in the chat's joined set and returns how
-// many different accounts joined within raidJoinWindow, the new ones included. Without
-// Redis it returns (0, nil). One script call under raidRedisTimeout; an error is returned
-// for the caller to log and treat as "no information".
+// many different accounts joined within the chat's effective join surge window, the new ones
+// included. Without Redis it returns (0, nil). One script call under raidRedisTimeout; an error
+// is returned for the caller to log and treat as "no information".
 func recordRaidJoins(chatID int64, userIDs []int64) (int, error) {
+	th := advThresholdsFor(context.Background(), chatID)
+	return recordRaidJoinsWith(chatID, userIDs, advRaidJoinWindow(th), advRaidRecentWindow(th))
+}
+
+// recordRaidJoinsWith stores userIDs in the chat's joined set using explicit surge and recent
+// windows, deriving trimWindow = max(joinWindow, recentWindow) and
+// joinedTTL = max(raidJoinedTTL, trimWindow+time.Hour) so entries inside either window are never
+// trimmed or expired prematurely.
+func recordRaidJoinsWith(chatID int64, userIDs []int64, joinWindow, recentWindow time.Duration) (int, error) {
 	client := raidRedis()
 	if client == nil || len(userIDs) == 0 {
 		return 0, nil
 	}
 
+	trimWindow := max(joinWindow, recentWindow)
+	joinedTTL := max(raidJoinedTTL, trimWindow+time.Hour)
+
 	args := make([]any, 0, 5+len(userIDs))
 	args = append(args,
 		raidNow().UnixMilli(),
-		raidJoinWindow.Milliseconds(),
-		raidRecentWindow.Milliseconds(),
+		joinWindow.Milliseconds(),
+		trimWindow.Milliseconds(),
 		raidJoinedCap,
-		raidJoinedTTL.Milliseconds(),
+		joinedTTL.Milliseconds(),
 	)
 	for _, id := range userIDs {
 		args = append(args, strconv.FormatInt(id, 10))

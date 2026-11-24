@@ -97,12 +97,14 @@ func settingsWarnsCached(env *settingsEnv, chatID int64) (limit int, mode string
 }
 
 // settingsWarnsStepper returns the five buttons of the limit stepper on the current page of
-// msgID, after checking the page's layout: the stepper, the three actions, Back and Close.
+// msgID, after checking the page's layout: the stepper, the three actions, the timed row, the expiry button, Back
+// and Close.
 func settingsWarnsStepper(t *testing.T, env *settingsEnv, msgID int64) []gotgbot.InlineKeyboardButton {
 	t.Helper()
 	_, keyboard := env.lastEdit(env.chat.Id, msgID)
-	if len(keyboard) != 3 || len(keyboard[0]) != 5 || len(keyboard[1]) != 3 || len(keyboard[2]) != 2 {
-		t.Fatalf("Warnings page keyboard = %v, want rows of 5, 3 and 2 buttons", settingsWarnsWidths(keyboard))
+	if len(keyboard) != 5 || len(keyboard[0]) != 5 || len(keyboard[1]) != 3 || len(keyboard[2]) != 2 || len(keyboard[3]) != 1 ||
+		len(keyboard[4]) != 2 {
+		t.Fatalf("Warnings page keyboard = %v, want rows of 5, 3, 2, 1 and 2 buttons", settingsWarnsWidths(keyboard))
 	}
 	return keyboard[0]
 }
@@ -149,8 +151,8 @@ func TestSettingsWarnsOpens(t *testing.T) {
 				t.Errorf("stepper button %d = %q, want %q", i, stepper[i].Text, wantLabel)
 			}
 		}
-		if len(keyboard[2]) != 2 {
-			t.Errorf("navigation row has %d buttons, want Back and Close", len(keyboard[2]))
+		if len(keyboard[4]) != 2 {
+			t.Errorf("navigation row has %d buttons, want Back and Close", len(keyboard[4]))
 		}
 		if !strings.Contains(text, staffMarker("settings_warns_action")+" "+staffMarker("settings_opt_mute")) {
 			t.Errorf("Warnings page %q does not show the default action Mute", text)
@@ -178,7 +180,7 @@ func TestSettingsWarnsOpens(t *testing.T) {
 		}
 		env.pressRaw(settingsPrivateChat(owner), owner, msgID, button.CallbackData)
 		text, keyboard := env.lastEdit(owner.Id, msgID)
-		if !strings.Contains(text, staffMarker("settings_warns_limit")+" 3") || len(keyboard) != 3 || len(keyboard[0]) != 5 {
+		if !strings.Contains(text, staffMarker("settings_warns_limit")+" 3") || len(keyboard) != 5 || len(keyboard[0]) != 5 {
 			t.Errorf("private Warnings page = %q with %d rows, want the limit line and the stepper", text, len(keyboard))
 		}
 		fields := settingsButtonFields(t, keyboard[0][3])
@@ -464,7 +466,7 @@ func TestSettingsParityWarnMode(t *testing.T) {
 		settingsWarnsCleanup(t, env.chat.Id)
 		settingsWarnsSeed(t, env.chat.Id, 7, "ban")
 		previous := warnSettingsWrites
-		warnSettingsWrites.Mode = func(int64, string) error { return errors.New("write refused") }
+		warnSettingsWrites.Mode = func(context.Context, int64, string, int) error { return errors.New("write refused") }
 		t.Cleanup(func() { warnSettingsWrites = previous })
 
 		settingsWarnsPress(t, env, env.chat, menuMsgID, "a", "st", "p", "n", "t", "m", "v", "kick")
@@ -528,7 +530,7 @@ func TestSettingsWarnsInertAction(t *testing.T) {
 			if !strings.Contains(text, staffMarker("settings_warns_action_inert")) {
 				t.Errorf("page %q does not carry the inert line", text)
 			}
-			if len(keyboard) != 3 || len(keyboard[1]) != 3 {
+			if len(keyboard) != 5 || len(keyboard[1]) != 3 {
 				t.Fatalf("keyboard widths = %v, want the three choices still offered", settingsWarnsWidths(keyboard))
 			}
 			for _, choice := range keyboard[1] {

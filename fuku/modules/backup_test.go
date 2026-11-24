@@ -4,6 +4,7 @@ package modules
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,15 +20,20 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/backup"
+	dbcache "github.com/uasneppy/fuku_robot/fuku/db/cache"
 	"github.com/uasneppy/fuku_robot/fuku/db/chats"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
+	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/db/notes"
 	"github.com/uasneppy/fuku_robot/fuku/db/rules"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
+	"github.com/uasneppy/fuku_robot/fuku/utils/ratelimit"
 )
 
 type backupRoundTripFunc func(*http.Request) (*http.Response, error)
@@ -156,6 +163,22 @@ func TestParseImportModules(t *testing.T) {
 		got, err := parseImportModules("/import foo bar", backupData)
 		require.ErrorIs(t, err, errNoValidModule)
 		assert.Nil(t, got)
+	})
+
+	t.Run("rejects unknown extra keys present in backupData", func(t *testing.T) {
+		dataWithExtras := map[string]interface{}{
+			"notes":       map[string]interface{}{"a": 1},
+			"unknown":     map[string]interface{}{"x": 1},
+			"<b>evil</b>": map[string]interface{}{"y": 2},
+		}
+
+		got, err := parseImportModules("/import unknown <b>evil</b>", dataWithExtras)
+		require.ErrorIs(t, err, errNoValidModule)
+		assert.Nil(t, got)
+
+		got, err = parseImportModules("/import notes unknown <b>evil</b>", dataWithExtras)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"notes"}, got)
 	})
 }
 
@@ -780,7 +803,7 @@ func TestBackupCallbackHandlerConfirmsPendingReset(t *testing.T) {
 	chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Backup Chat"}
 	owner := gotgbot.User{Id: 777000, FirstName: "Telegram"}
 	require.NoError(t, chats.EnsureChatInDb(chat.Id, chat.Title))
-	rules.SetChatRules(chat.Id, "rules before reset")
+	require.NoError(t, rules.SetChatRules(chat.Id, "rules before reset"))
 	token, err := storePendingReset(chat.Id, []string{"rules"})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -903,4 +926,525 @@ func TestBackupCallbackCancelImportAndResetCleanup(t *testing.T) {
 	assert.False(t, ok)
 
 	assert.Len(t, client.callsFor("answerCallbackQuery"), 2)
+}
+
+func cleanupSharedBackupTestChat(t *testing.T, chatID int64) {
+	t.Helper()
+	t.Cleanup(func() {
+		dropPendingImport(chatID)
+		dropPendingReset(chatID)
+		ratelimit.GetBackupRateLimiter().ReleaseExport(chatID)
+		_ = notes.RemoveAllNotes(chatID)
+		if db.DB != nil {
+			db.DB.Where("chat_id = ?", chatID).Delete(&models.RulesSettings{})
+			db.DB.Where("chat_id = ?", chatID).Delete(&models.ChatEventMessage{})
+			db.DB.Where("chat_id = ?", chatID).Delete(&models.ChatEventMessageOptions{})
+			db.DB.Where("chat_id = ?", chatID).Delete(&db.Chat{})
+		}
+		dbcache.DeleteCache(eventmsg.CacheKey(chatID))
+		dbcache.DeleteCache(fmt.Sprintf("rules_%d", chatID))
+	})
+}
+
+func TestSharedBackupApplyHelpers(t *testing.T) {
+	withRealLocales(t)
+	tr := i18n.MustNewTranslator("en")
+	bg := context.Background()
+
+	t.Run("applyBackupExport", func(t *testing.T) {
+		chatID := uniqueModuleChatID()
+		userID := int64(503001)
+		require.NoError(t, chats.EnsureChatInDb(chatID, "Shared Export Group"))
+		cleanupSharedBackupTestChat(t, chatID)
+		require.NoError(t, notes.AddNote(chatID, "welcome", "hello", "", nil, db.TEXT, false, false, false, true, false, false))
+		require.NoError(t, eventmsg.SetText(bg, chatID, eventmsg.EventBan, eventmsg.DestGroup, "Shared export custom ban", userID))
+
+		client := newModuleBotClient()
+		bot := newModuleTestBot(client)
+
+		// 1. Success delivery goes to userID (never chatID) and carries custom messages.
+		res := applyBackupExport(bot, tr, chatID, "Shared Export Group", userID, []string{"notes", backup.BackupModuleMessages})
+		require.Equal(t, backupExportSent, res.Outcome)
+		assert.Equal(t, 2, res.ModuleCount)
+		require.NotNil(t, res.Backup)
+
+		docs := client.callsFor("sendDocument")
+		require.Len(t, docs, 1)
+		assert.Equal(t, userID, staffParamInt(docs[0].Params, "chat_id"))
+		assert.NotEqual(t, chatID, staffParamInt(docs[0].Params, "chat_id"))
+		assert.Equal(t, "HTML", fmt.Sprint(docs[0].Params["parse_mode"]))
+
+		reader, ok := docs[0].Params["document"].(*gotgbot.FileReader)
+		require.True(t, ok)
+		rawJSON, err := io.ReadAll(reader.Data)
+		require.NoError(t, err)
+		parsed, err := backup.BackupFormatFromJSON(rawJSON)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"notes", backup.BackupModuleMessages}, parsed.Modules)
+		assert.Contains(t, string(rawJSON), "Shared export custom ban")
+
+		// 2. Immediate second export hits rate limit with 0 additional document sends.
+		limited := applyBackupExport(bot, tr, chatID, "Shared Export Group", userID, []string{"notes"})
+		assert.Equal(t, backupExportRateLimited, limited.Outcome)
+		assert.Greater(t, limited.Cooldown, time.Duration(0))
+		assert.Len(t, client.callsFor("sendDocument"), 1)
+
+		// 3. 403 Forbidden returns backupExportStartBot and releases the cooldown for immediate retry.
+		ratelimit.GetBackupRateLimiter().ReleaseExport(chatID)
+		client.errors["sendDocument"] = &gotgbot.TelegramError{
+			Code:        403,
+			Description: "Forbidden: bot can't initiate conversation with a user",
+		}
+		startBotRes := applyBackupExport(bot, tr, chatID, "Shared Export Group", userID, []string{"notes"})
+		assert.Equal(t, backupExportStartBot, startBotRes.Outcome)
+
+		delete(client.errors, "sendDocument")
+		retryRes := applyBackupExport(bot, tr, chatID, "Shared Export Group", userID, []string{"notes"})
+		assert.Equal(t, backupExportSent, retryRes.Outcome)
+		assert.Equal(t, 1, retryRes.ModuleCount)
+
+		// 4. Generic sendDocument error returns backupExportSendFailed with module count preserved.
+		ratelimit.GetBackupRateLimiter().ReleaseExport(chatID)
+		client.errors["sendDocument"] = errors.New("upload timeout")
+		sendErrRes := applyBackupExport(bot, tr, chatID, "Shared Export Group", userID, []string{"notes"})
+		assert.Equal(t, backupExportSendFailed, sendErrRes.Outcome)
+		assert.Equal(t, 1, sendErrRes.ModuleCount)
+		assert.NotNil(t, sendErrRes.Backup)
+		delete(client.errors, "sendDocument")
+
+		// 5. Empty exported module data returns backupExportNoModules.
+		origExport := backupExportChatData
+		t.Cleanup(func() { backupExportChatData = origExport })
+
+		ratelimit.GetBackupRateLimiter().ReleaseExport(chatID)
+		backupExportChatData = func(cID int64, title string, by int64, mods []string) (*backup.BackupFormat, error) {
+			return backup.NewBackupFormat(cID, title, by, mods), nil
+		}
+		emptyRes := applyBackupExport(bot, tr, chatID, "Shared Export Group", userID, []string{"notes"})
+		assert.Equal(t, backupExportNoModules, emptyRes.Outcome)
+
+		// 6. Export DB error returns backupExportFailed.
+		ratelimit.GetBackupRateLimiter().ReleaseExport(chatID)
+		backupExportChatData = func(int64, string, int64, []string) (*backup.BackupFormat, error) {
+			return nil, errors.New("simulated export failure")
+		}
+		failedRes := applyBackupExport(bot, tr, chatID, "Shared Export Group", userID, []string{"notes"})
+		assert.Equal(t, backupExportFailed, failedRes.Outcome)
+	})
+
+	t.Run("downloadAndParseBackupFile", func(t *testing.T) {
+		validBkp := backup.NewBackupFormat(-100300010, "Download Group", 777000, []string{"rules", backup.BackupModuleMessages})
+		validBkp.Data["rules"] = map[string]interface{}{
+			"settings": map[string]interface{}{"rules": "Be nice"},
+		}
+		validBkp.Data[backup.BackupModuleMessages] = backup.MessagesBackup{
+			Messages: []models.ChatEventMessage{
+				{Event: eventmsg.EventBan, Dest: eventmsg.DestGroup, Text: "Custom ban"},
+			},
+		}
+		validBytes, err := validBkp.ToJSON()
+		require.NoError(t, err)
+
+		incompatBkp := backup.NewBackupFormat(-100300010, "Download Group", 777000, []string{"rules"})
+		incompatBkp.Version = "9.9"
+		incompatBkp.Data["rules"] = map[string]interface{}{
+			"settings": map[string]interface{}{"rules": "Future version"},
+		}
+		incompatBytes, err := incompatBkp.ToJSON()
+		require.NoError(t, err)
+
+		var payload []byte
+		oldBaseURL := backupDownloadBaseURL
+		oldHTTPClient := backupDownloadHTTPClient
+		backupDownloadBaseURL = "https://example.invalid/file/bot"
+		backupDownloadHTTPClient = &http.Client{
+			Transport: backupRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				assert.Equal(t, "/file/bot999:test/backups/shared.json", req.URL.Path)
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(bytes.NewReader(payload)),
+					Header:     make(http.Header),
+				}, nil
+			}),
+		}
+		t.Cleanup(func() {
+			backupDownloadBaseURL = oldBaseURL
+			backupDownloadHTTPClient = oldHTTPClient
+		})
+
+		client := newModuleBotClient()
+		client.responses["getFile"] = json.RawMessage(`{"file_id":"shared-json-id","file_path":"backups/shared.json"}`)
+		bot := newModuleTestBot(client)
+
+		wantInvalid, _ := tr.GetString("backup_import_invalid_file")
+		wantMismatch, _ := tr.GetString("backup_import_version_mismatch")
+
+		// Non-JSON extension rejected before getFile.
+		got, errText := downloadAndParseBackupFile(bot, &gotgbot.Document{FileId: "txt-id", FileName: "backup.txt"}, tr)
+		assert.Nil(t, got)
+		assert.Equal(t, wantInvalid, errText)
+		assert.Empty(t, client.callsFor("getFile"))
+
+		// Nil document rejected before getFile.
+		got, errText = downloadAndParseBackupFile(bot, nil, tr)
+		assert.Nil(t, got)
+		assert.Equal(t, wantInvalid, errText)
+		assert.Empty(t, client.callsFor("getFile"))
+
+		// Valid JSON backup succeeds.
+		payload = validBytes
+		got, errText = downloadAndParseBackupFile(bot, &gotgbot.Document{FileId: "shared-json-id", FileName: "backup.json"}, tr)
+		require.NotNil(t, got)
+		assert.Empty(t, errText)
+		assert.Equal(t, []string{"rules", backup.BackupModuleMessages}, got.Modules)
+
+		// Corrupted JSON rejected with backup_import_invalid_file.
+		payload = []byte(`{not-valid-json`)
+		got, errText = downloadAndParseBackupFile(bot, &gotgbot.Document{FileId: "shared-json-id", FileName: "backup.json"}, tr)
+		assert.Nil(t, got)
+		assert.Equal(t, wantInvalid, errText)
+
+		// Incompatible version rejected with backup_import_version_mismatch.
+		payload = incompatBytes
+		got, errText = downloadAndParseBackupFile(bot, &gotgbot.Document{FileId: "shared-json-id", FileName: "backup.json"}, tr)
+		assert.Nil(t, got)
+		assert.Equal(t, wantMismatch, errText)
+	})
+
+	t.Run("applyBackupImport_and_formatBackupImportSuccess", func(t *testing.T) {
+		chatID := uniqueModuleChatID()
+		require.NoError(t, chats.EnsureChatInDb(chatID, "Shared Import Group"))
+		cleanupSharedBackupTestChat(t, chatID)
+
+		src := backup.NewBackupFormat(chatID, "Shared Import Group", 777000, []string{"rules", backup.BackupModuleMessages})
+		src.Data["rules"] = map[string]interface{}{
+			"settings": map[string]interface{}{"rules": "Imported via shared helper"},
+		}
+		src.Data[backup.BackupModuleMessages] = backup.MessagesBackup{
+			Messages: []models.ChatEventMessage{
+				{
+					Event:   eventmsg.EventBan,
+					Dest:    eventmsg.DestGroup,
+					Text:    "Valid shared ban",
+					Buttons: models.ButtonArray{{Name: "Help", Url: "https://example.org/help"}},
+				},
+				{
+					Event:   eventmsg.EventWarn,
+					Dest:    eventmsg.DestGroup,
+					Text:    "Unsafe warn button",
+					Buttons: models.ButtonArray{{Name: "XSS", Url: "javascript:alert(1)"}},
+				},
+			},
+			Options: &models.ChatEventMessageOptions{
+				PMDetails: true,
+				PlainTone: true,
+			},
+		}
+		raw, err := src.ToJSON()
+		require.NoError(t, err)
+		decoded, err := backup.BackupFormatFromJSON(raw)
+		require.NoError(t, err)
+
+		modules := []string{"rules", backup.BackupModuleMessages}
+		report, err := applyBackupImport(chatID, decoded, modules)
+		require.NoError(t, err)
+		assert.Equal(t, 1, report.Skipped)
+		assert.False(t, report.LogChannelSkipped)
+
+		assert.Equal(t, "Imported via shared helper", rules.GetChatRulesInfo(chatID).Rules)
+		gotMsgs, err := eventmsg.GetFresh(bg, chatID)
+		require.NoError(t, err)
+		banMsg, ok := gotMsgs.Lookup(eventmsg.EventBan, eventmsg.DestGroup)
+		require.True(t, ok)
+		assert.Equal(t, "Valid shared ban", banMsg.Text)
+		_, warnExists := gotMsgs.Lookup(eventmsg.EventWarn, eventmsg.DestGroup)
+		assert.False(t, warnExists, "invalid javascript: button message must be skipped")
+		assert.True(t, gotMsgs.Options.PMDetails)
+		assert.True(t, gotMsgs.Options.PlainTone)
+
+		summary := formatBackupImportSuccess(tr, modules, report)
+		wantSkippedHint, _ := tr.GetString("backup_import_skipped_entries", i18n.TranslationParams{"count": 1})
+		wantLogHint, _ := tr.GetString("backup_import_log_skipped")
+		assert.Contains(t, summary, "• rules")
+		assert.Contains(t, summary, "• messages")
+		assert.Contains(t, summary, wantSkippedHint)
+		assert.NotContains(t, summary, wantLogHint)
+
+		withLogHint := formatBackupImportSuccess(tr, modules, backup.ImportReport{Skipped: 1, LogChannelSkipped: true})
+		assert.Contains(t, withLogHint, wantSkippedHint)
+		assert.Contains(t, withLogHint, wantLogHint)
+	})
+
+	t.Run("applyBackupReset_and_formatBackupResetSuccess", func(t *testing.T) {
+		chatID := uniqueModuleChatID()
+		require.NoError(t, chats.EnsureChatInDb(chatID, "Shared Reset Group"))
+		cleanupSharedBackupTestChat(t, chatID)
+
+		require.NoError(t, rules.SetChatRules(chatID, "Rules to clear"))
+		require.NoError(t, eventmsg.SetText(bg, chatID, eventmsg.EventBan, eventmsg.DestGroup, "Custom ban to clear", 777000))
+		require.NoError(t, eventmsg.SetPlainTone(bg, chatID, true, 777000))
+		require.NoError(t, notes.AddNote(chatID, "keep", "untouched note", "", nil, db.TEXT, false, false, false, true, false, false))
+
+		resetMods := []string{backup.BackupModuleMessages, "rules"}
+		require.NoError(t, applyBackupReset(chatID, resetMods))
+
+		assert.Empty(t, rules.GetChatRulesInfo(chatID).Rules)
+		gotMsgs, err := eventmsg.GetFresh(bg, chatID)
+		require.NoError(t, err)
+		_, banExists := gotMsgs.Lookup(eventmsg.EventBan, eventmsg.DestGroup)
+		assert.False(t, banExists)
+		assert.False(t, gotMsgs.Options.PlainTone)
+		assert.NotEmpty(t, notes.GetNotesList(chatID, true), "unselected modules must survive selective reset")
+
+		summary := formatBackupResetSuccess(tr, resetMods)
+		wantSummary, _ := tr.GetString("backup_reset_success", i18n.TranslationParams{
+			"modules": "2",
+			"list":    buildModuleList(resetMods),
+		})
+		assert.Equal(t, wantSummary, summary)
+	})
+}
+
+func TestSettingsBackupRedisTokens(t *testing.T) {
+	bg := context.Background()
+
+	t.Run("import_token_put_peek_consume_and_replay", func(t *testing.T) {
+		mr := phase28InProcessMiniredis(t)
+
+		bkp := backup.NewBackupFormat(-1003000201, "Token Group", 777000, []string{"rules", backup.BackupModuleMessages})
+		bkp.Data["rules"] = map[string]interface{}{
+			"settings": map[string]interface{}{"rules": "Token rules"},
+		}
+		bkp.Data[backup.BackupModuleMessages] = backup.MessagesBackup{
+			Messages: []models.ChatEventMessage{
+				{
+					Event:     eventmsg.EventBan,
+					Dest:      eventmsg.DestGroup,
+					Text:      "Redis pending custom ban",
+					UpdatedBy: 9007199254740993, // > 2^53 to verify json.Number int64 precision
+				},
+			},
+			Options: &models.ChatEventMessageOptions{PlainTone: true},
+		}
+		rawBkp, err := bkp.ToJSON()
+		require.NoError(t, err)
+		parsedBkp, err := backup.BackupFormatFromJSON(rawBkp)
+		require.NoError(t, err)
+
+		rec := settingsBackupImportRecord{
+			UserID:  777000,
+			ChatID:  -1003000201,
+			Modules: []string{"rules", backup.BackupModuleMessages},
+			Backup:  parsedBkp,
+		}
+
+		token, err := settingsBackupPutImportToken(bg, rec)
+		require.NoError(t, err)
+		assert.True(t, settingsCopyTokenValid(token), "token %q must be 16-char base64url", token)
+
+		redisKey := settingsBackupImportTokenKey(token)
+		require.True(t, mr.Exists(redisKey))
+		ttl := mr.TTL(redisKey)
+		assert.Greater(t, ttl, time.Duration(0))
+		assert.LessOrEqual(t, ttl, settingsCardLifetime)
+
+		// Peek returns exact binding and payload without deleting the key.
+		peeked, found, err := settingsBackupPeekImportToken(bg, token)
+		require.NoError(t, err)
+		require.True(t, found)
+		assert.Equal(t, rec.UserID, peeked.UserID)
+		assert.Equal(t, rec.ChatID, peeked.ChatID)
+		assert.Equal(t, rec.Modules, peeked.Modules)
+		require.NotNil(t, peeked.Backup)
+		assert.Contains(t, peeked.Backup.Data, "rules")
+		assert.Contains(t, peeked.Backup.Data, backup.BackupModuleMessages)
+		assert.True(t, mr.Exists(redisKey), "peek must not delete the pending token")
+
+		// Wrong-user / wrong-chat binding check via peek leaves the real owner's token untouched.
+		assert.NotEqual(t, int64(999999), peeked.UserID)
+		assert.NotEqual(t, int64(-1009999999), peeked.ChatID)
+		assert.True(t, mr.Exists(redisKey))
+
+		// Malformed tokens fail closed with zero key mutation.
+		for _, bad := range []string{"", "short", "bad/token!123456"} {
+			_, badFound, badErr := settingsBackupPeekImportToken(bg, bad)
+			assert.NoError(t, badErr)
+			assert.False(t, badFound)
+			_, badFound, badErr = settingsBackupConsumeImportToken(bg, bad)
+			assert.NoError(t, badErr)
+			assert.False(t, badFound)
+		}
+		assert.True(t, mr.Exists(redisKey))
+
+		// Atomic Lua GET+DEL across 8 concurrent goroutines: exactly 1 succeeds (T-30-06).
+		const workers = 8
+		start := make(chan struct{})
+		var consumed atomic.Int32
+		var winner settingsBackupImportRecord
+		var winnerMu sync.Mutex
+		var wg sync.WaitGroup
+		for range workers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				got, ok, consumeErr := settingsBackupConsumeImportToken(bg, token)
+				assert.NoError(t, consumeErr)
+				if ok {
+					consumed.Add(1)
+					winnerMu.Lock()
+					winner = got
+					winnerMu.Unlock()
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		assert.Equal(t, int32(1), consumed.Load())
+		assert.Equal(t, rec.UserID, winner.UserID)
+		assert.Equal(t, rec.ChatID, winner.ChatID)
+		assert.Equal(t, rec.Modules, winner.Modules)
+		require.NotNil(t, winner.Backup)
+		msgMap, ok := winner.Backup.Data[backup.BackupModuleMessages].(map[string]interface{})
+		require.True(t, ok)
+		msgSlice, ok := msgMap["messages"].([]interface{})
+		require.True(t, ok)
+		require.Len(t, msgSlice, 1)
+		firstMsg, ok := msgSlice[0].(map[string]interface{})
+		require.True(t, ok)
+		updatedByNum, ok := firstMsg["updated_by"].(json.Number)
+		require.True(t, ok, "expected json.Number for 64-bit integer precision")
+		assert.Equal(t, "9007199254740993", updatedByNum.String())
+
+		// Replay after consume returns found == false.
+		_, found, err = settingsBackupConsumeImportToken(bg, token)
+		require.NoError(t, err)
+		assert.False(t, found)
+		_, found, err = settingsBackupPeekImportToken(bg, token)
+		require.NoError(t, err)
+		assert.False(t, found)
+		assert.False(t, mr.Exists(redisKey))
+	})
+
+	t.Run("reset_token_put_peek_consume_and_expiry", func(t *testing.T) {
+		mr := phase28InProcessMiniredis(t)
+
+		rec := settingsBackupResetRecord{
+			UserID:  777000,
+			ChatID:  -1003000202,
+			Modules: []string{backup.BackupModuleMessages, "rules"},
+		}
+
+		// 1. Put, peek (without deleting), concurrent atomic consume, and replay refusal.
+		token, err := settingsBackupPutResetToken(bg, rec)
+		require.NoError(t, err)
+		assert.True(t, settingsCopyTokenValid(token))
+
+		redisKey := settingsBackupResetTokenKey(token)
+		require.True(t, mr.Exists(redisKey))
+		ttl := mr.TTL(redisKey)
+		assert.Greater(t, ttl, time.Duration(0))
+		assert.LessOrEqual(t, ttl, settingsCardLifetime)
+
+		peeked, found, err := settingsBackupPeekResetToken(bg, token)
+		require.NoError(t, err)
+		require.True(t, found)
+		assert.Equal(t, rec, peeked)
+		assert.True(t, mr.Exists(redisKey))
+
+		const workers = 8
+		start := make(chan struct{})
+		var consumed atomic.Int32
+		var wg sync.WaitGroup
+		for range workers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				got, ok, consumeErr := settingsBackupConsumeResetToken(bg, token)
+				assert.NoError(t, consumeErr)
+				if ok {
+					assert.Equal(t, rec, got)
+					consumed.Add(1)
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		assert.Equal(t, int32(1), consumed.Load())
+
+		_, found, err = settingsBackupConsumeResetToken(bg, token)
+		require.NoError(t, err)
+		assert.False(t, found)
+
+		// 2. Expiry via FastForward(settingsCardLifetime + time.Second).
+		expToken, err := settingsBackupPutResetToken(bg, rec)
+		require.NoError(t, err)
+		peeked, found, err = settingsBackupPeekResetToken(bg, expToken)
+		require.NoError(t, err)
+		require.True(t, found)
+		assert.Equal(t, rec, peeked)
+
+		mr.FastForward(settingsCardLifetime + time.Second)
+
+		_, found, err = settingsBackupPeekResetToken(bg, expToken)
+		require.NoError(t, err)
+		assert.False(t, found)
+		_, found, err = settingsBackupConsumeResetToken(bg, expToken)
+		require.NoError(t, err)
+		assert.False(t, found)
+	})
+
+	t.Run("import_token_rejects_oversized_payload_and_nil_redis", func(t *testing.T) {
+		mr := phase28InProcessMiniredis(t)
+
+		// 1. Oversized serialized payload fails with errSettingsBackupPayloadTooLarge and writes 0 Redis keys (T-30-05).
+		oversizedBkp := backup.NewBackupFormat(-1003000203, "Oversized Group", 777000, []string{"rules"})
+		oversizedBkp.Data["rules"] = map[string]interface{}{
+			"settings": map[string]interface{}{
+				"rules": strings.Repeat("x", maxSettingsBackupRedisBytes+1024),
+			},
+		}
+		token, err := settingsBackupPutImportToken(bg, settingsBackupImportRecord{
+			UserID:  777000,
+			ChatID:  -1003000203,
+			Modules: []string{"rules"},
+			Backup:  oversizedBkp,
+		})
+		require.ErrorIs(t, err, errSettingsBackupPayloadTooLarge)
+		assert.Empty(t, token)
+		assert.Empty(t, mr.Keys(), "oversized import payload must write zero keys to Redis")
+
+		// 2. Nil Redis client fails closed with errSettingsCopyNoRedis across all 6 token operations.
+		origRedis := settingsBackupRedisClient
+		settingsBackupRedisClient = func() *redis.Client { return nil }
+		t.Cleanup(func() { settingsBackupRedisClient = origRedis })
+
+		validToken := "0123456789abcdef"
+
+		tok, err := settingsBackupPutImportToken(bg, settingsBackupImportRecord{UserID: 1, ChatID: -1001, Modules: []string{"rules"}})
+		assert.ErrorIs(t, err, errSettingsCopyNoRedis)
+		assert.Empty(t, tok)
+
+		_, found, err := settingsBackupPeekImportToken(bg, validToken)
+		assert.ErrorIs(t, err, errSettingsCopyNoRedis)
+		assert.False(t, found)
+
+		_, found, err = settingsBackupConsumeImportToken(bg, validToken)
+		assert.ErrorIs(t, err, errSettingsCopyNoRedis)
+		assert.False(t, found)
+
+		tok, err = settingsBackupPutResetToken(bg, settingsBackupResetRecord{UserID: 1, ChatID: -1001, Modules: []string{"rules"}})
+		assert.ErrorIs(t, err, errSettingsCopyNoRedis)
+		assert.Empty(t, tok)
+
+		_, found, err = settingsBackupPeekResetToken(bg, validToken)
+		assert.ErrorIs(t, err, errSettingsCopyNoRedis)
+		assert.False(t, found)
+
+		_, found, err = settingsBackupConsumeResetToken(bg, validToken)
+		assert.ErrorIs(t, err, errSettingsCopyNoRedis)
+		assert.False(t, found)
+	})
 }

@@ -52,10 +52,10 @@ const (
 	// replicas.
 	raidWarnEvery = 24 * time.Hour
 
-	// raidTriggerToken stands in for the trigger sentence until the translated warning is
+	// raidTriggerMarker stands in for the trigger sentence until the translated warning is
 	// assembled, so the sentence (it holds a percent sign) never meets the translator's
 	// legacy printf pass.
-	raidTriggerToken = "<<raid-trigger>>"
+	raidTriggerMarker = "<<raid-trigger>>"
 )
 
 // raidPostStopWait is the longest StopRaidPosts waits for the posts in flight at shutdown. A
@@ -364,49 +364,14 @@ func lockdownTriggerSentence(tr *i18n.Translator, kind string, count, window, pe
 }
 
 // raidPostNotice tells the locked group, once, that the bot locked it on its own (a join
-// surge, a flood or an AI burst; any other kind posts nothing): which
-// trigger fired with its numbers, that approved users are muted too, and the notes
-// /lockdown adds when the bot lacks the delete or the invite right (read from res.BotMember,
-// the rights startLockdownRow saw). It is written in the group's own language and sent
-// through the lockdown pacer under raidPostTimeout. A failed send is logged at warn and
-// nothing else happens: the lockdown stands, and the notice is not retried.
+// surge, a flood or an AI burst; any other kind posts nothing). The message is the group's own
+// message for that trigger when one is stored, else today's notice: which trigger fired with
+// its numbers, that approved users are muted too, and the notes /lockdown adds when the bot
+// lacks the delete or the invite right (read from res.BotMember, the rights startLockdownRow
+// saw), in the group's own language through the lockdown pacer. A failed send is logged at warn
+// and nothing else happens: the lockdown stands, and the notice is not retried.
 func raidPostNotice(b *gotgbot.Bot, chat *gotgbot.Chat, trig raidTrigger, res lockdownStartResult) {
-	tr := staffChatTranslator(chat.Id)
-	count, window := strconv.Itoa(trig.Count), strconv.Itoa(trig.Window)
-
-	var intro string
-	switch trig.Kind {
-	case models.LockdownTriggerJoinSurge:
-		intro = lockdownText(tr, "lockdown_auto_started_join_surge", i18n.TranslationParams{
-			"count":  count,
-			"window": window,
-		})
-	case models.LockdownTriggerFlood:
-		intro = lockdownText(tr, "lockdown_auto_started_flood", i18n.TranslationParams{
-			"count":   count,
-			"window":  window,
-			"percent": strconv.Itoa(trig.Percent),
-		})
-	case models.LockdownTriggerAIBurst:
-		intro = lockdownText(tr, "lockdown_auto_started_ai_burst", i18n.TranslationParams{
-			"count":  count,
-			"window": window,
-		})
-	default:
-		return
-	}
-
-	lines := []string{intro, lockdownText(tr, "lockdown_note_approved_muted")}
-	// A missing delete or invite right never blocks the lock; it only adds a note.
-	if !res.BotMember.CanDeleteMessages {
-		lines = append(lines, lockdownText(tr, "lockdown_note_no_delete"))
-	}
-	if !res.BotMember.CanInviteUsers {
-		lines = append(lines, lockdownText(tr, "lockdown_note_no_invite"))
-	}
-	if err := raidSend(b, chat.Id, lockdownJoinLines(lines)); err != nil {
-		log.Warnf("[RaidDetection] the notice of the automatic lockdown in chat %d was not delivered: %v", chat.Id, err)
-	}
+	postLockdownAutoEvent(b, chat, trig, res)
 }
 
 // raidWarnCannotLock tells staff that the bot saw a raid it cannot stop: the group is not a
@@ -474,11 +439,11 @@ func raidWarnCannotLock(b *gotgbot.Bot, chat *gotgbot.Chat, trig raidTrigger, ou
 	render := func(tr *i18n.Translator) string {
 		text := lockdownText(tr, key, i18n.TranslationParams{
 			"group":   lockdownGroupToken,
-			"trigger": raidTriggerToken,
+			"trigger": raidTriggerMarker,
 		})
 		return lockdownSplice(text,
 			lockdownGroupToken, group,
-			raidTriggerToken, lockdownTriggerSentence(tr, trig.Kind, trig.Count, trig.Window, trig.Percent),
+			raidTriggerMarker, lockdownTriggerSentence(tr, trig.Kind, trig.Count, trig.Window, trig.Percent),
 		)
 	}
 

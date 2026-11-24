@@ -61,10 +61,15 @@ func (b *BackupFormat) Validate() error {
 	if b.Data == nil {
 		return fmt.Errorf("data field cannot be nil")
 	}
+	seen := make(map[string]struct{}, len(b.Modules))
 	for _, module := range b.Modules {
 		if !IsValidModule(module) {
 			return fmt.Errorf("unknown module: %s", module)
 		}
+		if _, dup := seen[module]; dup {
+			return fmt.Errorf("duplicate module: %s", module)
+		}
+		seen[module] = struct{}{}
 		if _, ok := b.Data[module]; !ok {
 			return fmt.Errorf("missing data for module: %s", module)
 		}
@@ -113,6 +118,7 @@ const (
 	BackupModuleWarns       = "warns"
 	BackupModuleFederations = "federations"
 	BackupModuleLogChannels = "logchannels"
+	BackupModuleMessages    = "messages"
 )
 
 func AllExportableModules() []string {
@@ -136,6 +142,7 @@ func AllExportableModules() []string {
 		BackupModuleWarns,
 		BackupModuleFederations,
 		BackupModuleLogChannels,
+		BackupModuleMessages,
 	}
 }
 
@@ -218,3 +225,8 @@ type FederationsBackup struct {
 }
 
 type LogChannelsBackup = SettingBackup[models.LogChannel]
+
+type MessagesBackup struct {
+	Messages []models.ChatEventMessage       `json:"messages,omitempty"`
+	Options  *models.ChatEventMessageOptions `json:"options,omitempty"`
+}

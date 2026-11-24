@@ -43,6 +43,8 @@ var settingsListParts = []settingsListPart{
 	{Page: "e", Code: "c", Step: 2, WordKey: "settings_entries_part_content"},
 	{Page: settingsPageFwdBlock, Code: "s", Step: 1, WordKey: "settings_entries_part_source"},
 	{Page: settingsPageReactions, Code: "r", Step: 1, WordKey: "settings_entries_part_reaction"},
+	{Page: "rs", Code: "w", Step: 1, Next: "r", WordKey: "settings_entries_part_reason_word"},
+	{Page: "rs", Code: "r", Step: 2, WordKey: "settings_entries_part_reason_text"},
 }
 
 // settingsListPartByCode finds a part of a list page by its t value, nil when the page has no such part.
@@ -110,7 +112,7 @@ func renderSettingsListPrompt(v settingsView, def settingsListDef, part string, 
 	if def.Prompt != nil {
 		body = append(body, def.Prompt(v, part)...)
 	}
-	if step == settingsListTwoSteps {
+	if step == settingsListTwoSteps && def.TwoStep.ApplyPlain == nil {
 		body = append(body, settingsText(v.Tr, "settings_entries_wait_content_limits", i18n.TranslationParams{
 			"text": settingsListContentTextMax, "caption": settingsListContentCaptionMax,
 		}))
@@ -331,18 +333,21 @@ type settingsListApplyResult struct {
 	Notice  string
 }
 
-// settingsListTwoStep gives the hooks of a two-step list page (Filters, Notes): the engine owns the flow, the page
-// owns only what is its own. Normalise turns the first typed message into the keyword or name; Check refuses it with
-// a finished reason (empty when it is fine) or fails with an error that keeps the wait; IsFilter picks the extraction's
-// mode; Apply stores the entry with the content extracted exactly as the command's reply form extracts it and, with the
-// sender's translator, words the reason of a taken result itself. KeyLineKey
-// is the step-2 prompt's line naming the keyword and SavedKey the saved notice, each taking the entry under the
-// table's EntryParam.
+// settingsListTwoStep gives the hooks of a two-step list page (Filters, Notes, Reason shortcuts): the engine owns the
+// flow, the page owns only what is its own. Normalise turns the first typed message into the keyword, name or word;
+// Check refuses it with a finished reason (empty when it is fine) or fails with an error that keeps the wait. For a
+// media/button page (ApplyPlain == nil), IsFilter picks the extraction's mode and Apply stores the content extracted
+// exactly as the command's reply form extracts it. For a plain-text Step 2 page (ApplyPlain != nil), CheckPlain
+// validates the plain text (returning a finished refusal to keep the wait, or "") and ApplyPlain stores it. KeyLineKey
+// is the step-2 prompt's line naming the first-step entry and SavedKey the saved notice, each taking the entry under
+// the table's EntryParam.
 type settingsListTwoStep struct {
 	Normalise  func(text string) string
 	Check      func(ctx context.Context, chatID int64, norm string, tr *i18n.Translator) (refusal string, err error)
 	IsFilter   bool
 	Apply      func(ctx context.Context, chatID int64, norm string, ex content.ExtractResult, tr *i18n.Translator) settingsListApplyResult
+	CheckPlain func(text string, tr *i18n.Translator) string
+	ApplyPlain func(ctx context.Context, chatID int64, norm, text string, by int64, tr *i18n.Translator) settingsListApplyResult
 	KeyLineKey string
 	SavedKey   string
 }
@@ -463,12 +468,26 @@ func (r *settingsInputReply) listStepTwo(def settingsListDef, _ settingsListPart
 		return
 	}
 	norm := r.wait.Pending
-	extracted := content.ExtractTypedNoteOrFilter(r.msg, norm, ts.IsFilter, lang.GetLanguage(r.ctx))
-	if extracted.DataType == -1 {
-		// The extraction starts from its "needs content" refusal and keeps it only when nothing usable was read (the
-		// commands judge it the same way): DataType -1 is the refusal, ErrorMsg its words.
-		r.refuse(extracted.ErrorMsg)
-		return
+	var extracted content.ExtractResult
+	if ts.ApplyPlain != nil {
+		if r.msg.Text == "" {
+			r.refuse(r.text("settings_edit_refuse_need_text"))
+			return
+		}
+		if ts.CheckPlain != nil {
+			if refusal := ts.CheckPlain(r.msg.Text, r.tr); refusal != "" {
+				r.refuse(refusal)
+				return
+			}
+		}
+	} else {
+		extracted = content.ExtractTypedNoteOrFilter(r.msg, norm, ts.IsFilter, lang.GetLanguage(r.ctx))
+		if extracted.DataType == -1 {
+			// The extraction starts from its "needs content" refusal and keeps it only when nothing usable was read (the
+			// commands judge it the same way): DataType -1 is the refusal, ErrorMsg its words.
+			r.refuse(extracted.ErrorMsg)
+			return
+		}
 	}
 	refusal, ok := r.listStepCheck(ts, norm)
 	if !ok {
@@ -484,7 +503,12 @@ func (r *settingsInputReply) listStepTwo(def settingsListDef, _ settingsListPart
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
 	defer cancel()
-	result := ts.Apply(ctx, r.wait.GroupID, norm, extracted, r.tr)
+	var result settingsListApplyResult
+	if ts.ApplyPlain != nil {
+		result = ts.ApplyPlain(ctx, r.wait.GroupID, norm, r.msg.Text, r.user.Id, r.tr)
+	} else {
+		result = ts.Apply(ctx, r.wait.GroupID, norm, extracted, r.tr)
+	}
 	switch result.Outcome {
 	case settingsListApplySaved:
 		r.finishWait(claim)

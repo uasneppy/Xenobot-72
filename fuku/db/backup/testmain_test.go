@@ -49,6 +49,8 @@ func TestMain(m *testing.M) {
 			&models.ChatRequirementHold{},
 			&models.DeleteRule{},
 			&models.ScheduledDeletion{},
+			&models.ChatEventMessage{},
+			&models.ChatEventMessageOptions{},
 			&models.ChatFilters{},
 			&models.AdminSettings{},
 			&models.BlacklistSettings{},
@@ -80,6 +82,11 @@ func TestMain(m *testing.M) {
 			&models.FederationSub{},
 			&models.LogChannel{},
 			&models.ChatConversation{},
+			&models.ChatEscalation{},
+			&models.ChatOffence{},
+			&models.ChatManualDefaults{},
+			&models.ChatReasonShortcut{},
+			&models.ChatAdvancedThresholds{},
 		)
 		if err != nil {
 			fmt.Printf("AutoMigrate failed: %v\n", err)

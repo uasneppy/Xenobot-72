@@ -189,7 +189,7 @@ type memberReqAIWatchRead struct {
 }
 
 // memberReqAIWatchQueue adds the AI rule's three single-key GETs to the watcher's pipeline:
-// fuku:memberreq:nv:<verdict key hash>, fuku:memberreq:nm:<user> and fuku:memberreq:nu:<chat>:<user>.
+// fuku:memberreq:nv:<verdict key hash>, fuku:memberreq:nm:<chat>:<user> and fuku:memberreq:nu:<chat>:<user>.
 // The canonical names and the verdict key are computed by pure Go (namecanon, with the configured
 // model). For names the rule never judges nothing is queued and the zero value is returned,
 // which is satisfied with no key read. It queues reads only; it writes nothing and calls nobody.
@@ -200,16 +200,21 @@ func memberReqAIWatchQueue(ctx context.Context, pipe redis.Pipeliner, chatID, us
 	}
 	return memberReqAIWatchRead{
 		verdict:  pipe.Get(ctx, memberReqAIVerdictKey(config.AppConfig.AnthropicModel, canon)),
-		baseline: pipe.Get(ctx, memberReqAIBaselineKey(userID)),
+		baseline: pipe.Get(ctx, memberReqAIBaselineKey(chatID, userID)),
 		marker:   pipe.Get(ctx, memberReqAIMarkerKey(chatID, userID)),
 		hash:     canon.Hash,
 	}
 }
 
-// satisfied reads the queued commands after the pipeline ran: nothing queued is satisfied, any
-// error other than a miss is not (the caller hands the member to a job), otherwise
-// memberReqAIWatchSatisfied decides.
+// satisfied reads the queued commands after the pipeline ran using the default memberReqAIBar.
 func (r memberReqAIWatchRead) satisfied() bool {
+	return r.satisfiedBar(memberReqAIBar)
+}
+
+// satisfiedBar reads the queued commands after the pipeline ran: nothing queued is satisfied, any
+// error other than a miss is not (the caller hands the member to a job), otherwise
+// memberReqAIWatchSatisfiedBar decides against bar.
+func (r memberReqAIWatchRead) satisfiedBar(bar float64) bool {
 	if r.verdict == nil {
 		return true
 	}
@@ -225,12 +230,17 @@ func (r memberReqAIWatchRead) satisfied() bool {
 	if err != nil {
 		return false
 	}
-	return memberReqAIWatchSatisfied(verdict, baseline, marker, r.hash)
+	return memberReqAIWatchSatisfiedBar(verdict, baseline, marker, r.hash, bar)
 }
 
-// memberReqAIWatchSatisfied is the watcher's decision for the AI rule (D-21), pure: no Redis and
+// memberReqAIWatchSatisfied is the watcher's decision for the AI rule using the default memberReqAIBar.
+func memberReqAIWatchSatisfied(verdictValue, baseline string, marker bool, hash string) bool {
+	return memberReqAIWatchSatisfiedBar(verdictValue, baseline, marker, hash, memberReqAIBar)
+}
+
+// memberReqAIWatchSatisfiedBar is the watcher's decision for the AI rule (D-21), pure: no Redis and
 // no clock. The member needs no job when they have no marker and either the cached verdict of their
-// names parses and is below the bar or their baseline equals the current names hash. A member who
+// names parses and is below bar or their baseline equals the current names hash. A member who
 // still holds a marker is never satisfied (Q3): a cached pass would leave a joiner with no baseline
 // and the marker for good, so one job judges them from the cache, records the baseline and deletes
 // the marker, and their next message is satisfied by the baseline. A miss
@@ -239,12 +249,12 @@ func (r memberReqAIWatchRead) satisfied() bool {
 // names and who has no marker stays satisfied even when another account's judgement of the same
 // string has since cached a breach, because the baseline is the bot's record that these names were
 // accepted for this member (it errs toward not punishing); the job answers the same way, because
-// memberReqAIDecide puts the baseline step before the verdict cache.
-func memberReqAIWatchSatisfied(verdictValue, baseline string, marker bool, hash string) bool {
+// memberReqAIDecideBar puts the baseline step before the verdict cache.
+func memberReqAIWatchSatisfiedBar(verdictValue, baseline string, marker bool, hash string, bar float64) bool {
 	if marker {
 		return false
 	}
-	if probability, ok := memberReqAIParseProbability(verdictValue); ok && probability < memberReqAIBar {
+	if probability, ok := memberReqAIParseProbability(verdictValue); ok && probability < bar {
 		return true
 	}
 	return baseline != "" && baseline == hash
@@ -305,7 +315,11 @@ func memberReqLookupCachedWith(settings *models.ChatRequirements, chatID, userID
 		return false, false
 	}
 	passHit = err == nil && stored == passValue
-	if !aiRead.satisfied() {
+	aiBar := memberReqAIBar
+	if rules.AI {
+		aiBar = advMemberReqAIBar(advThresholdsFor(cache.Context, chatID))
+	}
+	if !aiRead.satisfiedBar(aiBar) {
 		return false, passHit
 	}
 	if rules.Photo {

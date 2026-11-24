@@ -24,6 +24,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
+	"github.com/uasneppy/fuku_robot/fuku/db/advthresholds"
 	"github.com/uasneppy/fuku_robot/fuku/db/captcha"
 	"github.com/uasneppy/fuku_robot/fuku/db/chats"
 	"github.com/uasneppy/fuku_robot/fuku/db/lang"
@@ -493,12 +494,14 @@ func (moduleStruct) captchaCommand(bot *gotgbot.Bot, ctx *ext.Context) error {
 			status = "enabled"
 		}
 
+		timeout := effectiveCaptchaTimeout(tracing.UpdateContext(ctx), chat.Id, settings.Timeout)
+
 		tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
 		statusUsage, _ := tr.GetString("captcha_status_usage")
 		header, _ := tr.GetString("captcha_settings_header")
 		statusLine, _ := tr.GetString("captcha_settings_status", i18n.TranslationParams{"s": status})
 		modeLine, _ := tr.GetString("captcha_settings_mode", i18n.TranslationParams{"s": settings.CaptchaMode})
-		timeoutLine, _ := tr.GetString("captcha_settings_timeout", i18n.TranslationParams{"d": settings.Timeout})
+		timeoutLine, _ := tr.GetString("captcha_settings_timeout", i18n.TranslationParams{"d": timeout})
 		actionLine, _ := tr.GetString("captcha_settings_failure_action", i18n.TranslationParams{"s": settings.FailureAction})
 		attemptsLine, _ := tr.GetString("captcha_settings_max_attempts", i18n.TranslationParams{"d": settings.MaxAttempts})
 
@@ -818,10 +821,18 @@ type captchaApplyResult struct {
 	Err error
 }
 
+// effectiveCaptchaTimeout returns the captcha timeout in minutes for chatID: the extended
+// override stored in chat_advanced_thresholds (11..60 min) when set, otherwise baseTimeout
+// (captcha_settings.timeout, 1..10 min) (P28-02).
+func effectiveCaptchaTimeout(ctx context.Context, chatID int64, baseTimeout int) int {
+	return advCaptchaTimeout(advThresholdsFor(ctx, chatID), baseTimeout)
+}
+
 // applyCaptchaTimeout is the one path that changes a group's captcha time limit, called by
 // /captchatime and by the settings menu. It validates the range, writes through
-// captcha.SetCaptchaTimeout (which invalidates the settings cache) and reads the stored row
-// back.
+// captcha.SetCaptchaTimeout (which invalidates the settings cache), clears any active
+// extended captcha_timeout_mins override so the new 1..10 minute limit takes effect
+// immediately, and reads the stored row back.
 func applyCaptchaTimeout(ctx context.Context, chatID int64, minutes int64) captchaApplyResult {
 	if minutes < 1 || minutes > 10 {
 		return captchaApplyResult{Outcome: captchaInvalid, Key: "captcha_timeout_invalid"}
@@ -831,6 +842,12 @@ func applyCaptchaTimeout(ctx context.Context, chatID int64, minutes int64) captc
 			return captchaApplyResult{Outcome: captchaSaveFailed, Key: "captcha_timeout_range_error", Err: err}
 		}
 		return captchaApplyResult{Outcome: captchaSaveFailed, Key: "captcha_timeout_failed", Err: err}
+	}
+	if advThresholdsFor(ctx, chatID).CaptchaTimeoutMins > 0 {
+		if err := advThresholdsWrites.ResetField(ctx, chatID, advthresholds.FieldCaptchaTimeout, 0); err != nil {
+			log.Warnf("[Captcha] failed to clear extended captcha timeout override of chat %d: %v", chatID, err)
+			return captchaApplyResult{Outcome: captchaSaveFailed, Key: "captcha_timeout_failed", Err: err}
+		}
 	}
 	result := captchaApplyResult{Outcome: captchaApplied}
 	settings, err := captcha.GetCaptchaSettingsContext(ctx, chatID)
@@ -1288,7 +1305,9 @@ func SendCaptcha(bot *gotgbot.Bot, ctx *ext.Context, userID int64, userName stri
 		return err
 	}
 
-	preAttempt, err = captcha.CreateCaptchaAttemptPreMessageIfEnabled(userID, chat.Id, answer, settings.Timeout)
+	timeout := effectiveCaptchaTimeout(tracing.UpdateContext(ctx), chat.Id, settings.Timeout)
+
+	preAttempt, err = captcha.CreateCaptchaAttemptPreMessageIfEnabled(userID, chat.Id, answer, timeout)
 	if err != nil || preAttempt == nil {
 		if errors.Is(err, captcha.ErrCaptchaDisabled) {
 			return errCaptchaDisabled
@@ -1317,7 +1336,7 @@ func SendCaptcha(bot *gotgbot.Bot, ctx *ext.Context, userID int64, userName stri
 		}
 		text, _ := tr.GetString("captcha_web_welcome", i18n.TranslationParams{
 			"first":  formatting.MentionHtml(userID, userName),
-			"number": settings.Timeout,
+			"number": timeout,
 		})
 		msgText = text
 		buttonText, _ := tr.GetString("captcha_web_button")
@@ -1339,7 +1358,7 @@ func SendCaptcha(bot *gotgbot.Bot, ctx *ext.Context, userID int64, userName stri
 			log.Errorf("[Captcha] No verify buttons could be encoded for attempt %d", preAttempt.ID)
 			return errors.Join(errors.New("captcha keyboard empty: no encodable options"), rollbackCaptchaAttempt(bot, preAttempt))
 		}
-		msgText = captchaChallengeText(tr, mode, isImage, userID, userName, question, settings.Timeout)
+		msgText = captchaChallengeText(tr, mode, isImage, userID, userName, question, timeout)
 	}
 
 	var sent *gotgbot.Message
@@ -1542,17 +1561,10 @@ func handleCaptchaTimeout(bot *gotgbot.Bot, chatID, userID int64, attemptID uint
 		_ = helpers.DeleteMessageWithErrorHandling(bot, chatID, messageID)
 	}
 
-	member, err := bot.GetChatMember(chatID, userID, nil)
-	var userName string
-	if err == nil {
+	target := gotgbot.User{Id: userID, FirstName: "User"}
+	if member, err := bot.GetChatMember(chatID, userID, nil); err == nil {
 		user := member.GetUser()
-		if user.FirstName != "" {
-			userName = user.FirstName
-		} else {
-			userName = "User"
-		}
-	} else {
-		userName = "User"
+		target = gotgbot.User{Id: userID, FirstName: user.FirstName, LastName: user.LastName, Username: user.Username}
 	}
 
 	if err := executeCaptchaFailureAction(bot, chatID, userID, action); err != nil {
@@ -1567,17 +1579,8 @@ func handleCaptchaTimeout(bot *gotgbot.Bot, chatID, userID int64, attemptID uint
 	}
 
 	tr := i18n.MustNewTranslator(lang.GetLanguage(&ext.Context{EffectiveChat: &gotgbot.Chat{Id: chatID}}))
-	failureMsg := buildCaptchaFailureMessage(tr, action, userID, userName, storedMsgCount)
-	sent, err := helpers.SendMessageWithErrorHandling(bot, chatID, failureMsg, &gotgbot.SendMessageOpts{ParseMode: formatting.HTML})
-	if err != nil {
+	if err := postCaptchaFailureNotice(bot, chatID, tr, target, action, storedMsgCount); err != nil {
 		log.Errorf("Failed to send captcha failure message: %v", err)
-	}
-
-	if sent != nil {
-		time.AfterFunc(30*time.Second, func() {
-			defer error_handling.RecoverFromPanic("captchaFailureMsgDelete", "captcha")
-			_ = helpers.DeleteMessageWithErrorHandling(bot, chatID, sent.MessageId)
-		})
 	}
 
 	return true, true

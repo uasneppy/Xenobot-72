@@ -135,7 +135,7 @@ func TestMemberReqAIEndToEnd(t *testing.T) {
 		if n := ai.count() - requestsBefore; n != 1 {
 			t.Errorf("provider requests for the press = %d, want exactly 1 for the new string", n)
 		}
-		mreqAIWantBaseline(t, member.Id, mreqAIHashOfUser(t, ordinary))
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAIHashOfUser(t, ordinary))
 		mreqAIWantMarker(t, env.chat.Id, member.Id, false)
 		if got := mreqAIWelcomes(env); got != 1 {
 			t.Errorf("welcomes after the member was freed = %d, want the held welcome once", got)
@@ -163,7 +163,7 @@ func TestMemberReqAIEndToEnd(t *testing.T) {
 		if n := ai.count(); n != 0 {
 			t.Fatalf("provider requests for an established member = %d, want none", n)
 		}
-		mreqAIWantBaseline(t, member.Id, hash)
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, hash)
 		mreqAIWantMarker(t, env.chat.Id, member.Id, false)
 		if hold := env.mreqHold(member.Id); hold != nil || len(env.mreqNotices()) != 0 {
 			t.Fatalf("hold = %+v, notices = %q, want nobody punished", hold, env.mreqSentTexts())
@@ -321,7 +321,7 @@ func TestMemberReqAIEndToEnd(t *testing.T) {
 				t.Errorf("restrictChatMember calls = %d, want none", n)
 			}
 			mreqAIWantMarker(t, env.chat.Id, member.Id, false)
-			mreqAIWantNoBaseline(t, member.Id)
+			mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 		}
 		if n := ai.count(); n != 0 {
 			t.Errorf("provider requests = %d, want none", n)

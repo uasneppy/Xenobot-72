@@ -90,24 +90,33 @@ func memberReqCapAllow(ctx context.Context, b *gotgbot.Bot, chatID, userID int64
 		log.Warnf("[MemberReq] the punishment count of chat %d is unknown, so the punishment is allowed: %s", chatID, memberReqErrText(err))
 		return true
 	}
-	if count <= int64(memberReqCapPerMinute) {
+	th := advThresholdsFor(ctx, chatID)
+	capPerMin := advMemberReqCapPerMin(th)
+	pause := advMemberReqPause(th)
+	if count <= int64(capPerMin) {
 		return true
 	}
-	memberReqPauseChat(ctx, b, chatID)
+	memberReqPauseChatWith(ctx, b, chatID, capPerMin, pause)
 	return false
 }
 
 // memberReqPauseChat sets the chat's pause latch and, for the one caller that set it, posts the
-// pause notice. A failed latch write or notice is logged and changes nothing: the punishment
-// that tipped the cap is refused either way.
+// pause notice using the package-variable defaults.
 func memberReqPauseChat(ctx context.Context, b *gotgbot.Bot, chatID int64) {
+	memberReqPauseChatWith(ctx, b, chatID, memberReqCapPerMinute, memberReqPause)
+}
+
+// memberReqPauseChatWith sets the chat's pause latch for pause and, for the one caller that set it,
+// posts the pause notice carrying capPerMin and pause. A failed latch write or notice is logged and
+// changes nothing: the punishment that tipped the cap is refused either way.
+func memberReqPauseChatWith(ctx context.Context, b *gotgbot.Bot, chatID int64, capPerMin int, pause time.Duration) {
 	client := memberReqRedisClient()
 	if client == nil {
 		return
 	}
 	latchCtx, cancel := context.WithTimeout(ctx, raidRedisTimeout)
 	defer cancel()
-	won, err := client.SetNX(latchCtx, memberReqPausedKey(chatID), "1", memberReqPause).Result()
+	won, err := client.SetNX(latchCtx, memberReqPausedKey(chatID), "1", pause).Result()
 	if err != nil {
 		log.Warnf("[MemberReq] the pause of chat %d could not be set: %s", chatID, memberReqErrText(err))
 		return
@@ -115,11 +124,11 @@ func memberReqPauseChat(ctx context.Context, b *gotgbot.Bot, chatID int64) {
 	if !won {
 		return
 	}
-	log.Warnf("[MemberReq] chat %d reached %d punishments in a minute, so its punishments are paused for %s", chatID, memberReqCapPerMinute, memberReqPause)
+	log.Warnf("[MemberReq] chat %d reached %d punishments in a minute, so its punishments are paused for %s", chatID, capPerMin, pause)
 	tr := memberReqTranslator(ctx, chatID)
 	text := memberReqText(tr, "mreq_notice_paused", i18n.TranslationParams{
-		"n":       strconv.Itoa(memberReqCapPerMinute),
-		"minutes": strconv.Itoa(int(memberReqPause / time.Minute)),
+		"n":       strconv.Itoa(capPerMin),
+		"minutes": strconv.Itoa(int(pause / time.Minute)),
 	})
 	if _, err := memberReqPostNotice(ctx, b, chatID, text, gotgbot.InlineKeyboardMarkup{}); err != nil {
 		log.Warnf("[MemberReq] the pause notice of chat %d was not delivered: %s", chatID, memberReqErrText(err))

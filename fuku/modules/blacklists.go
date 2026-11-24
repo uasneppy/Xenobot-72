@@ -15,7 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/fuku_robot/fuku/db/blacklists"
-	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/lang"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
@@ -35,26 +35,33 @@ var blacklistsModule = moduleStruct{
 const blacklistWordPreviewRunes = 20
 
 // blacklistActionValues are the actions /blacklistaction accepts, and so the actions the
-// menu may write.
+// menu may write, with seconds 0. The forward blocklist shares this vocabulary
+// (TestForwardBlockVocabulary), so the timed actions are not in it.
 var blacklistActionValues = []string{"mute", "kick", "warn", "ban", "none"}
+
+// blacklistTimedActions are the timed actions (Phase 26, D-09): written for every word only with a
+// duration of punishMinSecs to punishMaxSecs, and inert when stored with none.
+var blacklistTimedActions = []string{"tban", "tmute"}
 
 // blacklistWriteSeams are the repository writes the apply functions call, a variable so a
 // test can make one fail.
 type blacklistWriteSeams struct {
-	Add    func(ctx context.Context, chatID int64, word, action string) error
+	// Add stores one word with the action and its seconds (0 for a plain action).
+	Add    func(ctx context.Context, chatID int64, word, action string, secs int) error
 	Remove func(ctx context.Context, chatID int64, word string) error
 	// RemoveByID deletes one row by ID only when it belongs to the chat and returns its word.
 	RemoveByID func(ctx context.Context, chatID, id int64) (word string, removed bool, err error)
-	SetAction  func(ctx context.Context, chatID int64, action string) (int64, error)
+	// SetAction sets the action and its seconds of every word of the chat.
+	SetAction func(ctx context.Context, chatID int64, action string, secs int) (int64, error)
 }
 
 // blacklistWrites is the one place the blacklist commands and the settings menu reach the
 // repository's writes through.
 var blacklistWrites = blacklistWriteSeams{
-	Add:        blacklists.AddBlacklistContext,
+	Add:        blacklists.AddBlacklistTimedContext,
 	Remove:     blacklists.RemoveBlacklistContext,
 	RemoveByID: blacklists.RemoveBlacklistByID,
-	SetAction:  blacklists.SetBlacklistActionContext,
+	SetAction:  blacklists.SetBlacklistActionTimedContext,
 }
 
 // blacklistAddOutcome is what applyBlacklistAdd did overall; its zero value is applied.
@@ -124,11 +131,16 @@ const (
 	// blacklistActionNoWords means the update succeeded and matched no row because the chat
 	// has no words; the command still answers its success text (research C-02).
 	blacklistActionNoWords
-	// blacklistActionUnknown means the action is not one of blacklistActionValues; nothing
-	// was written.
+	// blacklistActionUnknown means the action is not one of blacklistActionValues and not a
+	// timed action with a duration (a timed action with seconds 0 is unknown, the pinned reply);
+	// nothing was written.
 	blacklistActionUnknown
 	// blacklistActionSaveFailed means the update failed.
 	blacklistActionSaveFailed
+	// blacklistActionBadDuration means a timed action came with a duration outside
+	// punishMinSecs to punishMaxSecs (a word that is not a duration reads as -1); nothing was
+	// written.
+	blacklistActionBadDuration
 )
 
 // blacklistActionResult is what applyBlacklistAction returns.
@@ -159,34 +171,48 @@ func blacklistSortWords(words []string) (valid, tooLong []string) {
 	return valid, tooLong
 }
 
-// blacklistSharedAction is the action a new word takes: the one every word of the chat
-// already has when it is one of blacklistActionValues, else warn (a chat with no words, mixed
-// actions, or a stored value the commands never write).
-func blacklistSharedAction(existing models.BlacklistSettingsSlice) string {
-	shared := ""
+// blacklistSharedAction is the action and the seconds a new word takes (A19-3, extended by Phase
+// 26 D-21): the ones every word of the chat already has when the action is one of
+// blacklistActionValues (with seconds 0) or an effective timed action, else warn and 0 (a chat with
+// no words, mixed actions or seconds, a timed action stored with no duration, or a stored value the
+// commands never write).
+func blacklistSharedAction(existing models.BlacklistSettingsSlice) (string, int) {
+	shared, secs, seen := "", 0, false
 	for _, row := range existing {
 		if row == nil {
 			continue
 		}
-		if shared != "" && row.Action != shared {
-			return "warn"
+		if seen && (row.Action != shared || row.ActionSecs != secs) {
+			return "warn", 0
 		}
-		shared = row.Action
+		shared, secs, seen = row.Action, row.ActionSecs, true
 	}
-	if !slices.Contains(blacklistActionValues, shared) {
-		return "warn"
+	switch {
+	case slices.Contains(blacklistActionValues, shared) && secs == 0:
+		return shared, 0
+	case slices.Contains(blacklistTimedActions, shared) && autoActionEffective(shared, secs):
+		return shared, secs
 	}
-	return shared
+	return "warn", 0
 }
 
-// applyBlacklistAdd stores the typed words for the chat, each lower-cased with the action the
-// chat's words share (blacklistSharedAction), and reports which were added, already listed,
+// blacklistShownAction is how the commands show an action: an effective timed action as the action
+// and the short duration ("tmute 2h"), anything else as stored.
+func blacklistShownAction(action string, secs int) string {
+	if slices.Contains(blacklistTimedActions, action) && autoActionEffective(action, secs) {
+		return action + " " + punishDurationShort(secs)
+	}
+	return action
+}
+
+// applyBlacklistAdd stores the typed words for the chat, each lower-cased with the action and the
+// seconds the chat's words share (blacklistSharedAction), and reports which were added, already listed,
 // too long, too broad or failed. existing is the caller's read of the chat's current words.
 // It judges no person's rights and logs the chat ID and the error only, never a word.
 func applyBlacklistAdd(ctx context.Context, chatID int64, words []string, existing models.BlacklistSettingsSlice) blacklistAddResult {
 	valid, tooLong := blacklistSortWords(words)
 	result := blacklistAddResult{TooLong: tooLong}
-	action := blacklistSharedAction(existing)
+	action, secs := blacklistSharedAction(existing)
 	seen := make(map[string]struct{}, len(existing)+len(valid))
 	for _, word := range existing.Triggers() {
 		seen[word] = struct{}{}
@@ -201,7 +227,7 @@ func applyBlacklistAdd(ctx context.Context, chatID int64, words []string, existi
 			result.Already = append(result.Already, word)
 			continue
 		}
-		if err := blacklistWrites.Add(ctx, chatID, word, action); err != nil {
+		if err := blacklistWrites.Add(ctx, chatID, word, action, secs); err != nil {
 			log.WithFields(log.Fields{
 				"chatId": chatID,
 				"error":  err,
@@ -264,19 +290,29 @@ func applyBlacklistRemoveByID(ctx context.Context, chatID, id int64) blacklistRe
 	return blacklistRemoveByIDResult{Outcome: blacklistRemovedByID, Word: word}
 }
 
-// applyBlacklistAction sets the action of every word of the chat. The caller lower-cases the
-// action; one outside blacklistActionValues writes nothing. A chat with no words is
-// blacklistActionNoWords, which /blacklistaction answers like a success. It logs the chat ID
-// and the error only.
-func applyBlacklistAction(ctx context.Context, chatID int64, action string) blacklistActionResult {
-	if !slices.Contains(blacklistActionValues, action) {
+// applyBlacklistAction sets the action and its seconds of every word of the chat (D-09). The
+// caller lower-cases the action. A value of blacklistActionValues stores seconds 0 (it clears a
+// duration); a timed action (tban, tmute) with seconds 0 is blacklistActionUnknown and one with
+// seconds outside punishMinSecs to punishMaxSecs is blacklistActionBadDuration, both writing
+// nothing; a valid timed action stores both columns in one update; anything else writes nothing. A
+// chat with no words is blacklistActionNoWords, which /blacklistaction answers like a success. It
+// judges no person's rights and logs the chat ID and the error only.
+func applyBlacklistAction(ctx context.Context, chatID int64, action string, secs int) blacklistActionResult {
+	switch {
+	case slices.Contains(blacklistActionValues, action):
+		secs = 0
+	case slices.Contains(blacklistTimedActions, action) && secs == 0:
+		return blacklistActionResult{Outcome: blacklistActionUnknown}
+	case slices.Contains(blacklistTimedActions, action) && !punishDurationValid(secs):
+		return blacklistActionResult{Outcome: blacklistActionBadDuration}
+	case !slices.Contains(blacklistTimedActions, action):
 		return blacklistActionResult{Outcome: blacklistActionUnknown}
 	}
-	rows, err := blacklistWrites.SetAction(ctx, chatID, action)
+	rows, err := blacklistWrites.SetAction(ctx, chatID, action, secs)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"chatId": chatID,
-			"error":  err,
+			"error":  escalationErrClass(err),
 		}).Error("[Blacklists] Failed to persist blacklist action")
 		return blacklistActionResult{Outcome: blacklistActionSaveFailed, Err: err}
 	}
@@ -331,8 +367,12 @@ func (m moduleStruct) addBlacklist(b *gotgbot.Bot, ctx *ext.Context) error {
 		result := applyBlacklistAdd(updateCtx, chat.Id, args, existing)
 
 		if len(result.TooLong) > 0 {
+			escaped := make([]string, 0, len(result.TooLong))
+			for _, word := range result.TooLong {
+				escaped = append(escaped, html.EscapeString(word))
+			}
 			text, _ := tr.GetString(strings.ToLower(m.moduleName) + "_blacklist_word_too_long")
-			_, err := msg.Reply(b, fmt.Sprintf(text, strings.Join(result.TooLong, ", ")), formatting.Shtml())
+			_, err := msg.Reply(b, fmt.Sprintf(text, strings.Join(escaped, ", ")), formatting.Shtml())
 			if err != nil {
 				log.Error(err)
 			}
@@ -353,8 +393,12 @@ func (m moduleStruct) addBlacklist(b *gotgbot.Bot, ctx *ext.Context) error {
 		}
 
 		if len(result.Already) >= 1 {
+			escaped := make([]string, 0, len(result.Already))
+			for _, word := range result.Already {
+				escaped = append(escaped, html.EscapeString(word))
+			}
 			temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_blacklist_already_blacklisted")
-			text += temp + fmt.Sprintf("\n - %s\n\n", strings.Join(result.Already, "\n - "))
+			text += temp + fmt.Sprintf("\n - %s\n\n", strings.Join(escaped, "\n - "))
 		}
 		if len(result.Added) >= 1 {
 			newBlacklist := make([]string, 0, len(result.Added))
@@ -509,6 +553,29 @@ func (m moduleStruct) listBlacklistsNamed(b *gotgbot.Bot, ctx *ext.Context, name
 	return ext.EndGroups
 }
 
+// blacklistActionArgs reads the arguments of /blacklistaction: one word is the lower-cased action
+// with seconds 0 (a timed word alone is then the pinned unknown reply); exactly two words whose
+// first is a timed action are that action and the second word's duration, or -1 when it is not a
+// valid duration (applyBlacklistAction answers bad duration). Any other two or more words are not
+// an action (ok false), the pinned choose-an-option reply.
+func blacklistActionArgs(args []string) (action string, secs int, ok bool) {
+	switch len(args) {
+	case 1:
+		return strings.ToLower(args[0]), 0, true
+	case 2:
+		action = strings.ToLower(args[0])
+		if !slices.Contains(blacklistTimedActions, action) {
+			return "", 0, false
+		}
+		secs, valid := parsePunishDuration(args[1])
+		if !valid {
+			secs = -1
+		}
+		return action, secs, true
+	}
+	return "", 0, false
+}
+
 func (m moduleStruct) setBlacklistAction(b *gotgbot.Bot, ctx *ext.Context) error {
 	msg := ctx.EffectiveMessage
 	connectedChat := chat_status.IsUserConnected(b, ctx, true, true)
@@ -535,20 +602,25 @@ func (m moduleStruct) setBlacklistAction(b *gotgbot.Bot, ctx *ext.Context) error
 	}
 
 	if len(args) == 0 {
-		currAction := blacklists.GetBlacklistSettingsContext(tracing.UpdateContext(ctx), chat.Id).Action()
+		words := blacklists.GetBlacklistSettingsContext(tracing.UpdateContext(ctx), chat.Id)
+		currAction := words.Action()
+		if len(words) > 0 && words[0] != nil {
+			currAction = blacklistShownAction(words[0].Action, words[0].ActionSecs)
+		}
 		temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_set_bl_action_current_mode")
 		rMsg = fmt.Sprintf(temp, html.EscapeString(currAction))
-	} else if len(args) == 1 {
-		action := strings.ToLower(args[0])
-		result := applyBlacklistAction(tracing.UpdateContext(ctx), chat.Id, action)
+	} else if action, secs, ok := blacklistActionArgs(args); ok {
+		result := applyBlacklistAction(tracing.UpdateContext(ctx), chat.Id, action, secs)
 		switch result.Outcome {
 		case blacklistActionUnknown:
 			rMsg, _ = tr.GetString(strings.ToLower(m.moduleName) + "_set_bl_action_choose_correct_option")
+		case blacklistActionBadDuration:
+			rMsg, _ = tr.GetString("blacklists_set_bl_action_bad_duration")
 		case blacklistActionSaveFailed:
 			rMsg, _ = tr.GetString("blacklists_set_bl_action_update_failed")
 		default:
 			temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_set_bl_action_changed_mode")
-			rMsg = fmt.Sprintf(temp, html.EscapeString(action))
+			rMsg = fmt.Sprintf(temp, html.EscapeString(blacklistShownAction(action, secs)))
 		}
 	} else {
 		rMsg, _ = tr.GetString(strings.ToLower(m.moduleName) + "_set_bl_action_choose_correct_option")
@@ -719,100 +791,108 @@ func (m moduleStruct) blacklistWatcher(b *gotgbot.Bot, ctx *ext.Context) error {
 		return ext.ContinueGroups
 	}
 
-	tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
 	reason := matched.Reason
 	if reason == "" {
 		reason = "Blacklisted word: '%s'"
 	}
 
 	_ = helpers.DeleteMessageWithErrorHandling(b, chat.Id, msg.MessageId)
-	var err error
-	switch matched.Action {
-	case "mute":
+	filled := fmt.Sprintf(reason, i)
+	if matched.Action == "warn" {
 		if user.IsAnonymousChannel() {
 			return ext.ContinueGroups
 		}
 
-		_, err = b.RestrictChatMember(chat.Id, user.Id(), MutedPermissions, nil)
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-
-		var sent *gotgbot.Message
-		sent, err = b.SendMessage(chat.Id,
-			func() string {
-				temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_bl_watcher_muted_user")
-				return fmt.Sprintf(temp, formatting.MentionHtml(user.Id(), user.Name()), fmt.Sprintf(reason, i))
-			}(),
-			formatting.Shtml())
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-		scheduleBotMessage(sent, deletion.KindBotAuto)
-	case "ban":
-		if user.IsAnonymousChannel() {
-			_, err = b.BanChatSenderChat(chat.Id, user.Id(), nil)
-		} else {
-			_, err = b.BanChatMember(chat.Id, user.Id(), nil)
-		}
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-
-		var sent *gotgbot.Message
-		sent, err = b.SendMessage(chat.Id,
-			func() string {
-				temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_bl_watcher_banned_user")
-				return fmt.Sprintf(temp, formatting.MentionHtml(user.Id(), user.Name()), fmt.Sprintf(reason, i))
-			}(),
-			formatting.Shtml())
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-		scheduleBotMessage(sent, deletion.KindBotAuto)
-	case "kick":
-		if user.IsAnonymousChannel() {
-			return ext.ContinueGroups
-		}
-
-		if err = kickMember(b, chat.Id, user.Id()); err != nil {
-			log.Error(err)
-			return err
-		}
-
-		var sent *gotgbot.Message
-		sent, err = b.SendMessage(chat.Id,
-			func() string {
-				temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_bl_watcher_kicked_user")
-				return fmt.Sprintf(temp, formatting.MentionHtml(user.Id(), user.Name()), fmt.Sprintf(reason, i))
-			}(),
-			formatting.Shtml())
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-		scheduleBotMessage(sent, deletion.KindBotAuto)
-	case "warn":
-		if user.IsAnonymousChannel() {
-			return ext.ContinueGroups
-		}
-
-		err = warnsModule.warnThisUser(b, ctx, user.Id(), fmt.Sprintf(reason, i), "warn", warnSourceAuto)
+		err := warnsModule.warnThisUser(b, ctx, user.Id(), filled, "warn", warnSourceAuto)
 		if err != nil {
 			if !errors.Is(err, ext.EndGroups) && !errors.Is(err, ext.ContinueGroups) {
 				log.Error(err)
 			}
 			return err
 		}
-	case "none":
 		return ext.ContinueGroups
 	}
-
+	p := autoPunishment{Action: matched.Action, Secs: matched.ActionSecs}
+	if !autoActionEffective(p.Action, p.Secs) {
+		// none, a timed action stored with no duration and a stored action the watcher applies
+		// nothing for post nothing (D-08).
+		return ext.ContinueGroups
+	}
+	if !chat_status.CanBotRestrict(b, ctx, chat) {
+		return ext.ContinueGroups
+	}
+	p = escalate(tracing.UpdateContext(ctx), b, chat.Id, user.Id(), "blacklist", p)
+	applied, notice, err := blacklistPunish(b, ctx, user, p)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	if !notice {
+		return ext.ContinueGroups
+	}
+	if err = blacklistNotice(b, ctx, user, applied, filled); err != nil {
+		log.Error(err)
+		return err
+	}
 	return ext.ContinueGroups
+}
+
+// blacklistPunish applies p, an effective action of the matched word, to the sender, the one place
+// the blacklist's punishment is decided (escalate has already resolved p through the escalation ladder). It returns the
+// punishment as applied (Until set for a timed one) and whether a notice is due; an error is a
+// punishment Telegram refused, which the watcher logs, after which nothing is posted.
+//   - mute, kick and ban send today's requests: a mute or a kick of an anonymous channel sends nothing
+//     and posts nothing, a ban of one bans the channel (banChatSenderChat);
+//   - an effective timed mute or ban (a duration of 1m to 366d) goes through applyTimedPunishment, and
+//     a sender chat gets nothing and no notice (D-13: a sender chat has no timed form, and
+//     banChatSenderChat would ban it for good). An end date refused locally (errPunishTimeRanOut,
+//     logged by the helper) punishes nobody and posts nothing, the blacklist's inert path (the message
+//     is already deleted).
+func blacklistPunish(b *gotgbot.Bot, ctx *ext.Context, user *gotgbot.Sender, p autoPunishment) (applied autoPunishment, notice bool, err error) {
+	chat := ctx.EffectiveChat
+	if p.Timed() {
+		if !user.IsUser() {
+			return p, false, nil
+		}
+		p.Until, err = applyTimedPunishment(b, chat.Id, user.Id(), p.Action, p.Secs)
+		if errors.Is(err, errPunishTimeRanOut) {
+			return autoPunishment{Action: p.Action}, false, nil
+		}
+		return p, err == nil, err
+	}
+	switch p.Action {
+	case "mute":
+		if user.IsAnonymousChannel() {
+			return p, false, nil
+		}
+		_, err = b.RestrictChatMember(chat.Id, user.Id(), MutedPermissions, nil)
+	case "ban":
+		if user.IsAnonymousChannel() {
+			_, err = b.BanChatSenderChat(chat.Id, user.Id(), nil)
+		} else {
+			_, err = b.BanChatMember(chat.Id, user.Id(), nil)
+		}
+	case "kick":
+		if user.IsAnonymousChannel() {
+			return p, false, nil
+		}
+		err = kickMember(b, chat.Id, user.Id())
+	}
+	return p, err == nil, err
+}
+
+// blacklistNotice posts the blacklist's punishment notice after the mute, kick or ban, or the timed mute
+// or ban p applied (D-03), through the event message engine: a group's stored blacklist message replaces
+// the default, with {action} the word of the action applied and {reason} the reason the default shows (the
+// stored reason filled with the matched word), escaped by the engine while the untimed default splices it
+// as today (D-14); a timed punishment also fills {duration} and {until} and its default names the duration
+// with the reason escaped (D-15, D-16). The site and the reply are the forward blocklist's too
+// (listNoticeSite, listNoticeReply); the untimed default is today's request byte for byte, queued as an
+// automatic punishment message.
+func blacklistNotice(b *gotgbot.Bot, ctx *ext.Context, user *gotgbot.Sender, p autoPunishment, reason string) error {
+	tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
+	reply := listNoticeReply(tr, eventmsg.EventBlacklist, eventSenderTarget(user), p, reason)
+	return postEvent(listNoticeSite(b, ctx.EffectiveChat, tr), reply)
 }
 
 func LoadBlacklists(dispatcher *ext.Dispatcher) {

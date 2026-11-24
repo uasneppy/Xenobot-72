@@ -29,7 +29,7 @@ var settingsPhase19Pages = []string{settingsPageBlacklist, settingsPageFilters, 
 // of a Staff Group's forward blocklist, which is hidden outside a Staff Group, and the Reactions page. The code, key and
 // part tests below range over all five; the Main, cost and privacy tests keep the three (the Reactions page has its own
 // tests in settings_reactions_test.go).
-var settingsPhase19ListPages = append(slices.Clone(settingsPhase19Pages), settingsPageFwdBlock, settingsPageReactions)
+var settingsPhase19ListPages = append(slices.Clone(settingsPhase19Pages), settingsPageFwdBlock, settingsPageReactions, settingsPageReasons)
 
 // settingsPhase19Code is one action code of a list page with the fields of a valid press of a private menu (the owner
 // field c is added by the test).
@@ -50,6 +50,8 @@ func settingsPhase19Codes(minute string) []settingsPhase19Code {
 		{"bc", settingsPageBlacklist, map[string]string{"t": "w"}},
 		{"bo", settingsPageBlacklist, map[string]string{}},
 		{"bs", settingsPageBlacklist, map[string]string{"v": "warn"}},
+		{"bd", settingsPageBlacklist, map[string]string{"k": "m"}},
+		{"bz", settingsPageBlacklist, map[string]string{"k": "b", "v": "86400"}},
 		{"ig", settingsPageFilters, map[string]string{"v": "1"}},
 		{"ix", settingsPageFilters, map[string]string{"r": "5", "v": "1"}},
 		{"iy", settingsPageFilters, map[string]string{"r": "5", "e": minute}},
@@ -72,6 +74,11 @@ func settingsPhase19Codes(minute string) []settingsPhase19Code {
 		{"xy", settingsPageReactions, map[string]string{"r": "5", "e": minute}},
 		{"xa", settingsPageReactions, map[string]string{}},
 		{"xc", settingsPageReactions, map[string]string{"t": "r"}},
+		{"sq", settingsPageReasons, map[string]string{"v": "1"}},
+		{"sx", settingsPageReasons, map[string]string{"r": "5", "v": "1"}},
+		{"sy", settingsPageReasons, map[string]string{"r": "5", "e": minute}},
+		{"sm", settingsPageReasons, map[string]string{}},
+		{"sc", settingsPageReasons, map[string]string{"t": "w"}},
 	}
 }
 
@@ -86,7 +93,7 @@ func TestSettingsPhase19Codes(t *testing.T) {
 			}
 			seen[pg.Key] = true
 		}
-		want := []string{"s", "v", "l", "c", "f", "n", "k", "b", "i", "w", "g", "r", "e", "x", "m", "d", "t", "u", "z", "o", "y", "p", "a"}
+		want := []string{"s", "v", "l", "c", "f", "q", "n", "j", "k", "rs", "b", "i", "w", "g", "r", "e", "x", "h", "m", "av", "cp", "ba", "d", "t", "u", "z", "o", "y", "p", "a"}
 		if got := slices.Sorted(maps.Keys(seen)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
 			t.Errorf("registered pages = %v, want %v", got, slices.Sorted(slices.Values(want)))
 		}
@@ -176,7 +183,7 @@ func TestSettingsPhase19Codes(t *testing.T) {
 		for _, p := range settingsListParts {
 			got = append(got, part{p.Page, p.Code, p.Step})
 		}
-		want := []part{{"b", "w", 1}, {"i", "k", 1}, {"i", "y", 2}, {"e", "n", 1}, {"e", "c", 2}, {"v", "s", 1}, {"x", "r", 1}}
+		want := []part{{"b", "w", 1}, {"i", "k", 1}, {"i", "y", 2}, {"e", "n", 1}, {"e", "c", 2}, {"v", "s", 1}, {"x", "r", 1}, {"rs", "w", 1}, {"rs", "r", 2}}
 		if !slices.Equal(got, want) {
 			t.Errorf("settingsListParts = %v, want %v", got, want)
 		}

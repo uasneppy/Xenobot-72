@@ -1,7 +1,11 @@
 package modules
 
 import (
+	"errors"
 	"fmt"
+	"strings"
+	"time"
+	"unicode"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
@@ -9,6 +13,7 @@ import (
 
 	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
 	"github.com/uasneppy/fuku_robot/fuku/db/lang"
+	"github.com/uasneppy/fuku_robot/fuku/db/modtuning"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
 	"github.com/uasneppy/fuku_robot/fuku/utils/actionlog"
 	"github.com/uasneppy/fuku_robot/fuku/utils/chat_status"
@@ -20,25 +25,36 @@ import (
 // moderationCtx holds the decomposed context for a moderation command.
 // It provides a minimal surface that every moderation handler needs.
 type moderationCtx struct {
-	Bot    *gotgbot.Bot
-	Chat   *gotgbot.Chat
-	Msg    *gotgbot.Message
-	User   *gotgbot.User
-	Ctx    *ext.Context
-	Tr     *i18n.Translator
-	Module *moduleStruct
+	Bot            *gotgbot.Bot
+	Chat           *gotgbot.Chat
+	Msg            *gotgbot.Message
+	User           *gotgbot.User
+	Ctx            *ext.Context
+	Tr             *i18n.Translator
+	Module         *moduleStruct
+	defaults       modtuning.Defaults
+	defaultsLoaded bool
 }
 
-// moderationReasonSuffix renders the reason line of a punishment reply: the locale
-// template key formatted with the HTML-escaped reason, or "" for an empty reason or a
-// missing template. The template comes from the locale file only; the reason is never
-// part of a format string, so a '%' in it is printed as typed and a '<' cannot make
-// Telegram reject the reply after the punishment already happened.
-func moderationReasonSuffix(c *moderationCtx, key, reason string) string {
+// manualDefaults returns the chat's manual tuning defaults, loading them at most once per command.
+func (c *moderationCtx) manualDefaults() modtuning.Defaults {
+	if !c.defaultsLoaded {
+		c.defaults = manualDefaultsFor(c.Chat.Id)
+		c.defaultsLoaded = true
+	}
+	return c.defaults
+}
+
+// moderationReasonLine renders the reason line of a punishment reply: the locale template key
+// formatted with the HTML-escaped reason, or "" for an empty reason or a missing template. The
+// template comes from the locale file only; the reason is never part of a format string, so a '%'
+// in it is printed as typed and a '<' cannot make Telegram reject the reply after the punishment
+// already happened. The default reply builders (each an eventDefaultReply) call it.
+func moderationReasonLine(tr *i18n.Translator, key, reason string) string {
 	if reason == "" {
 		return ""
 	}
-	temp, _ := c.Tr.GetString(key)
+	temp, _ := tr.GetString(key)
 	if temp == "" {
 		return ""
 	}
@@ -49,12 +65,19 @@ func moderationReasonSuffix(c *moderationCtx, key, reason string) string {
 // it was sent, queues it for deletion under the manual punishment kind (D-13). Validation and error
 // replies, lists and question cards never go through it. The error is exactly what Msg.Reply returned.
 func (c *moderationCtx) replySuccess(text string, opts *gotgbot.SendMessageOpts) error {
+	_, err := c.sendSuccess(text, opts)
+	return err
+}
+
+// sendSuccess is replySuccess returning the message it sent: the same Msg.Reply and the same queueing
+// under the manual punishment kind. The message is nil when the send failed.
+func (c *moderationCtx) sendSuccess(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
 	sent, err := c.Msg.Reply(c.Bot, text, opts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	scheduleBotMessage(sent, deletion.KindBotManual)
-	return nil
+	return sent, nil
 }
 
 // replyHint sends a usage hint (a "reply to a message" answer) as a reply to the command. Unlike
@@ -118,6 +141,16 @@ type target struct {
 	reason    string
 	timeVal   string // used by time-based commands (e.g., tban)
 	isChannel bool   // true if original target was a channel ID
+	untilDate int64  // the Telegram until_date a time-based command computed; 0 for a permanent one
+}
+
+// eventUntil is the end of a timed punishment as the event message's {until} value: the Telegram
+// until_date as a time, or the zero time for a permanent one, which renders {until} empty (D-09).
+func eventUntil(untilDate int64) time.Time {
+	if untilDate <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(untilDate, 0)
 }
 
 // extractFromArgs resolves the target from command arguments using ExtractUserAndText.
@@ -203,7 +236,20 @@ func extractFromReply(c *moderationCtx) (target, error) {
 		}
 		return target{}, fmt.Errorf("no user")
 	}
-	return target{userID: uid}, nil
+	return target{userID: uid, reason: commandTrailingText(c.Msg)}, nil
+}
+
+// commandTrailingText returns any text following the leading command token of msg, trimmed.
+func commandTrailingText(msg *gotgbot.Message) string {
+	if msg == nil {
+		return ""
+	}
+	s := strings.TrimLeftFunc(msg.GetText(), unicode.IsSpace)
+	end := strings.IndexFunc(s, unicode.IsSpace)
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(s[end:])
 }
 
 // validateTargetFn checks the resolved target before executing the action.
@@ -225,14 +271,15 @@ type replyFn func(c *moderationCtx, t *target) error
 //
 // It eliminates the 30+ lines of boilerplate that every moderation command repeats.
 type moderationCommand struct {
-	gates     []gateFn
-	extract   func(*moderationCtx) (target, error)
-	validate  validateTargetFn
-	execute   actionFn
-	reply     replyFn
-	module    *moduleStruct
-	logAction string
-	logUser   bool
+	gates         []gateFn
+	extract       func(*moderationCtx) (target, error)
+	validate      validateTargetFn
+	reasonChecked bool
+	execute       actionFn
+	reply         replyFn
+	module        *moduleStruct
+	logAction     string
+	logUser       bool
 }
 
 // buildModerationCtx creates the common decomposed context from a gotgbot update.
@@ -280,8 +327,21 @@ func (cmd *moderationCommand) run(b *gotgbot.Bot, ctx *ext.Context) error {
 		}
 	}
 
+	// Enforce reason-required and expand single-word reason shortcuts before deleting any message
+	// or punishing (non-temporal commands; /tban and /tmute check and expand after duration
+	// extraction inside execute; channel /ban is exempt).
+	if cmd.reasonChecked && !tgt.isChannel {
+		if manualApplyReasonRequired(mc, tgt.reason, mc.manualDefaults()) {
+			return ext.EndGroups
+		}
+		tgt.reason = expandManualReason(mc.Chat.Id, tgt.reason)
+	}
+
 	// Execute the moderation action.
 	if err := cmd.execute(mc, &tgt); err != nil {
+		if errors.Is(err, errManualReasonRequired) {
+			return ext.EndGroups
+		}
 		log.Error(err)
 		return err
 	}
@@ -457,6 +517,7 @@ func extractTemporalTarget(c *moderationCtx, t *target) int64 {
 	}
 	t.timeVal = timeVal
 	t.reason = reason
+	t.untilDate = _time
 	return _time
 }
 

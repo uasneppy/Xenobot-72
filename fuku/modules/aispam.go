@@ -118,6 +118,8 @@ type aispamTask struct {
 	messageID   int64
 	userID      int64
 	userName    string
+	user        gotgbot.User
+	threadID    int64
 	text        string
 	hasLink     bool
 	linkDomains []string
@@ -174,6 +176,10 @@ func (m moduleStruct) checkAISpam(b *gotgbot.Bot, ctx *ext.Context) error {
 	}
 
 	domains := aispamLinkDomains(msg, text)
+	var threadID int64
+	if msg.IsTopicMessage {
+		threadID = msg.MessageThreadId
+	}
 
 	aispamEnqueue(aispamTask{
 		bot:         b,
@@ -183,6 +189,8 @@ func (m moduleStruct) checkAISpam(b *gotgbot.Bot, ctx *ext.Context) error {
 		messageID:   msg.MessageId,
 		userID:      user.Id,
 		userName:    formatting.GetFullName(user.FirstName, user.LastName),
+		user:        *user,
+		threadID:    threadID,
 		text:        text,
 		hasLink:     len(domains) > 0,
 		linkDomains: domains,
@@ -325,11 +333,12 @@ func processAISpam(task aispamTask) {
 
 	aispamDeleted.Add(1)
 	// Tolerates an already-deleted message, so racing another watcher is fine.
-	if err := helpers.DeleteMessageWithErrorHandling(task.bot, task.chatID, task.messageID); err != nil {
+	deleted, deleteErr := task.bot.DeleteMessage(task.chatID, task.messageID, nil)
+	if deleteErr != nil && !strings.Contains(deleteErr.Error(), "message to delete not found") {
 		log.WithFields(log.Fields{
 			"chat_id":    task.chatID,
 			"message_id": task.messageID,
-			"error":      err,
+			"error":      deleteErr,
 		}).Warn("[AISpam] failed to delete a message the model flagged as spam")
 	}
 
@@ -339,6 +348,11 @@ func processAISpam(task aispamTask) {
 	// counter; a keep verdict never is. This only counts: the deletion above is the only
 	// action a verdict takes, and the rule alone may start a lockdown.
 	raidAIRecordVerdict(task.bot, task.chat, task.userID, task.itemKey)
+
+	// The AI spam notice (off by default) is the last step, and only after the message was deleted.
+	if deleted && deleteErr == nil {
+		postAISpamNotice(task)
+	}
 }
 
 // aispamBar is the delete probability a verdict must reach. The message's own language

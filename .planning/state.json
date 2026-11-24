@@ -1,63 +1,68 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v1.1 — PM Settings Hub & Member Screening",
+  "milestone": "v1.2 — Conversations, Custom Messages and Tuning",
   "phases": [
     {
-      "number": "10",
-      "name": "PM Settings Hub and Owner Gate",
+      "number": "20",
+      "name": "Conversations",
+      "status": "complete"
+    },
+    {
+      "number": "21",
+      "name": "Message Engine, Messages Page and Manual Punishments",
+      "status": "pending"
+    },
+    {
+      "number": "22",
+      "name": "PM Copies",
       "status": "in_progress"
     },
     {
-      "number": "11",
-      "name": "Message Editor",
+      "number": "23",
+      "name": "Warn, Flood, Blacklist and Forward Blocklist Messages",
+      "status": "pending"
+    },
+    {
+      "number": "24",
+      "name": "Captcha, AI Spam and Member Requirement Notices",
+      "status": "pending"
+    },
+    {
+      "number": "25",
+      "name": "Lockdown Messages",
+      "status": "pending"
+    },
+    {
+      "number": "26",
+      "name": "Timed Punishments, Escalation and Warn Expiry",
+      "status": "pending"
+    },
+    {
+      "number": "27",
+      "name": "Manual Command Defaults, Reason Shortcuts and Appeal Button",
       "status": "in_progress"
     },
     {
-      "number": "12",
-      "name": "Rules Media, Media Under Text and Greet Once",
-      "status": "in_progress"
+      "number": "28",
+      "name": "Advanced Thresholds",
+      "status": "complete"
     },
     {
-      "number": "13",
-      "name": "Member Requirements",
-      "status": "in_progress"
+      "number": "29",
+      "name": "Plain Tone and Copy Settings",
+      "status": "complete"
     },
     {
-      "number": "14",
-      "name": "Profile Photo and Channel Rules",
-      "status": "in_progress"
-    },
-    {
-      "number": "15",
-      "name": "AI Spam-Name Check",
-      "status": "in_progress"
-    },
-    {
-      "number": "16",
-      "name": "Scheduled Deletion of Service and Bot Messages",
-      "status": "in_progress"
-    },
-    {
-      "number": "17",
-      "name": "Command, Edit and Self-Destruct Deletion",
-      "status": "in_progress"
-    },
-    {
-      "number": "18",
-      "name": "Remaining Settings Pages",
-      "status": "in_progress"
-    },
-    {
-      "number": "19",
-      "name": "Blacklist, Filter and Note Pages",
-      "status": "in_progress"
+      "number": "30",
+      "name": "Backup Page and Custom Messages in Backups",
+      "status": "complete"
     }
   ],
   "next": {
-    "command": "/gsd-progress",
-    "label": "Show progress",
-    "reason": "Unsure of state — showing progress"
+    "command": "/gsd-progress --next",
+    "label": "Advance to the next step (verify)",
+    "reason": "Phase 2 of 11 · 36% · ready to verify"
   },
-  "updated_at": "2026-11-13T20:10:50.865Z"
+  "updated_at": "2026-11-23T22:23:39.262Z"
 }

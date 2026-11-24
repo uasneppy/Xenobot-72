@@ -264,6 +264,76 @@ func TestSettingsEditFilledLength(t *testing.T) {
 	})
 }
 
+func TestSettingsEditEventPlaceholders(t *testing.T) {
+	eventCheck := func(t *testing.T, text string, state settingsEditState) settingsEditVerdict {
+		t.Helper()
+		def := settingsEditCheckEnv(t, "w")
+		def.Kind = settingsEditEvent
+		return settingsEditCheck(settingsEditCheckInput{
+			Def:        def,
+			Part:       settingsEditPartText,
+			Msg:        settingsEditTypedMessage(text),
+			State:      state,
+			Owner:      gotgbot.User{Id: 1, FirstName: "Owner"},
+			GroupTitle: "Chat",
+			Language:   "en",
+		})
+	}
+
+	t.Run("optional event placeholders alone are refused as blank", func(t *testing.T) {
+		for _, tok := range []string{"{reason}", "{duration}", "{until}", "{action}", "{count}", "{limit}", "{window}", "{percent}", "{reason} {last}"} {
+			got := eventCheck(t, tok, settingsEditState{})
+			if got.OK || got.RefusalKey != "settings_edit_refuse_need_text" {
+				t.Fatalf("token %q: verdict OK=%v key=%q, want settings_edit_refuse_need_text", tok, got.OK, got.RefusalKey)
+			}
+		}
+	})
+
+	t.Run("admin placeholder alone is accepted", func(t *testing.T) {
+		if got := eventCheck(t, "{admin}", settingsEditState{}); !got.OK {
+			t.Fatalf("{admin} alone was refused: %q", got.RefusalKey)
+		}
+	})
+
+	t.Run("optional event placeholder with media stored is accepted", func(t *testing.T) {
+		photo := settingsEditState{FileID: "file-1", MediaType: db.PHOTO}
+		if got := eventCheck(t, "{reason}", photo); !got.OK {
+			t.Fatalf("{reason} with media was refused: %q", got.RefusalKey)
+		}
+	})
+
+	t.Run("admin placeholder counts 129 worst-case units", func(t *testing.T) {
+		got := eventCheck(t, strings.Repeat("a", 3900)+strings.Repeat("{admin}", 2), settingsEditState{})
+		if got.OK || got.RefusalKey != "settings_edit_refuse_too_long_filled" {
+			t.Fatalf("verdict OK=%v key=%q, want settings_edit_refuse_too_long_filled", got.OK, got.RefusalKey)
+		}
+		if n, max := settingsEditParam(t, got, "n"), settingsEditParam(t, got, "max"); n != 3900+2*129 || max != 4096 {
+			t.Fatalf("n = %d, max = %d, want %d and 4096", n, max, 3900+2*129)
+		}
+	})
+
+	t.Run("until placeholder counts 16 worst-case units", func(t *testing.T) {
+		got := eventCheck(t, strings.Repeat("a", 4085)+"{until}", settingsEditState{})
+		if got.OK || got.RefusalKey != "settings_edit_refuse_too_long_filled" {
+			t.Fatalf("verdict OK=%v key=%q, want settings_edit_refuse_too_long_filled", got.OK, got.RefusalKey)
+		}
+		if n, max := settingsEditParam(t, got, "n"), settingsEditParam(t, got, "max"); n != 4085+16 || max != 4096 {
+			t.Fatalf("n = %d, max = %d, want %d and 4096", n, max, 4085+16)
+		}
+	})
+
+	t.Run("admin placeholder counts against 1024 caption limit with media", func(t *testing.T) {
+		photo := settingsEditState{FileID: "file-1", MediaType: db.PHOTO}
+		got := eventCheck(t, strings.Repeat("a", 900)+"{admin}", photo)
+		if got.OK || got.RefusalKey != "settings_edit_refuse_too_long_filled" {
+			t.Fatalf("verdict OK=%v key=%q, want settings_edit_refuse_too_long_filled", got.OK, got.RefusalKey)
+		}
+		if n, max := settingsEditParam(t, got, "n"), settingsEditParam(t, got, "max"); n != 900+129 || max != 1024 {
+			t.Fatalf("n = %d, max = %d, want %d and 1024", n, max, 900+129)
+		}
+	})
+}
+
 func TestSettingsEditTextButtonLines(t *testing.T) {
 	got := settingsEditGreetingCheck(t, "See us\n[x](buttonurl://https://e.com)", settingsEditState{})
 	if got.OK || got.RefusalKey != "settings_edit_refuse_text_buttons" {
@@ -593,6 +663,29 @@ func TestSettingsEditMediaKinds(t *testing.T) {
 		}
 		if bare := settingsEditPartCheck(t, settingsEditPartMedia, accepted["photo"], settingsEditState{}); bare.CaptionIgnored {
 			t.Fatal("CaptionIgnored is true for a photo with no caption")
+		}
+	})
+
+	t.Run("refuses sticker when ReservedText > 0 (lockdown events)", func(t *testing.T) {
+		def, ok := settingsEditPageByKey("hldg")
+		if !ok || def.ReservedText <= 0 {
+			t.Fatalf("expected lockdown edit def with ReservedText > 0, got ok=%v reserve=%d", ok, def.ReservedText)
+		}
+		got := settingsEditCheck(settingsEditCheckInput{
+			Def: def, Part: settingsEditPartMedia, Msg: accepted["sticker"],
+			State: settingsEditState{Kind: def.Kind, Text: "Locked down"},
+			Owner: gotgbot.User{Id: 1, FirstName: "Al"}, GroupTitle: "Lock Chat", Language: "en",
+		})
+		if got.OK || got.RefusalKey != "settings_edit_refuse_need_media" {
+			t.Fatalf("sticker on lockdown gave OK=%v key=%q, want settings_edit_refuse_need_media", got.OK, got.RefusalKey)
+		}
+		photo := settingsEditCheck(settingsEditCheckInput{
+			Def: def, Part: settingsEditPartMedia, Msg: accepted["photo"],
+			State: settingsEditState{Kind: def.Kind, Text: "Locked down"},
+			Owner: gotgbot.User{Id: 1, FirstName: "Al"}, GroupTitle: "Lock Chat", Language: "en",
+		})
+		if !photo.OK {
+			t.Fatalf("photo on lockdown refused with %q, want OK", photo.RefusalKey)
 		}
 	})
 }

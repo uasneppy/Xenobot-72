@@ -10,6 +10,7 @@ import (
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/chats"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/federations"
 	"github.com/uasneppy/fuku_robot/fuku/db/logchannels"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
@@ -41,6 +42,7 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 		ChatId:                 srcChat,
 		Limit:                  9,
 		Action:                 "tmute",
+		ActionSecs:             1800,
 		DeleteAntifloodMessage: true,
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.AntiRaidSettings{
@@ -53,7 +55,7 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 		ChatID: srcChat, UserID: 101, ApprovedBy: 202, Reason: "trusted",
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.BlacklistSettings{
-		ChatId: srcChat, Word: "scam", Action: "tban", Reason: "custom reason",
+		ChatId: srcChat, Word: "scam", Action: "tban", ActionSecs: 86400, Reason: "custom reason",
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.CaptchaSettings{
 		ChatID: srcChat, Enabled: true, CaptchaMode: "text", Timeout: 9,
@@ -125,10 +127,22 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 		FileID: "rules-file", MediaType: 4, Buttons: buttons, MediaBelow: true,
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.WarnSettings{
-		ChatId: srcChat, WarnLimit: 7, WarnMode: "tmute",
+		ChatId: srcChat, WarnLimit: 7, WarnMode: "tmute", WarnModeSecs: 7200, ExpiryDays: 30,
 	}).Error)
+	warnTimes := models.Int64Array{time.Now().Unix() - 2*86400, time.Now().Unix() - 3600}
 	require.NoError(t, db.DB.Create(&models.Warns{
-		UserId: warnUserID, ChatId: srcChat, NumWarns: 2, Reasons: models.StringArray{"one", "two"},
+		UserId: warnUserID, ChatId: srcChat, NumWarns: 2, Reasons: models.StringArray{"one", "two"}, WarnTimes: warnTimes,
+	}).Error)
+	require.NoError(t, db.DB.Create(&models.ChatEventMessage{
+		ChatID: srcChat, Event: eventmsg.EventBan, Dest: eventmsg.DestGroup,
+		Text: "custom ban", FileID: "ban-photo", MediaType: db.PHOTO, Buttons: buttons, Silent: false,
+	}).Error)
+	require.NoError(t, db.DB.Create(&models.ChatEventMessage{
+		ChatID: srcChat, Event: eventmsg.EventBan, Dest: eventmsg.DestPM,
+		Text: "custom pm ban", Buttons: buttons, Silent: false,
+	}).Error)
+	require.NoError(t, db.DB.Create(&models.ChatEventMessageOptions{
+		ChatID: srcChat, PMDetails: true, PMLog: true, PlainTone: true,
 	}).Error)
 
 	// Existing destination data must be replaced, not merged.
@@ -140,6 +154,9 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.Warns{
 		UserId: staleWarnUserID, ChatId: dstChat, NumWarns: 1, Reasons: models.StringArray{"stale"},
+	}).Error)
+	require.NoError(t, db.DB.Create(&models.ChatEventMessage{
+		ChatID: dstChat, Event: eventmsg.EventKick, Dest: eventmsg.DestGroup, Text: "stale kick",
 	}).Error)
 
 	fed, err := federations.CreateFederation(fedOwnerID, "Backup Fed")
@@ -173,6 +190,7 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	require.NotNil(t, antifloodData.Settings)
 	assert.Equal(t, 9, antifloodData.Settings.Limit)
 	assert.Equal(t, "tmute", antifloodData.Settings.Action)
+	assert.Equal(t, 1800, antifloodData.Settings.ActionSecs)
 	assert.True(t, antifloodData.Settings.DeleteAntifloodMessage)
 
 	antiraidData, err := exportAntiraidData(dstChat)
@@ -194,6 +212,7 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	require.Len(t, blacklistsData.Entries, 1)
 	assert.Equal(t, "scam", blacklistsData.Entries[0].Word)
 	assert.Equal(t, "tban", blacklistsData.Entries[0].Action)
+	assert.Equal(t, 86400, blacklistsData.Entries[0].ActionSecs)
 	assert.Equal(t, "custom reason", blacklistsData.Entries[0].Reason)
 
 	captchaData, err := exportCaptchaData(dstChat)
@@ -313,10 +332,13 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	require.NotNil(t, warnsData.WarnSettings)
 	assert.Equal(t, 7, warnsData.WarnSettings.WarnLimit)
 	assert.Equal(t, "tmute", warnsData.WarnSettings.WarnMode)
+	assert.Equal(t, 7200, warnsData.WarnSettings.WarnModeSecs)
+	assert.Equal(t, 30, warnsData.WarnSettings.ExpiryDays)
 	require.Len(t, warnsData.Warns, 1)
 	assert.Equal(t, warnUserID, warnsData.Warns[0].UserId)
 	assert.Equal(t, 2, warnsData.Warns[0].NumWarns)
 	assert.Equal(t, models.StringArray{"one", "two"}, warnsData.Warns[0].Reasons)
+	assert.Equal(t, warnTimes, warnsData.Warns[0].WarnTimes)
 
 	fedsData, err := exportFederationsData(dstChat)
 	require.NoError(t, err)
@@ -330,6 +352,28 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	assert.Equal(t, dstLogChannelID, logsData.Settings.LogChannelID)
 	assert.False(t, logsData.Settings.CatAdmin)
 	assert.True(t, logsData.Settings.CatReports)
+
+	messagesData, err := exportMessagesData(dstChat)
+	require.NoError(t, err)
+	require.Len(t, messagesData.Messages, 2, "stale destination custom message must be replaced")
+	assert.Equal(t, eventmsg.EventBan, messagesData.Messages[0].Event)
+	assert.Equal(t, eventmsg.DestGroup, messagesData.Messages[0].Dest)
+	assert.Equal(t, "custom ban", messagesData.Messages[0].Text)
+	assert.Equal(t, "ban-photo", messagesData.Messages[0].FileID)
+	assert.Equal(t, db.PHOTO, messagesData.Messages[0].MediaType)
+	assert.Equal(t, buttons, messagesData.Messages[0].Buttons)
+	assert.False(t, messagesData.Messages[0].Silent)
+	assert.Equal(t, eventmsg.EventBan, messagesData.Messages[1].Event)
+	assert.Equal(t, eventmsg.DestPM, messagesData.Messages[1].Dest)
+	assert.Equal(t, "custom pm ban", messagesData.Messages[1].Text)
+	assert.Empty(t, messagesData.Messages[1].FileID)
+	assert.Zero(t, messagesData.Messages[1].MediaType)
+	assert.Equal(t, buttons, messagesData.Messages[1].Buttons)
+	assert.False(t, messagesData.Messages[1].Silent)
+	require.NotNil(t, messagesData.Options)
+	assert.True(t, messagesData.Options.PMDetails)
+	assert.True(t, messagesData.Options.PMLog)
+	assert.True(t, messagesData.Options.PlainTone)
 }
 
 func TestExportChatDataReturnsDatabaseErrors(t *testing.T) {

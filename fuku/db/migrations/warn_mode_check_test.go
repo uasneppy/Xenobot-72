@@ -111,9 +111,11 @@ func TestWarnModeCheckOnPostgres(t *testing.T) {
 
 	var checks []string
 	if err := tx.Raw(
-		`SELECT conname FROM pg_constraint
-		 WHERE conrelid = 'warns_settings'::regclass AND contype = 'c'
-		   AND pg_get_constraintdef(oid) LIKE '%warn_mode%'`,
+		// The checks whose columns include warn_mode itself: matching the definition's text would also catch
+		// the check of warn_mode_secs (migration 20261122120000), which constrains another column.
+		`SELECT c.conname FROM pg_constraint c
+		 JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+		 WHERE c.conrelid = 'warns_settings'::regclass AND c.contype = 'c' AND a.attname = 'warn_mode'`,
 	).Scan(&checks).Error; err != nil {
 		t.Fatalf("list the warn_mode checks: %v", err)
 	}

@@ -82,7 +82,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   plus grace). It waits for the public notice and the cannot-lock warning of an automatic lockdown that are in flight
   (`raidPosts`, a counter and not a `sync.WaitGroup`, because the drain gives up after its wait while a new post can still
   start). A post is best effort: the lockdown it announces is already in place and its alert is driven by the database,
-  so a post still running when the 2 s are up is cut off with the process and only that notice is lost.
+  so a post still running when the 2 s are up is cut off with the process and only that notice is lost. Since Phase 25
+  the notice, the group's custom message or the default, is sent inside that same tracked post (`raidPostNotice` calls
+  `postLockdownAutoEvent` inside `raidPostAsync`), so the drain covers a custom send too and no drain, handler or second was
+  added (`TestEventMessageLockdownAuto`'s `drain`).
 - `DrainAISpamChecks` is the `/aispam` pool's drain, a plain shutdown handler (`RegisterHandler`, the 10 s default) that
   `main.go` registers right after `RegisterRaidAIDrain`, so LIFO runs it before `StopRaidAI`. It sets `aispamDraining`
   for good (a late update is shed, never started; nothing resets it), cancels the pool's root context first
@@ -92,6 +95,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   refused once `raidAIDraining` is set (`raidAIFireAsync` counts the start in `raidAIFires` before it reads the flag), so
   no start begins behind `StopRaidAI`'s back. Tests wait for checks with `waitAISpamChecks`, which closes and cancels
   nothing, and a test that runs the drain restores the pool with `restoreAISpamPool` (`TestShutdownDrainsAISpamChecks`).
+  The AI spam notice (Phase 24, `postAISpamNotice`) runs inside a worker as the last step of a delete verdict, so it adds no
+  drain and no second: it returns at once once `aispamContext` is cancelled, and its pacer wait derives from that context
+  with a `MaxWait` of 2 s, so the drain's 9 s and the shutdown worst case are unchanged.
 - `StopChat` is the conversation pool's stop (Phase 20), a plain shutdown handler (`RegisterHandler`, the 10 s default) that
   `main.go` registers right after `DrainAISpamChecks`, so LIFO runs it before the AI spam drain. It sets `chatDraining` for good
   (a late addressed message is shed), cancels the pool's root context first (`chatContext`: every provider call, typing action
@@ -137,6 +143,26 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and the batcher under that one 3 s timer, so the stop adds no new drain, no handler registration and no allowance: the 68 s
   figure and `stop_grace_period: 75s` stand unchanged. A flush cut off loses only entries that were never queued, whose
   messages stay (`TestShutdownEndsMemberDeletionBatcher`).
+- The private copy jobs of event messages (`pmCopyJobs`, `event_message_pm.go`) have no drain and no flag: a restart cuts
+  off the copies in flight (best effort, like the federation fan-out), so the 68 s worst case and `stop_grace_period: 75s`
+  are unchanged and `main.go` registers nothing for them.
+- Phase 26 adds no drain: the escalation ladder's resolver (`escalate`) starts no goroutine and the offence count runs inside the
+  calling handler under its own 2 s context, so the worst case above and `stop_grace_period: 75s` are unchanged.
+- Phase 27 adds no drain: manual command defaults (`manualDefaultsFor`), reason shortcut expansion (`expandManualReason`) and
+  appeal link lookup (`manualAppealURLFor`) start no goroutine and run inside the calling handler under bounded 2 s contexts,
+  so the worst case above and `stop_grace_period: 75s` are unchanged.
+- Phase 28 adds zero goroutines and zero shutdown drains: `advThresholdsFor` (`fuku/modules/advthresholds.go`) runs synchronously
+  under a bounded 2 s context via the `skipLocal` Redis cache (`chat_advanced_thresholds:<chat>`), so the 70 s worst case and
+  `stop_grace_period: 75s` are unchanged.
+- Phase 29 adds zero goroutines, zero handler groups, and zero shutdown drains: Plain tone (`msgs.Options.PlainTone` read inside the
+  existing `eventMessagesLookup` under `event_messages:<chat>` in `skipLocal`) and Copy Settings (`applyCopySettings`, one-time Redis
+  confirmation tokens under `fuku:settings:copy:<token>`) run synchronously inside the calling handler under bounded contexts, so the
+  70 s worst case and `stop_grace_period: 75s` are unchanged.
+- Phase 30 adds zero goroutines, zero handler groups, and zero shutdown drains: `BackupModuleMessages` (`"messages"`),
+  `eventmsg.ReplaceAllValidatedTx`, the shared backup apply helpers in `fuku/modules/backup.go`, cross-replica Redis backup tokens
+  (`fuku:settings:backup:import:<token>` and `fuku:settings:backup:reset:<token>`), and the private Backup settings page `ba` (reusing
+  the existing typed-reply door at group `1`) run synchronously inside the calling handler under bounded contexts, so the 70 s worst
+  case and `stop_grace_period: 75s` are unchanged.
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
 - The Turnstile web captcha is configured in `main` (`registerCaptchaWeb`) when `config.AppConfig.CaptchaWebConfigured()`
   holds: all four of `CAPTCHA_WEB_BASE_URL`, `TELEGRAM_MINI_APP_SHORT_NAME`, `TURNSTILE_SITE_KEY` and
@@ -257,16 +283,26 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   applies the list's action only when the cached restrict right holds for mute, kick and ban (warn needs none) and the
   per-member latch (`forwardBlockPunished`, key (group, member), `forwardBlockPunishWindow`, 60 s, claimed in one
   check-and-set) grants it, so an album of blocked forwards deletes every item and punishes the member once, and a later
-  forward after the window punishes again. The actions: `none` is the delete alone, `warn` is `warnsModule.warnThisUser` with
+  forward after the window punishes again. Inside that latch the mute, kick and ban are resolved through the linked group's escalation
+  ladder (`escalate`, source `fwdblock`, see the Escalation ladder bullet), so with the ladder on the step replaces the list's action in
+  that group (`forwardBlockPunishmentOf`, `forwardBlockPunishTimed` for a timed step) and with it off the list's action applies as below. The actions: `none` is the delete alone, `warn` is `warnsModule.warnThisUser` with
   `warnSourceAuto` (the sentinels `ext.EndGroups` and `ext.ContinueGroups` ignored, as `blacklistWatcher` does), `mute` is
   `RestrictChatMember` with `MutedPermissions` and no end date, `kick` is `kickMember`, `ban` is `BanChatMember` with no end
-  date; after mute, kick and ban the notice is the existing `blacklists_bl_watcher_{muted,kicked,banned}_user` template spliced
-  with `formatting.MentionHtml` and the reason `staff_fwdblock_reason`, in the group's language, then queued through
-  `scheduleBotMessage(sent, deletion.KindBotAuto)` (`forwardBlockNotice`, in `forwardblock_notice.go` and not in a `staff*` file,
-  because the notice is a linked group's own message and `TestMemberDeletionExcludedMessages` forbids any deletion producer in a
-  staff file); the reason and the notices name neither the source nor the Staff Group.
+  date; after mute, kick and ban the punishment calls `forwardBlockNotice(b, ctx, userID, p)` with the punishment as applied (an `autoPunishment`; the
+  action word `"mute"`, `"kick"` or `"ban"`, or a ladder's timed step with its end date), which posts the `fwdblock` event through the event message engine (`postEvent`, Phase 23
+  plan 23-04): a group's stored forward blocklist message replaces the default, which is the existing
+  `blacklists_bl_watcher_{muted,kicked,banned}_user` template with the member's mention and the reason
+  `staff_fwdblock_reason`, in the group's language; both are queued as `bot:punish_auto` (the blacklist's site and reply,
+  `listNoticeSite` and `listNoticeReply` in `event_message_auto.go`). `forwardBlockNotice` lives in `forwardblock_notice.go`
+  and not in a `staff*` file, because the notice is a linked group's own message, `TestMemberDeletionExcludedMessages`
+  forbids any deletion producer in a staff file and `TestPMCopyCallers` forbids `postEvent` in one; the watcher reaches the
+  engine only through that file and `warns.go` (D-30). The reason and the notices, default or custom, name neither the
+  source nor the Staff Group: the site holds only the fixed reason and the member, so no placeholder can add them (D-31,
+  `TestEventMessageForwardBlock`).
   A sender_chat channel identity or an anonymous admin posting a blocked forward is exempt: a stated limit. The two action
-  vocabularies are one set (`TestForwardBlockVocabulary`); `blacklistWatcher`'s own inline switch is not edited.
+  vocabularies are one set (`TestForwardBlockVocabulary`); `blacklistWatcher`'s own action switch (since plan 26-05 in
+  `blacklistPunish`) is not shared with it. `forwardBlockNotice(b, ctx, userID, action)` hands the shared reply
+  `autoPunishment{Action: action}`, so its notices of a plain mute, kick or ban are byte-identical.
 - The `ServiceDeletion` module (priority 242, `deletion_service.go`) registers the service message deletion watcher
   at group `-5` (`serviceDeleteGroup`) through `handlers.NewMessage` with `SetAllowBot(true)`, the only handler of that
   group, so never add a second message handler there that ends an update. The watcher's result is a named value preset to
@@ -396,7 +432,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   bot and never about a member) and never classifies; a group with name rules only keeps its single `GET` exactly as before.
   While the AI spam-name rule is live (`memberReqAILive`: its action is not Off and the process is configured; an
   unconfigured stored value counts as Off there, or every message of every member would start a job for ever) the same
-  round also reads `fuku:memberreq:nv:<verdict key hash>`, `fuku:memberreq:nm:<user>` and `fuku:memberreq:nu:<chat>:<user>`
+  round also reads `fuku:memberreq:nv:<verdict key hash>`, `fuku:memberreq:nm:<chat>:<user>` and `fuku:memberreq:nu:<chat>:<user>`
   (`memberReqAIWatchQueue`: the canonical names and the verdict key come from pure Go, with `config.AppConfig.AnthropicModel`),
   and the AI part is satisfied only when the marker is absent and either the verdict parses and is below the bar or the
   baseline equals the current names hash (`memberReqAIWatchSatisfied`, pure: a miss, an unparsable value, NaN, an infinity
@@ -599,6 +635,16 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`TestSettingsStartDeepLinkSameAnswer`). Every refusal is a plain reply with no keyboard. The Main page is sent to the
   private chat in the user's language, its buttons carrying `c` (the group's chat ID) and no opener field. A `/start`
   with extra words (`settings_ -100`) has an unexpected argument count, so `start` ignores it and the handler never runs.
+- The Details button's deep link is `RegisterDeepLinkHandler("pmcopy_", pmCopyDetailsDeepLink)` (`event_message_pm_details.go`,
+  plan 22-06, PMSG-04, D-20), registered from that file's `init`, so `help.go` and `deeplink_router.go` are not edited; deep
+  links run in private chats only. The payload is attacker-controlled and authorizes nothing: `parsePMCopyDetails` accepts
+  exactly `pmcopy_` and 22 characters of `A-Za-z0-9_-`, the record is read by the token alone (`pmCopyDetailsGet`, Data:
+  `fuku:pmcopy:det:<token>`) and the stored copy is sent, with `media.SendGreetingMessage` (no header, no reply target), to the
+  opener's private chat only when the record's `u` equals the opener's user ID. A malformed payload, an unknown or expired
+  token, a record that does not parse, a Redis error and an opener the record does not name all get one neutral reply,
+  `eventmsg_pm_details_none` in the opener's language (`msg.Reply` inside the handler), which names no group, event or person,
+  so nobody can learn whether a token exists or whose it is. The punished person may open it again until the record expires.
+  No line logs the token, the copy or a name (`TestPMCopyDetailsDeepLink`; through the dispatcher, `TestPMCopiesEndToEnd`'s `not started`).
 
 ## Callbacks
 
@@ -724,7 +770,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `mreq_fixed_check_failed`, so the same button works on the next tap; (10) the toast `mreq_fixed_done` and the notice edited
   to `mreq_notice_fixed` with no keyboard, or, when the permissions came from an active lockdown, the alert
   `mreq_fixed_done_lockdown` and `mreq_notice_fixed_lockdown`; the edited message is rescheduled for deletion only when it is
-  the hold's own stored notice (the notice ID is compared for that alone, never for the unmute: SEC-01). Only a hold with `welcome_held` (a join mute) then sends the held
+  the hold's own stored notice (the notice ID is compared for that alone, never for the unmute: SEC-01). Since Phase 24 the
+  stored notice is whichever message the requirement site posted, a group's custom mute notice or the default: a custom one carries
+  the same button below its custom buttons and is always text, so the tap edits and reschedules it exactly as the default
+  (`memberreq_fixed.go` is unchanged, `TestEventMessageMemberReqMute`). Only a hold with `welcome_held` (a join mute) then sends the held
   welcome, once, through `SendWelcomeMessage` after the query is answered, so Greet once claims the member only then; a
   message hold sends none. The query is answered exactly once on every path, in the group's language (`ctxTr` of the group
   callback): `memberReqFixedCallback` recovers from a panic and defers a single answer, as `settingsCallback` does. Every
@@ -732,8 +781,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   outcome, and a log line carries chat, user and hold IDs only.
 - The `settings|v1` namespace is the settings menu (`settings_menu.go`, `settings_pages.go`). Fields: `a` action, `c` the
   group's chat ID (a menu opened in private), `u` the opener's user ID (a menu opened in the group), `p` page (`s` staff,
-  `l` lockdown, `c` captcha, `f` antiflood, `w` welcome, `g` goodbye, `r` rules, `m` member requirements, `d` deletion, `n` warnings, `t` switches, `u` language, `o` log channel, `y` anonymous admins, `k` locks, `b` blacklist, `i` filters, `e` notes, `a` access), `t` control, `v` the absolute target value (the Locks page's pager is its own
-  action code `kg`, with `v` the absolute page, and the Blacklist page's is `bp` (not `bg`, which is the Deletion page's Bot goodbye row code and is held apart by `TestSettingsDeletionMemberCodesUnique`; the Deletion page's bot row codes `bw bg br ba bm` also rule out `ba` for the Blacklist's Add), with `v` the absolute page of at most four digits, `bx` its delete ask with `r` the row ID of 1 to 17 digits and `v` the page, and `by` the delete Yes with `r` and `e`, exactly 64 bytes at a 14-character chat ID and a 17-digit row ID, which is why `r` is bounded at 17 digits, U-5; Add is `bn` and Cancel `bc` with `t`, the action screen `bo` and `bs`, so the Blacklist page has the seven codes `bp bx by bo bs bn bc`; the Filters page has `ig ix iy ia ic` and the Notes page `eg ex ey ea ec` with the same fields, 17 list codes in all, every one with the owner field `c`); `e` (confirm expiry), `r`
+  `l` lockdown, `c` captcha, `f` antiflood, `w` welcome, `g` goodbye, `r` rules, `m` member requirements, `d` deletion, `n` warnings, `t` switches, `u` language, `o` log channel, `y` anonymous admins, `k` locks, `b` blacklist, `i` filters, `e` notes, `x` reactions, `z` timezone, `h` messages, `v` blocked sources, `a` access), `t` control, `v` the absolute target value (the Locks page's pager is its own
+  action code `kg`, with `v` the absolute page, and the Blacklist page's is `bp` (not `bg`, which is the Deletion page's Bot goodbye row code and is held apart by `TestSettingsDeletionMemberCodesUnique`; the Deletion page's bot row codes `bw bg br ba bm` also rule out `ba` for the Blacklist's Add), with `v` the absolute page of at most four digits, `bx` its delete ask with `r` the row ID of 1 to 17 digits and `v` the page, and `by` the delete Yes with `r` and `e`, exactly 64 bytes at a 14-character chat ID and a 17-digit row ID, which is why `r` is bounded at 17 digits, U-5; Add is `bn` and Cancel `bc` with `t`, the action screen `bo` and `bs`, so the Blacklist page has the seven codes `bp bx by bo bs bn bc`; the Filters page has `ig ix iy ia ic` and the Notes page `eg ex ey ea ec` with the same fields, 17 list codes in all, every one with the owner field `c`; the Messages page has `hl` (a family's list, `t`), `he` (an event's screen) and the editor codes `hs hr hc hv hf` and `hq`, each with the field `k`, the event code, and the owner field `c`, plus `hp` (a private copy's switch, `k` and `v`), `ho` (a toggle of the hub's private copies block, exactly `t`, an option code of `settingsMsgPMOptions`, and `v`, with the owner field `c` and no `k`) and, on `he hs hr hc hv hf`, the field `d`, the destination: absent for the group message and `p` for the private copy, any other value an invalid request in step 1); `e` (confirm expiry), `r`
   (the lockdown row ID of a Lift card), `l` (the link row ID of an Unlink card) and `s` (Staff Group row ID) arrive with
   the confirm cards and the Link pick. Core action codes: `oh` open here (the choice
   message becomes the Main page), `op` open page `p` (also Refresh and a stepper's value button), `bk` Back to Main, `cl`
@@ -804,6 +853,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and the navigation row: twelve rows for the owner and eleven for an administrator, and twenty state lines; a Staff Group's Main is
   `s|v / l|c / f|n / k|b / i|w / g|r / e|x / m|t / u|o / y` with the same row counts. The numbers in the sentences above are the
   history and the constants of `settings_main_test.go` are the current shape.
+  The Messages page (key `h`, `Order` 74, right after Reactions; Phase 21, plan 21-06) adds the twenty-first cell for every chat that is
+  not a Staff Group, so Main is now `s|l / c|f / n|k / b|i / w|g / r|e / x|h / m|d / t|u / z|o / y` (ten full rows and Anonymous admins
+  alone on the eleventh), then Access and the navigation row: thirteen rows for the owner and twelve for an administrator, private and
+  group alike (`settingsMainOwnerRows` 13). The page is `Hidden` in a Staff Group, so a Staff Group's Main is unchanged:
+  `s|v / l|c / f|n / k|b / i|w / g|r / e|x / m|t / u|z / o|y`, twelve rows for the owner and eleven for an administrator, one row
+  fewer than another chat's (`TestSettingsFwdBlockMainShape`, whose row count is `settingsMainOwnerRows - 1`).
+  With the Conversations page (key `p`, Phase 20, an `OwnerOnly` row like Access, merged from main) Main is
+  `s|l / c|f / n|k / b|i / w|g / r|e / x|h / m|d / t|u / z|o / y`, then Conversations and Access for the live owner and the
+  navigation row: fourteen rows for the owner and twelve for an administrator, private and group alike (`settingsMainOwnerRows`
+  14, `settingsMainOwnerOnlyRows` 2); a Staff Group's Main keeps Messages hidden and shows Conversations, thirteen rows for the
+  owner and eleven for an administrator (`TestSettingsFwdBlockMainShape`).
   The Blocked sources page (key `v`, `Order` 11, quick task 261113-tjj) is the one page that exists for a Staff Group only (its `Hidden`
   hook, below), so every other chat's Main keeps the eighteen cells, the constants `settingsMainShapeGroup`, `settingsMainShapePrivate`
   and `settingsMainOwnerRows` and the nineteen state lines above. A Staff Group's Main hides Deletion (`d`) and shows Blocked sources, so
@@ -887,9 +947,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   lift a newer lockdown); the menu never calls `setChatPermissions`, `BeginLift` or `FinishLift` itself. Every outcome redraws the page with the command's words as a notice
   (`lockdownLiftApplyText`), and a recorded lift redraws it before anything is announced (the announcement waits for a
   pacer slot, up to a minute, and the card with its live Yes must not stay on screen meanwhile). A lift from a private
-  menu is then announced through `lockdownAnnounceLift`; a lift from a menu opened in the group only wakes the worker,
-  because the redrawn menu already says it in that same chat and a second public message would say it twice. The page
-  never starts a lockdown.
+  menu is then announced through `lockdownAnnounceLift`; a lift from a menu opened in the group wakes the worker and then
+  calls `postLockdownLiftEvent` with the default switched off, because the redrawn menu already says it in that same chat and
+  a second public default would say it twice: the group's custom `locklift` message is posted as a new message when one is
+  stored (content and Silent off), and nothing stored, Silent, a read error or a refused custom message keep today's single
+  redraw (D-22). The page never starts a lockdown.
 - The Access page (`settings_access.go`, page `a`, `OwnerOnly`) is the owner switch "Admins can change settings". It
   declares control `s` and the page action `ay` (Yes, with `e`), both with `settingsRightOwner`. An `OwnerOnly` page is
   drawn and opened only for the live creator: `settingsMainEntries` skips it without calling its `MainState` unless the
@@ -1049,7 +1111,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settings_entries_group_note`, the Open in private URL row of `settingsEditOpenPrivateRow`, left out and logged without a bot
   username, and Back and Close) without calling `Open`, so no page code and no database read runs in a group menu and no entry,
   count or word of a list can reach it. A private menu calls `MainState` and `Open` as for every page. The note is drawn after the
-  `OwnerOnly` and `Hidden` guards, whichever route reached the page (open, Back, a forged Refresh). `TestSettingsPrivateOnlyPage`
+  `OwnerOnly` and `Hidden` guards, whichever route reached the page (open, Back, a forged Refresh). A page may name its own note line
+  with the optional `PrivateNoteKey` (Phase 21, plan 21-06): `openPage` then draws `renderSettingsPrivateOnlyNoteWith` with that key
+  (the Messages page's `settings_msg_group_note`), and an empty key keeps `settings_entries_group_note`. `TestSettingsPrivateOnlyPage`
   proves it through a page the test registers (counting `MainState` and `Open`, zero calls in a group menu).
 - The Deletion page (`settings_deletion.go`, page `d`, `Order` 85, icon 🧹, `settings_page_del`, between Member requirements and
   Access, Phase 16) registers from its own file. Its one framework hook is the optional `settingsPage.Hidden func(group
@@ -1121,11 +1185,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`warns.LoadWarnSettingsContext`, the key `/setwarnlimit`, `/setwarnmode` and `/warnings` and the warn module read: no row
   means limit 3 and mode `mute`, nothing is created or cached for it, and a failed read is the cannot-open edit and the
   unknown mark on Main). Main's state is `settings_state_warns` (`Limit {n}, {action}`, the action's word through
-  `settingsWarnsActionWord`: the Antiflood words of `settingsFloodActionWord`, the stored text escaped for a value outside
-  them, `settings_state_not_set` for an empty mode). The body is the limit line (`settings_warns_limit`), the action line
-  (`settings_warns_action`), the inert line while the stored action is not one the bot acts on, a blank line and the hint
-  (`settings_warns_hint`); the keyboard is the stepper, the choice row `[Mute | Ban | Kick]` and Back and Close, widths 5, 3
-  and 2 in a group menu and in a private one, the largest button 48 bytes (private) and 44 (group). There are two controls,
+  `settingsWarnsActionWord(tr, mode, secs)`: the timed word `settingsTimedWord` (`settings_opt_timed`, "Timed mute, 1 hour(s)")
+  for an effective timed mode (`autoActionEffective`), else the Antiflood words of `settingsFloodActionWord`, the stored text
+  escaped for a value outside them, `settings_state_not_set` for an empty mode). The body is the limit line
+  (`settings_warns_limit`), the action line (`settings_warns_action`), the inert line while `autoActionEffective(mode, secs)` is
+  false, the expiry line (`settings_warns_expiry_line`, Phase 26 plan 26-07), a blank line and the hint (`settings_warns_hint`);
+  the keyboard is the stepper, the choice row `[Mute | Ban | Kick]`, the timed row `[Timed mute | Timed ban]` (Phase 26, plan
+  26-03, `settings_opt_tmute` and `settings_opt_tban`), the full-width expiry button (`settings_btn_warns_expiry`, `🕒 {state}`
+  with a word) and Back and Close, widths 5, 3, 2, 1 and 2 in a group menu and in a private one, the largest button 48 bytes
+  (private) and 44 (group). A
+  mode `/setwarnmode` accepts without a duration is marked in the choice row and an effective timed mode in the timed row (the
+  choice row then marks nothing). There are two controls,
   both `st` only (`Actions`, so a `tg` is an invalid request before any I/O) and both with right `settingsRightAdminFloodBot`
   (the right `/setflood` uses, because `/setwarnlimit`'s and `/setwarnmode`'s `IsUserConnected(true, true)` ask for an admin
   and for the bot as an administrator; the cached `RequireUserAdmin` of the commands is replaced by the live check every
@@ -1135,12 +1205,44 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   or 100 answers the toast `settings_min_value` or `settings_max_value` and writes nothing; every other press writes through
   `applyWarnLimit`, the function `/setwarnlimit` calls. `m` is the action (`settingsWarnsModeKey`): `v` one to ten
   lower-case ASCII letters (`settingsFloodModeWord`, the Antiflood shape, so a long, upper-case or non-letter word is an
-  invalid request before any I/O) and the write goes through `applyWarnMode`, the function `/setwarnmode` calls, which accepts
-  exactly `warnSettingsModes` (ban, kick, mute): any other lower-case word, `tban`, `tmute` and `warn` included, is refused
+  invalid request before any I/O) and the write goes through `applyWarnMode`, the function `/setwarnmode` calls, with
+  seconds 0 (a plain mode stores 0, so Mute, Ban or Kick clears a stored duration), so it accepts exactly
+  `warnSettingsModes` (ban, kick, mute): any
+  other lower-case word, `tban`, `tmute` (a timed mode with no duration is the unknown outcome) and `warn` included, is refused
   with the command's own `warns_mode_unknown` (the word escaped, because the locale text is the command's printf template and
-  the page is HTML) as a warn notice over the stored state, and writes nothing. A stored `tban`, `tmute` or empty action
-  (the table's CHECK allows them) applies nothing at the limit, so the page draws the stored word or Not set, adds
-  `settings_warns_action_inert` and marks no choice; a press of Mute, Ban or Kick replaces it. The Antiflood note
+  the page is HTML) as a warn notice over the stored state, and writes nothing. The timed row sets a timed mode (D-20): its
+  two cells press the page action `nd` (field `k`, `m` for the timed mute and `b` for the timed ban, checked in step 1 by
+  `settingsWarnsDurationFields`; right `settingsRightAdmin`, so it opens with the live admin check alone and writes nothing),
+  which draws the shared duration screen (`renderSettingsDuration`) with Timed mute's or Timed ban's intro, the stored preset
+  marked only while that timed mode is stored and effective, and Back to the Warnings page (`a=op&p=n`). Each preset presses
+  `nt` (fields exactly `k` and `v`, `v` a preset's canonical decimal seconds by `settingsDurationPreset`, so a forged mode,
+  duration or extra field is an invalid request in step 1 before any lookup; right `settingsRightAdminFloodBot`, the right of
+  `/setwarnmode`), whose Run stores the timed mode with the preset's seconds through `applyWarnMode(ctx, p.group.Id, mode,
+  secs)` and redraws the Warnings page from the read-back (its action line confirms the choice; a press of the stored preset
+  writes the same row again and shows no notice; `warnSettingsBadDuration`, unreachable from a valid press, is a warn notice).
+  A duration a command stored that is no preset (`/setwarnmode tmute 90m`) is drawn on the action line by its label and marks no
+  preset. A refusal the framework answers with a notice (the bot is not an administrator) redraws through the page's `Open`,
+  the Warnings page. The duration screen is 47 bytes at its largest (the 30-day preset, private) and 43 in a group menu. The warn
+  expiry (Phase 26, plan 26-07, TUNE-03, D-38) has no command: the expiry line and button read Off or the expiry as `/warnings`
+  shows it (`settingsWarnsExpiryLabel`: `settings_state_off_plain` for 0, else `punishDurationLabel(tr, days*86400)`, so 7 and 14
+  days read as weeks and the page and the command never disagree). The button presses the page action `ne` (no field, right
+  `settingsRightAdmin`, so it opens with the live admin check alone and writes nothing), which draws the pure expiry screen
+  (`renderSettingsWarnsExpiry`: the page header, `settings_warns_expiry_intro`, the expiry line, `settings_warns_expiry_hint`, which
+  says an expired warn stops counting at once, is dropped from the member's record at their next warn change and is not brought back
+  by raising the expiry later, then the presets `settingsWarnsExpiryPresets` 0, 1, 3, 7, 14, 30 and 90 days two to a row, Off and the
+  `punishDurationLabel` words, the stored one marked and a stored value that is no preset (a backup import) drawn on the line and
+  marking nothing, then Back to the page `a=op&p=n` and Close: rows `[2 2 2 1 2]`). Each preset presses `nx` (field exactly `v`, the
+  canonical decimal days of a preset by `settingsWarnsExpiryPreset`, so 2, 366, 007, -1, an empty or missing `v` and an extra key are
+  invalid requests in step 1 before any lookup; right `settingsRightAdminFloodBot`, the right of the warn commands), whose Run stores
+  through `applyWarnExpiry(ctx, chatID, days)` in `warns.go` (the expiry's one write path, beside `applyWarnMode`: a value outside 0
+  to `models.WarnExpiryMaxDays` is `warnSettingsBadExpiry` with nothing written, unreachable from a valid press; the write goes
+  through the seam `warnSettingsWrites.Expiry`, default `warns.SetWarnExpiryContext`, which drops `warn_settings:<chat>`; a failed
+  write is `common_settings_save_failed`; it judges no person's rights) and redraws the page from the read-back (a press of the stored
+  value writes the same row again and shows no notice). The expiry screen is 38 bytes at its largest (the 90-day preset,
+  private) and 34 in a group menu, so the page's largest stays 48 and 44. It also works in a menu opened in the group (P-21). A
+  stored `tban` or `tmute` with no duration (`warn_mode_secs` 0) or an empty action (the table's CHECK allows them) applies
+  nothing at the limit, so the page draws the stored word or Not set, adds `settings_warns_action_inert` and marks no choice; a
+  press of Mute, Ban, Kick or a timed preset replaces it. The Antiflood note
   `settings_antiflood_action_note` is not reused, because "cannot be set from the menu" would be false here. Neither write
   changes the other value the page shows: a first limit write stores mode `mute` and a first action write stores limit 3 (the
   repository's upserts). Every press redraws from the row the apply function read back (a refusal or a failed save,
@@ -1152,7 +1254,166 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestSettingsParityWarnLimit`, `TestSettingsParityWarnMode`, `TestSettingsWarnsInertAction`, `TestSettingsWarnsBounds`,
   `TestSettingsWarnsForged`, `TestSettingsDriftWarns`, `TestSettingsAuthorityParityWarns`, `TestSettingsWarnsCallbackBytes`,
   `TestSettingsWarnsPageFitsEveryLocale` and `TestSettingsWarnsReadsCreateNothing` hold it (`settings_warns_test.go`,
-  `settings_warns_screens_test.go`).
+  `settings_warns_screens_test.go`), with the timed row's `TestSettingsWarnsTimed`, `TestSettingsParityWarnTimed`,
+  `TestSettingsDriftWarnTimed`, `TestSettingsAuthorityParityWarnTimed` and `TestSettingsWarnsTimedForged`
+  (`settings_warns_timed_test.go`), and the expiry's `TestSettingsWarnsExpiry`, `TestSettingsDriftWarnExpiry`,
+  `TestSettingsAuthorityWarnExpiry` and `TestSettingsWarnsExpiryForged` (`settings_warns_expiry_test.go`; no command exists, so the
+  drift and authority tests stand in for a parity test).
+- The Escalation page (`settings_escalation.go`, page `j`, `Order` 43, icon 🪜, `settings_page_esc`, right after Warnings, Phase 26 plan 26-10,
+  TUNE-02, D-31) is where an administrator turns a group's escalation ladder on, defines its steps (up to `escalation.MaxSteps`, 5, each a mute,
+  kick, ban, timed mute or timed ban) and picks how long a member's offences are remembered. It registers from its own file through
+  `registerSettingsPage`, is `PrivateOnly` (`PrivateNoteKey` `settings_esc_group_note`: a group menu's Main reads `In private` and opening it draws the
+  note, with no page code and no read) and `Hidden` in a Staff Group (`settingsEscHidden`: a definite Staff Group row read fresh through the page's own
+  seam `settingsEscStaffLookup`; an unreadable row shows the page), so a Staff Group's Main is one cell shorter. It has page actions only, no controls:
+  `je` the toggle (`v` 0 or 1), `jf` the forget period (`v` the canonical decimal days of one of `escalationForgetPresets` 1, 7, 30, 90), `js` a step's
+  screen (`t` 1 to 5), `ja` an untimed step (`t`, `v` mute, kick or ban), `jd` a step's shared duration screen (`t`, `k` m or b) and `jt` a timed step
+  (`t`, `k`, `v` a preset of `settingsDurationPresets`) and `jr` Remove last (`t` the index the screen showed as last). Every `Validate` requires the
+  private owner field `c` and checks its own fields strictly in step 1, so a group menu's press, an index outside 1 to 5, a leading zero, `warn` as a
+  step and an off-preset duration are invalid requests before any `getChatMember`. Writes (`je jf ja jt jr`) declare `settingsRightRestrict`, judged
+  on the press's own live member record, because a ladder decides what the bot does to members; opening the page, a step screen (`js`) and a duration
+  screen (`jd`) need `settingsRightAdmin`. Every write goes through one of four apply functions in `escalation_settings.go` (no command exists), which
+  read the ladder fresh, check their rule against that read, write through the `escalationWrites` seam and return a typed `escalationApplyResult`
+  (outcome, the ladder read back or the one before a refusal): `applyEscalationEnabled` (turning on a ladder with no step stores the example,
+  `escalationExampleSteps`: a 1 hour timed mute, a 1 day timed mute, then ban, outcome `escalationExampleAdded`; turning off stores the switch and then
+  deletes the group's offence counts, a failed delete is logged and does not undo the switch), `applyEscalationStep` (replaces step n or appends the next
+  one; n beyond `len(steps)+1` by a fresh read is `escalationStale`, an invalid step or index `escalationInvalid`, both writing nothing),
+  `applyEscalationRemoveStep` (n must equal `len(steps)`, else stale; the only step of a ladder that is on is `escalationLastStepRefused`) and
+  `applyEscalationForget`. A refusal or failed save redraws the page with a notice (`settings_esc_stale`, `settings_esc_refuse_last_step`,
+  `common_settings_save_failed`); the example notice is `settings_esc_example_added`. The page reads through `escalation.GetFresh` (the `settingsEscRead`
+  and `escalationRead` seams), creates nothing, and a failed read is the cannot-open edit and the unknown mark on Main. Main's state is Off or
+  `settings_state_esc_steps` (`{n} steps`). Screens: the page (intro, state, one `settings_esc_step_line` per step with the last as
+  `settings_esc_step_line_last` "n and later", the forget line and the hint; rows `[1 5 1 4 2]` full, `[1 1 2 4 2]` with one step, `[1 1 4 2]` empty),
+  a step screen (`[3 2 2]`) and the shared duration screen titled with the page (Back returns to the step screen). No screen names a Staff Group, a
+  member or a count of offences. `TestSettingsEscalationOpens`, `TestSettingsEscalationSteps`, `TestSettingsDriftEscalation` (the page draws what the
+  repository stores, and a ladder set through the page is what `escalate` returns at the next offence), `TestSettingsAuthorityEscalation`,
+  `TestSettingsEscalationForged`, `TestSettingsEscalationReadsCreateNothing`, `TestSettingsEscalationCallbackBytes`,
+  `TestSettingsEscalationPageFitsEveryLocale` (`settings_escalation_test.go`, `settings_escalation_screens_test.go`, `escalation_settings_test.go` for
+  the apply functions' `TestEscalationApply`) hold it. With the page Main has 24 state lines for the owner (`n|j` in the grid)
+  and a Staff Group's Main hides it like Deletion and Messages.
+- The Manual defaults page (`settings_moddefaults.go`, page `q`, `Order` 41, icon ⚖️, `settings_page_moddefaults`, Phase 27 plan 27-05,
+  TUNE-04, TUNE-06) lets the owner or an allowed admin configure default `/ban` and `/mute` durations (Off/Permanent or the 8
+  `settingsDurationPresets`), the reason-required toggle, and the ban appeal link. It is `PrivateOnly` (`PrivateNoteKey`
+  `settings_moddef_group_note`: group Main shows `In private` with 0 DB reads) and `Hidden` in Staff Groups via fresh
+  `settingsModDefaultsStaffLookup`. Action codes: `md` (duration screen, `k` `b`|`m`, `settingsRightAdmin`), `mt` (set duration,
+  `k` `b`|`m`, `v` `0` or preset, `settingsRightRestrict`), `mr` (reason-required toggle, `v` `0`|`1`, `settingsRightRestrict`),
+  `ma` (prompt appeal link, `settingsRightRestrict`), `mk` (cancel appeal wait, `t` `"a"`, `settingsRightAdmin`), `mx` (remove
+  appeal link, `settingsRightRestrict`). Every `Validate` requires the private owner field `c` in step 1 (0 `getChatMember` calls
+  on forged or group-menu presses). The typed appeal wait registers `settingsTypedPages["q"]` (`Part: "a"`, `CancelCode: "mk"`,
+  `Right: settingsRightRestrict`, `WaitEndedKey: "settings_moddef_appeal_wait_ended"` — using the optional `WaitEndedKey` on
+  `settingsTypedPage` with fallback to `settings_tz_wait_ended_note` in `settings_input_door.go`). Writes route through
+  `applyDefaultBanSecs`, `applyDefaultMuteSecs`, `applyReasonRequired`, and `applyAppealURL` in `modtuning_settings.go`; stored
+  appeal URLs are displayed truncated to 64 runes and HTML-escaped, never written to callback data or logs.
+- The Reason shortcuts page (`settings_reasons.go`, page `rs`, `Order` 45, icon 🏷, `settings_page_reasons`, Phase 27 plan 27-06,
+  TUNE-05) is a private-only table of the v1.1 list engine (`settings_list.go`) `Hidden` in Staff Groups via fresh
+  `settingsReasonsStaffLookup`, with `Right: settingsRightRestrict`, `CountMax: 50`, and action codes `sq` (pager), `sx` (delete
+  ask), `sy` (delete confirm), `sm` (add), and `sc` (cancel). It uses the plain-text Step 2 mode (`CheckPlain`/`ApplyPlain`) on
+  `settingsListTwoStep` (`settings_list_input.go`, static parts `{rs, w, 1, r}` and `{rs, r, 2}`, skipping
+  `settings_entries_wait_content_limits` when `ApplyPlain != nil` so Filters and Notes stay byte-identical), sharing the exact
+  `StepMsgID` redelivery guard, fresh re-check before claim, and atomic claim/finish/release flow. Entries render as escaped
+  `<code>word</code> → full text` via `settingsListEntry.Detail` and writes route through `applyReasonShortcutAdd` (non-overwriting)
+  and `applyReasonShortcutRemoveByID` in `modtuning_settings.go`. With `q` and `rs` registered, Main has 27 registered pages total
+  (15 owner rows / 12 full pairs for regular groups; Staff Group Main hides both `q` and `rs`).
+- The Advanced thresholds page (`settings_advthresholds.go`, page `av`, `Order` 81, icon `🎛`, `settings_page_advanced`, Phase 28,
+  TUNE-07) exposes all 12 tunable thresholds across 6 areas (`rw` Raid windows, `nm` New-member share & age, `ab` AI spam bars,
+  `mr` Member req cap & pause, `lr` Lockdown reminder, `ct` Captcha timeout), showing current value, default, and allowed range
+  with curated safe presets, per-item reset, and per-area reset. It is `PrivateOnly` (`PrivateNoteKey` `settings_adv_group_note`:
+  group menus make 0 DB reads) and `Hidden` in Staff Groups via fresh `settingsAdvStaffLookup`. Viewing `av`, `aa`, and `ao`
+  requires live `settingsRightAdmin` + the settings owner gate; writes and resets (`as`, `ar`, `ax`) require live
+  `settingsRightRestrict` (P28-03) and route through `applyAdvancedThreshold`, `resetAdvancedThreshold`, and `resetAdvancedArea`
+  (`advthresholds.go`). Action codes: `aa` (area screen, `k`), `ao` (item screen, `t`), `as` (set preset, `t`, `v`), `ar` (reset
+  item, `t`), `ax` (reset area, `k`); every `Validate` requires private field `c` and exact allow-listed codes/presets in step 1
+  (0 `getChatMember` calls and 0 DB reads on forged or group-menu presses). With `av` registered, Main has 28 registered pages
+  total (`settingsMainOwnerRows = 16`, Staff Group Main hides `av` too so `staffOwnerRows = settingsMainOwnerRows - 3`).
+  Runtime wiring keeps 0 extra DB round trips on warm message paths (`chat_advanced_thresholds:` is cached in Redis and listed in
+  `skipLocal`) and fails to compiled defaults on transient read errors (P28-04): all 5 `raidRecentWindow` sites (`recordRaidJoins`,
+  `recordRaidFloodItem`, `raidSnapshotFlooders`, `raidAICheckCandidate`, `raidSnapshotAISpammers`) plus join/flood/AI burst windows
+  use derived TTLs (`max(raidJoinedTTL, max(joinWindow, recentWindow)+1h)`, `max(raidFloodTTL, floodWindow*2)`,
+  `max(raidAITTL, aiWindow*2)`); `memberreq_ai.go` fixes cross-chat singleflight verdict leakage by returning raw `Probability` from
+  shared flight `"n:"+plan.key` and evaluating each caller's own `bar` (`memberReqAIBar` default `0.90`, `memberReqAIWatchSatisfiedBar`
+  in `memberreq_watch.go`); unset (`0`) columns preserve package-var test seams (`memberReqCapPerMinute`, `memberReqPause`,
+  `lockdownReminderEvery`); and Option A `captcha_timeout_mins` (`effectiveCaptchaTimeout` in `captcha.go` and `settings_captcha.go`,
+  P28-02) overrides `sendCaptcha` (`ExpiresAt`, Turnstile TTL, timeout timer, challenge text) and `/captcha` status while leaving
+  `captcha_settings.timeout` (`1..10` SQL CHECK), `/captchatime`, the Captcha page stepper, and `/export` untouched.
+- Plain tone on the Messages page (`settings_messages.go`, `event_message_plain.go`, `event_message.go`, `event_message_pm.go`,
+  Phase 29, TUNE-08) adds action code `settingsActMsgPlainTone = "ht"` (`Fields: []string{"v"}` `"0"`/`"1"`, private field `c`
+  required in step 1, `Right: settingsRightChangeInfo`, routed through `applyEventPlainTone` -> `eventmsg.SetPlainTone`), expanding
+  the Messages hub keyboard widths from `[2 2 1 1 2]` to `[2 2 1 1 1 2]` and showing `settings_state_msg_plain` on Main when Plain
+  tone is on with 0 custom messages (`settings_state_msg_n` when `n > 0`). All 23 pure plain-tone group builders live in
+  `fuku/modules/event_message_plain.go` (outside `eventEngineEntries` so `TestEventEngineCallers` and `TestPMCopyCallers` require no
+  allow-list changes), wired lazily via `eventReply.PlainDefault` in `postEventSent` (`event_message.go`) and `eventPMSpec.PlainKey` in
+  `composeEventPM` / `eventPMDefaultText` (`event_message_pm.go`), plus group/PM preview builders on the Messages page. When
+  `PlainTone` is `false` (default), `PlainDefault` is never called and output is byte-identical to MSG-11 goldens; when `true`, any
+  stored custom text (`row.Text != ""`) takes precedence untouched while uncustomised defaults, media/buttons-only rows, and refused
+  custom-send fallbacks use neutral factual wording with all inline rows (Unban, Unmute, Remove warn, Rules, "I fixed it", Appeal)
+  and deletion timers preserved.
+- The Copy Settings page (`settings_copy.go`, `copy_settings.go`, page `cp`, `Order` 82, icon `📋`, `settings_page_copy`, Phase 29,
+  TUNE-09) is `PrivateOnly` (`PrivateNoteKey` `settings_copy_group_note`), `Hidden` in Staff Groups (`settingsCopyHidden`), and has a
+  static zero-I/O `MainState` (`settings_state_copy`). Action codes: `cg` (paginate target picker, `v` `1..999`, `settingsRightAdmin`),
+  `ck` (pick target group, `t` canonical negative int64 `t != c`, `settingsRightAdmin`), and `cy` (confirm Yes, `k` 16-char base64url
+  token, `settingsRightAdmin`); every `Validate` requires private field `c` in step 1 (0 `getChatMember` calls on forged or group-menu
+  presses). Both `ck` (ask) and `cy` (confirmed Yes) run live dual-group verification (`settingsCopyVerifySource` +
+  `settingsCopyVerifyTarget`: fresh non-Staff-Group check failing closed on DB error, live `lockdownLiveMember`, `settingsGate`,
+  non-creator admin dual rights `CanChangeInfo && CanRestrictMembers` per `P29-02`, and live `GetChatWithContext` `group`/`supergroup`),
+  mapping every target-side refusal (bot not in chat 4xx, non-admin, owner-only gate, missing write right, non-group type, Staff Group)
+  to the single uniform opaque alert `settings_pick_unavailable`. `ck` stores a pair-bound one-time confirmation record in Redis under
+  `fuku:settings:copy:<token>` (TTL 5m, `SET NX`, failing closed with `settings_copy_unavailable` when Redis is nil), and `cy` peeks
+  user/source binding before atomically consuming the token via a Lua `GET+DEL` script (`settings_card_expired` on expiry/replay) and
+  calling `applyCopySettings` (full mirror across all 6 areas per `P29-01`, `P29-03`, `P29-04`, dropping all target cache keys and
+  never linking the two groups). With `cp` registered at `Order` 82, Main had 29 registered pages total (`settingsMainOwnerRows = 16`,
+  `staffOwnerRows = settingsMainOwnerRows - 3`).
+- The Backup page (`settings_backup.go`, `backup.go`, page `ba`, `Order` 83, icon `💾`, `settings_page_backup`, Phase 30, BKP-01..03,
+  MSG-10) is `PrivateOnly` (`PrivateNoteKey` `settings_bkp_group_note`), `Hidden` in Staff Groups (`settingsBackupHidden`, failing
+  closed on fresh DB errors via `settingsBackupVerifyNonStaff`), and has a static zero-I/O `MainState` (`settings_state_backup`).
+  Module selection is stateless via a canonical 20-bit lowercase hex mask `m` (`0`..`fffff`) mapping bits `0..19` to
+  `backup.AllExportableModules()` (including `"messages"`), with per-module toggles plus Select all (`m=fffff`) and Clear (`m=0`)
+  (`P30-04`). Action codes (every `Validate` requires private field `c` in step 1, producing 0 `getChatMember` calls on forged or
+  group-menu presses): `bv` (stateless bitmask redraw `m`, `settingsRightAdmin`), `be` (Export selected modules `m`,
+  `settingsRightAdminBotAdmin`, refuses `m=0` with `settings_bkp_pick_one`, delegates to `applyBackupExport` under `AcquireExport` and
+  delivers `.json` only to `query.From.Id`), `bi` (opens private `.json` document wait registered on
+  `settingsTypedPages[settingsPageBackup]`, part `i`, `CancelCode` `bl`, `Right` `settingsRightOwnerBotAdmin`, `WaitEndedKey`
+  `settings_bkp_import_wait_ended`, keeping the wait alive on plain text or invalid/corrupt files), `bl` (cancels active wait, `t=i`,
+  `settingsRightAdmin`), `bj` (Import confirm Yes, `k` 16-char base64url token, `settingsRightOwnerBotAdmin`, peeks user/chat binding
+  before atomic Lua `GET+DEL` + `AcquireImport` + `applyBackupImport` / `formatBackupImportSuccess`), `bq` (Reset confirm ask, `m`,
+  `settingsRightOwnerBotAdmin`, refuses `m=0` with `settings_bkp_pick_one`, stores one-time Redis reset token), and `bu` (Reset confirm
+  Yes, `k`, `settingsRightOwnerBotAdmin`, peeks user/chat binding before atomic Lua `GET+DEL` + `AcquireReset` + `applyBackupReset` /
+  `formatBackupResetSuccess`). Both `/export`, `/import`, `/reset` and the Backup page call the shared apply helpers in
+  `fuku/modules/backup.go` (`applyBackupExport`, `downloadAndParseBackupFile`, `applyBackupImport`, `formatBackupImportSuccess`,
+  `applyBackupReset`, `formatBackupResetSuccess`) and share `BackupRateLimiter`. With `ba` registered at `Order` 83, Main has 30
+  registered pages total (`settingsMainOwnerRows = 17`, Staff Group Main hides `ba` too so `staffOwnerRows = settingsMainOwnerRows - 4`
+  and Staff Group Main state lines = `len(settingsMainTitleKeys) - 7`).
+- The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
+  its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
+  P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
+  (the page header, `settings_duration_intro_tmute` or `_tban`, `settings_duration_hint`, which says any other duration from 1
+  minute to 366 days is set by command, each cell `punishDurationLabel` in the view's language with `settingsSelectedPrefix` on
+  the selected preset and none for a value that is no preset, then Back with the caller's fields and Close, rows `[2 2 2 2 2]`).
+  `settingsDurationPreset(v)` accepts exactly a preset's canonical decimal (no sign, space, leading zero or unit), the step-1
+  check of every press of a preset. `settingsTimedWord(tr, action, secs)` is the one word of an effective timed action on every
+  page (`settings_opt_timed`, `{action}, {duration}`, with the `settings_opt_tmute` or `_tban` word); its `ok` is false for
+  anything else, so a caller keeps its own word for an untimed or inert action. The Warnings page is its first user (plan
+  26-03), the Antiflood page its second (plan 26-04, below) and the Blacklist action screen its third (plan 26-05, through
+  `settingsTimedDurationScreenBack`, whose Back is the action screen); the escalation ladder reuses it. `TestSettingsDurationScreen` holds
+  the parser, the shape and the mark, the timed word and the fit in 8 languages (cells at most 20 code points with the mark,
+  3800 UTF-16 units with a 64-rune title, the largest button 47 bytes private and 43 group).
+- The Antiflood page (`settings_antiflood.go`, page `f`, `Order` 40, icon 🌊) has a timed row since plan 26-04 (D-21, D-22):
+  the keyboard is the limit stepper, the choice `[Mute | Ban | Kick]` (control `m`, which passes seconds 0 to `applyFloodMode`), the
+  timed row `[Timed mute | Timed ban]`, the delete switch and Back and Close, widths `[5 3 2 1 2]`. A timed cell presses the page
+  action `fd` (exactly `k`, `m` or `b`, `settingsFloodDurationFields`; right `settingsRightAdmin`, it writes nothing), which draws the
+  shared duration screen titled with the Antiflood page, the stored preset marked only while that timed action is stored and
+  effective, Back `{"a": "op", "p": "f"}`; a preset presses `ft` (exactly `k` and `v`, `v` a preset's canonical decimal through
+  `settingsDurationPreset`, `settingsFloodTimedFields`, so a forged `k` or `v`, a missing field or an extra key is an invalid request
+  in step 1 before any lookup; right `settingsRightAdminFloodBot`, the right of `/setfloodmode`), which stores through
+  `applyFloodMode(ctx, p.group.Id, mode, secs)`, the function `/setfloodmode` calls, and redraws through `settingsFloodRedraw` with
+  its side-effect flag, so the first timed write on a chat with no row shows `settings_antiflood_now_on` like the action press
+  (D-27, D-34). `settingsFloodSettable(action, secs)` is `autoActionEffective`: the read-only note
+  `settings_antiflood_action_note` shows only for a stored warn or a timed action with no duration, an effective timed action's
+  line reads `settingsTimedWord` ("Timed ban, 1 day(s)", `settingsFloodPageActionWord`) and marks its timed cell, and a plain action
+  is marked in the choice row; `settingsFloodActionWord` is unchanged (the Warnings page shares it). A command's duration that is
+  no preset (`/setfloodmode tmute 90m`) is drawn in the action line with no preset marked. `settingsFloodNotice` maps
+  `floodBadDuration` to `antiflood_setfloodmode_bad_duration` (unreachable from a valid press). Main's Antiflood line shows the
+  limit only, so it has no timed word. The largest button of the duration screen is the 30-day preset, 47 bytes private and 43
+  group. `TestSettingsAntifloodTimed`, `TestSettingsParityFloodTimed`, `TestSettingsDriftFloodTimed`,
+  `TestSettingsAuthorityParityFloodTimed` and `TestSettingsAntifloodTimedForged` (`settings_antiflood_timed_test.go`) hold it.
 - The Switches page (`settings_switches.go`, page `t`, `Order` 86, icon 🔘, `settings_page_switches`, between Deletion and Access,
   Phase 18, plan 18-06) registers from its own file through `registerSettingsPage`, with no `Hidden`, so a Staff Group's own
   menu shows it too. It has three full-width toggles, each `tg` only (`Actions`, so an `st` is an invalid request before any
@@ -1379,15 +1640,38 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   screen opens the list (`a=op&p=b`), not Main. A stored `none` is accepted by PostgreSQL since plan 19-01's migration
   (`TestSettingsBlacklistAction`, `TestSettingsParityBlacklistAction`, `TestSettingsDriftBlacklist`,
   `TestSettingsAuthorityParityBlacklist`: the four refusals of the ninth right with nothing written, the commands refusing or
-  writing for the same member and bot records, and the owner-gate carve-out). The worst cases are measured, not assumed:
+  writing for the same member and bot records, and the owner-gate carve-out). Since plan 26-05 (D-21, D-22) the action screen has
+  the timed row `[Timed mute | Timed ban]` after the two choice rows (`settings_opt_tmute`, `settings_opt_tban`), so a list with
+  words draws rows `[3 2 2 2]`. The entries carry `Secs` (`settingsListEntry.Secs`, read only by this page, zero on every other
+  list page, the Blocked sources page's included, so it draws exactly what it drew), and an action is uniform only when the action
+  and the seconds are equal on every word (`settingsBlacklistUniformAction`): a uniform effective timed action reads
+  `settingsTimedWord` ("Timed mute, 1 hour(s)", a duration no preset holds such as `/blacklistaction tban 90m` included,
+  `settingsBlacklistEntryWord`) on the action line of the list page and of the screen and marks its timed cell, the count lines of
+  mixed words group by action and seconds, and the inert line shows for a uniform value the page does not offer
+  (`settingsBlacklistActs`: a timed action with no duration, `delete`); `settingsBlacklistActionWord` is unchanged (the Blocked
+  sources page shares it). A timed cell presses `bd` (exactly `c` and `k`, `m` or `b`; right `settingsRightAdmin`, it writes
+  nothing), which reads the list fresh and draws the shared duration screen (`settingsTimedDurationScreenBack`, the shared core of
+  `settingsTimedDurationScreen` with the caller's Back) titled with the Blacklist page, the preset every word has marked only while
+  that timed action is every word's and effective, Back `{"a": "bo"}` to the action screen; a preset presses `bz` (exactly `c`, `k`
+  and `v`, `v` a preset's canonical decimal, so a forged `k` or `v`, a group menu's `u`, a missing field or an extra key is an
+  invalid request in step 1 before any lookup; right `settingsRightRestrictBotRestrict`, judged live), which stores through
+  `applyBlacklistAction(ctx, p.group.Id, mode, secs)`, the function `/blacklistaction` and `bs` call, and redraws the action screen
+  with `bs`'s notices (`settingsBlacklistRedrawSet`: no words, a failed save). A notice refusal of `bz` or `bd` redraws the action
+  screen through the table's `Redraw`. A plain choice clears the seconds. The page's typed add passes the words' seconds to
+  `applyBlacklistAdd`, so a word added from the page takes the shared timed action too. The duration screen's largest button is the
+  30-day preset, 47 bytes private (`bd` 37). `TestSettingsBlacklistTimed`, `TestSettingsParityBlacklistTimed`,
+  `TestSettingsDriftBlacklistTimed`, `TestSettingsAuthorityParityBlacklistTimed` and `TestSettingsBlacklistTimedForged`
+  (`settings_blacklist_timed_test.go`) hold it. The worst cases are measured, not assumed:
   `TestSettingsListBlacklistCallbackBytes` renders a 79,992-entry list (9,999 pages, 17-digit row IDs, a 14-character chat ID, a
   10-digit opener) and holds every button at most 64 bytes with the UI-SPEC's exact sizes (pager 40, ask 60, Yes 64, action 33,
   choice 40 and ban 39, Main cell 37 private and 33 group) and `Omitted` at 0, a row with an 18-digit ID getting no delete button
   and counting 1; `TestSettingsListBlacklistPageFitsEveryLocale` holds the list page of 32-ampersand entries with the two longest
   notices, the mixed action screen with eight count lines, the card with a 100-code-point entry and the group note to 3800 UTF-16
-  units in all 8 languages with a 64-rune title, and the row widths to the UI-SPEC (`{4,4,2,2,2}` middle page with the Add button, `{3,2,2}` action,
+  units in all 8 languages with a 64-rune title, and the row widths to the UI-SPEC (`{4,4,2,2,2}` middle page with the Add button, `{3,2,2,2}` action
+  since plan 26-05 (also the mixed timed and uniform timed screens, and `{2,2,2,2,2}` for the duration screen),
   `{2,2}` card, `{1,2}` and `{2}` note); `TestSettingsBlacklistReadsCreateNothing` that opening Main, the page, the action screen and a
   forged ask on a chat with no rows creates no row and fills no key in either menu. The page's action codes are `bp bx by bo bs bn bc`
+  (since plan 26-05 also `bd bz`, so `bp bx by bo bs bn bc bd bz`)
   (the pager is `bp` and Add is `bn` because the Deletion page's bot row codes `bw bg br ba bm` must stay unique among the codes of
   the section and row tables and the actions). Plan 19-04 adds the typed add. `bn` (Add words, the table's `AddCode`) needs the
   owner field `c` and the page's write right and writes the one wait of the user (`settingsInputSet`: page `b`, part `w`, the menu
@@ -1554,7 +1838,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`TestSettingsChatAuthority`: a non-owner administrator, a gated one and a group menu are all refused with nothing
   written) in place of a parity test, and it does not join `TestSettingsGateAllDoors`, whose doors all decide alike and
   admit administrators the owner lets in, while this page admits the creator alone. With this page Main has
-  `settingsMainOwnerOnlyRows` 2 (Conversations and Access) and `settingsMainOwnerRows` 13.
+  `settingsMainOwnerOnlyRows` 2 (Conversations and Access) and, with the Messages page of Phase 21,
+  `settingsMainOwnerRows` 14.
 - The Timezone page (`settings_timezone.go`, page `z`, `Order` 87 with key `z`, so it sorts right after Language; icon 🕒,
   `settings_page_tz`; plan of 2026-11-18, Part 3) and `/timezone` (`timezone.go`, `helpers.WrapCommand` with `RequireGroup`
   and `RequireUserAdmin`, anonymous-admin re-entry, not `Disableable`) write through one apply function, `applyTimezone`
@@ -1572,6 +1857,271 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `authorize` and slash refusal first, and a reply after the wait ended answers `settings_tz_wait_ended_note`. Main grows to
   twenty cells (`... d|t / u|z / o|y`), still twelve rows for the owner. `TestChatClock*`, `TestApplyTimezone`,
   `TestSettingsTimezone*`, `TestSettingsParityTimezone`, `TestSettingsAuthorityParityTimezone` and `TestDefaultTimezone` hold it.
+- The Messages page (`settings_messages.go`, page `h`, `Order` 74, icon 📨, `settings_page_msgs`, right after Reactions; Phase 21, plan
+  21-06, D-18, D-19) lists a group's custom event messages, the texts the bot posts in the group when someone is warned or punished. It is
+  `PrivateOnly` with `PrivateNoteKey` `settings_msg_group_note` (a group menu's Main line reads `In private`, and opening the page draws
+  that note with the Open in private row, Back and Close, with no page code and no read) and `Hidden` in a Staff Group
+  (`settingsMsgHidden`: a definite Staff Group row read fresh through the page's own seam `settingsMsgStaffLookup`, never the Deletion page's `deletionStaffLookup`, whose reads `TestSettingsDeletionHidden` counts; an unreadable row shows the page), because
+  nothing is set at Staff Group level (D-01). It is drawn from one table, `settingsMsgFamilies` (`settingsMsgFamily{Code, Icon, NameKey,
+  IntroKey, WaitTextKey, HintKey, NoMedia, ReservedText, Events}`, a variable only so a test can draw more families), whose events are `settingsMsgEvent{Key, Code, Icon, NameKey,
+  DescKey, ReservedButtons, Default, Timed, Sample, NoSilent, Appended}` (`Default` the send site's own `eventDefaultReply` builder, `Timed` true for the events whose
+  preview fills `{duration}` and `{until}`, `Sample` a `settingsMsgSample{Count, Limit int; Action, ReasonKey string; Rules, Window, Percent int; Trigger string;
+  NoReason bool; Secs int}` of the values a preview of an automatic event fills in, zero for a manual event (`Secs`, Phase 26 plan 26-03, D-18,
+  is the sample duration of an event a timed mute or ban can raise, 3600 on the warn limit, the flood, the blacklist and the forward
+  blocklist: a preview of a custom text fills `{duration}` with `punishDurationLabel` in the group's language and `{until}` that many
+  seconds after `punishNow`, while the default input keeps no duration, so every default preview is byte for byte the untimed reply, and
+  the default private copy preview of those four events drops the sample end, so it shows no Until line; a lockdown event's `Window` is its sample
+  window in seconds, shown by `{window}` as a number, `Percent` its share of new members, `Trigger` the trigger kind whose
+  `lockdownTriggerSentence` with the sample numbers is the preview's `{reason}`, and `NoReason` leaves `{reason}` empty, Phase 25), `NoSilent` for an event that cannot be silenced, `Appended` what the send site appends
+  after a custom text; a family's `NoMedia` gives its events the text and buttons parts only and its `ReservedText` is copied to its group
+  definitions). Four families have events: the manual family (`m`, 🔨, Admin actions),
+  `settingsMsgManualEvents`: ban
+  `bn` 🚫 (reserved 1, the Unban row, `banDefaultReply`), tban `tb` ⏳ (`tbanDefaultReply`, timed), kick `kk` 👢 (`kickDefaultReply`), mute
+  `mu` 🔇 (reserved 1, the Unmute row, `muteDefaultReply`), tmute `tm` 🔕 (`tmuteDefaultReply`, timed), unban `ub` 🔓 (`unbanDefaultReply`),
+  unmute `um` 🔊 (`unmuteDefaultReply`); and the Automatic family (`a`, 🤖, `settings_msg_fam_auto` Automatic actions, intro
+  `settings_msg_fam_auto_intro`, prompt `settings_msg_wait_text_auto`, hint `settings_msg_hint_auto`; Phase 23 plan 23-03, D-24), drawn after
+  it, `settingsMsgAutoEvents`: warn `wn` 🚩 (reserved 1, the Remove warn row, `warnDefaultReply`, sample 1 of 3, action warn), warn limit
+  `wl` ⛔ (`warnLimitDefaultReply`, sample 3 of 3, mute, 1 hour), flood `fl` 🌊 (reserved 1, the admin row, `floodDefaultReply`, sample 6 messages of 5,
+  mute, reason `eventmsg_reason_flood`, 1 hour), blacklist `bl` 🔤 (`blacklistNoticeDefaultReply`, mute, 1 hour) and forward blocklist `fb` 🚷
+  (`blacklistNoticeDefaultReply`, mute, reason `staff_fwdblock_reason`, 1 hour), then (Phase 24 plan 24-04, D-28) the failed captcha `cf` 🧩
+  (`captchaFailureDefaultReply`, sample a kick with 2 removed messages, reason `eventmsg_reason_captcha`) and the AI spam notice `ai` 🧠
+  (`aispamNoticeDefaultReply`, sample the delete word, reason `eventmsg_reason_aispam`), none timed, each with the name and description keys
+  `settings_msg_ev_<event>` and `settings_msg_desc_<event>`, and no new action code, field or right (the family reuses `hl he hs hr hc hv hf
+  hq hp ho` with its own `t` and `k` values); and the Member requirements family (`r`, 🛂, `settings_msg_fam_mreq`, the settings page's own
+  name, Requirements, because the cell must fit 20 code points; intro `settings_msg_fam_mreq_intro`, prompt `settings_msg_wait_text_mreq`, hint
+  `settings_msg_hint_mreq`; Phase 24 plan 24-04, D-28, D-29), drawn after the Automatic one, `settingsMsgReqEvents`: warn `rw` ❗, kick `rk` 👢,
+  ban `rb` ⛔ and mute `rm` 🔇 (`EventReqWarn` to `EventReqMute`), each with `memberReqNoticeDefault(action)` as its default and
+  `memberReqNoticeAppended(action)` as `Appended` (the requirements line and remedies `memberReqNoticeNote` appends after a custom text, with the
+  template key the default would use), the samples warn 1 of 3 and kick and ban with the username rule, mute with the username and photo rules
+  (`memberReqRuleBits("un", "ph")`, so its preview shows the photo remedy, D-33); the mute reserves 1 button (its "I fixed it" row) and is
+  `NoSilent` (D-20). The family is `NoMedia` (its events have the parts `x b` only, P4) and its `ReservedText` is `memberReqNoticeNoteReserve`
+  (600), held back by the editor from the text limit (the prompt reads `Up to 3496`), while its private copy definitions hold back nothing
+  and have all three parts, media included (`settingsMsgPMEditDef`: a private copy appends no requirements line, D-35). The fourth is the Lockdown family (`l`, 🚨, `settings_msg_fam_lockdown`, intro `settings_msg_fam_lockdown_intro`, prompt
+  `settings_msg_wait_text_lockdown`, hint `settings_msg_hint_lockdown`; Phase 25 plan 25-03, D-28 to D-32), drawn after the Member
+  requirements one, `settingsMsgLockdownEvents`: the start by an admin `ld` 🔒 (`EventLockdown`, `lockdownStartDefaultReply`, the sample reason),
+  the join surge `lj` 👥 (`EventLockJoinSurge`, `lockdownAutoDefaultReply(models.LockdownTriggerJoinSurge)`, sample 15 joins in 60 s), the flood
+  `lf` 💬 (`lockdownAutoDefaultReply(models.LockdownTriggerFlood)`, 30 messages in 30 s with 80 %), the AI burst `la` 🧠
+  (`lockdownAutoDefaultReply(models.LockdownTriggerAIBurst)`, 5 verdicts in 120 s), each with its trigger sentence as the preview's `{reason}`,
+  and the lift `lu` 🔓 (`EventLockLift`, `lockdownLiftDefaultReply`, `NoReason`). The four starts take `lockdownStartAppended` as `Appended` (the
+  technical notes of `lockdownStartNotes`; a preview's sample bot holds both rights, so its Full preview of a custom text shows the approved-muted
+  note alone) and the lift `lockdownLiftAppended` (the lift's facts of `lockdownLiftNotes`; a preview's lift has none, so it shows no note). The
+  family has all three parts, a Silent switch on every event, no reserved button and no private copy spec on any event (D-04), so its event
+  screens have no private copy line or row and every `d=p` form and `hp` naming a lockdown code is refused in step 1
+  (`settingsMsgDefByFields` and `settingsMsgPMFields` require a spec). Its `ReservedText` is `lockdownNoteReserve` (400, D-17), so the text
+  prompt reads `Up to 3696`, and `Up to 624` while a media item is stored; the private copy definitions every event still registers (reached by no
+  press) hold back nothing. The family has no command, so `TestSettingsAuthorityMessagesLockdown` and `TestSettingsDriftMessagesLockdown` stand in
+  for a parity test (D-31). An event that is off by default (`eventmsg.OffByDefault`: the AI spam notice, D-21, D-30) draws a Notice switch in place of the
+  Silent one: the line `settings_msg_line_notice` with the state word of "not Silent", the toggle `settings_btn_msg_notice`
+  (`settingsMsgNoticeRow`: the state icon of the notice, pressing the same `hq` with the Silent target, `v=1` turning the notice off and `v=0`
+  on) and the hint `settings_msg_hint_notice` in place of `settings_msg_hint_silent`. A `NoSilent` event's screen has no Silent line, toggle or
+  hint, and `settingsMsgSilentFields` refuses its `k` in step 1 (`settingsMsgRunSilent` refuses it again). A family with no events is not drawn anywhere and no renderer branches on a family's or an event's code. Screens: the hub
+  (`a=op&p=h`: the intro, then for each family a blank line, its icon and bold name and one `settings_main_state_line` per event with
+  its state word, followed by the code-side mark ` · 📩` (`settingsMsgPMSuffix`, an icon and no words) while the event's private copy is on
+  (`settingsMsgPMOn`: a spec and `msgs.Resolve(event, eventmsg.DestPM).Silent` false, Phase 22 plan 22-05, D-24), then, while some event
+  has a private copy spec (`settingsMsgAnyPM`), the private copies block (Phase 22 plan 22-06, D-24): a blank line, `📩 <b>`
+  `settings_msg_pm_title` `</b>`, one line per option of `settingsMsgPMOptions` with its state word (`settings_msg_line_pm_details`,
+  `settings_msg_line_pm_log`), a blank line, `settings_msg_hint_pm_options` and `settings_msg_hint_pm_log` (plan 22-07); one cell per family,
+  two to a row, then one full-width toggle per option, then Back to Main and Close, rows `[2 2 1 1 2]` with the four families), a family's list (`a=hl&t=<family>`: its intro, the event lines (with the same mark) and
+  `settings_msg_list_hint`; one cell per event, two to a row, then Back to the hub and Close, rows
+  `[2 2 2 1 2]` for the manual and the Automatic families, `[2 2 2]` for the Member requirements one and `[2 2 1 2]` for the Lockdown one) and an event's screen (`a=he&k=<code>`: the event's icon and bold name, its description, then the editor's part lines
+  `settings_edit_line_text`, `_media` and `_buttons` with `settingsEditStateWord`, the no-caption note for a sticker or a video
+  note, then `settings_msg_line_silent` with `settingsStateWord`, for an event with a private copy spec (`eventPMSpecFor`) the private copy
+  line `settings_msg_line_pm` (`settingsStateWord` of `settingsEditState.PMOn`, Phase 22) and, after a blank line each, the family's hint
+  (`settings_msg_hint_manual` or `settings_msg_hint_auto`) and `settings_msg_hint_silent`; the keyboard opens with the editor's part rows (`settingsEditPartRows`: `[Set]` while a part is not set,
+  `[Set | Remove]` while it is, text, media and buttons in that order, each button carrying `k`), then the editor's preview rows
+  (`settingsEditPreviewRows`: Preview of each part that is set, then Full preview, always last, two to a row), then the full-width
+  Silent toggle `settings_btn_msg_silent` with `settingsStateIcon`, then, for an event with a private copy spec, the full-width row
+  `settings_btn_msg_pm_open` that opens the private copy's screen (`a=he&k=<code>&d=p`, Phase 22), then Back to the family and Close:
+  seven rows with nothing stored (`[1 1 1 1 1 1 2]`) and at most eight, `[2 2 2 2 2 1 1 2]` with every part set, the private content-page
+  budget; an event with no private copy spec has no private copy row, `[1 1 1 1 1 2]` and `[2 2 2 2 2 1 2]`; a Member requirements event has two
+  part rows and its mute no Silent row, `[1 1 1 1 1 2]` empty and `[2 2 2 1 1 1 2]` full, the mute `[1 1 1 1 2]` and `[2 2 2 1 1 2]`). An
+  event's state (`settingsMsgStateOf`, read through `msgs.Resolve` as the send path reads it) is Silent when its Silent switch is on (Off,
+  `common_status_off`, for an event that is off by default; a `NoSilent` event ignores a stored Silent as its site does), Custom when it
+  has a text, a media or a button, else Default (no row, or a row with nothing left, reads as the send path reads it); Main reads
+  `settings_state_default` when every event is Default with its private copy off and `settings_state_msg_n` (`{n} custom`) for the n events
+  whose group message is not Default or whose private copy is on, each event counted once, an off-by-default event only while its notice or
+  its private copy is on (`settingsMsgCountChanged`, plan 22-05, D-24, D-30; `TestSettingsMessagesPMStates`), the unknown mark when the read failed. Every read is `settingsMsgRead` (= `eventmsg.GetFresh`, never the
+  cache), creates nothing and returns its error: a failed read is the cannot-open edit on the hub, a family and an event screen and the
+  unknown mark on Main. `hl` and `he` take exactly `t` and `k`, require the private owner field `c` in their `Validate` (so a group
+  menu's press is an invalid request in step 1, before any `getChatMember`) and a family with events or a known event, and need
+  `settingsRightAdmin`; viewing needs only the live admin check and the owner gate (MSG-08). Each event is one message editor definition
+  registered with `registerSettingsEditDef(settingsMsgEditDef(fam, ev))`: kind `settingsEditEvent`, key `settingsMsgWaitPage(ev)` = `h` +
+  the event code + `g` (`hbng` for the group's ban message, the wait's `p`), the editor codes and right of `settingsMsgEditCodes`
+  (`hs hr hc hv hf`, `EditRight` `settingsRightChangeInfo`, D-22), the parts `settingsMsgPartsOf(fam)` (the family's own text part
+  `settingsMsgTextPart(fam)`: the editor's text part with the family's prompt `WaitTextKey` and the removed notice
+  `settings_edit_removed_text_default`, then the editor's media and buttons parts, `x m b`), `Fields` `{"k": <code>}`, `ReservedButtons`
+  from the table and the hooks `Load` (`settingsMsgLoad(ev)`: the row of `(event, group)`, `TextIsDefault` when there is no text, `Silent`
+  from the row), `Draw` (`renderSettingsMsgEvent`), `Remove` (`settingsMsgRemove(ev)`), `Write` (`settingsMsgWrite(ev)`), `Preview`
+  (`settingsMsgPreview(ev)`) and `PreviewHeaderKey` `settings_msg_preview_header`; `he` redraws
+  through `settingsEditRedraw` of that definition. `settingsMsgDefByFields` resolves a press's `k` to its definition and is false without
+  `c`. The editor on an event screen (plan 21-08, MSG-06, D-20 to D-22): the page actions `hs` (Set), `hr` (Remove) and `hc` (Cancel)
+  are the editor's own, taken from `settingsEditResolvedActions(settingsMsgEditCodes, []string{"k"}, settingsMsgDefByFields)`
+  (`settingsMsgEditActions`, which also takes the previews `hv` and `hf` from the same map), so their fields are exactly `t` (a part
+  of the resolved definition) and `k`, a group menu's press (`u` in place of `c`) or an unknown `k` or `t` is an invalid request in step 1
+  before any lookup, and each button is 42 bytes at a 14-character chat ID (`a=hs&c=<chat>&k=bn&t=x`). Set and Remove need
+  `settingsRightChangeInfo`, Cancel only `settingsRightAdmin`. Set writes the owner's one wait (page `h` + code + `g`, part `x`, `m` or
+  `b`) and edits the message into the part's prompt: the text part's is the family's (`settings_msg_wait_text_manual`, which lists the
+  Welcome placeholders the event fills for the punished member and the group, the event's `{admin}`, `{reason}`, `{duration}` and `{until}`,
+  and says the default's reason line is not added to a custom text, D-11; the Automatic family's `settings_msg_wait_text_auto` lists `{admin}`,
+  `{reason}`, `{action}`, `{count}`, `{limit}`, `{duration}` and `{until}`, says `{duration}` and `{until}` are how long and until when a
+  timed mute or ban lasts (and `{until}` when a captcha mute ends, Phase 26 plan 26-03) and that the bot adds the Remove warn button itself) with "Up to" 4096, or 1024 while a media is stored; media and
+  buttons show the editor's own prompts. Cancel ends that wait as on Welcome. Remove clears its part at once with no card through the part's
+  apply function (an empty text, no file and type 0, or no buttons); a row with nothing left and Silent off reads Default and the send path
+  sends today's reply. The typed reply runs the editor branch of the typed-reply door (no new door, D-23): `authorize(def.EditRight)` (the
+  live `getChatMember`, the owner gate, `can_change_info`, the live `getChat`) on every message, so a demotion or a gate closed between Set
+  and the message ends the wait and stores nothing; then the editor's check (the greeting text check: the commands' conversion, 4096 or 1024
+  with media, event tokens such as `{reason}` stored as typed and not filled by the dry run, D-21; http or https buttons only; the keyboard
+  limits with the reserved Unban or Unmute row counted), the claim and the `Write` hook. The parts' one write paths are `applyEventText(ctx,
+  chatID, event, dest, text, by)`, `applyEventMedia(ctx, chatID, event, dest, fileID, mediaType, by)` and `applyEventButtons(ctx, chatID,
+  event, dest, buttons, by)` in `event_message_apply.go`, beside `applyEventSilent` and `applyEventPM`: each writes through its seam
+  (`eventMsgWrites.Text`, `.Media`, `.Buttons`, defaults `eventmsg.SetText`, `SetMedia`, `SetButtons`, the destination the definition passes,
+  `eventmsg.DestGroup` or, since Phase 22, `eventmsg.DestPM`, the presser or typist as `updated_by`), reads the chat's messages back fresh
+  (`eventMsgApplyReadBack(ctx, chatID, event, dest, what, writeErr)`, which keeps the row in `eventMsgApplyResult.Row` and the whole fresh
+  read in `.Messages`, from which every redraw builds its state with `settingsMsgStateFor`), judges no person's rights and logs the chat
+  ID, the event, the destination and the part only, never a text, a file ID or a button. There is no command to compare with, so `TestSettingsAuthorityMessagesEdit` (without `can_change_info` at Set and
+  Remove, a demotion between Set and the typed text, the owner gate at the press and at the typed text, a plain member, Cancel and the
+  screens with the admin check alone, the live creator) and `TestSettingsDriftMessagesEdit` (a text stored through the repository is drawn
+  and counted Custom, a page Remove and a typed save are what the send path's cached `eventMessagesLookup` reads at once, opening every
+  screen writes nothing) stand in for a parity test, beside `TestSettingsMessagesSet`, `TestSettingsMessagesRemove` and
+  `TestSettingsMessagesTyped` (`settings_messages_edit_test.go`). The previews (plan 21-09, MSG-06, D-20): `hv` (Preview of one part,
+  fields exactly `t` and `k`, 42 bytes at a 14-character chat ID) and `hf` (Full preview, fields exactly `k`, 38 bytes) need only
+  `settingsRightAdmin`, so an administrator without `can_change_info` can preview. The editor's `settingsEditRunPreview` loads the
+  definition fresh, answers a stale Preview of a part that is not set with `settings_edit_nothing_to_preview` and sends nothing (an
+  event's text is previewable only while a text is stored; the default text is seen through Full preview), sends the header
+  `settings_msg_preview_header` in the presser's language, then the `Preview` hook, and answers as on Welcome (empty in a private menu, a
+  403 `settings_edit_preview_need_start`, any other failure `settings_edit_preview_failed`). Full preview is built by
+  `composeEventMessage`, the send path's own composer, from the screen's stored parts and `settingsMsgPreviewReply`: the presser is the
+  punished member and the admin (`{admin}` their full name, never "an admin"), the reason is `settings_msg_sample_reason` (or the event's own
+  fixed reason, `Sample.ReasonKey`: the flood's and the forward blocklist's) and, for
+  `/tban` and `/tmute` (`Timed`), the duration is `settingsMsgSampleDuration` (`2 hours`, the untranslated form a timed reply shows) and
+  `{until}` `settingsMsgSampleSpan` (2 h) from now in the chat's zone (an automatic event with `Sample.Secs` fills its duration label in the
+  group's language and the end that many seconds after `punishNow`, for a custom text only); an automatic event also fills its sample `{count}` and `{limit}` and
+  `{action}` (`eventActionWord` of `Sample.Action`), and its default input carries the same count and limit, the mode word and the reason as
+  the one stored reason, with no `Rows`, so a preview's default has no keyboard (D-27); the default text is the event's own `Default` builder, all in the
+  group's language (`lang.GetGroupLanguage`), and it is sent by `media.SendGreetingMessage` to `query.From.Id` only, with no reply target
+  and no topic. The reply carries no options, so no bot action button is composed (the Unban, Unmute and Remove warn buttons and the flood's
+  admin row are live callbacks that must never reach a private chat: the one stated difference from the group's message), and an unmute preview has no lockdown note.
+  Preview text is the stored text filled the same way (`renderEventText`) with no keyboard; Preview media and Preview buttons are the
+  editor's own (`settingsEditPreviewMediaAlone`, `settingsEditPreviewButtonsAlone` with the stored buttons alone). A preview ignores Silent
+  (it shows the message the event would post), never posts in the group, writes no row, queues no deletion and makes no wait; a `{rules}`
+  token reads the group's rules as the send path does (which creates an empty rules row for a group without one, the join path's own side
+  effect). `TestSettingsMessagesPreview` (`settings_messages_preview_test.go`) holds it. The Silent switch (plan 21-07, MSG-07, D-14: on, the bot still acts and
+  posts nothing in the group for that event; the default is off) is the page action `hq` (`settingsActMsgSilent`), fields exactly `k` and
+  `v`, its `Validate` (`settingsMsgSilentFields`) the private owner field `c`, a known event and `v` exactly `0` or `1`
+  (`settingsEditSwitchValue`), so a forged `v`, an unknown `k`, an extra field or a group menu's `u` is an invalid request in step 1 before
+  any `getChatMember`. It needs `settingsRightChangeInfo` (D-22), judged on the press's own live member record. The toggle sends the
+  absolute target (the opposite of the stored state, `a=hq&c=<chat>&k=<code>&v=<target>`, 42 bytes at a 14-character chat ID), so a
+  double tap or a stale screen writes the same value again and shows no notice. `settingsMsgRunSilent` writes only through
+  `applyEventSilent(ctx, chatID, event, on, by)` (`event_message_apply.go`), the switch's one write path, which has no command and
+  judges no person's rights: it writes through the seam `eventMsgWrites.Silent` (default `eventmsg.SetSilent`, destination
+  `eventmsg.DestGroup`, the presser as `updated_by`) and reads the row back with `eventmsg.GetFresh`, returning
+  `eventMsgApplyResult{Outcome greetingApplyOutcome; Row *eventmsg.Message; Err error}`. The screen is redrawn from the read-back
+  (`settingsMsgStateFromMessage`), reloaded when the read-back is missing, and a failed write (`greetingSaveFailed`) redraws the stored
+  state with the warn notice `common_settings_save_failed`. The repository drops `event_messages:<chat>`, which is in `skipLocal`, so the
+  very next command of that event on every replica posts nothing. `TestSettingsMessagesOpens`,
+  `TestSettingsMessagesMainState`, `TestSettingsMessagesGroupMenu`, `TestSettingsMessagesStaffGroup` and `TestSettingsMessagesSilent`
+  (`settings_messages_silent_test.go`: the press, the hub's Silent line, the stale press, the forged presses and a failed write) hold it,
+  and, because the switch has no command, `TestSettingsDriftMessagesSilent` (a value stored through the repository is drawn on every
+  screen, a page press is what the send path's cached `eventMessagesLookup` reads at once with no cache reset, opening every screen
+  writes nothing) and `TestSettingsAuthorityMessagesSilent` (with and without `can_change_info`, a demotion between two presses, a plain
+  member, an administrator the owner gate refuses and the live creator) stand in for a parity test (D-23). The other tests are in
+  `settings_messages_test.go`, on the toolkit `settings_messages_env_test.go` (`newSettingsMsgEnv`, `settingsMsgCleanup`, `settingsMsgSeed`,
+  `settingsMsgOpenPrivate`, `settingsMsgPrivateMenu`). The page's limits are measured (plan 21-10, D-23; Phase 22 plan
+  22-04 for the private copy): at a 14-character chat ID the hub's family cell and the family list's Back are 37 bytes, an event cell 38, the
+  private copy row 42, Set, Remove and Cancel 42 (46 with `d=p`), Preview 42 (46 with `d=p`) and Silent 42, the private copy switch 42, the
+  hub's option toggle `ho` 41, Full preview 38 (42 with `d=p`), Back to Main and Close 33, Main's cell 37 private and 33 group, with no field outside `a c u p t k d v`, and `d` only `p`, only on the private copy row and on the editor buttons of the private copy's screens, prompts and
+  refusals, every one of which carries it (`TestSettingsMessagesCallbackBytes`, plan 22-08); every
+  screen fits 3800 UTF-16 units in 8 languages with a 64-rune title, cells 20 code points, in the rows hub `[2 2 1 1 2]`, family list
+  `[2 2 2 1 2]` (manual and Automatic), `[2 2 2]` (Member requirements) and `[2 2 1 2]` (Lockdown), event screen `[1 1 1 1 1 1 2]` empty and `[2 2 2 2 2 1 1 2]` full (`[1 1 1 1 1 2]` and
+  `[2 2 2 2 2 1 2]` for an event with no private copy spec, whose screen carries no `d`: since Phase 25 the test requires a spec, and the one
+  `d` button, on every event of the manual, Automatic and Member requirements families and forbids both on every lockdown event,
+  `settingsMsgFamilyPM`), private copy screen `[1 1 1 1 1 2]` empty and
+  `[2 2 2 2 2 1 2]` full, group note `[1 2]` (`[2]` without a bot username)
+  (`TestSettingsMessagesPageFitsEveryLocale`, over `settingsMsgScreens` in `settings_messages_screens_test.go`, which also draws the hub with
+  every private copy on, the event screen whose private copy line reads On and the private copy screen with its switch on); every forged press
+  of the ten codes, the `d=p` forms of `he hs hr hc hv hf` included (an unknown option, `v=2`, `d=x` and `d=g` among them), is refused in step
+  1, no draw (a private copy screen and its Full preview included) creates a row, an options row or a cache key, a draw costs the pipeline's
+  calls and one read, and no log line
+  carries content (`TestSettingsMessagesForged`, `TestSettingsMessagesReadsCreateNothing`, `TestSettingsMessagesCost`,
+  `TestSettingsMessagesLogsCarryIDsOnly`, `settings_messages_safety_test.go`). A refused preview's 403 logs nothing (the presser never
+  started the bot); any other refused preview logs the user and chat with Telegram's error only.
+  The private copy on the page (Phase 22, plan 22-04, PMSG-01, D-22, D-23, D-25, D-26): every event also registers a second editor
+  definition, `settingsMsgPMEditDef(fam, ev)`: key `settingsMsgPMWaitPage(ev)` = `h` + the event code + `p` (`hbnp` for the ban's private copy,
+  the wait's `p`, which the typed-reply door finds through `settingsEditPageByKey` exactly as `hbng`), kind `settingsEditEvent`, `TitleKey`
+  `settings_msg_pm_title` (so the prompt says it is for the private copy), icon 📩, the family's three parts, the five editor codes and
+  `settingsRightChangeInfo` of `settingsMsgEditCodes`, `Fields` `{"k": <code>, "d": "p"}` (so Set, Remove and the Cancel of the prompt and of a
+  refusal carry `d=p`), no reserved buttons (a private copy never carries the bot's Unban or Unmute row) and the hooks `Load`
+  (`settingsMsgLoad(ev, eventmsg.DestPM)`), `Draw` (`renderSettingsMsgPM`), `Remove` and `Write` (`settingsMsgRemove(ev, dest)`,
+  `settingsMsgWrite(ev, dest)` with the pm destination), `Preview` (`settingsMsgPMPreview(ev)`, plan 22-05, below) and `PreviewHeaderKey`
+  `settings_msg_preview_header_pm`. The definition is registered for every
+  event, whatever the spec table says (another file's `init` fills it, and init order is not relied on); it is reached only through
+  `settingsMsgDefByFields` (the owner field `c`, a known `k`, no `d` the group definition, `d=p` the private copy only for an event with a spec,
+  `settingsMsgPMDefOf`, any other `d` false) and the event screen's row, which is drawn only for an event with a spec. `he` allows `k` and `d`,
+  and the editor actions come from `settingsEditResolvedActions(settingsMsgEditCodes, []string{"k", "d"}, settingsMsgDefByFields)`, so Set,
+  Cancel, Remove and the typed reply of a private copy are the page's existing `hs`, `hc`, `hr` and the typed-reply door's editor branch, with
+  nothing added to `settings_input_door.go` or `settings_edit_actions.go`. The private copy's screen (`a=he&k=<code>&d=p`): the event's icon and
+  bold name, `settings_msg_pm_intro`, a blank line, the part lines (the text reads Default while no text is stored: the default private text is
+  then sent), the no-caption note, `settings_msg_line_pm` (On while the pm row's Silent is false) and, after a blank line each, the family's hint
+  and `settings_msg_hint_pm`; the keyboard is the part rows, the editor's preview rows (`settingsEditPreviewRows`, plan 22-05: Preview of each
+  part that is set, then Full preview, each carrying `k` and `d=p`), the full-width switch `settings_btn_msg_pm` (`settingsStateIcon`, the absolute
+  target `a=hp&k=<code>&v=<opposite>`), then Back to the event screen (`a=he&k=<code>`, no `d`) and Close: `[1 1 1 1 1 2]` with nothing stored and
+  `[2 2 2 2 2 1 2]` with every part set. The previews of the private copy (plan 22-05, D-27, PMSG-06) are the page's `hv` and `hf` with `d=p`,
+  needing only `settingsRightAdmin`: the editor sends the header `settings_msg_preview_header_pm` in the presser's language, then
+  `settingsMsgPMPreview(ev)` builds the content with `composeEventPM`, the send path's own composer, from `settingsMsgPreviewReply` (the presser
+  as the member and the admin, the sample reason and, for a timed event, the sample duration and end) in the group's language
+  (`settingsMsgGroupTranslator`, by chat ID) and the screen's stored parts, with no lockdown note: Full preview is that composition sent by
+  `media.SendGreetingMessage` (with no stored text, the event's default private text), Preview text the composed text alone with no keyboard,
+  Preview media and Preview buttons the editor's own. Everything goes to `query.From.Id` only, never through `offerEventPM`, whatever the switch
+  says; it writes nothing, schedules nothing and carries the stored buttons and the `{rules}` button only, never the group's Unban or Unmute
+  row (`TestSettingsMessagesPMPreview`, `settings_messages_pm_preview_test.go`: a custom copy with a photo and a button and the switch off, the
+  part previews, a timed copy, the rows, a 403 on the content, the Spanish default with the header in English, nothing sent to any other chat,
+  no row, queue entry or wait). The state comes from
+  `settingsMsgStateFor(msgs, ev, dest)`, which reads `msgs.Resolve(event, dest)` as the send path does (no pm row is a copy that is off, D-08) and,
+  for the group message of an event with a spec, sets `settingsEditState.PMOn`; every redraw after a write builds it from the apply result's
+  `Messages`, so the event screen's private copy line survives a Silent press and a Remove. The switch is the page action `hp`
+  (`settingsActMsgPM`), fields exactly `k` and `v`, its `Validate` (`settingsMsgPMFields`) the private owner field, an event with a spec and `v`
+  exactly `0` or `1`, right `settingsRightChangeInfo`; `settingsMsgRunPM` writes only through `applyEventPM(ctx, chatID, event, on, by)`
+  (`event_message_apply.go`, the switch's one write path, no command, judges no rights: `eventMsgWrites.Silent` of `eventmsg.DestPM` with
+  `!on`), redraws from the read-back (`settingsMsgRedrawApplied`, shared with `hq`), reloads when the read-back is missing and redraws the stored
+  state with `common_settings_save_failed` after a failed write. Storing a part never turns a private copy on (a new pm row is written with its
+  switch off, D-08); every write drops `event_messages:<chat>`, which is in `skipLocal`, so the send path reads the change at the very next
+  command on every replica. A group menu's `hp` or `he&d=p` is an invalid request in step 1 (no `c`). `TestSettingsMessagesPMScreen` (the event screen's
+  line and row, the private copy screen, no `d` on a Phase 21 button, a forged or unknown `d` and an event without a spec refused before any
+  lookup), `TestSettingsMessagesPMSwitch` (the press, Back, a second press, a stale press, a failed write, what the send path's cached read
+  sees) and `TestSettingsMessagesPMTyped` (the typed text, photo and buttons stored on the pm row with the copy still off, the prompt titled
+  `settings_msg_pm_title` with a Cancel carrying `d=p`, the editor's refusals, Remove of each part leaving the group row alone) hold it
+  (`settings_messages_pm_test.go`, toolkit `settingsMsgStoredPM` and `settingsMsgOpenPM` in `settings_messages_env_test.go`); because nothing
+  of it has a command, `TestSettingsDriftMessagesPM` (a pm text and switch written through the repository are drawn by both screens, a Silent
+  press keeps the private copy's line, and a text and the switch set on the page are what `/ban` sends in private after the group reply) and
+  `TestSettingsAuthorityMessagesPM` (without `can_change_info` both screens open but Set, Remove and `hp` are the `settings_no_change_info`
+  alert with nothing written, a wait whose sender is demoted before the typed message stores nothing, the owner gate, the live creator, a group
+  menu's presses refused in step 1) stand in for a parity test.
+  The group's private copy options on the hub (Phase 22, plan 22-06, PMSG-04, D-24, D-25): the block is drawn from one table,
+  `settingsMsgPMOptions` (`settingsMsgPMOption{Code, LineKey, LabelKey, Value, Apply}`: the `t` value of the toggle, the line's and the
+  toggle's keys, both taking `{state}`, how it reads from `eventmsg.Options` and its one write path; `settingsMsgPMOptionByCode` finds a row),
+  so a later option is one more row and no renderer change. Its rows are the Details button, `t` = `d`, read from `Options.PMDetails`, and
+  the log line (plan 22-07, PMSG-07), `t` = `l`, read from `Options.PMLog`. Each option is a full-width toggle (`settings_btn_msg_pm_details`,
+  `settings_btn_msg_pm_log`, `settingsStateIcon`), the page action `ho`
+  (`settingsActMsgPMOption`), fields exactly `t` and `v`, its `Validate` (`settingsMsgPMOptionFields`) the private owner field `c`, a known
+  option code and `v` exactly `0` or `1` (`settingsEditSwitchValue`), so a group menu's press (`u` in place of `c`), `t=x`, `v=2` or a missing
+  field is an invalid request in step 1 before any `getChatMember`; right `settingsRightChangeInfo`. The toggle sends the absolute target (the
+  opposite of the stored value, `a=ho&c=<chat>&t=<code>&v=<target>`, 41 bytes at a 14-character chat ID). `settingsMsgRunPMOption` writes through the
+  option's `Apply` with the presser as `updated_by` (no same-value shortcut: a stale hub's press stores the same value again) and redraws the
+  hub with no notice from the messages the write read back, reloads the hub when the read-back failed and redraws a fresh read with
+  `common_settings_save_failed` after a failed write. The Details option's one write path is `applyEventPMDetails(ctx, chatID, on, by)`
+  and the log option's `applyEventPMLog(ctx, chatID, on, by)` (`event_message_apply.go`, no command, judge no rights):
+  `eventMsgWrites.PMDetails` or `eventMsgWrites.PMLog` (defaults `eventmsg.SetPMDetails`, `eventmsg.SetPMLog`), then
+  `eventMsgOptionsReadBack`, returning `eventMsgOptionsResult{Outcome greetingApplyOutcome; Messages *eventmsg.Messages; Err error}` (the
+  chat's messages read back fresh, whose `Options` hold the stored options); each logs the chat ID and the option only. The repository drops
+  `event_messages:<chat>`, which is in `skipLocal`, so the send path reads the new option at the very next command on every replica.
+  The three tests run every case for both option rows from one table (`settingsMsgOptionCases`): `TestSettingsMessagesPMOptions` (the
+  block, the toggle and its bytes, a press that writes its own option and no other and a second press with what the send path's cached
+  `eventMessagesLookup` reads at once, a failed write, the `[2 2 1 1 2]` rows), `TestSettingsDriftMessagesPMOptions` (an option stored through
+  the repository is drawn by the hub; with the option off a blocked copy of `/ban` does nothing for it, and after the hub's drawn toggle is
+  pressed the next `/ban`'s blocked copy adds the Details button or posts the `#PM_COPY` line) and `TestSettingsAuthorityMessagesPMOptions` (an administrator without
+  `can_change_info` sees the hub and the toggle but the press is the `settings_no_change_info` alert with nothing written, an administrator the
+  owner gate refuses, forged fields and a group menu's `ho` refused in step 1 with no member lookup) stand in for a parity test
+  (`settings_messages_pm_options_test.go`; the drift test's member refuses the private send with a 403 through `messagesE2EClient.refuse`).
 - The message editor's pages (`settings_edit.go`, pages `w` Welcome, `g` Goodbye and `r` Rules, orders 50, 60 and 70, each
   registered from that file's `init` through `registerSettingsPage` so `settings_pages.go` is never edited) show which
   parts of a message are set, one line per part from one parts table (`settingsEditPageDef.Parts`): Welcome and Goodbye
@@ -1749,7 +2299,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settingsRightAdmin` needs only the live admin check every press already makes (`/captchamode`, `/captchatime`,
   `/captchaaction`, the editor's Welcome and Goodbye switches and Greet once). `settingsRightAdminBotAdmin` also needs `chat_status.IsBotAdmin` and refuses with the notice
   `chat_status_bot_not_admin` (`/captcha`). `settingsRightAdminFloodBot` also needs `chat_status.IsUserAdmin(b, chat, b.Id)`
-  and refuses with the notice `connections_is_user_connected_bot_not_admin` (`/setflood`, `/setfloodmode`, `/delflood`).
+  and refuses with the notice `connections_is_user_connected_bot_not_admin` (`/setflood`, `/setfloodmode`, `/delflood`; also the
+  Warnings page's controls, its timed preset press `nt` and its expiry preset press `nx`, as `/setwarnlimit` and `/setwarnmode`,
+  while the duration screen's `nd` and the expiry screen's `ne` need only `settingsRightAdmin`; and the Antiflood page's timed preset press `ft`, as `/setfloodmode`, while its `fd` needs
+  only `settingsRightAdmin`).
   `settingsRightRestrict` needs the creator or an administrator with `can_restrict_members` from the same member record
   (`staffIssuerSkipReason`) and refuses with the alert `settings_no_restrict` (lockdown lift and triggers). The user check
   is live, so it is stricter than the commands' cached one; the bot check uses the commands' own predicate, never a live
@@ -1765,7 +2318,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   never runs.
   `settingsRightChangeInfo` needs the creator or an administrator with `can_change_info` from the same member record (no
   extra call) and refuses with the alert `settings_no_change_info` (the editor's Delete last, as `/cleanwelcome` and
-  `/cleangoodbye` refuse through `CanUserChangeInfo`); it also gates every choice of the Deletion page (`/cleanservice` asks for it too), the three Member messages rows (`mc`, `me`, `ms`, Off included) and the Self-destruct card's Yes (`dy`), each judged on the press's fresh member record, so a Yes after the presser lost the right is refused with nothing written, while opening the section, a list and a row screen needs only the admin check every press makes (`TestSettingsAuthorityDeletionMember`; the owner gate's carve-out applies: a non-owner administrator with the switch off is refused at step 4b). `settingsRightRefusalFor` is the one pure judgement of a right's
+  `/cleangoodbye` refuse through `CanUserChangeInfo`); it also gates every choice of the Deletion page (`/cleanservice` asks for it too), the three Member messages rows (`mc`, `me`, `ms`, Off included) and the Self-destruct card's Yes (`dy`), each judged on the press's fresh member record, so a Yes after the presser lost the right is refused with nothing written, while opening the section, a list and a row screen needs only the admin check every press makes (`TestSettingsAuthorityDeletionMember`; the owner gate's carve-out applies: a non-owner administrator with the switch off is refused at step 4b). It also gates the Messages page's Silent switch (`hq`, Phase 21 plan 21-07), judged on the press's own live member record with nothing written on a refusal, while opening the hub, a family and an event screen needs only `settingsRightAdmin`; Set (`hs`) and Remove (`hr`) of an event message's text, media and buttons (Phase 21 plan 21-08) need it too, the event definitions' `EditRight`, judged on every press and, through the typed-reply door's `authorize`, on every typed message, so a demotion between Set and the message ends the wait and stores nothing; the prompt's Cancel (`hc`), Preview (`hv`) and Full preview (`hf`, Phase 21 plan 21-09) need only `settingsRightAdmin`, so an administrator without `can_change_info` can open, view and preview every event message (`TestMessagesEndToEnd`'s `rights` subtest). The same holds for an event's private copy (Phase 22 plan 22-04): its screen (`he` with `d=p`) needs only `settingsRightAdmin`, while its Set (`hs`), Remove (`hr`) and switch (`hp`) need `settingsRightChangeInfo`, judged on every press and, through the typed-reply door's `authorize`, on every typed message. The hub's private copy option toggles (`ho`, Phase 22 plans 22-06 and 22-07, the Details button and the log line) need `settingsRightChangeInfo` too, judged on the press's own live member record with nothing written on a refusal, while the hub that draws it needs only `settingsRightAdmin` (`TestSettingsAuthorityMessagesPMOptions`, and through the dispatcher `TestPMCopiesEndToEnd`'s `rights` subtest). `settingsRightRefusalFor` is the one pure judgement of a right's
   member-record part, shared by a button press and a typed reply, so the two can never judge a right differently.
   Two composite rights (Phase 18, the only framework edit of that phase, appended after `settingsRightChangeInfo` so the zero value
   stays `settingsRightAdmin`, which made eight rights at the end of Phase 18; Phase 19 adds a ninth, below) judge the bot part first, as the commands they mirror do, then the member part:
@@ -1792,7 +2345,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   unchanged, and the ninth right's `CanBotRestrict`), and `settingsRightRefusal` runs bot first, member part, bot after, so every older
   right answers the same keys in the same order. Both read the commands' cached predicates and a false can be a stale cache, so the
   typed-reply door of plan 19-04 classifies such a false with one live `getChatMember` before it refuses. The Blacklist page (plan 19-03)
-  declares the ninth right for every write and the door uses it typed (plan 19-04). The other two list pages declare rights that already
+  declares the ninth right for every write and the door uses it typed (plan 19-04); its timed preset `bz` (plan 26-05) declares it
+  too, judged on the press's live member record, while the duration screen `bd` writes nothing and needs only `settingsRightAdmin`. The other two list pages declare rights that already
   existed: Filters `settingsRightChangeInfo` (`/filter` and `/stop` ask for `can_change_info` and no bot check) and Notes
   `settingsRightChangeInfoBotAdmin` (`/save` and `/clear` ask for the bot as an administrator, then `can_change_info`); on all three pages
   viewing, paging and Cancel need only `settingsRightAdmin`. `TestSettingsRights` "mirrors /addblacklist",
@@ -1831,7 +2385,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   it would bypass that layer, duplicate its encoding and add a round trip to every load and every delete. Keys whose
   staleness matters are read fresh (`*Fresh`, never cached) or kept short; a new cached setting that must change at once
   on every replica needs that too, not only `skipLocal`.
-- Operational Redis keys (`fuku:anonAdmin:*`, `fuku:staff:*`, `fuku:lockdown:*`, `fuku:raid:*`, `fuku:memberreq:*`, `fuku:fed:*`) sit outside the
+- Operational Redis keys (`fuku:anonAdmin:*`, `fuku:staff:*`, `fuku:lockdown:*`, `fuku:raid:*`, `fuku:memberreq:*`, `fuku:fed:*`, `fuku:aispam:*`) sit outside the
   `fuku:cache:` prefix; `CLEAR_CACHE_ON_STARTUP` does not clear them. `fuku:antiraid:*` is retired: nothing reads or
   writes it, and `sweepRetiredAntiRaidKeys` removes what the old raid mode left, once per process at startup.
 - `fuku:settings:sweep:lock` (new family `fuku:settings:*`, also outside the `fuku:cache:` prefix, so
@@ -1841,7 +2395,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   a replace of the whole roster or a clear. Only a cycle cut off by a cancel gives it back, by compare-and-delete.
 - The message editor's wait for a typed reply (`settings_input.go`, all outside the `fuku:cache:` prefix in the
   `fuku:settings:*` family, so `CLEAR_CACHE_ON_STARTUP` keeps them, and holding IDs and codes only, never message text or
-  a file ID, except the one bounded user-text field `w` below). `fuku:settings:input:<user>` is one hash per user with `c` (group chat ID), `p` (page key), `t` (part), `m`
+  a file ID, except the one bounded user-text field `w` below). `fuku:settings:input:<user>` is one hash per user with `c` (group chat ID), `p` (page key, which may also be the key of a registered message editor definition such as an event message's `hbng`), `t` (part), `m`
   (prompt message ID), `n` (16 hex nonce from `crypto/rand`), `x` (expiry, unix ms), `r<message id>` for each refusal reply that carries a Cancel button (at most 40 fields in
   all, no text), while a claim is held `k`, and, on the second part of a two-step list add only (Filters `(i,y)`, Notes `(e,c)`), `w`
   (the step-1 keyword or name: valid UTF-8, not blank, at most 100 code points, never logged, never in callback data, deleted with the
@@ -1991,7 +2545,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `raidPosts.wait()`; the fake's read helpers (`sentTo`, `sentChats`, `callsFor`) do it themselves. The call of `raidFire` that
   got `lockdownStartStarted` posts one public notice in the locked group (`raidPostNotice`, the group's language: the
   trigger and its numbers, `lockdown_note_approved_muted`, and the no-delete and no-invite notes `/lockdown` adds),
-  and no other outcome does. When the bot cannot lock a group (`lockdownStartNotSupergroup`,
+  and no other outcome does. Since Phase 25 (plan 25-04, EVT-07) that notice is the trigger's event message (`lockjoin`,
+  `lockflood` or `lockai`) through `postLockdownAutoEvent` in `event_message_lockdown.go`, the one call `raidPostNotice` makes:
+  a group's stored message with `{count}`, `{window}`, the flood's `{percent}` and the trigger sentence as `{reason}`, followed
+  after one line break by the technical notes, or with nothing stored the default through `raidSend`, today's request byte for
+  byte; Silent posts nothing and the lockdown stands. A custom send is one `lockdownPaced` unit whose wait derives from its own
+  `raidPostTimeout` context, and its request goes through `media.SendGreetingMessage`, which takes no context, so once in flight
+  `postLockdownAutoEvent`'s custom request is bounded only by the bot's HTTP client timeout (30 s); `StopRaidPosts` gives up
+  after `raidPostStopWait` whatever the post is doing. No notice, custom or default, is queued for deletion. The cannot-lock warning below is not an event and never reaches
+  the engine. When the bot cannot lock a group (`lockdownStartNotSupergroup`,
   `lockdownStartBotCannotRestrict` or a definitively refused lock, `lockdownStartLockFailed`) nothing is started and
   `raidWarnCannotLock` warns the group's Staff Group (`staff.GetLinkOfGroupFresh`, the Staff Group's language) and its
   log channel (`actionlog.Destination` under the admin category, the group's language, starting with the usual header),
@@ -2188,10 +2750,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `/unlockdown` ever ends a lockdown: no TTL, timer, Redis expiry, restart, worker cycle or expired ban lifts one, and
   `BeginLift` is reached only through `lockdownBeginLift` in `liftLockdownRow`, the one lift path shared by `/unlockdown`
   (`applyLockdownLift`), the alert's Lift Confirm and the settings menu's Lift Yes (`applyLockdownLift`) (restore the
-  stored permissions, then one conditional record, then `FinishLift`). The alert's Lift and the settings menu's Lift
-  from a private menu also post the public `lockdown_lifted` notice in the locked group, through `lockdownAnnounceLift`
-  (`lockdownPaced`), and wake the worker, so a lift by button is never silent, also from a private menu; a Lift from a
-  menu opened in the group only wakes the worker, its redrawn menu being the notice in that same chat. The
+  stored permissions, then one conditional record, then `FinishLift`). The lift notice of every door is the group's
+  `locklift` event message (Phase 25, the Event messages bullet), or today's `lockdown_lifted` notice when none is stored:
+  `/unlockdown` replies through `postLockdownLiftReplyEvent`, and the alert's Lift and the settings menu's Lift from a private
+  menu go through `lockdownAnnounceLift`, which wakes the worker first and then posts through `postLockdownLiftEvent`
+  (today's default under `lockdownPaced`), so a lift by button is never silent unless the group silenced the message; a Lift
+  from a menu opened in the group wakes the worker and posts only a stored custom lifted message, its redrawn menu being the
+  notice in that same chat. The
   `chat_lockdowns` columns `trigger_count`, `trigger_window` (seconds) and `trigger_percent` (migration 20261018120000,
   with `idx_chat_lockdowns_chat_lift` on `(chat_id, lift_started_at)`) record the numbers behind an automatic trigger:
   `trigger_kind` is `manual`, `join_surge`, `flood` or `ai_burst`, and all three numbers are 0 for a manual lockdown
@@ -2241,6 +2806,55 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - `warns_settings.warn_mode` is checked only by `chk_warn_mode` (NULL, empty or one of ban, kick, mute, tban, tmute, NOT VALID)
   since migration 20261116120000 dropped the legacy `chk_warns_mode` of 20250805204145, which refused the empty mode on a
   chain-built PostgreSQL database (quick task 261116-wh3).
+- The durations of the timed automatic punishments (migration 20261122120000, Phase 26) are three columns, each `INTEGER NOT
+  NULL DEFAULT 0` under its inline named CHECK of 0 to 31622400 (366 days): `warns_settings.warn_mode_secs`
+  (`chk_warns_settings_mode_secs`, the warn limit's action), `antiflood_settings.action_secs` (`chk_antiflood_action_secs`) and
+  `blacklists.action_secs` (`chk_blacklists_action_secs`, one per word, like the action). The bounds are defined once in
+  `fuku/db/models/punish.go` (`models.PunishMinSecs` 60, `models.PunishMaxSecs`, `models.PunishDurationValid`). A plain action
+  (mute, kick, ban) stores 0, and a timed mode (`tmute`, `tban`) stored with 0, which every row written before the migration and every
+  timed mode the code wrote before reads as, is inert: it applies nothing, exactly as before. The models (`WarnSettings.WarnModeSecs`,
+  `AntifloodSettings.ActionSecs`, `BlacklistSettings.ActionSecs`) carry no `default:` tag (a Go 0 is always written) and JSON
+  `omitempty`, so a backup export of a group with no duration is byte-identical (`TestLegacyPunishmentExport`). The columns live in
+  rows that are already cached (`warn_settings`, `antiflood`, `blacklist`), so a value an earlier build cached decodes the duration as
+  0, inert. `warns.SetWarnModeContext(ctx, chat, mode, secs)` writes `warn_mode` and `warn_mode_secs` in one upsert (a missing row is
+  created with limit 3; an existing row has only those two columns updated, so a concurrent `SetWarnLimit` is never clobbered) and drops
+  `warn_settings:<chat>`; the two-argument `warns.SetWarnMode` is that write with seconds 0. `antiflood.SetFloodActionContext(ctx,
+  chat, mode, secs)` (plan 26-04) writes `action` and `action_secs` through `upsertChatField` (only those two columns, so a concurrent
+  limit or delete write is never clobbered; a missing row is created with the model's limit 5, D-27), writes nothing when the cached
+  settings already hold both values, and drops `antiflood:<chat>`; `SetFloodModeContext` and `SetFloodMode` are that write with
+  seconds 0. `GetAntifloodSettingsContext`'s explicit `Select` reads `action_secs` (`TestSetFloodActionDuration`).
+  `blacklists.SetBlacklistActionTimedContext(ctx, chat, action, secs)` (plan 26-05) is one `UPDATE` of `action` (lower-cased) and
+  `action_secs` on every word of the chat, returns the rows matched and drops `blacklist:<chat>`; `AddBlacklistTimedContext(ctx,
+  chat, word, action, secs)` stores one word with both. `SetBlacklistAction`, `SetBlacklistActionContext`, `AddBlacklist` and
+  `AddBlacklistContext` are those writes with seconds 0, and `ListBlacklistEntriesFresh` reads `action_secs` beside the ID, word
+  and action (`TestSetBlacklistActionDuration`).
+- Warn expiry (migration 20261122130000, Phase 26 plan 26-06, TUNE-03) is two columns: `warns_settings.warn_expiry_days`
+  (`INTEGER NOT NULL DEFAULT 0`, inline named CHECK `chk_warns_settings_expiry` 0 to 365, `models.WarnExpiryMaxDays`; 0 is off) and
+  `warns_users.warn_times` (`JSONB NOT NULL DEFAULT '[]'`, `models.Int64Array`): the unix seconds of each stored warn, in the order of
+  the reasons. The models (`WarnSettings.ExpiryDays`, `Warns.WarnTimes`) carry no `default:` tag and JSON `omitempty`. The migration
+  backfills nothing: a row saved before it has fewer times than warns, and `(*models.Warns).NormalisedTimes` dates every missing time
+  at the front with the earlier of the row's `updated_at` and its first stored time (never earlier than the warn's real time, so no
+  old warn expires before its real age), cuts extra times from the end and raises a time lower than the one before it, so the times
+  are always one per warn and non-decreasing; a value with no update time and no times (a `warns` cache value of the previous build)
+  pads with the far future, so it counts every warn and never expires one on a guess. `(*models.Warns).Counted(expiryDays, now)` is
+  the one counting rule every reader and writer uses: with expiry off every warn and the stored reasons as they are (so every display
+  is byte for byte), with expiry on the warns whose time is after `now - expiryDays*24h`, a suffix of the record, with the last
+  `min(count, len(reasons))` reasons (a row can hold fewer reasons than warns). The dated repository writes take the locks `WarnUser`
+  always took, inside one transaction: `warns.WarnUserAt(ctx, user, chat, reason, now)` (the chat row lock, the settings row lock,
+  creating the default settings row, and the member's row lock) dates the member's row, drops the warns that no longer count while
+  expiry is on (`num_warns`, `warns` and `warn_times` all keep the counted suffix), appends this warn with `now` and returns the
+  counted number and reasons, so the limit compares what counts; `RemoveWarnAt` removes the newest counted warn and answers removed
+  only when one counted (the expired ones dropped in the same write); `ResetUserWarnsAt` deletes the row and answers removed only when a
+  warn counted. With expiry off nothing is ever dropped and both answer exactly as before (`RemoveWarn` while `num_warns` is above 0,
+  `ResetUserWarns` whenever a row was deleted). Raising the expiry later never brings back a warn already dropped. `GetWarnsAt` counts
+  the cached row with the expiry read through `LoadWarnSettingsContext` (which creates no row; a failed read counts with expiry off, so
+  a display never counts fewer warns on a guess); the `warns:<user>:<chat>` cache value now holds the times and the row's update time in
+  unix seconds. The old names `WarnUser`, `RemoveWarn`, `ResetUserWarns`, `GetWarns` and `GetWarnsContext` are wrappers on
+  `time.Now()` with their old signatures. `warns.SetWarnExpiryContext(ctx, chat, days)` refuses a value outside 0 to 365
+  (`ErrWarnExpiryOutOfRange`) before any write, then is one column-targeted upsert of `warn_expiry_days` (a missing row is created with
+  limit 3 and mode mute; a concurrent limit or mode write is never clobbered) and drops `warn_settings:<chat>`. Every write still drops
+  `warns:<user>:<chat>` and `warn_settings:<chat>` after its commit. Rolling deploy (accepted): a replica on the old code that appends or
+  removes a reason without a time can misalign that member's times until their next warn change.
 - `chat_settings_access` (migration 20261104120000) is the owner switch "Admins can change settings", one row per chat; a
   chat without a row means owner only. It is read only through `menuaccess.AdminsAllowedFresh`, a fresh query that is never
   cached (so no `DeleteCache` applies, and a cache added later needs `skipLocal` and a `DeleteCache` on every write), and an
@@ -2366,13 +2980,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   serves an old verdict; it holds a hash and a probability and never a name, and it sits outside the `fuku:cache:` prefix, so
   `CLEAR_CACHE_ON_STARTUP` keeps it. It amends Phase 14's "positive only" rule for this one string-level fact: a verdict about
   a member is still never cached, only one about a string of names.
-- `fuku:memberreq:nm:<user>` is the AI spam-name rule's baseline (`memberreq_ai.go`, `memberReqAIBaselineKey`): the names hash
-  (32 hex characters, never a name) of the names the bot last accepted for this account, `SET EX` 180 days
+- `fuku:memberreq:nm:<chat>:<user>` is the AI spam-name rule's per-chat baseline (`memberreq_ai.go`, `memberReqAIBaselineKey`): the names hash
+  (32 hex characters, never a name) of the names the bot last accepted for this member in this chat, `SET EX` 180 days
   (`memberReqAIBaselineTTL`; the marker below keeps `memberReqAIStateTTL`, 30 days). The TTL is absolute and nothing
   refreshes it (the watcher is read-only and an equal baseline is a no-write pass), so a member dormant for over 180 days
   is first-sighted again and baselined with no call, whatever names they carry then (accepted, the same D-02 limit as an
   established member who was in the group when the rule was switched on; Phase 15 review WR-02 raised it from 30 days,
-  which reopened that hole for every member every month). A name belongs to the account, so the key has no chat. Only the rule writes it, never the watcher:
+  which reopened that hole for every member every month). The key is scoped per chat so a pass accepted under a permissive chat's AI bar never exempts the account in a stricter chat (Phase 28 review WR-04). Only the rule writes it, never the watcher:
   `SET NX` for an established member's first sighting (which makes no call), and overwritten by every definite pass together
   with the deletion of the marker below, in one transaction. A baseline that differs from the current names hash is a rename
   and is judged. It sits outside the `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it; Redis only.
@@ -2527,6 +3141,60 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   whenever any group failed. A database error removing an fban answers `common_settings_save_failed`, and only a missing
   ban answers `feds_unfban_not_banned`. The fan-out is a recover-protected goroutine with no shutdown drain (a restart cuts
   it off, accepted). They sit outside the `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps them.
+- `fuku:pmcopy:pace:next` and `fuku:pmcopy:pace:block` are the fleet-wide Telegram pacing of the private copies of event
+  messages (`pmCopyPaced`, `pmCopyPacer` built from `pmCopyPacerOptions`: 200 ms, 1 retry, 15 s, each call bounded by
+  `pmCopyCallTimeout`, 10 s): every Telegram call of a private copy job goes through it and nothing else uses the keys, so
+  copies take at most five sends a second and a burst never delays a punishment, a group reply or another pacer's work; a
+  slot more than 15 s away fails at once with no request. They sit outside the `fuku:cache:` prefix, so
+  `CLEAR_CACHE_ON_STARTUP` keeps them.
+- `fuku:pmcopy:{<chat>}:cap:<unix minute>` is the per-group cap of the private copies of automatic events and of replies an
+  automatic rule raised (`eventPMOffer.ByRule`) (`pmCopyCapKey`,
+  `pmCopyCapAllow`, D-17): a counter of one fixed minute (`pmCopyNow().Unix()/60`), the chat ID a hash tag, `INCR` and
+  `EXPIRE 120` in one transaction under `raidRedisTimeout`, at most `pmCopyAutoCapPerMinute` (10) copies a group a minute.
+  Only the job of an event whose spec is `Automatic`, or of a rule-raised reply (`ByRule`), reads it; manual events are never
+  counted (the pool and the pacer bound them). It fails closed: with no Redis client or on any Redis error an automatic copy is not sent. It sits outside the
+  `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it.
+- `fuku:pmcopy:det:<token>` is the Details record of a private copy that was not delivered (`pmCopyDetailsKey`, plan 22-06,
+  D-19): the JSON of `pmCopyDetailsRecord` (`u` the punished user's ID, `c` the chat ID, `e` the event, `t` the text, `f` the
+  file ID, `y` the media type, `b` the URL button rows: the copy exactly as the job tried to send it, never naming the Staff
+  Group or another group), `SET NX` for `pmCopyDetailsTTL` (48 h, longer than the 24 h Bot messages cap, so it outlives every
+  group message that can carry its button) under `raidRedisTimeout`. The token is 16 bytes of `crypto/rand` in unpadded
+  base64url (22 characters, `pmCopyNewToken`), never derived from an ID, and never logged. It is written only by a job that did
+  not deliver its copy with the group's Details option on (`pmCopyAddDetails`) and read only by the `pmcopy_` deep link
+  (`pmCopyDetailsGet`); a view deletes nothing. Redis only (no Redis, no record and no button); it sits outside the
+  `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it.
+- `fuku:settings:copy:<token>` is the one-time confirmation card token of the private Copy Settings page (`settings_copy.go`,
+  Phase 29 plan 29-05, TUNE-09): JSON of `settingsCopyCardRecord` (`u` user ID, `s` source chat ID, `t` target chat ID), written on
+  `ck` via `SET NX` with TTL `settingsCardLifetime` (5 minutes) using a 12-byte `crypto/rand` unpadded base64url token (16 chars,
+  96-bit entropy, never logged). On `cy`, the handler peeks the record with `GET` to verify `u == presser.Id && s == sourceChatID`
+  (so a wrong-user or wrong-source callback answers `common_callback_invalid_request` without burning the real owner's card), re-runs
+  live dual-group verification, and then atomically consumes the key via a 2-line Lua `GET` + `DEL` script (`settingsCopyConsumeScript`)
+  before executing `applyCopySettings`. It fails closed (`settings_copy_unavailable` when Redis is nil, `settings_card_expired` on
+  missing/expired/replayed tokens) and sits outside the `fuku:cache:` prefix so `CLEAR_CACHE_ON_STARTUP` keeps it.
+- `fuku:settings:backup:import:<token>` and `fuku:settings:backup:reset:<token>` are the cross-replica one-time confirmation card
+  tokens of the private Backup settings page (`fuku/modules/backup.go`, `fuku/modules/settings_backup.go`, Phase 30 plans 30-03 &
+  30-04, BKP-02, BKP-03, `P30-01`): JSON of `settingsBackupImportRecord` (`u` user ID, `c` chat ID, `m` modules, `b` parsed
+  `*backup.BackupFormat`, capped at 2 MiB `maxSettingsBackupRedisBytes` and decoded with `json.Decoder.UseNumber()` to preserve
+  64-bit integer IDs) and `settingsBackupResetRecord` (`u`, `c`, `m`), written via `SET NX` with TTL `settingsCardLifetime` (5 minutes)
+  using 12-byte `crypto/rand` unpadded base64url tokens (16 chars, 96-bit entropy, never logged). On `bj` / `bu`, the handler peeks the
+  record with `GET` to verify `u == presser.Id && c == groupID` (so wrong-user or wrong-chat presses answer
+  `common_callback_invalid_request` without burning the real owner's card), re-verifies fresh non-Staff-Group status, and then
+  atomically consumes the key via `settingsCopyConsumeScript` (Lua `GET` + `DEL`) before checking `AcquireImport` / `AcquireReset` and
+  applying the import or reset. Both fail closed (`settings_bkp_unavailable` when Redis is nil, `settings_card_expired` on
+  missing/expired/replayed tokens) and sit outside the `fuku:cache:` prefix so `CLEAR_CACHE_ON_STARTUP` keeps them.
+- `fuku:aispam:notice:{<chat>}:u:<user>` and `fuku:aispam:notice:{<chat>}:m:<unix minute>` are the caps of the AI spam notice
+  (`aispam_notice.go`, Phase 24, EVT-05, D-22): one Lua script (`aispamNoticeScript`, under `raidRedisTimeout`, the chat ID a
+  hash tag) sets the member latch with `SET NX EX 300` (`aispamNoticeUserWindow`, 5 minutes) and answers no when it was already
+  set, else `INCR`s the minute's counter with `EXPIRE 120` and answers yes while it is at most `aispamNoticePerMinute` (3; the
+  minute is `aispamNoticeNow().Unix()/60`). The member latch is spent even when the minute is full, so that member stays quiet
+  for the window (the quiet direction). `aispamNoticeAllow` is the notice site's `Admit` and fails closed: no Redis client
+  (`aispamNoticeRedisClient`, `raidRedis` by default), a Redis error or a refusal posts nothing and offers no private copy. The
+  engine asks it only when the notice or its private copy is on, so a group that never turned the notice on spends no Redis
+  command on it. `fuku:aispam:notice:pace:next` and `fuku:aispam:notice:pace:block` are the notice's own fleet pacer
+  (`aispamNoticePaced`, `aispamNoticePacer` built from `aispamNoticePacerOptions`: 200 ms, 1 retry, `MaxWait` 2 s, each pacer
+  wait bounded by 10 s and derived from `aispamContext()`; the two sends take no context, so the request itself is bounded by
+  the HTTP client's 30 s timeout, as for the private copy job), so a wave of notices spends no other pacer's slots and a blocked pacer
+  fails the notice at once. All of them sit outside the `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps them.
 - `fuku:delete:norights:<chat>` is the 10 minute negative latch of a chat the bot cannot act in (`deletionLatchKey`,
   `deletionLatched`, `deletionSetLatch`, `deletionLatchTTL`), outside the `fuku:cache:` prefix so `CLEAR_CACHE_ON_STARTUP`
   keeps it. Its value is the scope: `gone` (the bot is not in the chat, was kicked, or the chat is gone or was upgraded: stops
@@ -2564,7 +3232,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   out is counted in `ImportReport.Skipped`. `ImportChatDataReport` returns the report and the `/import` confirmation
   adds `backup_import_skipped_entries` and `backup_import_log_skipped` to its success message
   (`TestGreetingsBackupDropsLastMessageIDs`, `TestImportNeverTakesTheLogChannel`, `TestImportSkipsInvalidListEntries`,
-  `TestBackupConfirmImportReportsWhatItLeftOut`).
+  `TestBackupConfirmImportReportsWhatItLeftOut`). The warns export (Phase 26 plan 26-06, D-37, `exportedWarns`) carries what
+  counts: with the group's warn expiry on, each member's `num_warns`, reasons and times come from `Counted(expiry, time.Now())`, a
+  member with no counted warn is left out, and the times travel only when the row stores one per warn; with expiry off every row is
+  exported as stored and without its times, so a group that sets no expiry keeps the export it had before warn times existed
+  (`TestLegacyPunishmentExport`, whose rows now store times, passes unchanged). The durations and the expiry travel through their
+  model tags (`warn_mode_secs`, `warn_expiry_days`, `action_secs`, all `omitempty`). An import sanitises them and never refuses a file
+  over them (`sanitizeImportedWarnSettings`, `sanitizeImportedAntiflood`, used by both the antiflood and the admin module,
+  `sanitizeImportedBlacklist`): a duration is kept only when it is a valid duration (`models.PunishDurationValid`) of a timed action
+  (`tmute`, `tban`), else 0, so a timed action with no duration stays inert and a plain action keeps none; an expiry outside 0 to 365 is
+  stored as 0 (off). A member's warn times are kept only when there is one per warn, each positive, non-decreasing and at most one
+  minute in the future (`sanitizeImportedWarnTimes`); otherwise they are dropped and the row is dated at the import (`updated_at` now),
+  so its warns count from the import and a tampered time can neither expire a warn early nor keep one forever. An old file with none of
+  the new keys imports them as zeros (`TestImportSanitizesPunishmentSettings`, `TestWarnsExportCountsWhatCounts`,
+  `TestAllModulesRoundTripEveryMeaningfulField`).
 - `chat_timezones` (migration 20261118120000) is one chat's choice of zone for the times the bot shows: `chat_id` primary
   key, `tz` (an IANA name such as `Europe/Kyiv`, or a fixed offset stored as `UTC+hh:mm`, `chk_chat_timezones_tz` 1..64
   characters), `updated_by`, `updated_at`. A chat without a row uses the bot-wide default (`DEFAULT_TIMEZONE`, default
@@ -2605,6 +3286,128 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and `applyChatAudience` (`fuku/modules/chat_settings.go`, write seam `chatConvWrites`, typed `chatApplyResult`) judge
   no person's rights; turning conversations off also deletes the chat's transcript `fuku:chat:{<chat>}:h` and its set of
   the feature's message IDs `fuku:chat:{<chat>}:mine` (best effort; a failed write deletes nothing).
+- `chat_event_messages` (migration 20261120110000) holds a group's custom event messages, one row per `(chat_id, event,
+  dest)` under the inline primary key `pk_chat_event_messages`: `text`, `file_id` and `media_type` (one media item, 0 for
+  none, the `db.*` media constants the greetings and rules rows use), `buttons` (jsonb, `'[]'` for none,
+  `models.ButtonArray`), `silent`, `updated_by` and `updated_at`, every column `NOT NULL` with a zero default and no foreign
+  key. `models.ChatEventMessage` maps it with no `default:` tag. The event and the destination are validated in Go by
+  `eventmsg.ValidEvent` and `eventmsg.ValidDest` (`fuku/db/eventmsg/events.go`: today the seven manual events `ban`,
+  `tban`, `kick`, `mute`, `tmute`, `unban`, `unmute`, then the five automatic events of Phase 23, `warn`
+  (`EventWarn`), `warnlimit` (`EventWarnLimit`), `flood` (`EventFlood`), `blacklist` (`EventBlacklist`) and `fwdblock`
+  (`EventForwardBlock`), in that order in `Events`, then Phase 24's six screening notices, `captcha` (`EventCaptcha`, the
+  notice of a failed captcha), `aispam` (`EventAISpam`, the notice of an AI spam deletion), `mreqwarn` (`EventReqWarn`, the
+  requirement warn and its warn-limit variants), `mreqkick` (`EventReqKick`), `mreqban` (`EventReqBan`) and `mreqmute`
+  (`EventReqMute`), then Phase 25's five lockdown messages, `lockdown` (`EventLockdown`, the reply of a `/lockdown` that started
+  a lockdown), `lockjoin` (`EventLockJoinSurge`), `lockflood` (`EventLockFlood`) and `lockai` (`EventLockAIBurst`), the public notice
+  of a lockdown that trigger started, and `locklift` (`EventLockLift`, the notice of a recorded lift), and the destinations `group` and `pm`, the private copy sent to the
+  punished person, Phase 22) and never by a CHECK, so Phases 23, 24 and 25 added theirs with no migration; an unknown one is `ErrUnknownEvent` or `ErrUnknownDest` before any write. It is read through `cache.GetFromCacheOrLoad` as one
+  `eventmsg.Messages` per chat (a map keyed `event|dest`, `Lookup(event, dest)`, plus the chat's `Options`, read from
+  `chat_event_message_options` below) under `event_messages:<chat>` (`eventmsg.Get`; `eventmsg.GetFresh` is the same two
+  queries without the cache, for the settings page), a read creates nothing and a failed read of either table is returned,
+  never an empty set or default options. The prefix is in `skipLocal`, because a Remove or a Silent switch must act at the
+  very next command on every replica. The four writers `SetText`, `SetMedia` (file and type together), `SetButtons` and
+  `SetSilent` are column-targeted `INSERT ... ON CONFLICT (chat_id, event, dest) DO UPDATE` of their own column(s) plus
+  `updated_by` and `updated_at`, so a Go false, 0 and empty string are written and two writers of different parts never
+  clobber each other, and each drops the key after the write. A row whose parts are all empty with Silent off
+  (`Message.HasContent` false) reads as the default, exactly like no row; rows are kept when every part is removed. Silent
+  means nothing is sent to that destination, and its value with no row is `eventmsg.DefaultSilent(dest)`: false for `group`
+  (the message is sent) and true for `pm` (a private copy is off until its switch is written, D-08). A part writer that
+  inserts a new row stores that same default (so a `pm` row created by `SetText`, `SetMedia` or `SetButtons` is stored with
+  `silent` true and storing a text alone never turns a private copy on), the conflict update never touches the switch of an
+  existing row, and only `SetSilent` changes it. The send path reads a message with `(*Messages).Resolve(event, dest)`
+  (nil-safe): the stored row, or the empty message whose Silent is `DefaultSilentFor(event, dest)`. Since Phase 24 (D-21)
+  an event can be off by default: `eventmsg.OffByDefault(event)` is true for `aispam` alone, and
+  `eventmsg.DefaultSilentFor(event, dest)` is `DefaultSilent(dest)` or a group message of such an event, so the AI spam
+  notice with no row reads Silent like a private copy, `Resolve` and the part writers' insert default use it (storing a
+  text alone never turns the notice on; only `SetSilent(false)` does), and every other event reads exactly as before. It is never part of backup,
+  export, import or reset in Phase 21 or 22, `pm` rows included (`TestEventMessagesStayOutOfBackup`; Phase 30 decides).
+- `chat_event_message_options` (migration 20261120120000; `plain_tone` added by migration `20261123130000_add_event_message_plain_tone.sql`,
+  Phase 29 plan 29-02, TUNE-08) holds a group's event-message options, one row per
+  chat under the inline primary key `pk_chat_event_message_options`: `pm_details` (a private copy that was not delivered
+  adds a Details button to the group message), `pm_log` (it leaves one line in the group's log channel), `plain_tone` (switches
+  uncustomised default group replies and private copies across all 23 events to neutral plain-tone wording), `updated_by` and
+  `updated_at`, every column `NOT NULL` with a zero default and no foreign key; a chat with no row has all three options off.
+  `models.ChatEventMessageOptions` maps it with no `default:` tag. It is read by `eventmsg.GetFresh` right after the message
+  rows into `Messages.Options` (`eventmsg.Options{PMDetails, PMLog, PlainTone}`), so it lives under the same `event_messages:<chat>` key
+  in `skipLocal` and the send path gets the rows and the options in one cached read; a failed read is the read's error, never
+  default options, and a value an earlier build cached without `PlainTone` decodes it as `false` (the safe direction).
+  `eventmsg.SetPMDetails`, `eventmsg.SetPMLog`, and `eventmsg.SetPlainTone` (`ctx, chatID, on, by`) are column-targeted `INSERT ... ON CONFLICT (chat_id)
+  DO UPDATE` of their own option plus `updated_by` and `updated_at`, so a Go false is written and the three never clobber each
+  other, and each drops the key after the write. `eventmsg.ReplaceAllValidated` (`fuku/db/eventmsg/validate_write.go`, Phase 29 plan
+  29-04, shared with Phase 30 `MSG-10`) validates candidate `Message` rows against the exact editor rules (`ValidateMessage`: valid
+  event/dest, no `DestPM` for lockdown events, media kind in `STICKER..ANIMATION`, `NoMedia` for `mreq*` group notices, button URLs via
+  `content.ValidButtonURL`, non-empty button labels, total buttons + `{rules}` tokens + `ReservedButtonsFor(event, dest)` <= 100, widest
+  row via `keyboard.BuildKeyboard` <= 8, raw rune and visible UTF-16 length <= `4096`/`1024` minus `ReservedTextFor(event, dest)` `600`
+  for `mreq*` and `400` for `lock*`, and `NoSilent` normalization for `EventReqMute`), then atomically replaces `chat_event_messages`
+  and upserts/deletes `chat_event_message_options` in one DB transaction and drops `event_messages:<chat>`. For antiflood action
+  mirroring in Copy Settings, `antiflood.SetFloodActionPreserveOffContext` (`fuku/db/antiflood/repository.go`) explicitly writes
+  `flood_limit = 0` on insert (using `.Select("chat_id", "flood_limit", "action", "action_secs")` + `OnConflict`) so GORM never applies
+  `models.AntifloodSettings`'s `default:5` tag to turn antiflood on in a target group that had no row (`P29-04`). In Phase 30 (MSG-10,
+  plan 30-02), `eventmsg.ReplaceAllValidatedTx(tx *gorm.DB, chatID int64, rows []Message, opts Options, by int64) (WriteReport, error)`
+  was extracted in `fuku/db/eventmsg/validate_write.go` so `eventmsg.ReplaceAllValidated` and `backup.importMessages` share one
+  transaction-participating validated writer without opening nested transactions inside `withBackupTx`: `BackupModuleMessages = "messages"`
+  (`MessagesBackup{Messages []models.ChatEventMessage, Options *models.ChatEventMessageOptions}` in `fuku/db/backup/types.go`, bringing
+  `AllExportableModules()` to 20 modules) exports `chat_event_messages` (ordered by `event ASC, dest ASC`) and
+  `chat_event_message_options`, imports them through `ReplaceAllValidatedTx` (counting rejected rows and unknown future event keys in
+  `ImportReport.Skipped` and invalidating `event_messages:<chat>` only after transaction commit), and clears both tables plus
+  `event_messages:<chat>` on `ClearChatData` / `/reset` of all modules or `"messages"` (`P30-02`). Old exports omitting `"messages"`
+  import cleanly without modifying existing custom messages or options (while `"messages": {}` resets to defaults). Moderation tuning
+  and conversation tables (`chat_escalation`, `chat_offences`, `chat_manual_defaults`, `chat_reason_shortcuts`,
+  `chat_advanced_thresholds`, `chat_conversations`) and Staff Group tables remain excluded from backups (`P30-03`).
+- `chat_escalation` (migration 20261122140000, Phase 26 plan 26-08, TUNE-02, D-28) is one group's escalation ladder, one row
+  per chat under the inline primary key `pk_chat_escalation`: `enabled`, five step pairs `step1_action` to `step5_action`
+  (`VARCHAR(8) NOT NULL DEFAULT ''`) and `step1_secs` to `step5_secs` (`INTEGER NOT NULL DEFAULT 0`), each pair under its own
+  inline CHECK `chk_chat_escalation_step1` to `_step5` (the action in `'' mute tmute kick tban ban`, the seconds 0 to
+  31,622,400), `forget_days` (`NOT NULL DEFAULT 30`, `chk_chat_escalation_forget` 1 to 365), `updated_by` and `updated_at`,
+  and no foreign key. A chat without a row is off with no steps and 30 days (`escalation.Defaults`). `models.ChatEscalation`
+  maps it with no `default:` tag (so a Go false and an empty step are written) and check tags that build the same checks on
+  SQLite. It is read through `cache.GetFromCacheOrLoad` under `cache.CacheKey("chat_escalation", chat)` (`escalation.Get`,
+  which creates nothing and returns its error; `GetFresh` is the same query without the cache) into an `escalation.Ladder`
+  whose `Steps` run from step 1 up to the first empty step, and the prefix is listed in `skipLocal`, because the ladder is read
+  at every automatic punishment a ladder source raises and a change must act on every replica at the next one. The writes
+  `SetEnabled`, `SetEnabledWithSteps` (on, steps 1 to `len`, the rest cleared, in one upsert), `SetStep` (n 1 to
+  `escalation.MaxSteps` = 5; an empty `Step` clears it) and `SetForgetDays` (1 to 365) validate first (`escalation.ValidStep`:
+  `mute`, `kick` and `ban` with 0 seconds, `tmute` and `tban` with a duration `models.PunishDurationValid` accepts; anything
+  else is `escalation.ErrInvalidValue` with nothing written), then run one `INSERT ... ON CONFLICT (chat_id) DO UPDATE` of their
+  own columns plus `updated_by` and `updated_at`, so two admins changing two steps never clobber each other, and drop the key.
+  It is never part of backup, export, import or reset (`TestEscalationStaysOutOfBackup`).
+- `chat_offences` (same migration, D-26, D-27) is one member's offence count in one group: `chat_id`, `user_id` (primary key
+  `pk_chat_offences` on both), `offences` (`chk_chat_offences_count` >= 0) and `last_offence_unix` (BIGINT unix seconds, so no
+  dialect compares text times), no foreign key. `models.ChatOffence` maps it. It is written only by
+  `escalation.CountOffence(ctx, chat, user, now, forget)`, one raw `INSERT ... ON CONFLICT (chat_id, user_id) DO UPDATE ...
+  RETURNING offences` that runs on PostgreSQL and on the SQLite of the tests (3.35 or later; `go-sqlite3` bundles 3.53): a first
+  offence is 1; an offence less than `escalation.SameOffenceWindow` (60 s) after the last counted one (a replica whose clock is
+  behind included) is the same offence and keeps both the count and the time, so a burst counts once a minute at most; one at
+  least `forget` after it restarts at 1; anything else adds 1; a stored count of 0 restarts at 1. PostgreSQL's row lock makes
+  concurrent offences on several replicas one count each (`TestOffenceCountConcurrent`). It refuses a chat of 0, a user ID of
+  0 or less and a forget period under one second before any write. `escalation.ClearOffences(ctx, chat)` deletes a chat's
+  rows. The counts are read only by that upsert, never cached (so no `DeleteCache` applies) and never part of backup, export,
+  import or reset. No worker or sweep prunes them: a count is forgotten by comparison inside the upsert, and the rows of members
+  who never offend again stay, bounded by the members ever punished while the ladder was on (accepted, D-27).
+- `chat_manual_defaults` and `chat_reason_shortcuts` (migration `20261122150000_add_manual_command_tuning.sql`, Phase 27 plan 27-02,
+  TUNE-04..TUNE-06, models in `fuku/db/models/modtuning.go`, repository in `fuku/db/modtuning/repository.go`) store per-group manual
+  command tuning with no foreign keys and stay outside backup, export, import, and reset (`TestModTuningExcludedFromBackup`; Phase 30
+  decides). `chat_manual_defaults` holds one row per chat (`pk_chat_manual_defaults`): `default_ban_secs` and `default_mute_secs`
+  (`0` or `BETWEEN 60 AND 31622400`), `reason_required` (`BOOLEAN NOT NULL DEFAULT FALSE`, no GORM `default:` tag), `appeal_url`
+  (`TEXT NOT NULL DEFAULT ''`), `updated_by`, `updated_at`; reads (`GetDefaults`/`GetDefaultsFresh`) create nothing, writes
+  (`SetDefaultBanSecs`, `SetDefaultMuteSecs`, `SetReasonRequired`, `SetAppealURL`) use column-targeted `ON CONFLICT (chat_id) DO
+  UPDATE` so concurrent edits to different fields never clobber each other, and drop the cache key. `chat_reason_shortcuts` holds
+  up to 50 shortcuts per chat (`id BIGSERIAL PRIMARY KEY`, `chat_id`, `word VARCHAR(64)` normalised trimmed/lower-case single word
+  `<= 32` runes with `uk_chat_reason_shortcuts_word (chat_id, word)`, `reason TEXT` `1..500` runes, `created_by`, `created_at`);
+  `AddShortcut` uses `ON CONFLICT (chat_id, word) DO NOTHING` (never overwriting existing words) and `RemoveShortcutByID` scopes
+  `WHERE id = ? AND chat_id = ? RETURNING word`. Both cache prefixes `chat_manual_defaults:` and `chat_reason_shortcuts:` are
+  listed in `skipLocal` (`fuku/db/cache/local.go`) so changes take effect on the very next command on every replica
+  (`TestSkipLocalManualDefaultsKey`, `TestSkipLocalReasonShortcutsKey`).
+- `chat_advanced_thresholds` (migration `20261123120000_add_advanced_thresholds.sql`, Phase 28 plan 28-02, TUNE-07, model in
+  `fuku/db/models/advthresholds.go`, repository in `fuku/db/advthresholds/repository.go`) stores per-group advanced detection and
+  screening thresholds (`pk_chat_advanced_thresholds` on `chat_id`, no foreign key on `chats`, excluded from backup/export/import/reset,
+  `TestAdvThresholdsExcludedFromBackup`). All 12 integer threshold columns default to `0` (`0` = unset / compiled constant) with 12
+  inline named `CHECK` constraints (`col = 0 OR col BETWEEN min AND max`) mirrored in Go `SpecFor` bounds and GORM tags. Reads
+  (`Get`/`GetFresh`) create no rows; writes (`SetField`, `ResetField`, `ResetArea`) validate bounds before any DB write, use
+  column-targeted `ON CONFLICT (chat_id) DO UPDATE` so concurrent edits to different fields never clobber each other, and drop the
+  cache key (`ResetAll` deletes the row and drops the key). The prefix `chat_advanced_thresholds:` is listed in `skipLocal`
+  (`fuku/db/cache/local.go`, `TestSkipLocalAdvancedThresholdsKey`) so changes act on the next relevant event on every replica with
+  0 DB round trips on warm hot paths.
 - `UpdateRecord` skips zero values. Use `UpdateRecordWithZeroValues` to write `false`/`0`/`""`. Both return
   `gorm.ErrRecordNotFound` when no row matched.
 - Check `TableName()` before raw SQL: `ConnectionSettings→connection` (per user), `ConnectionChatSettings→
@@ -2644,20 +3447,49 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   channel's posts (`IsLinkedChannel` or `IsAutomaticForward`) from every lock but `anonchannel` and `comments`, which keep
   their own rules (`lockSenderExempt`). `anonchannel` matches anonymous channels only (`IsAnonymousChannel`), never the
   linked channel; an anonymous channel's posts and every member's stay subject to every lock.
-- Antiflood first write (D-27): on a chat with no `antiflood_settings` row, the first `/setfloodmode` (pinned for ban) or
-  `/delflood` stores `flood_limit` 5, the model's `default:5`, because the repository's `FirstOrCreate` insert leaves
+- Antiflood first write (D-27): on a chat with no `antiflood_settings` row, the first `/setfloodmode` (pinned for ban; a timed
+  `/setfloodmode tmute 30m` and the page's timed preset alike) or `/delflood` stores `flood_limit` 5, the model's `default:5`, because the repository's `FirstOrCreate` insert leaves
   the limit at its Go zero value; an admin who only picks an action or turns message deleting on therefore also turns
   antiflood on at 5 messages. `TestSetFloodModeOnFreshChatStoredLimit` and `TestSetFloodMsgDelOnFreshChatStoredLimit`
   (`fuku/db/antiflood`) pin it, and a Mute press on an unconfigured chat writes no row at all (the cached default is
   already mute). The menu's action and delete presses call the same `applyFlood*` functions, so it keeps this on
   purpose and draws the stored row from their database read-back, never a guess. Because a tap in a menu is easier to
-  hit by accident than a typed command, the menu's action and delete presses also show the notice
+  hit by accident than a typed command, the menu's action, timed preset (`ft`, plan 26-04) and delete presses also show the notice
   `settings_antiflood_now_on` (menu only, with the stored limit) when the limit read before the write was 0 and the
   read-back is not (`settingsFloodTurnedOn`, D-34); a limit press never shows it, and the commands' replies are unchanged. A repository fix (insert with limit 0
   on the first write) would change `/setfloodmode` and `/delflood` too, so it is a separate follow-up and must update
   those two tests and this bullet.
 - Antiflood counters are in-process (per replica). The raid detection counters (`fuku:raid:*`) are Redis-only: without
   Redis the automatic triggers do nothing, and `/lockdown` still works.
+- The warn commands and the warn limit count only the warns that count (warn expiry, Phase 26 plan 26-06, D-35, D-36):
+  `applyWarn` records through `warns.WarnUserAt(ctx, user, chat, reason, punishNow())` and compares the counted number it returns
+  with the limit, and resets through `ResetUserWarnsAt` after the limit action; `/warns` reads `GetWarnsAt(..., punishNow())`,
+  `/rmwarn` and the Remove warn button `RemoveWarnAt`, `/resetwarns` `ResetUserWarnsAt`, all on the `punishNow` clock, and the AI spam
+  filter's warn count (`aispamWarnCount`) the `GetWarnsContext` wrapper, which counts on `time.Now()`. A member whose warns have all
+  expired is answered `warns_user_no_warnings` by `/warns` and `warns_no_warns_to_remove` by `/rmwarn`, the button and `/resetwarns`.
+  Only while the group's expiry is on, `/warns` ends with the plain-text line `warns_expiry_note` (`/warns` sends no parse mode) and
+  `/warnings` adds the line `warns_settings_expiry`, both naming the expiry through `punishDurationLabel` (`{duration}`); with expiry
+  off every reply is byte for byte (`TestLegacyTimedPunishmentRequests`). `/resetallwarns` still counts rows to decide whether to show
+  its confirm card (accepted). The expiry has no command: the Warnings page's expiry screen sets it (`nx`, `applyWarnExpiry`,
+  plan 26-07; `TestWarnExpiry`, `TestSettingsWarnsExpiry`).
+- Escalation ladder (`escalation.go`, Phase 26, TUNE-02, D-23 to D-30). `escalate(ctx, b, chatID, userID, source, p)` resolves the
+  punishment a member's offence gets, and `checkFlood`, `blacklistWatcher` and `forwardBlockEnforce` call it right before they punish.
+  - Sources: the flood, the blacklist and the forward blocklist punishments of real users. Never counted: a sender chat (an ID of 0 or
+    less) keeping its rule's own action, a Telegram service account, the bot itself, a warn action, delete only (`none`), an inert
+    action, the warn limit, member requirements, the captcha and AI spam. `escalate` itself returns `p` unchanged for anything that
+    is not `autoActionEffective`.
+  - Place: after each rule's own checks (exemptions, the bot's restrict right, the deletion of the message); for the forward
+    blocklist inside the per-member punishment latch, so an album is one offence. Offences within 60 s
+    (`escalation.SameOffenceWindow`) of the member's last counted one are the same offence; after the group's forget period the next
+    is 1 again; step `min(count, len(steps))`, so the last step repeats. The ladder of the group where the member offended is used,
+    never a Staff Group's.
+  - Failures: a ladder that cannot be read applies the rule's own action; a count that cannot be established (an error or the 2 s
+    `escalationCountTimeout`, which GORM hands to the driver, so it is enforced) applies step 1, never harder than the first step on a
+    guess. Each logs one Warn per chat per hour (`escalationWarnGates`) with chat and user IDs and the error class only, never the
+    error text. The resolver starts no goroutine, writes no Redis key and adds no drain; the restrict and ban requests stay bounded
+    only by the HTTP client (30 s). Seams for tests: `escalationLadderLookup`, `escalationCount`.
+  - Accepted limits: a count is kept when the punishment Telegram then refuses; a forward blocklist step overrides the Staff Group
+    list's action in that linked group, as that group's own setting.
 - Fed-ban lookups cache per `(fed, user)` with a negative sentinel; every ban/unban write must invalidate it.
 - A join arrives as both `ChatMemberUpdated` and a service message; dedupe through `claimRecentJoinProcessing`
   (the lockdown guard, which runs first, dedupes by its joiner row instead and never gates a ban on Redis).
@@ -2760,7 +3592,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and a cancel included, and it is taken before the budget, so a flight that cannot get a slot spends no unit. The flight's
   value is `memberReqAIAnswer{Verdict, Sticky}`. A paused breaker, a used-up budget and a gate that could not be had while the
   flight's context is live are a sticky unknown (a state of the system), and so are no Redis client, a failed state read
-  (`memberReqAIPrepare`, noted by `memberReqAIRule` through the plan's `sticky` field, because the prepare step runs before the
+  (`memberReqAIPrepareBar`, noted by `memberReqAIRule` through the plan's `sticky` field, because the prepare step runs before the
   flight), a failed cache re-read inside the flight and a budget counter that failed (Phase 15 review WR-03: a Redis outage
   would otherwise defer every weaker name punishment in every group whose AI action is stricter); a cancelled context is a
   plain unknown (shutdown is not a state), and so is every provider answer that is not a probability (a 5xx, a timeout, a 400). The name check has its own breaker
@@ -2905,7 +3737,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `memberReqHeld`. Kick and ban recover through the leave update and a mute through its live marker, so only the warn
   needs the note. An `applyWarn` error with `Recorded` true (the limit action ran and the reset failed) is not a failed warn:
   the hold is marked, `LimitApplied` is set from `LimitReached` and no `LimitErr`, the notice is posted and the outcome is
-  `memberReqWarned` or `memberReqRemoved`; an error before the warn was stored is the backoff below.
+  `memberReqWarned` or `memberReqRemoved`; an error before the warn was stored is the backoff below. Since Phase 26 the
+  group's warn limit can be a timed mute or ban (D-14): `applyWarn` applies it with its end date, `memberReqLimitMode` maps
+  `tmute` to the mute and `tban` to the ban warn-limit notice (`memberReqNoticeKey`, `memberReqNoticeWarnOf` and the site's
+  action word; no requirement text of its own, P-07), and a `tban` limit is a removal like `ban` (`memberReqRemoved`, so a
+  joiner gets no welcome); a timed mode with no duration stays inert (the plain warn notice, nothing applied).
   Kick is `kickMemberContext`, ban a `banChatMember` with no end date, mute a `restrictChatMember` with
   `MutedPermissions` and the marker `until_date` (now plus 330 days, `lockdownBanSpan`) stored on the hold before the
   call. The requirement mute is owned by its marker alone (`isMemberReqMute`: restricted, still a member, `until_date`
@@ -2932,12 +3768,21 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   translations and not by the key ceilings (at every ceiling the sum is 636; the worst real case is French mute at 506), and
   `mreq_warn_reason` with all eight phrases is at most 300; a translation that breaks the cap is shortened, never the cap
   raised; only a
-  mute carries the `mreq|v1` "I fixed it" button (`a=f`, `h`, `u`). A notice is queued for deletion by `memberReqPostNotice`
-  (as `bot:punish_auto`, a mute notice at the 24 hour cap) and the "I fixed it" edit reschedules it from the tap (see
-  "Scheduling the bot's own messages" under Subsystem traps). A mute notice is never dropped by pacing: `memberReqPostNotice` waits
-  `memberReqNoticeRateLimitWait` and sends again whenever the pacer gives up on it, until its context or
-  `memberReqMuteNoticeBudget` ends, and every notice whose send failed otherwise is retried once (a notice without a
-  button is not retried after `ErrRateLimited`). A mute whose notice still cannot be delivered is never left in place
+  mute carries the `mreq|v1` "I fixed it" button (`a=f`, `h`, `u`). Since Phase 24 (plan 24-05, EVT-09) the notice of an
+  episode is an event (`mreqwarn` with its warn-limit variants, `mreqkick`, `mreqban`, `mreqmute`): `memberReqAnnounce` calls
+  `memberReqPostEventNotice` (`memberreq_notice.go`, the requirement site of the event engine, see the Event messages bullet),
+  so a group's custom text replaces the default and is followed by a blank line, the requirements line and the default's remedy
+  sentences (`memberReqNoticeAppended`); with nothing stored the request is today's byte for byte (`TestLegacyScreeningNoticeRequests`).
+  A non-zero posted message ID (custom or default) is stored on the hold; a Silent warn, kick or ban notice posts nothing,
+  stores no notice ID and leaves the punishment in place, while the mute notice cannot be silenced and never carries a stored
+  media file. The pause notice is not an event and stays on `memberReqPostNotice`. A notice is queued for deletion by
+  `memberReqScheduleNotice` (as `bot:punish_auto`, a mute notice at the 24 hour cap) and the "I fixed it" edit reschedules it
+  from the tap (see "Scheduling the bot's own messages" under Subsystem traps). A mute notice is never dropped by pacing: every
+  requirement notice (the custom message, the default and the pause notice) is sent through one paced retry loop,
+  `memberReqNoticeSend`, which waits `memberReqNoticeRateLimitWait` and sends again whenever the pacer gives up on a mute
+  notice, until its context or `memberReqMuteNoticeBudget` ends, and retries every send that failed otherwise once (a notice
+  without a button is not retried after `ErrRateLimited`); a custom message still refused after its retry is replaced by the
+  default, so a refusal costs at most four requests. A mute whose notice (custom and default) still cannot be delivered is never left in place
   without its button: `memberReqUndeliveredMute` first makes one paced live `getChatMember` (`memberReqLiveMember`) and
   lifts only while `isMemberReqMute` still holds for the hold's marker, because a notice that waits out a rate limit can
   take up to 5 minutes and an admin may have restricted, unmuted or banned the member, or the member left, meanwhile:
@@ -3224,11 +4069,492 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestMemberSelfDestructQueuesMessages`, `TestMemberSelfDestructKeeps`, `TestMemberSelfDestructPinnedStays`,
   `TestMemberSelfDestructOffCancels`, `TestMemberSelfDestructNeverEndsUpdate`, `TestMemberContentMessageExcludesServiceFields`
   and `TestMemberDeletionStaffGroupNeverTouched` (all three member rules, a Staff Group and a failing Staff Group read) hold it.
+- Event messages (`event_message.go`, Phase 21): a group's stored message for a manual punishment (`chat_event_messages`,
+  see Data) replaces the success reply of that event. `(c *moderationCtx) replyEvent(eventReply{...})` runs in the reply
+  step of the moderation pipeline, after `execute` applied the punishment, so a message never delays, undoes or skips a
+  punishment (D-03). It reads `eventmsg.Get` through the seam `eventMessagesLookup` under `eventMessageReadTimeout` (2 s,
+  a variable): a read error is one Warn with the chat ID and the event and the default; no row, and a row with no text,
+  media or buttons and Silent off, send the default through the site's own send (for the moderation pipeline `c.Msg.Reply`
+  queued under `bot:punish_manual`, the call `sendSuccess` makes), literally the call the site made before Phase 21 (`TestLegacyModerationRequests` pins every byte and is never re-recorded); Silent, honoured only from a
+  successful read, posts and schedules nothing. A send site builds its default first (the ban's is `banDefaultReply`, an
+  `eventDefaultReply`: the same `Sprintf`, mention, `moderationReasonLine` and Unban keyboard as before) and hands it to
+  `replyEvent` with the event key, the target (`eventTargetOf` of its `getChat` answer) and the `eventValues` (reason,
+  duration, until). A custom message is built by `composeEventMessage`: with a stored text, `renderEventText` turns every
+  event placeholder (`eventTokenNames`: `reason admin duration until action count limit window`) into a sentinel
+  (`eventTokenSentinel`, `<<fuku-event-NAME>>`, which cannot come from a stored HTML text), lets
+  `formatting.FormattingReplacer` fill the Welcome placeholders for the target and the group and add the `{rules}`
+  button, then puts each escaped value (`eventPlaceholderValues`) in one pass, so a reason holding `{first}` and a name
+  holding `{reason}` stay as typed and an unknown `{word}` stays; a placeholder with no value is empty (D-09), `{until}`
+  is `formatChatTime` in the chat's zone, and `{count}`, `{action}`, `{limit}` and `{window}` are owned by the event and
+  empty for the manual events (never the member count, so no `getChatMemberCount`). The default's separate Reason line
+  is not added to a custom text (D-11); `eventReply.Note` (the `/unmute` lockdown note) follows a custom text on a new
+  line. With no stored text the default text is the text and only the media and buttons are custom. The keyboard is the
+  bot's own rows of the default (`eventBotRows`, the Unban row of a ban) followed by the custom and rules buttons, none
+  when there are neither. It is sent with `media.SendGreetingMessage` as a reply to the command
+  (`allow_sending_without_reply`, link previews off, HTML, the topic of a topic message) and queued with
+  `scheduleBotMessage(sent, deletion.KindBotManual)`, the default's kind (D-15). When Telegram definitely refuses it
+  (`eventMessageRefused`: `isTelegramClientError`, a 4xx other than 429, or `media.ErrNoPermission`), the default is sent
+  once through the site's own send with one Warn naming the chat ID and the event; a 429, a 5xx or a transport error is
+  returned as the default's send error always was, with no second send. `{admin}` is the acting admin's escaped full
+  name, and the translated `eventmsg_admin_anon` (the group's language) for an anonymous admin (`actorIsAnonymous`: the
+  update's `eventAnonActorKey` mark set by `markAnonymousActor`, or a sender that is the group itself in AnonAdmin mode);
+  it never names the Staff Group (D-12). A stored text is one text for every language (D-02). No log line carries a
+  stored text, caption, button name, link or file ID (`TestEventMessageLogsCarryIDsOnly`). All seven manual events go
+  through it (plan 21-05, EVT-01, D-16): `ban` (`/ban`, `/dban`), `tban` (`/tban`), `kick` (`/kick`, `/dkick`, both
+  through `kickReply`), `mute` (`/mute`, `/dmute`, both through `muteReplyWithButton`), `tmute` (`/tmute`), `unban`
+  (`/unban` of a member) and `unmute` (`/unmute`), each default built by its own `eventDefaultReply`: `banDefaultReply`,
+  `tbanDefaultReply`, `kickDefaultReply` and `unbanDefaultReply` in `bans.go`, `muteDefaultReply`, `tmuteDefaultReply`
+  and `unmuteDefaultReply` in `mute.go`, each giving exactly the bytes the site sent before (the reason line through
+  `moderationReasonLine`, which replaced `moderationReasonSuffix`). `/tban` and `/tmute` fill `{duration}` (the
+  command's own duration text, `2 hours`) and `{until}` (`eventUntil` of the `until_date` the punishment carried, in the
+  chat's zone); every other event leaves both empty. `/unmute` builds its default without the lockdown note
+  (`unmuteDefaultReply`), appends `"\n" + note` during an active lockdown exactly as before and passes the same note in
+  `eventReply.Note`, so a custom unmute text is followed by it too (a failed lockdown read skips the note for both).
+  `verifyAnonymousAdmin` calls `markAnonymousActor(ctx)` right before `HandleAnonymousAdmin`, after the live admin check
+  of the tap, so a command re-entered after the proof reads `{admin}` as "an admin" although its sender is the tapper
+  (MSG-03); the mark lives in that update's `ctx.Data` alone and nothing else sets it. The channel `/ban` and `/unban`
+  replies act on a channel, are not events and keep `replySuccess` and today's text whatever is stored, and the silent
+  variants (`/sban`, `/skick`, `/smute`) send nothing as before whatever is stored (D-14). `TestEventMessageBanEndToEnd`,
+  `TestRenderEventText`, `TestEventMessageCompose`, `TestEventMessageFallback`, `TestEventMessageAnonymousAdmin`,
+  `TestEventMessageSites` (the six other events, custom and with nothing stored, the lockdown note included),
+  `TestEventMessageSilentVariants` and `TestEventMessageAfterAnonymousProof` (`event_message_sites_test.go`) hold it (toolkit
+  `event_message_env_test.go`: `eventMsgCleanup`, `eventMsgStore`, `eventMsgStoreRow`, `eventMsgFailingClient` with
+  `eventMsgRefuseOnce`, on plan 21-01's `newModerationGoldenSite`). Since Phase 22 the group part returns what it posted as
+  an `eventGroupPost` (the message and the keyboard rows it was sent with, the default's `eventBotRows` through
+  `sendDefaultPost` or a custom message's composed rows, none when Silent or the send failed) and the reply ends with the
+  private copy offer (`offerReplyPM`, the PM copies bullet below), which never changes the group reply or its error.
+  Since Phase 23 (plan 23-02, D-20, D-21) the engine is generic: an `eventSite{Bot, Chat, Tr, Actor, ReplyTo, ThreadID,
+  Kind, Automatic, SendDefault}` says where and how one send site posts (the group, its translator, the acting admin,
+  empty for an automatic action, which reads "an admin", the message replied to and the topic, 0 for none, the deletion
+  kind, whether an automatic rule raised it, and the site's own default send, exactly its call before custom messages),
+  and `postEvent(site, r)` runs the one bounded read (a read error: one Warn and the default), the group step
+  `postEventGroup(site, r, msgs)` (Silent, the default through `sendDefaultPost`: `site.SendDefault` then
+  `scheduleBotMessage(sent, site.Kind)`, or the custom message at `site.ReplyTo` and `site.ThreadID` queued under
+  `site.Kind`, with the refusal fallback once) and then `offerReplyPM(site, r, msgs, post)`, which takes the actor, bot,
+  chat and translator from the site and passes `site.Automatic` on as the offer's `ByRule`, so the private copy of a reply an
+  automatic rule raised counts against the per-group cap (plan 23-05, D-28). `(c *moderationCtx) replyEvent` is a thin wrapper, `postEvent(c.site(), r)`, whose
+  site is exactly what the reply step used (a reply to the command, its topic for a topic message, `bot:punish_manual`,
+  the default through `c.Msg.Reply`, the issuer with `actorIsAnonymous`), so `TestLegacyModerationRequests` is unchanged;
+  `replySuccess` and `sendSuccess` stay for their other callers. `eventReply` gains `KeepRows` (the bot rows a custom
+  message keeps; nil means the rows of `Opts`, the Unban row of a ban) and `KeepRowsLast` (put them after the custom and
+  `{rules}` buttons), both set by the site and never by the stored row; `eventValues` gains `Action` (the translated word),
+  `Count` and `Limit` (0 renders as nothing, else the number) and `Window`, all escaped by `eventPlaceholderValues`;
+  `eventDefaultInput` gains `Count`, `Limit`, `Action` (the mode word), `Reasons` and `Rows` (the bot rows the site
+  computed), so the default builders stay pure. The warn (EVT-02, the `warn` event) is the second site: `warnThisUser`'s
+  below-limit branch builds `warnSite` (a reply to the triggering message, the command or the member's own message for an
+  automatic warn, no topic, `source.deletionKind()`, `Automatic` for `warnSourceAuto`, the issuer of `/warn`, `/dwarn` and
+  `/swarn` as the actor and none for the blacklist's and the forward blocklist's warns, the default through
+  `b.SendMessage`) and `warnEventReply` (the default from `warnDefaultReply` in `event_message_auto.go` with the bot's
+  row, Remove warn and the Rules button while the group's rules are set, plus the reply to the triggering message; the
+  values reason, count and limit; `KeepRows` the Remove warn row alone with `KeepRowsLast`, so a custom warn keeps Remove
+  warn last and drops the default's Rules button unless its text has `{rules}`, D-05, D-15) and posts through `postEvent`.
+  A Silent warn stores the warn and posts nothing (no Remove warn button, admins use `/rmwarn`). The warn limit (plan
+  23-04, the `warnlimit` event) goes through the same `warnSite` only when the limit action took effect
+  (`res.LimitApplied`): `warnLimitEventReply` builds the default with `warnLimitDefaultReply` (the mode word, the count,
+  the limit and the stored reasons, an empty keyboard) plus the reply to the triggering message, the values the reason of
+  the warn that reached the limit, the count, the limit and `eventActionWord(tr, res.Mode)`, and no kept row (the default
+  has none, so a custom message has no bot row, D-15); the warns are reset before it posts, and a Silent warn limit posts
+  and queues nothing while the limit action and the reset still happen. A stored mode the code applies nothing for
+  (`tban` or `tmute` with no duration, empty: `LimitReached` without `LimitApplied`) is not an event and keeps today's send
+  exactly (`warnPostLimit`, D-10), and a refused limit action posts nothing as before. Since Phase 26 (plan 26-02, TUNE-01)
+  the warn limit can be timed: `applyWarnLimitAction(ctx, b, chat, user, mode, secs)` keeps its three untimed branches byte
+  for byte (`applyWarnLimitUntimed`) and sends a `tmute` or `tban` whose duration is valid (`autoActionEffective`) through
+  `applyTimedPunishment` (`punish_timed.go`), the one helper of every timed automatic punishment: a timed mute is
+  `restrictChatMember` with `MutedPermissions` and `until_date`, a timed ban `banChatMember` with `until_date`, the end
+  computed from `punishNow()` immediately before the request with no pacer or wait in between, so the request and
+  `{until}` carry one value (D-11). An end that `extraction.TemporaryUntilDate` refuses or that is under `punishMinLead` (35
+  s) away (`punishUntilTooClose`) is never sent, so a timed punishment can never become permanent: the helper returns
+  `errPunishTimeRanOut` with one hourly-gated Warn naming the chat (`punishTimeRanOutWarn`), and the warn limit then
+  punishes nobody (`punished` false, a Warn naming the chat and user IDs, the warn kept and nothing reset). The requests
+  take no context, like the untimed punishments, so an in-flight timed restrict or ban is bounded only by the bot's HTTP
+  client timeout (30 s), never by a shorter per-request bound (D-12). `warnApplyResult` gains `Secs` and `Until`, set only
+  when an effective timed action took effect. For such an action `warnLimitDefaultReply` reads `warns_limit_tmuted` or
+  `warns_limit_tbanned` (`warnLimitTimedKeys`, with `{count}`, `{limit}`, `{user}` and `{duration}`) only when
+  `eventDefaultInput.Secs` is set, and every untimed and inert default stays byte for byte; `warnLimitEventReply` fills
+  `{duration}` (`punishDurationLabel`: the group's language form built from the `staff_act_duration_*` keys with the
+  largest unit that divides the seconds evenly, `2 год`) and `{until}` (the end date the request was sent with, through the
+  engine's `formatChatTime` in the chat's zone), and `{action}` reads the mute or ban word (`eventActionWords` maps `tmute`
+  and `tban` to the mute and ban keys, which a site asks for only for an effective timed action). Every other automatic
+  event but the flood's timed punishment (below) and every untimed action leaves `{duration}` and `{until}` empty, as before (D-16). The message keeps its deletion
+  kind (`bot:punish_manual` for `/warn`, `bot:punish_auto` for a rule's warn, D-04). `{action}` is a translated word in the group's language,
+  `eventActionWord(tr, action)` (`event_message_auto.go`): `eventmsg_action_warn`, `_mute`, `_kick` and `_ban`, short
+  participles that read after the member's name or after a label (`tmute` and `tban` read the mute and ban words since
+  Phase 26), and the empty string for any other action (an inert mode); the warn fills it with the warn word. The flood's `{reason}` is `floodEventReason(tr)`
+  (`eventmsg_reason_flood`). The flood (plan 23-04, the `flood` event, EVT-03) is the next site: `checkFlood` keeps its
+  exemptions and deletes, applies the punishment through `floodPunish` and hands the notice to `floodNotice` (`antiflood.go`), whose site has no
+  reply, the flooding message's topic (`ThreadID` and the default's `MessageThreadId`), `bot:punish_auto`, `Automatic`,
+  no actor ("an admin") and the default through `helpers.SendMessageWithErrorHandling` (its restricted-chat skip
+  included); the target is `eventSenderTarget` of the sender (a user's names, or a sender chat's ID and title), the
+  default `floodDefaultReply` with the switch's rows, the values the flood reason, the burst's message count, the flood
+  limit and the action word, and `KeepRows` nil, so a custom flood message keeps the Unmute or Unban row first (D-15).
+  Only a mute, a kick, a ban or an applied timed mute or ban is the event; a stored inert action (`warn`, or `tban` or `tmute`
+  with no duration) applies nothing and keeps today's notice through `sendDefaultPost` (D-10). `checkFlood` logs a send error
+  and returns it as before. Since Phase 26 (plan 26-04, TUNE-01) the flood can be timed: `checkFlood` builds
+  `autoPunishment{Action, Secs}` from the stored row (`antiflood_settings.action_secs`), checks the bot's restrict right for
+  every action `autoActionEffective` accepts (mute, kick, ban and a timed action with a duration; warn and an inert timed
+  action need none, as before) and calls `floodPunish(b, chat, tr, user, p)`, the one place the flood's action is decided
+  (plan 26-09 adds the escalation ladder there). Its mute, kick and ban branches are the old switch moved unchanged (the same
+  requests, the Unmute row of a mute, the Unban row and `banChatSenderChat` of a banned sender chat, nothing and no notice for
+  a sender chat under mute or kick); an effective `tmute` or `tban` goes through `applyTimedPunishment` (the timed mute keeps
+  the Unmute row, the timed ban carries none, the end date recorded on the punishment), and a sender chat under a timed
+  action gets nothing and no notice (D-13: a sender chat has no timed form). The timed request takes no context, so an
+  in-flight timed restrict or ban is bounded only by the bot's HTTP client timeout (30 s), like the untimed ones (D-12). An end
+  date refused locally (`errPunishTimeRanOut`) punishes nobody and posts today's inert notice. `floodNotice` takes the
+  punishment as applied and the limit: for an applied timed punishment the default reads `antiflood_checkflood_timed_mute` or
+  `_timed_ban` (`floodTimedKeys`, `{user}` and `{duration}`) and the values fill `{duration}` (`punishDurationLabel`) and
+  `{until}` (the end date the request carried, in the chat's zone); the flood's private copy then adds its Until line
+  (`UntilLine`). `checkFlood`'s cyclomatic complexity went from 31 to 21 (`TestFloodTimed`). The blacklist
+  (plan 23-04, the `blacklist` event) and the forward blocklist (the `fwdblock` event) share one site and reply
+  (`listNoticeSite`: no reply, no topic, `bot:punish_auto`, `Automatic`, no actor, the default through `b.SendMessage`;
+  `listNoticeReply`: the default from `blacklistNoticeDefaultReply`, the values the reason and the action word, no count,
+  limit or kept row). `blacklistWatcher` deletes the matching message, keeps its warn branch, and for any other action builds
+  `autoPunishment{Action, Secs}` from the matched word (`blacklists.action_secs`); an action `autoActionEffective` refuses
+  (`none`, a timed action stored with no duration, a stored value the watcher applies nothing for) posts nothing, as before
+  (D-08). Otherwise it calls `blacklistPunish(b, ctx, user, p)` (plan 26-05, the one place the blacklist's punishment is
+  decided; plan 26-09 adds the ladder there), whose mute, kick and ban branches are the old switch moved unchanged (a mute or a
+  kick of an anonymous channel sends nothing and posts nothing, a ban of one is `banChatSenderChat`), and whose effective
+  `tmute` or `tban` goes through `applyTimedPunishment` with the end date recorded on the punishment; a sender chat under a
+  timed action gets no request and no notice (D-13), and an end date refused locally (`errPunishTimeRanOut`) punishes nobody
+  and posts nothing, the blacklist's inert path, as the flood keeps its own inert path. The watcher adds no restrict-right
+  check of its own (it never had one; `IsBotAdmin` is its gate, as before). The timed request takes no context, so an
+  in-flight timed restrict or ban is bounded only by the bot's HTTP client timeout (30 s), like the untimed ones (D-12). It
+  then calls `blacklistNotice(b, ctx, user, applied, reason)` with the punishment as applied and the reason the default shows
+  (the stored reason filled with the matched word), which the engine escapes in `{reason}` while the untimed default splices
+  it as today (D-14); `listNoticeReply(tr, event, target, p, reason)` fills `{duration}` (`punishDurationLabel`) and `{until}`
+  (the end date the request carried) only for an applied timed punishment (`p.Until > 0`), and the blacklist's private copy
+  then adds its Until line (`UntilLine`). `blacklistWatcher`'s cyclomatic complexity went from 30 to 26 (`TestBlacklistTimed`).
+  Its warn action is the `warn` event. A punishment or send error is logged and returned as before. The
+  forward blocklist's site is `forwardBlockNotice` (the forward blocklist watcher bullet). The default
+  texts never use these words: the flood's default keeps its untranslated English `muted`, `kicked` or `banned` (D-13, D-14). The Automatic
+  family's default replies all live in `event_message_auto.go` (D-22), each an `eventDefaultReply` that returns the text
+  and options its site sent before custom messages, byte for byte: `warnDefaultReply` (the warn, with the site's rows),
+  `warnLimitDefaultReply` (`warns_limit_kicked`, `_muted` or `_banned` by `Action`, none for an inert mode, then each
+  escaped reason; an empty keyboard), `floodDefaultReply` (`antiflood_checkflood_perform_action` with the full name and
+  the English word, the site's Unmute or Unban row by value, the site adds the topic; an applied timed action reads
+  `floodTimedKeys` only when `Secs` is set) and `blacklistNoticeDefaultReply`
+  (shared by the blacklist and the forward blocklist: `blacklists_bl_watcher_{muted,kicked,banned}_user` with the full
+  name and `Reason` spliced unescaped, `formatting.Shtml()`; an applied timed action, `Action` `tmute` or `tban` with `Secs`
+  set, reads `blacklists_bl_watcher_tmuted_user` or `_tbanned_user` instead (`blacklistNoticeTimedKeys`: `{user}` the
+  mention, `{duration}` and `{reason}` HTML-escaped, unlike the untimed default's kept quirk), which also serve the forward
+  blocklist's ladder steps of plan 26-09). Each is called by its send site and by the Messages page's event
+  table (the `Default` of `settingsMsgAutoEvents`, for the previews). `warnThisUser` logs a send error and returns it as before
+  (`TestLegacyPunishmentNoticeRequests` pins every warn byte for a group with nothing stored, `TestEventMessageWarn` the
+  custom warn, `TestEventMessageWarnLimit` in `event_message_auto_sites_test.go` the custom warn limit, the automatic one,
+  the inert mode and Silent, `TestEventMessageFlood` a custom mute in a topic, a sender chat's ban, the inert action and
+  a refused custom message, `TestEventMessageBlacklist` a custom ban, a sender chat's ban, the warn action as the warn
+  event and nothing stored, `TestEventMessageForwardBlock` a stored text with every placeholder that names neither a
+  sentinel source nor a sentinel Staff Group, and one real forward through the watcher).
+  Since Phase 24 (plan 24-02, D-24) `eventSite` has optional hooks whose zero value is every earlier site's behaviour:
+  `SendCustom func(media.GreetingMessage) (*gotgbot.Message, error)` sends a composed custom message (nil:
+  `media.SendGreetingMessage` to the site's chat) and `Schedule func(*gotgbot.Message)` takes what the group step posted,
+  default or custom alike, even a nil message (nil: `scheduleBotMessage(sent, site.Kind)`); `postEventGroup` and
+  `sendDefaultPost` call them through `site.sendCustom` and `site.schedule`. `postEventSent(site, r) (eventGroupPost, error)` is
+  the whole post (the read, the group step, the private copy offer) and returns what the group step posted; `postEvent` wraps it
+  and returns only the error. The failed captcha (EVT-04, the `captcha` event) is the first screening site:
+  `handleCaptchaTimeout` keeps every step up to the failure action (the claim, the challenge delete, the live `getChatMember`,
+  now read as the member's names and username with `{Id, FirstName: "User"}` on an error, the action and its settle) and then
+  calls only `postCaptchaFailureNotice(bot, chatID, tr, target, action, stored)` (`event_message_auto.go`; `captcha.go`
+  names no engine identifier and no deletion producer). Its site is a supergroup chat whose title is the stored `chats` row
+  (`chats.GetChatSettings`, no Telegram call), no actor ("an admin"), no reply and no topic, no kind, `Automatic`, the
+  default through `helpers.SendMessageWithErrorHandling` with `captchaFailureDefaultReply`'s options (the HTML parse mode
+  alone) and `Schedule` `captchaFailureNoticeDelete`, the in-process `time.AfterFunc` delete after
+  `captchaFailureNoticeLife` (30 s, a variable for tests) with its panic recovery, so the notice, custom or default, never
+  enters the deletion queue (DEL-07). `captchaFailureDefaultReply` returns `buildCaptchaFailureMessage`'s text (the mention
+  of the first name, `User` when empty, and the held count) byte for byte; the values are `{action}` the failure action's
+  word, `{count}` the held messages and, for a mute, `{until}` the end of the 24 hour mute. The timer, the cleanup tick,
+  restart recovery and the web check's `Fail` and `Expire` all reach `handleCaptchaTimeout`, so one site covers the timeout
+  and a failed web check, and their claimed and applied results are unchanged (`TestEventMessageCaptcha` in
+  `event_message_screening_test.go`: the timer with a custom text and two held messages, its self-delete and no queue row with
+  every bot kind at 60 s, a failed web check with a custom text, nothing stored, a refused custom message replaced by the
+  golden default, Silent). The rest of the engine's Phase 24 vocabulary (D-24) is all optional with today's behaviour as the
+  zero value: `eventSite.Admit func(ctx context.Context) bool` is an admission gate (nil: always admitted), asked once after
+  the read and only when the group message or the private copy would be sent (`eventGroupWouldPost`, `eventPMWouldOffer`),
+  a false answer posting nothing and offering no private copy (the AI spam notice's cap); `eventReply.Required` ignores a
+  stored Silent switch (the requirement mute notice carries the member's only way out) and `eventReply.TextOnly` ignores a
+  stored media file; `eventDefaultInput.Rules` is the broken requirement rules' mask, read only by the requirement builders.
+  The group step reads `msgs.Resolve(r.Event, eventmsg.DestGroup)` through `eventGroupMessage` (Silent and not Required
+  posts nothing; no content is the default; byte-identical for every earlier event), and a read error of an event that is
+  off by default posts nothing (one Warn; unknown never sends), while any other event's read error still sends the default
+  (after `Admit`). The new words: `eventActionWord(tr, "delete")` (`eventmsg_action_delete`), `captchaEventReason(tr)`
+  (`eventmsg_reason_captcha`, the captcha site's `{reason}`) and `aispamEventReason(tr)` (`eventmsg_reason_aispam`, which
+  names no provider, model, probability or category); `eventmsg_mreq_rules` (`{rules}`) is the requirements line a custom
+  requirement text is followed by, and `aispam_notice_deleted` (`{name}`) the AI spam notice's default text
+  (`TestEventMessageEngineHooks` on a test-only site: Required, TextOnly, Admit refused and not asked, a read error and no
+  row of `aispam` against `ban`). The screening events' default builders (D-25) each return today's text and options byte
+  for byte and are proven against the goldens of `TestLegacyScreeningNoticeRequests` before a site switches
+  (`TestScreeningEventDefaults`, pure): `captchaFailureDefaultReply` (above), `memberReqNoticeDefault(action)`
+  (`memberreq_notice.go`: `memberReqNoticeText` for `in.Target`, the mask `in.Rules` and, for a warn, `in.Count`, `in.Limit`
+  and `in.Action` naming the limit action that took effect, empty for the plain warn; HTML, link previews off, no reply, and
+  `ReplyMarkup` only when `in.Rows` has rows, so a notice without a button sends no `reply_markup` at all) and
+  `aispamNoticeDefaultReply` (`event_message_auto.go`: `aispam_notice_deleted` with the escaped mention of the full name,
+  HTML, link previews off; the site adds the topic). `memberReqNoticeNote(tr, broken, key)` is what follows a custom
+  requirement text: a newline, `eventmsg_mreq_rules` with the broken rules' phrases in rule order and, after one space each,
+  the remedy sentences of `memberReqNoticeRemedies(key, broken)`; the engine appends it after its own newline, so a blank
+  line precedes it. `memberReqNoticeNoteReserve` (600 UTF-16 units) is the room the editor holds back for it, and the worst
+  note (all eight rules, both remedies) is at most 346 units in every language (`TestMemberReqNoticeNoteFitsReserve`; a
+  translation that exceeds it is shortened, never the reserve raised). Since plan 24-04 the Messages page's table uses
+  `memberReqNoticeDefault`, `memberReqNoticeNote` (through `memberReqNoticeAppended`), `memberReqNoticeNoteReserve` (the Member
+  requirements family's `ReservedText`) and `aispamNoticeDefaultReply`, so their markers are gone, and since plan 24-06 the AI spam
+  site calls `aispamEventReason`, whose marker is gone too. The page's event names are also the
+  names the `#PM_COPY` log line gives the six events (`eventPMEventName`). The requirement site (plan 24-05, EVT-09, D-15 to D-20) is
+  `memberReqPostEventNotice(ctx, b, c, tr, user, hold, warn) (int64, error)` in `memberreq_notice.go`, called only by
+  `memberReqAnnounce` after the punishment took effect, through `postEventSent`. Its site is the case's chat, the group's
+  translator, no actor ("an admin"), no reply and no topic (a new message: the member's message may be deleted), `bot:punish_auto`,
+  `Automatic`, `SendDefault` and `SendCustom` both inside the paced retry loop `memberReqNoticeSend` (the default is
+  `SendMessageWithContext` with `memberReqNoticeDefault`'s options, today's request; the custom message `media.SendGreetingMessage`), and
+  `Schedule` `memberReqScheduleNotice` (the 24 hour cap for a message with the button). The reply's event is `memberReqEventOf(hold.Action)`,
+  its target a copy of the live member whose names and username went through `memberReqStripBidi` and the `memberReqNameCap` cut
+  (`memberReqEventTarget`, D-15; the default still names the member through `memberReqMention`), its values `{reason}` the broken
+  rules' phrases (`memberReqRulesText`), `{action}` the punishment's word (for a warn whose limit action took effect, that action's
+  word) and, for a warn, `{count}` and `{limit}`; `Note` is `memberReqNoticeAppended(action)`, the same function the page's preview
+  uses; `TextOnly` is set for all four events, and for the mute `Required` and `KeepRows` the "I fixed it" row with `KeepRowsLast`,
+  so a custom mute notice always ends with the button. It returns the posted message's ID, or 0 when nothing was posted (Silent);
+  an error means neither the custom message nor the default was delivered (`TestEventMessageMemberReq`,
+  `TestEventMessageMemberReqMute` in `event_message_mreq_test.go`: a custom warn and warn limit, a Silent kick, a refused custom kick
+  replaced by the golden default, a custom mute whose button frees the member and reschedules the posted message from the tap, a
+  Silent mute row with a photo still posted as text with the button, an undelivered custom and default lifting the mute, and the ban
+  and mute private copies).
+  The AI spam site (plan 24-06, EVT-05, D-17 to D-23) is `postAISpamNotice(task)` in `aispam_notice.go`, called by `processAISpam`
+  as the last step of its delete branch, after `aispamMirrorDeletion` and `raidAIRecordVerdict`, and only when
+  `helpers.DeleteMessageWithErrorHandling` returned no error (a failed delete posts nothing; the keep and failure branches and
+  `aispamNotifyBreaker` are untouched). `checkAISpam` fills `aispamTask.user` (the effective user) and `aispamTask.threadID` (the
+  message's topic for a topic message, else 0). The site is the task's chat, the group's translator from `task.language`, no actor,
+  no reply (the message is gone), `ThreadID` the topic, `bot:punish_auto`, `Automatic`, `Admit` the caps (`aispamNoticeAllow`, see
+  Data) and both sends through `aispamNoticePaced` on `aispamContext()` (`SendDefault` around `helpers.SendMessageWithErrorHandling`
+  with `aispamNoticeDefaultReply`'s options and `MessageThreadId` the topic, `SendCustom` around `media.SendGreetingMessage`). The
+  reply is event `aispam`, the member as the target, `{reason}` `aispamEventReason(tr)` and `{action}` the delete word; `Required`
+  stays false. The event is off by default (`eventmsg.OffByDefault`), so with no row the group step posts nothing and `Admit` is not
+  asked; the Messages page's Notice switch turns it on. It returns at once when the pool's context is done, and a send error is one
+  Debug line with the chat and user IDs and the Telegram code. Every spam message is deleted whatever becomes of the notice.
+  The `/aispam` help (`aispam_help_msg`, 8 languages) and its frozen doc page (`commands/aispam/index.md`, edited by hand) say the
+  filter only deletes unless the group owner turns the notice on from the Messages page, with its two limits (D-42).
+  The lockdown messages (Phase 25) reach the engine only through the adapter file `event_message_lockdown.go` (D-26): the
+  lockdown and raid files name no engine entry (`TestPMCopyCallers` forbids it), so they call the `postLockdown*Event` adapters
+  there, the way `forwardblock_notice.go` serves the forward blocklist watcher. A lockdown site (`lockdownEventSite`) has a
+  `Schedule` that does nothing, so a lockdown message is never queued for deletion, custom or default (D-08), and no lockdown
+  event has a private copy spec, so no copy is ever offered (D-04). The manual start (plan 25-02, EVT-06, the `lockdown` event)
+  is `postLockdownStartEvent(b, ctx, msg, tr, actor, name, row, bot)` (`bot` the bot's live membership), the one call `lockdown` makes after
+  `startLockdownRow` answered `lockdownStartStarted` (every refusal and "already active" answer keeps its own text). Its site is
+  the command's chat and translator, a reply to the command (its topic for a topic message), not `Automatic`, and the default
+  through today's `msg.Reply` with `formatting.Shtml()`, not paced; a custom message goes through `media.SendGreetingMessage`, which
+  takes no context, so its request is bounded only by the bot's HTTP client timeout. The default is
+  `lockdownStartDefaultReply` (the started line, the approved-muted note, "Locked by" with the recorded starter's mention, the
+  reason line, the no-delete and no-invite notes, byte for byte the reply before Phase 25, which still names the tapper after an
+  anonymous admin's proof). `{admin}` is the starter's recorded name, or "an admin" for an anonymous admin (`actorIsAnonymous`);
+  the person placeholders name the starter as the row records them (`lockdownEventPerson`: the capped name, no last name or
+  username), or the bot itself for an anonymous admin, never the tapper (D-13); `{reason}` is the stored reason. A custom text is
+  followed, after one line break, by the technical notes `lockdownStartNotes` (approved users muted too, then the no-delete and
+  no-invite notes when the bot lacks the right, read from the live membership `startLockdownRow` returned, D-07, D-16); the
+  default and the notes share `lockdownStartNoteLines`, so they cannot drift. Silent posts nothing and the lockdown, the worker
+  and the alert are unchanged (D-20); a refused custom message is replaced by the default once; a send error is logged with
+  today's `[Lockdown] reply: %v` (`TestEventMessageLockdownStart`).
+  The automatic notice (plan 25-04, EVT-07, the `lockjoin`, `lockflood` and `lockai` events) is
+  `postLockdownAutoEvent(b, chat, trig, res)`, the one call of `raidPostNotice` (`raid_trigger.go`), which `raidFire` runs inside
+  `raidPostAsync` only for `lockdownStartStarted`, so the post is counted in `raidPosts` and drained by `StopRaidPosts` (D-09). An
+  unknown trigger kind posts nothing. Its site is the trigger's chat (its title fills `{chatname}`), `staffChatTranslator` of it, no
+  actor (`{admin}` reads "an admin"), no reply and no topic, `Automatic`, the do-nothing `Schedule`, the default through `raidSend`
+  (today's paced call, the builder's options ignored, so the request is the golden's) and a custom message through `SendCustom`, one
+  `lockdownPaced` unit whose wait derives from its own `raidPostTimeout` context and whose request goes through
+  `media.SendGreetingMessage`, which takes no context, so once in flight it is bounded only by the bot's HTTP client timeout (30 s).
+  The person placeholders name the bot (`lockdownEventPerson`, D-13); the values are `{reason}` the trigger sentence
+  (`lockdownTriggerSentence`), `{count}`, `{window}` (`strconv.Itoa` of the seconds) and `{percent}` (the flood's share, empty for the
+  other two); the default is `lockdownAutoDefaultReply(kind)` with the trigger's numbers and the bot's rights, and a custom text is
+  followed by `lockdownStartNotes` of `res.BotMember`, the notes the page's Full preview shows. Silent posts nothing while the
+  lockdown, the worker and the alert stand; a refused custom message is replaced by the default once; a send error is logged with
+  today's `[RaidDetection] the notice of the automatic lockdown in chat %d was not delivered: %v`. The cannot-lock warning
+  (`raidWarnCannotLock`) shares `raidSend` and is not an event (a never-reach root of `TestEventEngineCallers`).
+  The lift (plan 25-05, EVT-08, the `locklift` event) has two sites, both built by `lockdownLiftReply` (the person placeholders
+  naming the lifter as the row records them, or the bot for an anonymous admin; no event values, D-12; the default
+  `lockdownLiftDefaultReply`; and, after a custom text, the lift's facts `lockdownLiftNotes`, the manual change line and the
+  unbanning line while the lift has not finished, D-16). `postLockdownLiftReplyEvent(b, ctx, msg, tr, actor, res)` is
+  `/unlockdown`'s reply for `liftApplyDone` only (every other outcome keeps `replyLockdown` of `lockdownLiftApplyText`, and
+  `lockdownPostInlineTally` follows as before): a reply to the command in its topic, the default today's `msg.Reply` with
+  `formatting.Shtml()`, not paced, `{admin}` "an admin" for an anonymous admin, a custom message through
+  `media.SendGreetingMessage`, which takes no context, so its request is bounded only by the bot's HTTP client timeout, and a send
+  error logged with today's `[Lockdown] reply: %v`. `postLockdownLiftEvent(b, ld, actorID, actorName, res, withDefault)` is a
+  button lift's notice: its chat is built from the lockdown row (`ld.ChatID`, supergroup, the stored `chat_title` for
+  `{chatname}`), never from the chat the button sat in, so it never names the Staff Group; `staffChatTranslator` of it, no reply and
+  no topic, not `Automatic`. With `withDefault` (the alert's Lift Confirm and a private menu, through `lockdownAnnounceLift`, which
+  wakes the worker before it posts, D-23) the default is today's paced notice (`lockdownPostLiftNotice`, whose pacer wait derives
+  from `context.Background()` and whose request keeps `lockdownCallTimeout`); without it (a menu opened in the group, D-22) the
+  default sends nothing, so only a stored custom message is posted there, and the engine's generic line after a read error or a
+  refused custom message still says the default was sent (that default is empty by design). A custom message is one
+  `lockdownPaced` unit whose wait derives from its own `lockdownLiftCustomWait` (30 s) context and whose request goes through
+  `media.SendGreetingMessage`, which takes no context, so once in flight it is bounded only by the bot's HTTP client timeout
+  (30 s). A send error is logged with today's `[Lockdown] lift notice for chat %d could not be posted: %v`. Silent posts nothing
+  while the lift, the restore, the worker and the inline tally happen as before (D-20); a refused custom message is replaced by
+  the default once (no message from a group menu, D-21, D-22); never queued for deletion (D-08).
+  The engine's vocabulary grew for the lockdown messages only (D-14, D-24): `eventValues.Percent` and the event placeholder
+  `{percent}` (after `{window}` in `eventTokenNames`; 0 renders as nothing, so it is empty for every event but the flood trigger's
+  notice, and a stored `{percent}` of an earlier event, which showed raw before, now renders empty), and three fields of
+  `eventDefaultInput` read only by the lockdown builders, `Window` (seconds), `Percent` and `Lockdown` (`lockdownFacts`: `NoDelete`
+  and `NoInvite` for a start; `ManualChange`, `Finished` and `Unbanning` for a lift); no hook, and nothing in `postEventSent`,
+  `postEventGroup` or `composeEventMessage` changed. The other default builders live in the same file and return today's text
+  and options byte for byte, proven against the goldens before their sites switch (`TestLockdownEventDefaults`):
+  `lockdownAutoDefaultReply(kind)` (`raidPostNotice`'s lines: the trigger's `lockdown_auto_started_*` intro with `in.Count`,
+  `in.Window` and, for a flood, `in.Percent`, then the start notes, joined by `lockdownJoinLines`, HTML with link previews off; any
+  other kind builds "") and `lockdownLiftDefaultReply` (`lockdownLiftedText` for the lifter `in.Target` and the lift's facts, with
+  `formatting.Shtml()`; a button lift's site sends the same text with today's paced options). `lockdownLiftNotes` (the manual change
+  line, then the unbanning line while the lift has not finished) is what follows a custom lift text, and `lockdownNoteReserve`
+  (400 UTF-16 units) is the room the editor holds back for the notes (the Lockdown family's `ReservedText`): the worst start notes (both
+  rights missing) and the worst lift notes (a manual change and 99999 joiners), each after its line break, fit it in every language
+  (`TestLockdownNoteFitsReserve`; a translation that exceeds it is shortened, never the reserve raised). Since plan 25-03 the Messages
+  page's Lockdown family uses every one of them (its defaults, its reserve, and `lockdownStartAppended` and `lockdownLiftAppended`, what
+  a Full preview of a custom text shows after it), so none carries a `//nolint:unused` marker.
+  `TestEventEngineCallers` (`event_engine_callers_test.go`, D-33, EVT-10) is the structural guard over every caller of the engine:
+  a `go/parser` walk of the package's non-test files that holds the set of functions outside `event_message.go` and
+  `event_message_pm.go` naming an engine entry (`postEvent`, `postEventSent`, `postEventGroup`, `replyEvent`,
+  `composeEventMessage`, `renderEventText`, `composeEventPM`, `offerEventPM`, `offerReplyPM`, `eventMessagesLookup`) or a
+  `postLockdown*` adapter of `event_message_lockdown.go` exactly equal to `eventEngineCallers` (`file.go: Function`, a method keyed
+  with its receiver type as `repliesGuardDeclKey` builds it, each entry with its reason; a new caller and a stale entry both fail),
+  and the callers of the adapters exactly equal to `eventLockdownAdapterCallers` (the five sites `lockdown.go: moduleStruct.lockdown`,
+  `lockdown.go: moduleStruct.unlockdown`, `raid_trigger.go: raidPostNotice`, `lockdown_alert_callbacks.go: lockdownAnnounceLift`
+  and `settings_lockdown.go: settingsLockdownLiftYes`). It
+  then walks from each never-reach root (`runLockdownCycle`, `raidWarnCannotLock`, `lockdownPostInlineTally`, the alert's Lift ask,
+  Ban, Revoke and Cancel handlers, `handleStaffAction`, `staffActionConfirm`, `staffActionCancel`, `staffUndoAsk`,
+  `staffUndoConfirm`, `startStaffRun`, `runStaffActionInGroup`, `sendStaffLogPost`, `buildStaffPanel`, `SendCaptcha` and
+  `aispamMirrorDeletion`; each must exist), following the same-package functions a body names, called or used as a value, and the
+  methods it names on its own receiver, function literals included, and fails when an engine entry or an adapter is reachable.
+  `eventEngineRootStops` names, per root, the functions the walk does not enter because what lies behind them is a different,
+  sanctioned event: today only `SendCaptcha`'s `handleCaptchaTimeout` (the challenge schedules the attempt's timeout, whose failure
+  posts the captcha event, not the challenge). Its limit: a call through a function value held in a variable or field, an interface or
+  another type's method is not followed; a log post through `fuku/utils/actionlog` cannot reach the engine at all, because that
+  package cannot import `fuku/modules`. `TestEventEngineCallersGuardFails` proves on a synthetic file set that a root reaching
+  `postEvent` through a helper, a function literal, an adapter or its own receiver's method is reported. A later phase that gives a
+  send site a custom message adds its caller there with a reason, never from an alert, reminder, raid-scale, staff or captcha
+  challenge path.
+- PM copies (`event_message_pm.go`, Phase 22): an event has a private copy when `registerEventPM(event, eventPMSpec{DefaultKey,
+  Automatic, UntilLine})` registered a spec for it in an `init` (it panics on an event `eventmsg.ValidEvent` refuses, an empty key or a
+  second registration; `eventPMSpecFor` reads the table): the seven manual events, `Automatic` false, each with its
+  default text `eventmsg_pm_<event>` (D-06), and, since Phase 23 (plan 23-05, D-28), the Automatic family: `warn` and
+  `warnlimit` with `Automatic` false and `flood`, `blacklist` and `fwdblock` with `Automatic` true, and, since Phase 24 (plan
+  24-03, D-34), the screening events `captcha`, `aispam`, `mreqwarn`, `mreqkick`, `mreqban` and `mreqmute`, all `Automatic`
+  true (the bot raises each by itself, so the per-group cap bounds a raid of failed captchas or requirement punishments),
+  eighteen specs in all, each with its default text `eventmsg_pm_<event>` (the requirement texts say the member does not
+  meet the group's requirements and never repeat the reason, whose line lists the broken rules; `eventmsg_pm_mreqwarn`
+  names the count, the limit and the action, and `eventmsg_pm_mreqmute` tells the member to tap "I fixed it" under the
+  group's notice and carries no button, D-35). The five lockdown events of Phase 25 (`lockdown`, `lockjoin`, `lockflood`,
+  `lockai`, `locklift`) have no spec and never will (D-04, D-35, PMSG-05): `offerReplyPM` returns at once for them, so no
+  private copy, Details button or `#PM_COPY` line is ever sent for a lockdown message, whatever pm row a group stored
+  (`TestEventPMSpecs` holds the five keys spec-less, `TestLockdownEventsSendNoPrivateCopy` the behaviour). `/dban`, `/dkick` and `/dmute` use their parent event's copy, the silent
+  variants never reach `replyEvent` and send none, and the channel `/ban` and `/unban` are not events. `replyEvent` reads the
+  messages once (through `postEvent`), runs the unchanged group step (`postEventGroup`, pinned by `TestLegacyModerationRequests`) and then
+  `offerReplyPM`, whatever the group step did (posted, Silent, the refusal fallback, a send error): it offers a copy only
+  for an event with a spec and a `msgs.Resolve(event, eventmsg.DestPM)` whose `Silent` is false (no pm row, or a pm row
+  whose switch was never written, reads as off, D-08), and never after a failed read (unknown never sends, D-11). The copy
+  is composed in the handler by `composeEventPM` in the group's language (the moderation context's translator): with a
+  stored text, the group renderer (`renderEventText`, so the Welcome and event placeholders, every user value escaped and
+  `{admin}` the translated `eventmsg_admin_anon` for an anonymous admin), else `eventPMDefaultText` (the spec's
+  `DefaultKey` with `{group}` the group's title through `staffDisplayTitle`, `{until}` in the group's zone, `{count}` and
+  `{limit}` the numbers of a warn or a flood, empty when 0, and `{action}` the translated action word escaped, empty when
+  the event has none (D-29: the five Phase 23 texts name the count, the limit and the action after a label where they apply,
+  and the manual texts carry none of the three), then, for a spec with `UntilLine` (Phase 26, D-17: `warnlimit`, `flood`,
+  `blacklist` and `fwdblock`, the events whose action can be a timed mute or ban) whose `{until}` is set, the
+  `eventmsg_pm_until` line with the same end, then `eventmsg_pm_reason` with the escaped reason when one was given; an untimed
+  copy and every other spec (the captcha's mute included) are unchanged; it never names the admin), followed by
+  `eventReply.PMNote`
+  on a new line when the site set it (`/unmute` during an active lockdown reads `eventmsg_pm_unmute_lockdown` beside the
+  group's `mutes_unmute_lockdown_note`; the group `Note` and default are unchanged); the keyboard is the stored
+  buttons and the `{rules}` button only, never the bot's Unban or Unmute row (group callbacks), and the media is the
+  row's file. It is sent by `offerEventPM` from a bounded job (`pmCopyJobs`, a `raidPostTracker`, `startBelow` of
+  `pmCopyMaxInFlight` 16 per replica, a full pool sheds the copy with one Debug line naming the chat and the user; each job starts with
+  `defer error_handling.RecoverFromPanic` and runs under `pmCopyJobTimeout`, 60 s, from `context.Background()`). For an
+  event whose spec is `Automatic` (the flood, blacklist and forward blocklist punishments since Phase 23, and the six screening events of Phase 24:
+  the failed captcha, the AI spam notice and the requirement warn, kick, ban and mute), and for a reply an automatic rule raised whatever its spec (`eventPMOffer.ByRule`, set by `offerReplyPM` from
+  `eventSite.Automatic`: the blacklist's and the forward blocklist's warns and the warn limit they reach, D-28; `offerEventPM`
+  sets the job's unexported `automatic` flag to `spec.Automatic || o.ByRule` and nothing else sets it), the job's first step is the per-group cap
+  `pmCopyCapAllow` (Data: `fuku:pmcopy:{<chat>}:cap:<unix minute>`, at most `pmCopyAutoCapPerMinute` 10 a group a minute,
+  the minute from `pmCopyNow`, the client from `pmCopyRedisClient`), so the handler never makes a Redis call for a copy;
+  over the cap, with no Redis or on a Redis error the copy is not sent (fail closed, D-17: the copy is optional and a raid
+  must not become a stream of private messages), and a manual copy (`/warn`, `/dwarn` and `/swarn` included) never reads the
+  counter. A copy shed by the pool or
+  refused by the cap leaves nothing behind but one Debug line with the chat and user IDs (D-18): only a job that tried to
+  send can be "not delivered". The job sends through
+  `pmCopyPaced` on its own pacer keys (Data), with `media.SendGreetingMessage` to the member's private chat (the target's
+  user ID), so the handler never waits for it. A target that can never receive a copy (`pmCopySkipTarget`: a non-positive
+  ID, a Telegram service identity of `staffServiceUserIDs`, the bot itself) is never offered one, checked in `offerReplyPM`
+  before the render and again in `offerEventPM` (D-16). Every send is classified by `pmCopyClassify`, by Telegram's error
+  code and the sentinel errors only, never a description (D-15): no error is `delivered`, a 403 `blocked` (never started
+  the bot, blocked it, or the account is gone: the normal "not delivered" answer, logged at Debug, never retried), any other
+  4xx but 429 and `media.ErrNoPermission` `refused`, a 429 and `ratelimit.ErrRateLimited` `busy`, anything else (a 5xx, a
+  transport error, a timeout) `unknown`. A refused custom copy (`eventPMOffer.Custom`: the pm row has a text, a media or
+  buttons) is replaced once by `eventPMOffer.Fallback`, the event's default private text that `offerReplyPM` built with
+  `eventPMDefaultText`, sent as text alone with no keyboard, and its outcome is the job's; a refused default is final, and
+  the job retries nothing else (the pacer already waited out what it could). The punishment and the group reply are never
+  changed by any of it. The job builds no `ReplyParameters` and calls no method named `Reply`
+  (`TestCommandRepliesStayInsideTheHandler` keeps its empty allow-list). No log line carries a stored or typed text, a
+  caption, a button, a file ID, a reason or a name: the chat ID, the user ID, the event, the outcome class
+  (`pmCopyOutcome.String`) and the Telegram code alone (`pmCopyErrCode`, 0 for none, never the error's text); delivered and
+  blocked log at Debug, refused, busy and unknown at Warn. The Details button (plan 22-06, PMSG-04, D-19,
+  `event_message_pm_details.go`): `offerReplyPM` also puts on the offer the group's options (`eventPMOffer.Options`, from the
+  same read), the group message the group step posted (`GroupMsgID`, zero when it was Silent or its send failed) with the rows
+  it was sent with (`GroupRows`) and the button's label in the group's language (`DetailsLabel`, `eventmsg_btn_details`, read
+  only while the option is on). A job whose final outcome is not delivered (blocked, refused, busy or unknown, after the
+  fallback of a refused custom copy) calls `pmCopyAddDetails(ctx, o, tried)` when `Options.PMDetails` holds and `GroupMsgID`
+  is set; a shed or capped copy never gets there. It adds nothing, with one Debug line naming the chat and the user, when
+  there is no Redis (no record can exist), the bot has no username (`pmCopyBotUsername`, the cached `getBotUsername`), one more
+  button would pass Telegram's 100 (`pmCopyMaxButtons`) or the record cannot be stored; otherwise it stores the copy exactly
+  as the job tried to send it (`tried`: the composed copy, or the default text after a refused custom copy) under a fresh
+  token (Data: `fuku:pmcopy:det:<token>`) and makes one `editMessageReplyMarkup` of the group message through `pmCopyPaced`
+  with a fresh copy of its rows in their order (the bot's Unban or Unmute row first, then the custom and `{rules}` buttons)
+  and one more row with one URL button, `https://t.me/<bot username>?start=pmcopy_<token>`. The edit is no reply and carries
+  no reply parameters. A failed edit (the message already deleted by its Bot messages timer, a 429, a 5xx) is one Warn line
+  with the chat ID and the Telegram code and changes nothing else; the record then expires on its own. Accepted race: an
+  admin who presses Unban or Unmute between the group message and the edit can see that row drawn again by the edit, and a
+  second press finds the member already unbanned or unmuted. Stated limit: a banned person cannot read the group, so for a
+  ban the button mostly serves a public group's visitor who is the punished person. With the option off, or the copy
+  delivered, no request is added (`TestLegacyModerationRequests` passes unedited). The log line (plan 22-07, PMSG-07, D-21,
+  `event_message_pm_log.go`): `offerReplyPM` also puts the member's first name (`eventPMOffer.TargetName`) and, only while
+  the group's log option is on, the group's translator (`eventPMOffer.Tr`) on the offer, and a job whose final outcome is not
+  delivered calls `pmCopyPostLog(ctx, o, outcome)` right after the Details step when `Options.PMLog` holds; the two options are
+  independent, and a shed or capped copy never gets there (D-18). It resolves the group's log channel through
+  `actionlog.Destination(chat, logchannels.CategoryAdmin)` (no channel, or the admin category off, posts nothing; that read is
+  the job's only database read, so once the database is closed at shutdown it fails quietly and nothing is posted) and sends one
+  HTML message, link previews off, no reply parameters, through `pmCopyPaced`: the destination's header, then `#PM_COPY` on its
+  own line (never translated, like `#LOCKDOWN_BAN`), then `eventmsg_pm_log` in the group's language with `{user}` the member's
+  mention and ID in a code tag (the ID as the mention's text when no name is known), `{event}` the event's name from the
+  Messages page (`eventPMEventName`, the event key escaped for an event no family lists) and `{why}` the reason class,
+  `eventmsg_pm_why_blocked` for blocked and `eventmsg_pm_why_failed` for refused, busy and unknown. `pmCopyLogText` is the pure
+  line without the header. It carries no stored or typed text, caption, button, file ID, reason or Details token and names no
+  Staff Group or other group (D-30, D-31); it is best effort, and a failed post is one Warn line with the chat ID and the
+  Telegram code that changes nothing else. `TestPMCopiesEndToEnd` (`pm_copies_e2e_test.go`, the whole phase through the real dispatcher,
+  plan 22-09), `TestEventPMEndToEnd`, `TestEventPMSpecs`, `TestEventPMDefaultTexts` and `TestEventPMComposition`
+  (`event_message_pm_test.go`), `TestEventPMFailures` (`event_message_pm_failures_test.go`: the classification table, a 403
+  of either wording with one request and the golden group reply, the refused custom copy and its default, the refused
+  default, busy, unknown and the impossible targets), `TestEventPMLimits` (the full pool, the automatic cap per chat and
+  per minute, fail closed without Redis and on a Redis error while a manual copy is sent, manual copies uncapped),
+  `TestEventPMPacerIndependent` (a block on `fuku:pmcopy:pace:block` leaves the ban and the golden reply immediate and
+  ends the copy busy with no request; blocks on the staff, deletion, member requirement, lockdown and federation pacers
+  leave the copy alone) and `TestEventPMLogsCarryIDsOnly` (a debug-level hook over every outcome, the shed and the
+  capped paths, with a stored text, caption, file ID, button, link, reason, member name, description and transport text
+  each a sentinel: none reaches a line, and each failure line names the chat and the event), `TestPMCopyCallers`
+  (`pm_copy_callers_test.go`, D-33: a `go/parser` walk of the package's non-test files; `offerEventPM` is used only by
+  `event_message.go`, `registerEventPM` only by `event_message_pm.go` and `postEvent` (plan 23-02) only by `event_message.go`
+  (`replyEvent`, the moderation pipeline's site), `warns.go` (`warnThisUser`, after the warn is stored and any limit
+  action applied), `antiflood.go` (`floodNotice`, after the flood's mute, kick or ban, timed or not), `blacklists.go`
+  (`blacklistNotice`, after the blacklist's mute, kick or ban) and `forwardblock_notice.go` (`forwardBlockNotice`, the
+  forward blocklist's notice of the linked group, the watcher's only way to the engine besides `warns.go`) and
+  `event_message_auto.go` (`postCaptchaFailureNotice`, Phase 24) and `aispam_notice.go` (`postAISpamNotice`, the AI spam
+  notice after the deletion, plan 24-06) and `event_message_lockdown.go` (the lockdown and lift
+  messages for the lockdown files, which stay free of the engine, Phase 25), `postEventSent` only by `event_message.go` (`postEvent`) and
+  `memberreq_notice.go` (`memberReqPostEventNotice`, the requirement notice after the punishment, plan 24-05), each allow-list entry with its reason and a stale entry failing, and no file whose name starts with
+  `staff`, `lockdown` or `raid` names `offerEventPM`, `registerEventPM`, `offerReplyPM`, `replyEvent`, `postEvent` or any
+  `pmCopy` identifier, so a lockdown's joiner bans, "Ban N recent joiners" and Staff
+  Group actions can never send a copy, PMSG-05; a later phase adds its caller to the list with a reason) and `TestEventMsgLocaleKeys` (`fuku/i18n/eventmsg_locale_test.go`, whose
+  `eventMsgLocaleLimits` must cover exactly the `eventmsg_` keys of the locale files, so a new key adds its row) hold it (toolkit `event_message_pm_env_test.go`: `newEventPMSite`, which is
+  `newModerationGoldenSite` with miniredis, `withFastPMCopyPacer` and `eventPMTestClient`, whose `eventPMScript` refuses the
+  next sends to the member (`eventPMRefuse`), holds them (`eventPMHold`, released in `t.Cleanup` before the jobs are
+  waited for) or names the member in the handler's `getChat`; `withTestEventPM` registers a test-only event and spec
+  (an automatic one proves the cap) and puts both tables back; `storeEventPM`, `waitEventPM`,
+  `eventPMCleanup`, `eventPMCalls`, `eventPMOnly`, `eventPMNone`).
 - Scheduling the bot's own messages (`deletion_bot.go`): `scheduleBotMessage(sent, kind)` is opt-in at named send sites only
   (D-12): the welcome in `SendWelcomeMessage` (`bot:welcome`), the goodbye in `leftMember` (`bot:goodbye`), the group `/rules`
   reply and the click-to-read message of a group with private rules (`bot:rules`), the success replies of the manual
   punishment commands through `moderationCtx.replySuccess` (`bot:punish_manual`: `/ban`, `/dban`, `/tban`, `/kick`,
-  `/dkick`, `/unban`, `/mute`, `/dmute`, `/tmute`, `/unmute`, five sites in `bans.go` and three in `mute.go`), and the one
+  `/dkick`, `/unban`, `/mute`, `/dmute`, `/tmute`, `/unmute`; since plan 21-05 the success replies of all seven manual
+  events reach `scheduleBotMessage` through `replyEvent` under `bot:punish_manual`, the default through `replySuccess`
+  and a custom event message directly, so a custom message is on the same timer as the default (MSG-09), while the
+  channel `/ban` and `/unban` replies still go through `replySuccess` directly), and the one
   warn send of `warnThisUser`, whose final `source` argument (`warnSourceManual` for `/warn`, `/dwarn` and `/swarn`,
   `warnSourceAuto` for the blacklist's warn action) picks `bot:punish_manual` or `bot:punish_auto`. Nothing hooks
   `helpers.SendMessageWithErrorHandling`, `media.Send`, `media.SendGreeting` or the bot client, so a captcha challenge, a
@@ -3253,12 +4579,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`TestBotManualRepliesNotCovered`). Anonymous-admin re-entry runs the same command, so the hooks need no special case.
   The automatic kind (`bot:punish_auto`, plan 16-06) has these named sites and no other: every member requirement notice
   (the warn, kick, ban and mute notices of Phases 13 to 15 and the per-chat cap's pause notice) through
-  `memberReqPostNotice`, the one site both callers (`memberReqAnnounce`, the cap) reach, right after a successful send and
+  `memberReqScheduleNotice`, which both senders call (`memberReqPostEventNotice` through the engine's `Schedule` hook, for whichever
+  message was posted, custom or default, and `memberReqPostNotice` for the pause notice), right after a successful send and
   from the sent message's own date, so a retried or rate-limit-waited notice counts from the message that went out
   (`memberReqScheduleNotice`; a notice without a button follows the timer directly, a failed send writes nothing); the
   mute notice, which carries the "I fixed it" button, is queued at the 24 hour cap (86400 s) whatever the timer says, so a
   short timer never removes the member's only self-service way out, and with the kind Off no row is written (D-14, D-25);
-  after the member taps the button, `memberReqFixedEdit` (which takes the chat type and a `reschedule` flag, SEC-01: true
+  a custom mute notice (Phase 24) keeps the button below its custom buttons and the same cap, and its message ID is the hold's
+  stored notice; after the member taps the button, `memberReqFixedEdit` (which takes the chat type and a `reschedule` flag, SEC-01: true
   only when the hold's stored `notice_msg_id` is positive and equals the pressed message's ID, so the same button attached
   to any other message of the chat is edited as before but queues nothing for it, and a hold whose notice ID was never
   stored reschedules nothing, the 24 hour row staying) reschedules the edited
@@ -3268,8 +4596,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   hour row stays; the antiflood action notice in `checkFlood`; the blacklist's mute, ban and kick notices (its warn action
   goes through `warnThisUser` with `warnSourceAuto`); and the AI spam breaker's pause notice in `aispamNotifyBreaker`,
   which D-27 counts as an automatic punishment message because it is aispam's only group message (the owner can narrow it
-  when confirming the phase). A delete verdict of aispam is silent in the group and the owner-log dump post of
-  `aispamMirrorDeletion` is never a kind. The antiflood and aispam sends go through
+  when confirming the phase). A delete verdict of aispam posts nothing in the group unless the group turned its AI spam notice
+  on (Phase 24, off by default); the notice is then queued under `bot:punish_auto` through its site (`postAISpamNotice`). The
+  owner-log dump post of `aispamMirrorDeletion` is never a kind. No lockdown message is a named site (Phase 25, D-08): a
+  lockdown site's `Schedule` (`lockdownEventSite`) does nothing, so no lockdown message (the `/lockdown` reply, the automatic
+  notice, the lift notice), custom or default, is ever queued.
+  The antiflood and aispam sends go through
   `helpers.SendMessageWithErrorHandling`, which answers no message for a chat the bot cannot post in: the hook keeps the
   returned message and `scheduleBotMessage` ignores nil. Every hook is additive around the existing send (no request, error
   path or return changes) and runs only after a send succeeded (`TestBotAutoPunishmentNotices`, `TestMemberReqNoticeScheduled`,
@@ -3337,7 +4669,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   take as well: an approved member, or a group that turned the captcha off, is released and unmuted (no removal is
   reported, the answer is the neutral `invalid`), and everyone else gets the group's failure action through
   `handleCaptchaTimeout` (kick is one member-removing `unbanChatMember`, ban a `banChatMember`, mute the 24 h mute), the
-  challenge message is deleted, the failure notice is posted and the answer is `failed` with the action. Every other
+  challenge message is deleted, the failure notice is posted (since Phase 24 through the event engine,
+  `postCaptchaFailureNotice`, so a group's custom captcha message applies to a failed web check too; the engine's one read
+  is bounded by `eventMessageReadTimeout` and cached, and the answer, the claim and the action are unchanged) and the
+  answer is `failed` with the action. Every other
   answer is a retry and kicks nobody: a transport error, timeout, redirect (never followed, whatever transport the client has), 5xx, a body that does not parse or is over
   64 KiB, `internal-error`, `bad-request`, `missing-input-response`, an unknown or empty code list, a secret error
   (`missing-input-secret`, `invalid-input-secret`) and a hostname or action that does not match. The secret errors and the
@@ -4031,9 +5366,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   holds every byte). The page reads through `warns.LoadWarnSettingsContext`, which shares the commands' cache key and TTL,
   returns its error, never inserts a row and caches no default for a chat with no row, so the command loader's next read
   still finds its miss and creates the row as before. `warn_settings` is not in `skipLocal`: another replica can show an
-  old value for up to `CACHE_LOCAL_TTL`, exactly as the commands can. `/setwarnmode` accepts exactly ban, kick and mute
-  (`warnSettingsModes`); the table's CHECK also allows `tban`, `tmute` and the empty string, which apply nothing at the
-  limit and are never written.
+  old value for up to `CACHE_LOCAL_TTL`, exactly as the commands can. `applyWarnMode(ctx, chat, mode, secs)` accepts ban,
+  kick and mute (`warnSettingsModes`, stored with seconds 0, which clears a duration) and, since Phase 26 (TUNE-01), `tmute`
+  and `tban` (`warnTimedModes`) with seconds in 60 to 31622400, stored together through `warnSettingsWrites.Mode` (default
+  `warns.SetWarnModeContext`); a timed mode with seconds 0 is `warnSettingsUnknownMode` (the pinned `warns_mode_unknown`) and
+  one outside the bounds `warnSettingsBadDuration` (`warns_mode_bad_duration`), neither writing anything. `/setwarnmode`
+  reads its arguments through `warnModeArgs`: a timed word followed by a word parses it with `parsePunishDuration` (an invalid
+  one is -1, the bad-duration reply), a timed word alone keeps the pinned unknown reply (`TestLegacyTimedPunishmentRequests`
+  `warnmode_tmute_alone`), and a plain word ignores what follows (`/setwarnmode ban 1d` stores ban). A timed success replies
+  `warns_mode_updated_tmute` or `_tban` with `{duration}` the duration in the group's language (`punishDurationLabel`), and
+  `/warnings` shows an effective timed mode as `tmute 2h` (`warnModeShown`, `punishDurationShort`) and anything else as
+  stored. The table's CHECK also allows the empty string, which applies nothing at the limit and is never written.
   The reports switch (Phase 18) is `applyReportsEnabled` in `reports.go`: it wraps only the group branch of `/reports on|off`
   (`reportsWrites.ChatStatus`, default `reports.SetChatReportStatus`, which writes `enabled` and `status` together; the
   `/report` path reads `status`) and returns a `reportsApplyResult` (outcome, the command's reply key, the status read
@@ -4134,11 +5477,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   because `make check-translations` cannot see table fields. The page that draws the table is the Locks page (see the settings
   Callbacks bullets).
   The blacklist (Phase 19) is written by four apply functions in `blacklists.go`, through the `blacklistWrites` seam (defaults
-  `blacklists.AddBlacklistContext`, `RemoveBlacklistContext` and `SetBlacklistActionContext`, each dropping `blacklist:<chat>`):
+  `blacklists.AddBlacklistTimedContext`, `RemoveBlacklistContext` and `SetBlacklistActionTimedContext`, each dropping
+  `blacklist:<chat>`; `Add` and `SetAction` take the seconds since plan 26-05):
   `applyBlacklistAdd` (the typed words sorted into added, already listed, too long and failed; a new word is stored lower-cased
-  with the warn action), `applyBlacklistRemove` (only words that are in the caller's read of the chat's words),
-  `applyBlacklistRemoveByID` (the menu's delete by row ID, chat-scoped) and `applyBlacklistAction` (only the values of
-  `blacklistActionValues`, `mute kick warn ban none`; the rows the update matched are returned). `/addblacklist` and its three
+  with the shared action and seconds, below), `applyBlacklistRemove` (only words that are in the caller's read of the chat's words),
+  `applyBlacklistRemoveByID` (the menu's delete by row ID, chat-scoped) and `applyBlacklistAction(ctx, chat, action, secs)` (a value
+  of `blacklistActionValues`, `mute kick warn ban none`, stores seconds 0; a timed action of `blacklistTimedActions`, `tban tmute`,
+  needs a duration of 1m to 366d and stores both columns in one update, while one with seconds 0 is `blacklistActionUnknown`, the
+  pinned reply, and one out of bounds `blacklistActionBadDuration`, both writing nothing; the rows the update matched are returned).
+  `/blacklistaction tmute 2h` (exactly two words whose first is `tmute` or `tban`, read by `blacklistActionArgs`, the second through
+  `parsePunishDuration`) sets the timed action and answers the changed-mode text with the short form (`tmute 2h`,
+  `blacklistShownAction`); a second word that is not a duration of 1m to 366d answers `blacklists_set_bl_action_bad_duration`;
+  `tmute` or `tban` alone and any other two words keep the pinned `choose_correct_option`, and `/blacklistaction` alone shows the
+  first word's action in the short form when it is an effective timed action (`TestBlacklistActionTimedCommand`).
+  `blacklistActionValues` is unchanged, so `TestForwardBlockVocabulary` holds (D-07). `/addblacklist` and its three
   aliases, `/rmblacklist` and its aliases and `/blacklistaction` keep their gates and every reply byte and map the typed results
   onto them, including `/blacklistaction ban` on a chat with no words, which writes nothing and still answers its success text
   (research C-02, pinned, not fixed). `TestLegacyBlacklistRequests` pins every request and stored row of the four commands and is
@@ -4150,7 +5502,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   provisional owner confirmation A19-2 of `19-SPIKE.md`; declining it is a revert of its commit.
   A new word takes the action every word of the chat already shares (one of `mute kick warn ban none`), else warn, so a
   word added after `/blacklistaction ban` no longer acts with Warn (`blacklistSharedAction`, the command and the page alike):
-  the provisional owner confirmation A19-3 of `19-SPIKE.md`; declining it is a revert of its commit.
+  the provisional owner confirmation A19-3 of `19-SPIKE.md`; declining it is a revert of its commit. Since plan 26-05 the shared
+  value is the action and the seconds: every word with the same plain action and seconds 0, or the same effective timed action
+  and the same seconds, gives a new word both, and mixed actions or seconds, or a timed action stored with no duration, give warn
+  and 0 (D-21).
   The filters (Phase 19) are written by `applyFilterAdd`, `applyFilterRemove` and `checkFilterKeyword` in `filters.go`, through the
   `filterWrites` seam (defaults `filters.AddFilterContext`, `RemoveFilterContext`, `CountFiltersContext` and `FilterExistsContext`;
   `AddFilter`, `RemoveFilter`, `CountFilters` and `DoesFilterExists` stay as wrappers with their old hiding behaviour, and
@@ -4324,6 +5679,28 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and its `settings_edit_refuse_too_long_filled` wording without media (so removing the media keeps a long text up to 3800), and counts no `{rules}`
   token of its stored text as a button, because `/rules` adds none (`TestSettingsRulesCaptionParity` holds the Rules and Welcome boundaries
   together for every media kind).
+  Hooked definitions (Phase 21, plan 21-03; first production user the Messages page of plan 21-06, D-25): besides the three built-in
+  pages the editor serves messages another page defines, kind `settingsEditEvent`, registered from that page's `init` with
+  `registerSettingsEditDef` (it panics on an empty key, a built-in page's key, a duplicate and nil hooks, `Load` or `Draw`) into
+  `settingsEditExtraDefs`, which `settingsEditPageByKey` searches after the three pages, so the wait store and the typed-reply door
+  find a definition by its key exactly as they find Welcome. A definition carries `settingsEditHooks`: `Load` (required: the stored
+  message, creating nothing, a read error returned unchanged; it sets `Kind` and `TextIsDefault` = no text, and `settingsEditState.Silent`
+  carries an event's Silent switch), `Draw` (required, pure: the definition's screen, which `settingsEditDraw` uses in place of
+  `renderSettingsEditor`), `Remove` and `Write` (nil makes every Remove or typed reply a failed save), `Preview` (nil makes every preview
+  a failed one) and `PreviewHeaderKey`. `Fields` are extra callback fields every editor action button of the definition carries (Set,
+  Remove, Preview, Full preview and the Cancel of the prompt and of a refusal, never Back, Close or the navigation row;
+  `settingsEditFields`), so one set of action codes edits many messages; `ReservedButtons` counts the buttons the bot adds itself (the
+  Unban row) against Telegram's 100, and `ReservedText` (Phase 24 plan 24-04, D-29) the UTF-16 units the bot itself appends after a custom
+  text (a requirement notice's requirements line and remedies): `settingsEditCheckGreetingText` and `settingsEditMediaCaptionRefusal` hold it
+  back from the text and caption limits and `settingsEditPromptMax` subtracts it from the prompt's "Up to" number (the Member requirements
+  family's 600, so 3496; the Lockdown family's `lockdownNoteReserve`, 400, so 3696 and 624 with media, Phase 25 plan 25-03, for the technical
+  notes and the lift's facts), while every other definition has 0 and behaves exactly as before. `settingsEditResolvedActions(codes, fields, resolve)` builds Set, Remove, Cancel, Preview and Full
+  preview of such a page: `resolve` turns a press's fields into the definition it names and is where the page requires its owner field,
+  so a group menu's press is refused in step 1; the built-in pages build their actions through it with a resolve that answers the page
+  itself. A hooked definition's typed reply runs the editor branch of the typed-reply door (no new door): the same `authorize`, the
+  greeting text check, the claim and the definition's `Write`, and the saved page and a refusal come from its hooks
+  (`renderSettingsInputRefusalWith`). The Messages page registers two definitions per event (Phase 22): the group message (`h<code>g`, `Fields`
+  `{"k"}`) and the private copy (`h<code>p`, `Fields` `{"k", "d": "p"}`), one set of action codes resolved by `k` and `d`.
 - The log channel link (`/setlog`, `logchannels.go`) is a two-step proof. Step 1: `/setlog` posted in the channel stores a
   one-hour marker `fuku:setlog:<channel>:<message>` (outside the `fuku:cache:` prefix, `storePendingMarker`) and asks for
   the forward; the post needs no sender, because only a channel administrator can post there. Step 2: that post forwarded
@@ -4663,11 +6040,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   needs), `TestCountPending` (the bounded exact count) and `TestDropPendingMessage` (one pending row by chat, message and kind).
   The Phase 19 guarantee is `TestBlacklistActionValuesOnPostgres` (`./fuku/db/migrations`: on a chain-built database
   `UPDATE blacklists SET action = v` succeeds for warn, mute, kick, ban and none and fails with SQLSTATE 23514 for any other
-  value, and exactly one CHECK mentions the column, `chk_blacklist_action`; PostgreSQL only, it skips locally;
+  value, and exactly one CHECK references the column (by `pg_constraint.conkey`, so the check of `action_secs` is not counted), `chk_blacklist_action`; PostgreSQL only, it skips locally;
   `TestBlacklistActionMigrationStatements` is its database-free half and runs in `make test`).
   The warn mode guarantee (quick task 261116-wh3) is `TestWarnModeCheckOnPostgres` (`./fuku/db/migrations`: on a chain-built
   database `warns_settings.warn_mode` accepts NULL, the empty mode and the five modes and refuses any other value with SQLSTATE
-  23514, and exactly one CHECK mentions the column, `chk_warn_mode`; PostgreSQL only, it skips locally;
+  23514, and exactly one CHECK references the column (by `conkey`, so the check of `warn_mode_secs` is not counted), `chk_warn_mode`; PostgreSQL only, it skips locally;
   `TestWarnModeCheckMigrationStatements` is its database-free half and runs in `make test`).
   The Phase 20 guarantees are `TestChatConversationSettings` (`./fuku/db/chatconv`: column-targeted upserts that never
   clobber each other, a Go false written, the two checks refusing values outside the stored ones; it also runs on SQLite
@@ -4680,6 +6057,46 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`./fuku/db/migrations`: the statements run twice without error, a row with only its required columns reads the defaults,
   the three named constraints refuse with SQLSTATE 23505 and 23514; PostgreSQL only, it skips locally;
   `TestStaffForwardBlockMigrationStatements` is its database-free half and runs in `make test`).
+  The event messages guarantees (Phase 21) are `TestEventMessagesUpsert` (`./fuku/db/eventmsg`: writers of different
+  columns of one key leave both values, one row per `(chat_id, event, dest)`, chats and events stay apart; it also runs on
+  SQLite in `make test`) and `TestChatEventMessagesMigrationDefaults` (`./fuku/db/migrations`: the statement runs twice
+  without error, a row with only its key reads every zero default, a second row of the key fails with SQLSTATE 23505;
+  PostgreSQL only, it skips locally; `TestChatEventMessagesMigrationStatements` is its database-free half and runs in
+  `make test`).
+  The private copies guarantees (Phase 22) are two subtests of `TestEventMessagesUpsert` (`pm default under concurrent
+  writers`: concurrent text, media and buttons writes of one fresh `pm` key leave one row with every part and `silent`
+  true; `options writers never clobber`: concurrent `SetPMDetails` and `SetPMLog` leave one options row with both on) and
+  `TestEventMessageOptionsMigrationDefaults` (`./fuku/db/migrations`: the statement runs twice without error, a row with
+  only its chat reads both options false, `updated_by` 0 and a time, a second row of the chat fails with SQLSTATE 23505
+  naming `pk_chat_event_message_options`; PostgreSQL only, it skips locally;
+  `TestEventMessageOptionsMigrationStatements` is its database-free half and runs in `make test`). `TestEventMessagesPM`
+  (`./fuku/db/eventmsg`, SQLite in `make test`) holds the rest of the storage: `pm` is a destination, `Resolve` with no row
+  reads a private copy off and a group message not silent, a part written alone never switches a copy on, the options are
+  read with the messages under one key that both option writers drop, and a failed options read is an error.
+  The timed punishment guarantees (Phase 26) are `TestTimedPunishmentMigrationDefaults` (`./fuku/db/migrations`: the three
+  statements run twice without error, a row with only its required columns reads each duration 0, the three named checks exist, and
+  31622401 is refused with SQLSTATE 23514 naming the check while 31622400 is accepted; PostgreSQL only, it skips locally;
+  `TestTimedPunishmentMigrationStatements` is its database-free half and runs in `make test`) and `TestSetWarnModeDuration`
+  (`./fuku/db/warns`: the mode and its seconds stored in one upsert with the limit kept, the two-argument wrapper storing 0, a limit
+  write and a mode write never clobbering each other, and each write dropping `warn_settings:<chat>`; it also runs on SQLite in
+  `make test`). The warn expiry guarantees (plan 26-06) are `TestWarnExpiryMigrationDefaults` (`./fuku/db/migrations`: the two
+  statements run twice without error, rows with only their required columns read 0 and `[]`, exactly one check, found by `conkey`, is on
+  `warn_expiry_days` and it is `chk_warns_settings_expiry`, and 366 is refused with SQLSTATE 23514 naming it while 365 is accepted;
+  PostgreSQL only, it skips locally; `TestWarnExpiryMigrationStatements` is its database-free half and runs in `make test`) and
+  `TestWarnExpiryWrites` (`./fuku/db/warns`: one time per warn, an old warn dropped at the next write with expiry on and never with it
+  off, the newest counted warn removed, the reset's answer, eight concurrent warns of one member keeping one count each, the expiry
+  upsert writing only its column and dropping the key, and the counted read after a moved clock; it also runs on SQLite in `make test`).
+  The escalation ladder guarantees (plan 26-08) are `TestEscalationMigrationDefaults` (`./fuku/db/migrations`: the two statements
+  run twice without error, a ladder row with only `chat_id` reads off, no steps and 30 days, an offence row with only its key reads 0
+  and 0, the named checks refuse a step action of `warn`, step seconds of 31622401 and -1, a forget period of 0 and 366 and a count of
+  -1 with SQLSTATE 23514 naming the check, and a second row of either key fails with 23505; PostgreSQL only, it skips locally;
+  `TestEscalationMigrationStatements` is its database-free half and runs in `make test`), `TestEscalationSettings`
+  (`./fuku/db/escalation`: a read of a chat with no row creates nothing, writers of different steps never clobber each other, five
+  concurrent step writers on PostgreSQL, the step and forget checks in Go and in the table, every write dropping the key and
+  `GetFresh` bypassing the cache), `TestOffenceCountRules` (the same-offence window, the forget period, members and chats counted
+  apart, `ClearOffences` and the refused calls) and `TestOffenceCountConcurrent` (sixteen offences of one member at one instant
+  count once and leave one row; its case is registered on PostgreSQL only, because SQLite answers "database is locked" to a
+  concurrent writer). `TestEscalationSettings` and `TestOffenceCountRules` also run on SQLite in `make test`.
   The pattern is anchored with `$`, so list the real top-level test function names and add the test's package to the
   target. Add a test there when a new guarantee rests on a partial unique index, a `CHECK` or a conditional update.
 - In CI, keep the migration-chain step before `make test-rest`; its `schema_migrations` rows back the checksum test.
@@ -4714,8 +6131,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settings_edit_*_test.go` and `settings_input*_test.go`; the typed reply is the sixth door of `TestSettingsGateAllDoors`.
   `TestSettingsEditScreensFitEveryLocale` (`settings_edit_screens_test.go`, whose `settingsEditScreens` builds every
   non-page editor screen and is also what `TestSettingsStaffPrivacy` renders) holds them to 3800 UTF-16 units and 64-byte
-  buttons with a 64-rune title. `RealLocale` installs the real locale files through `i18n.OverrideManagerLanguagesForTest`, because the test binary
-  has no locale manager of its own. `fuku/i18n/settings_locale_test.go` keeps a limits table that must cover exactly the
+  buttons with a 64-rune title. It draws the editor page in every state under the longest notice and every notice once over
+  the fullest state, because a notice is spliced in whole and changes neither the body nor the keyboard, so the longest
+  pair is the worst case; `TestSettingsStaffPrivacy` draws its own editor sweep the same way. `RealLocale` installs the real locale files through `i18n.OverrideManagerLanguagesForTest`, because the test binary
+  has no locale manager of its own. `OverrideManagerForTest` and `OverrideManagerLanguagesForTest` keep one manager per distinct
+  set of YAML texts (a SHA-256 of the codes and texts) and install it again on a repeat, and `withStaffLocale` builds its
+  marker locale once per binary, because parsing the locale files costs about a second under `-race` and `fuku/modules`
+  does it in hundreds of tests; a manager is never changed after its parse, so reusing it proves the same.
+  `fuku/i18n/settings_locale_test.go` keeps a limits table that must cover exactly the
   `settings_` keys of the locale files, so a plan that adds a key adds its row.
 - Run the settings tests with `go test -tags testtools -race -count=1 -run '^(TestSettings|TestLoadSettings)' ./fuku/modules ./fuku/i18n`.
   Page tests add page-prefixed helpers in their own files (`settings_<page>_test.go`). Every setting the menu changes
@@ -5099,6 +6522,689 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   codes and the sixth part, the rights tables of `TestSettingsRightBotHalves` and `TestSettingsRightRefusalForParity` gain the tenth right,
   `TestSettingsMainGrid`'s end-to-end subtest leaves out a page whose `Hidden` says so for its chat, and `TestSettingsPhase18InStaffGroup` counts
   nineteen state lines for a Staff Group (Deletion hidden, Blocked sources shown).
+- Phase 21 test families (the event messages: the send path, the editor's hooked definitions and the Messages page `h`). The golden
+  `TestLegacyModerationRequests` (`moderation_legacy_request_test.go`, toolkit `newModerationGoldenSite` and `moderationTargetClient`) was
+  recorded alone before any send site changed and is never re-recorded. The engine's `TestEventMessage*` (`TestEventMessageBanEndToEnd`,
+  `TestRenderEventText`, `TestEventMessageCompose`, `TestEventMessageFallback`, `TestEventMessageAnonymousAdmin`,
+  `TestEventMessageLogsCarryIDsOnly`, `TestEventMessageSites`, `TestEventMessageAfterAnonymousProof`, `TestEventMessageSilentVariants`) are in
+  `event_message_test.go` and `event_message_sites_test.go` on the toolkit `event_message_env_test.go`. The editor's hooked definitions have
+  `TestSettingsEditResolvedDefs` and `TestSettingsEditReservedButtons` (`settings_edit_resolved_test.go`, on the test page `qt` with codes
+  `qs qr qc qv qf`). The page has `TestSettingsMessages*` (opens, Main state, group menu, Staff Group, Set, Remove, typed, Silent, previews,
+  and plan 21-10's safeguards `TestSettingsMessagesCallbackBytes`, `TestSettingsMessagesPageFitsEveryLocale`, `TestSettingsMessagesForged`,
+  `TestSettingsMessagesReadsCreateNothing`, `TestSettingsMessagesCost`, `TestSettingsMessagesLogsCarryIDsOnly`), and, because nothing on it
+  has a command, `TestSettingsDriftMessages*` and `TestSettingsAuthorityMessages*` stand in for parity tests (toolkit
+  `settings_messages_env_test.go`); `TestSettingsStaffPrivacy` renders every Messages screen in 8 languages through
+  `settingsPrivacyPhase21Screens`. The repository has `TestEventMessages` and `TestEventMessagesUpsert` (`fuku/db/eventmsg`), the migration
+  `TestChatEventMessagesMigrationStatements` and `TestChatEventMessagesMigrationDefaults`, and backup `TestEventMessagesStayOutOfBackup`.
+  `TestMessagesEndToEnd` (`messages_e2e_test.go`, plan 21-11, about 7 s) is the phase's end-to-end proof through the real dispatcher with
+  only Telegram faked, one environment per subtest on the toolkit `messagesE2E` (`newMessagesE2E(t, real)`: the settings environment with
+  the Bans and Mutes modules, the bot an administrator, a live creator who works the private menu, the environment's administrator who runs
+  the commands, a 600 s `bot:punish_manual` timer, and the real locale files only when `real` is set; `member`, `openMain` (the
+  `/start settings_<chat>` deep link), `openEvent` (Main, Messages, Admin actions and the event's cell, each a press of the drawn button),
+  `setPart`, `setText`, `setBanMessage`, `command` (a reply to the member's message, on the base dispatcher or a replica's), `groupSends`,
+  `queued`, `wantQueued`, `wantGolden`), whose wrapper `messagesE2EClient` answers a registered member's `getChat` as a private chat and a
+  media send as a message of the chat it went to, so the placeholders have a name and the queue row its chat, and answers every send to a
+  chat the test refused (`refuse`, plan 22-06) with that refusal and no request reaching the fake. Every page step is a press of
+  a button the bot drew and every part a typed private message. Subtests: `owner sets a ban message` (text, photo and buttons from the page;
+  the hub reads Custom; `/ban spam & co` bans, then posts one `sendPhoto` replying to the command with the filled, escaped caption and
+  `{until}` empty, the Unban row then the Rules button, queued at its date plus 600 s), `previews` (Full preview reaches the owner alone,
+  named as the member and the admin, with the sample reason and no Unban row), `timed` (`/tmute 30m` in a group whose zone is Asia/Tokyo
+  fills `30 minutes` and the end in that zone), `refused` (a 400 on the photo: the ban first, then the refused photo, then the default,
+  equal to `goldenModerationBanReason` with the member's ID and the command's message ID put in, and queued), `silent` (Silent on the kick
+  screen; `/kick` acts and posts nothing; `/sban` and `/skick` stay silent), `remove` (the three Removes bring back the golden reply),
+  `anonymous` (a proved anonymous `/ban` fills `{admin}` with `eventmsg_admin_anon` and never names the tapper), `rights` (without
+  `can_change_info` the screen and Full preview work, Set, Remove and Silent are the `settings_no_change_info` alert with no edit, and a
+  wait whose sender is demoted before the typed message stores nothing), `group menu` (In private on Main and the group note alone),
+  `staff group` (no Messages cell, forged presses are the invalid request and write nothing), `no redis` (Set is the alert, the send path
+  reads the stored text, Silent still works) and `two replicas` (a Silent press on one replica makes the other's next `/ban` post nothing,
+  after that replica had cached the custom text). The `refused` and `remove` subtests use the real locales because they compare with the
+  Ukrainian goldens; the others use the marker locale.
+  Hygiene: fresh chat and user IDs (`uniqueModuleChatID`, `uniqueLinkOwnerID`, or the settings environment's), `eventMsgCleanup` or
+  `settingsMsgCleanup` for the rows (the `chat_event_message_options` row included, since Phase 22) and the `event_messages` key, every
+  swapped seam (`settingsMsgRead`, `eventMsgWrites`, `eventMessagesLookup`) restored through `mreqSwap`, no `t.Skip`, and light tests: the
+  language sweeps run over pure renders, a dispatcher test uses one environment and the worst state.
+- Phase 22 test families (the private copies of event messages): `TestEventPMEndToEnd`, `TestEventPMSpecs`, `TestEventPMDefaultTexts`
+  and `TestEventPMComposition` (`event_message_pm_test.go`), `TestEventPMFailures`, `TestEventPMLimits`, `TestEventPMPacerIndependent`
+  and `TestEventPMLogsCarryIDsOnly` (`event_message_pm_failures_test.go`), `TestEventPMDetails` (the button added after a blocked
+  copy with the group message's rows kept, a custom group message's rows kept, nothing for the option off, a delivered copy, a
+  Silent or failed group step, no username, no Redis, a refused custom copy whose default was delivered, 100 buttons and a capped
+  copy, and a failed edit that changes nothing else) and `TestPMCopyDetailsDeepLink` (the punished person sees the stored copy and
+  can open it again, anyone else, a forged payload, an unknown token, an unparsable record and a Redis error get the one neutral
+  reply) in `event_message_pm_details_test.go` with the toolkit's `eventPMDetailsTokens`, `eventPMDetailsRecord` and
+  `eventPMDetailsTokenOf`, `TestEventPMLogLine` (`event_message_pm_log_test.go`: one `#PM_COPY` post in the log channel for a blocked
+  copy and the failed reason for a 5xx, nothing for the option off, a delivered copy, the admin category off, no log channel or a
+  capped copy, one edit and one line with both options on, no copy text, reason or token in the line and the member's name only
+  inside the mention; toolkit `eventPMLogLink`, `eventPMLogOn`, `eventPMLogPosts`, `eventPMLogWant`), the guard `TestPMCopyCallers` (`pm_copy_callers_test.go`)
+  and `TestEventMsgLocaleKeys` (`fuku/i18n`), and the page's `TestSettingsMessagesPMScreen`, `TestSettingsMessagesPMSwitch`,
+  `TestSettingsMessagesPMTyped`, `TestSettingsDriftMessagesPM` and `TestSettingsAuthorityMessagesPM` (`settings_messages_pm_test.go`) and
+  `TestSettingsMessagesPMPreview` and `TestSettingsMessagesPMStates` (`settings_messages_pm_preview_test.go`, with `settingsMsgSeedPM`, `settingsMsgPMPreviewSeen` and
+  `settingsMsgPMPreviewContent`) and the hub's option toggle `TestSettingsMessagesPMOptions`, `TestSettingsDriftMessagesPMOptions` and
+  `TestSettingsAuthorityMessagesPMOptions` (`settings_messages_pm_options_test.go`, with `settingsMsgOptionCases`, `settingsMsgOptionLine`, `settingsMsgOptionToggle`, `settingsMsgOptionEffect`,
+  `settingsMsgStoredOptions` and `settingsMsgSendPathOptions`; a member's private sends answer a refusal through `messagesE2EClient.refuse`) (on the
+  Messages page toolkit plus `settingsMsgStoredPM` and `settingsMsgOpenPM`; the `/ban` drift subtest runs on `newMessagesE2E` with
+  `withFastPMCopyPacer` and waits with `waitEventPM`), on the toolkit `event_message_pm_env_test.go` (the PM copies bullet under Subsystem traps
+  lists it). Hygiene: `newEventPMSite` registers `pmCopyJobs.wait` as its last cleanup, so a test that swaps a variable a job reads
+  (`pmCopyNow`, `pmCopyAutoCapPerMinute`, `pmCopyRedisClient`) after it registers one more `t.Cleanup(pmCopyJobs.wait)` after the swap,
+  because cleanups run last in, first out; a held job is released in `t.Cleanup` before that wait; the `fuku:pmcopy:*` keys are removed by
+  `eventPMCleanup`; and a test reads the recorded requests under the fake's lock (`eventPMAllCalls`, `eventPMCalls`), never through
+  `callsFor("")`, which matches no method. The safeguards of plan 22-08 (`event_message_pm_safety_test.go`): `TestEventPMTextsFitEveryLocale`
+  (every event's default private text with a 64-rune markup-heavy title, a 200-character reason, since Phase 23 a count and a limit of 100
+  and the language's longest action word (since Phase 24 the delete word too), and an end for every event (since plan 24-03, which
+  no longer reads the Messages page's timed flag, so a spec may exist before its page cell), with and
+  without the unmute lockdown note, at most 4096 UTF-16 units with no unfilled placeholder in 8 languages; the log line of every outcome at
+  most 1000 with a 64-rune markup-heavy name that appears once, escaped, only inside the mention; the Details label at most 20 code points,
+  the neutral reply at most 120), `TestEventPMCost` (`/ban` with the copy off makes exactly the golden site's requests; with the copy on and
+  its send held the handler returns with exactly those requests, a job still in flight, and one request reaches the member after the
+  release) and `TestEventPMPrivacy` (a group linked to a Staff Group with a sentinel title, a second group of the same Staff Group: every
+  default and custom private copy with every Welcome and event placeholder, the Details record and the log line in 8 languages, and every
+  request of a blocked `/ban` with both options on and its Details view, name neither, and an anonymous admin's `{admin}` is never the
+  tapper); `TestEventPMLogsCarryIDsOnly` also covers the Details record, a refused Details edit, the deep link's view, refused view and
+  refusals (a Redis error names the opener's user ID, the only ID it has) and a refused log post (`eventPMRefuseLogClient`), with every
+  Details token forbidden in a line; `TestSettingsStaffPrivacy` renders the private texts through `settingsPrivacyPhase22Screens` and runs
+  `settingsPrivacyPhase22Run` (a private menu of an administrator who is not the creator through both options, the event screen, the private
+  copy screen, a typed private text, the switch and a Full preview).
+  `TestPMCopiesEndToEnd` (`pm_copies_e2e_test.go`, plan 22-09, about 7 s) is the phase's end-to-end proof through the real dispatcher with
+  only Telegram faked, one environment per subtest on the toolkit `pmCopiesE2E` (`newPMCopiesE2E(t, real)`: Phase 21's `messagesE2E` with
+  `withFastPMCopyPacer`, `eventPMCleanup` and every job awaited; `openPM`, `openHub`, `switchPM`, `tapOption`, `setPMPart`, `startDeepLink`,
+  `privateSends`, `detailsEdits`, `logLines`, `linkLogChannel`, and `messagesE2EClient.allow`, which lets a refused member's sends through
+  again once they started the bot). Every page step is a press of a button the bot drew and every part a typed private message.
+  Subtests: `owner sets a private copy` (the typed text and the switch from the page, the hub's one private copy mark, `/ban spam <b>`
+  posts the golden reply and then one private message with the filled, escaped text and no keyboard), `previews` (Full preview of the
+  private copy reaches the owner alone, named as the member, with the sample reason), `default text` (`/tmute 30m` with nothing stored
+  sends the default private text in the group's language, Spanish here, with the end in the group's zone), `not started` (a 403 member,
+  Details and Log on from the hub: the group reply gains the Details button after the Unban row, one `#PM_COPY` line names the member, the
+  member's real `/start pmcopy_<token>` shows the stored copy and another member's gets only `eventmsg_pm_details_none`), `refused custom`
+  (a refused photo copy is replaced by the default private text once), `group silent` (a silent group event still sends the copy, and a
+  blocked copy then adds no button and stores no record), `silent variants` (`/sban`, `/skick` send no copy), `rights` (without
+  `can_change_info` the private copy screen and its Full preview work, while Set, Remove, the switch and both options are the
+  `settings_no_change_info` alert with nothing stored, and a demoted sender's typed text stores nothing), `staff group action` (a staff
+  `/ban` fan-out to a linked group whose ban copy is on bans and sends the target nothing), `two replicas` (the switch turned off on one
+  replica stops the next copy on the other) and `no redis` (the switch and the option work, a manual copy is sent, a blocked copy adds no
+  Details button). The `owner sets` and `default text` subtests use the real locales; the others the marker locale.
+- Phase 23 test families (the warn, warn limit, flood, blacklist and forward blocklist messages). The golden
+  `TestLegacyPunishmentNoticeRequests` (`punishment_notice_legacy_request_test.go`, one subtest per case, the constants `goldenNotice*`) was
+  recorded alone, on the code before any of these send sites changed, and is never re-recorded or weakened: it pins the `sendMessage`
+  request, the punishment call and the queue row of the warn (`/warn` with a reason and with the rules' button, `/dwarn`, `/swarn`, the
+  blacklist's and the forward blocklist's warn actions), the warn limit at mute, kick, ban and an inert `tban`, the flood notice at mute,
+  kick, ban, a banned sender chat and an inert `warn`, the blacklist notice at mute, kick, ban and a banned sender chat, and the forward
+  blocklist notice at mute, kick and ban, in Ukrainian with the real locales. Its toolkit (`noticeGoldenTarget`, `noticeGoldenChannel`,
+  `noticeGoldenClient`, `newNoticeGoldenSite`, which stores a 600 s rule of the case's kind and a 900 s rule of the other bot punishment kind,
+  and the drivers `noticeGoldenWarn`, `noticeGoldenFlood`, `noticeGoldenBlacklist`, `noticeGoldenForwardBlock`) is reused by name and the
+  file is never edited. `TestEventMessageWarn` (`event_message_auto_test.go`, plan 23-02) runs the warn site over `newNoticeGoldenSite`: a
+  custom warn with a URL button is filled and escaped with the Remove warn row last and queued under `bot:punish_manual`, the blacklist's
+  warn reads `{admin}` as "an admin" under `bot:punish_auto`, a Silent warn stores the warn and posts nothing, and a refused custom warn is
+  followed by exactly the golden default (toolkit `eventMsgStoreWarn`, `eventMsgWarnCustom`, `eventMsgWarnRemoveRow`).
+  `TestEventActionWords` is a pure sweep over the 8 languages with the real locales: each action word and the flood reason
+  is the translated, non-empty, plain text of its key, the four words differ, and an inert action has no word.
+  `TestAutoEventDefaults` (pure: the real locales once and an in-memory recording client, no database) sends each of the
+  four default builders' text and options through `SendMessage` to chat 0 (`autoDefaultRequest`, with the warn's and the
+  warn limit's reply added as their site adds it) and compares the request byte for byte with the 18 goldens of the warn,
+  the warn limit, the flood, the blacklist and the forward blocklist notices.
+  `TestSettingsMessagesAutoFamily` (`settings_messages_auto_test.go`, plan 23-03) drives the Automatic family through the real private
+  menu, one `newSettingsMsgEnv` per subtest: the hub's bold 🤖 section with its Default lines and rows `[2 1 1 2]`, the list `a=hl&t=a`
+  with five cells and rows `[2 2 1 2]` (since plan 24-04: seven lines, the AI spam notice reading Off, rows `[2 1 1 1 2]`, seven cells and
+  rows `[2 2 2 1 2]`), each event screen with the family's hint, its part rows and its Silent toggle (the AI spam notice's Notice line and
+  toggle); a typed text on
+  the warn stored on its group row and read Custom on the hub; the flood's Silent press stored and read Silent; and, with the real
+  locales, Full preview of the default warn limit (the presser's mention, 3/3 and the sample reason, no keyboard) and of a stored
+  flood text (the translated mute word, 6/5 and the flood reason, no bot row), with nothing sent to the group. The page's earlier
+  families cover both families through `settingsMsgScreens`, whose expected widths follow the table (`settingsMsgFamilyWidths`; since
+  plan 23-05 every event of both families must have a private copy spec, so every event screen carries its private copy row, and
+  `settingsMsgEveryPMOn` and `TestSettingsMessagesCallbackBytes` fail on an event without one).
+  `TestEventMessageWarnLimit`, `TestEventMessageFlood`, `TestEventMessageBlacklist` and `TestEventMessageForwardBlock`
+  (`event_message_auto_sites_test.go`, plan 23-04) run the four other sites, one `newNoticeGoldenSite` per subtest (one
+  `newFwdWatchEnv` for the real forward through the watcher): each custom message is checked for its exact text, keyboard
+  rows, reply parameters and queue kind, the punishment call comes before the notice (`eventMsgAutoPunishedFirst`), and
+  the inert warn mode, the inert flood action, nothing stored and a refused custom flood message each equal their golden
+  (toolkit `eventMsgAutoWarnSettings`, `eventMsgAutoSilent`, `eventMsgAutoCustom`, `eventMsgAutoGolden`,
+  `eventMsgAutoFlood`, a flood driver with a topic, `eventMsgAutoRow`, `eventMsgAutoDeleted`).
+  `TestEventPMAutoEvents` and `TestEventPMAutoCap` (`event_message_pm_auto_test.go`, plan 23-05) run the five events' private copies
+  through their real sites on `newEventPMAutoSite` (`newNoticeGoldenSite` with miniredis, a fast private copy pacer and the Phase 22
+  `eventPMTestClient`), the copy switched on and nothing stored: `/warn` sends its default copy (1 of 3 and the reason line) even with
+  the cap's Redis client taken away, the blacklist's warn sends its copy with Redis and none without (a rule-raised warn is capped, fail
+  closed, while the warn is stored and posted), the flood, blacklist and forward blocklist copies follow the punishment and the group
+  notice with the translated action word and the reason line, a sender chat's flood ban sends no copy (`pmCopySkipTarget` refuses its
+  negative ID), and the forward blocklist's copy names neither a sentinel source nor a sentinel Staff Group. `TestEventPMAutoCap` mutes
+  five blacklist offenders in one stopped minute with the cap at 2: every one is muted and gets a group notice, exactly two copies are
+  sent, and a `/warn` in the same minute still sends its copy (toolkit `eventPMAutoDefault`, `eventPMAutoWant`, `eventPMAutoNone`,
+  `eventPMAutoNoRedis`, `eventPMAutoOffender`). `TestEventPMDefaultTexts` gains the warn limit's default (3 of 3, the ban word, the reason
+  line). `TestSettingsMessagesAutoPM` (`settings_messages_auto_test.go`) checks every Automatic event screen's private copy row and line
+  and the warn's private copy screen with its switch Off and no row written.
+  The page's safeguards over the Automatic family (plan 23-06): `settingsMsgValidPresses` holds a valid press of the list (`hl&t=a`)
+  and of every code on the five events (`wn wl fl bl fb`), in the group message's and the private copy's (`d=p`) form, the private copy
+  switch `hp` of every one included, so `TestSettingsMessagesForged` refuses every generated forged form of them in step 1 (with
+  `settingsMsgAutoForged`: `hp` with `v=x`, `hq` with `v=2`, an unknown part, an extra key, `d=x` and a group menu's `hl`), and
+  `TestSettingsMessagesReadsCreateNothing` and `TestSettingsMessagesCost` also open the Automatic list, the forward blocklist's event
+  screen and its private copy screen. `TestSettingsAuthorityMessagesAuto` (`settings_messages_auto_test.go`, one environment): a typist
+  demoted between Set on the forward blocklist's text and the typed message stores nothing; without `can_change_info` the Automatic list,
+  the warn's screen, the forward blocklist's private copy screen and the warn's Full preview open, while Set (both forms), Silent and the
+  private copy switch of all five events, Remove of a stored flood text and of a stored blacklist private text are each the
+  `settings_no_change_info` alert with no edit, no wait and every row unchanged. `TestSettingsStaffPrivacy` gains
+  `settingsPrivacyPhase23Run` (the Automatic list, the forward blocklist's event and private copy screens, a typed text, Silent and Full
+  preview by an administrator who is not the creator, through the shared `settingsPrivacyMsgRunClean`).
+  `TestEventMessageAutoLogsCarryIDsOnly` (`event_message_auto_safety_test.go`, plan 23-06) runs each of the five sites (`/warn`, the warn
+  limit through `/warn`, the flood, the blacklist with a sentinel word, the forward blocklist) on its own `newNoticeGoldenSite` under a
+  debug-level hook, once with the messages unreadable (the default and one Warn naming the chat and the event) and once with a stored
+  photo message Telegram refuses (the default and one Warn naming the chat and the event): no line carries the stored text or caption,
+  the file ID, the button's name or link, the typed reason, the matched word, the member's names or the fixed flood and forward blocklist
+  reasons. `TestEventMessageAutoPrivacy` forwards a listed source into the linked group through the real watcher on `newFwdWatchEnv`,
+  the Staff Group renamed and the forward's source titled with sentinels, both private copy options on, a log channel linked and the
+  member refusing private messages (403), once with a custom group message and private copy using every placeholder and once with
+  nothing stored: the member is muted once, the group notice, the Details edit and record and the `#PM_COPY` post exist, and no send
+  or edit, the Details record read from Redis or any log line names either title or either chat ID. `TestEventPMTextsFitEveryLocale`
+  already fills count 100, limit 100 and the longest action word for every spec since plan 23-05.
+  `TestAutoMessagesEndToEnd` (`auto_messages_e2e_test.go`, plan 23-07, about 6 s) is the phase's end-to-end proof through the real
+  dispatcher with only Telegram faked, one environment per subtest on the toolkit `autoMessagesE2E` (`newAutoMessagesE2E(t, real)`:
+  Phase 22's `pmCopiesE2E` with `LoadWarns` and `LoadBlacklists` added (the settings environment already loads Antiflood), a 900 s
+  `bot:punish_auto` timer beside the 600 s manual one, and the chat's blacklist and antiflood state removed; `autoMember` (a member named
+  first and Lee with no username, the goldens' shape), `openAuto` and `openAutoPM` (Main, Messages, Automatic actions, the event's cell and
+  its private copy screen, each a press of the drawn button), `setAutoPart`, `setAutoText`, `setAutoButton`, `switchAutoPM`, `memberSays`,
+  `wantQueuedAs`, `wantPunishedFirst`, `flood`, `warnLimit`). The messages are set only on the page; the warn limit, antiflood and the
+  blacklist word through their repositories. Subtests: `owner sets a warn message` (a typed text and a link button; the hub reads Custom;
+  `/warn spam & co` posts the filled, escaped text with the custom row then the Remove warn row, queued under `bot:punish_manual`, and the
+  admin's tap on the kept Remove warn removes the warn), `blacklist warn and warn limit` (the word on warn, the limit 2 on ban: the first
+  word posts the custom warn with "an admin" under `bot:punish_auto`, the second bans first and then posts the custom warn limit with the
+  ban word and 2/2), `flood` (limit 3 on mute with the burst deleted: four messages deleted, one mute, then the custom message with the
+  Unmute row first, the mute word, 4/3 and the flood reason), `blacklist mute` (the message deleted, the member muted, the escaped reason),
+  `forward blocklist` (on `newFwdWatchEnv`, stored through the repository: a real forward mutes once, the group text and the delivered
+  private copy fill every placeholder and name neither the source nor the Staff Group), `nothing stored` (real locales: `/warn`, a
+  blacklist mute and a flood mute equal `goldenNoticeWarnReason`, `goldenNoticeBlacklistMute` and `goldenNoticeFloodMute` with the case's
+  IDs put in, each queued under its kind), `refused` (real locales: a custom flood photo refused with a 400 comes after the mute and is
+  followed by the golden default once), `silent` (the warn's Silent and its private copy switched on from the page: `/warn` stores the
+  warn, posts nothing and the member still receives the copy) and `pm copies and the cap` (the blacklist's and the warn's copies switched
+  on from their private copy screens, the cap at 2 in a stopped minute: four offenders are muted with a notice each, exactly two copies
+  are sent, and a `/warn` in the same minute still sends its copy).
+- Phase 24 test families (the captcha, AI spam and member requirement notices). The golden `TestLegacyScreeningNoticeRequests`
+  (`screening_notice_legacy_request_test.go`, one subtest per case, the constants `goldenScreen*`) was recorded alone, on the code
+  before any of these send sites changed, and is never re-recorded or weakened: it pins the `sendMessage` request, the action call and
+  the queue state of the captcha failure notice through `handleCaptchaTimeout` at kick, ban, mute and kick with two held messages (no
+  queue row under either bot kind's rule: the notice deletes itself after 30 s in process), of the requirement notices through the
+  executor (warn 1 of 3, the warn limit at kick, ban and mute, kick, ban, and mute with its "I fixed it" button, each queued under
+  `bot:punish_auto` at 600 s and the mute at the 24 hour cap) and the requirement pause notice, and of aispam's breaker notice
+  (`bot:punish_auto`, 600 s), plus aispam's delete verdict, which deletes the message and posts nothing in the group, in Ukrainian with
+  the real locales. The requirement member, the hold and the chat are replaced by `<user>`, `<hold>` and `<chat>`. Its toolkit
+  (`newScreenGoldenSite`, `newScreenGoldenMreqEnv`, `screenGoldenReqMember`, `screenGoldenTokens`, `screenGoldenCaptcha`,
+  `screenGoldenWantAction`) is reused by name and the file is never edited. `TestEventMessageCaptcha`
+  (`event_message_screening_test.go`, toolkit `eventMsgCaptchaSite`: the screening site with captcha on and every bot kind at
+  60 s) holds the captcha site: a custom text through the timer and through a failed web check, the 30 second self-delete
+  shortened through `captchaFailureNoticeLife`, nothing stored, a refused custom message and Silent. `TestEventMessageEngineHooks`
+  (same file, toolkit `eventMsgHookSite`, `eventMsgHookReply`) holds the engine's Phase 24 hooks on a test-only site, and Phase
+  23's `TestEventActionWords` sweeps the delete word and the captcha and AI spam reasons in 8 languages. `TestScreeningEventDefaults`
+  (pure, real locales) compares `captchaFailureDefaultReply` with the four captcha goldens, `memberReqNoticeDefault` with the
+  seven requirement goldens (the member and hold filled into `<user>` and `<hold>`), checks `aispamNoticeDefaultReply`, and
+  holds `memberReqNoticeDefault`'s text equal to `memberReqNoticeText`'s for every notice kind over every mask of one, two and
+  all eight rules; `TestMemberReqNoticeNoteFitsReserve` sweeps the worst note in 8 languages.
+  `TestEventPMCaptcha` (`event_message_pm_screening_test.go`, plan 24-03, about 0.1 s, toolkit `newEventPMCaptchaSite`: the captcha
+  site with miniredis, the fast private copy pacer, the stored title `Q&A <Group>` and the copy switched on, and
+  `eventPMCaptchaFail`) holds the captcha's private copy through `handleCaptchaTimeout`: the default private text after the kick and
+  the group notice, a member who blocked the bot (one attempted send, nothing else), and the cap (three members in one minute with the
+  cap at 2: all kicked and noticed, two copies; a fourth in the next minute with no Redis: kicked and noticed, no copy). The captcha
+  site is also `eventSite.Automatic`, so its copies are capped through `eventPMOffer.ByRule` as well as through the spec.
+  `TestAISpamNotice` (`aispam_notice_test.go`, plan 24-06, about 1.5 s, toolkit `aispamNoticeEnv`: one aispam dispatcher per subtest
+  over `newScreenGoldenSite` with the TypeSafe stand-in answering 0.95, miniredis, `withFastAISpamNoticePacer`, the fast private copy
+  pacer, the private chat client and the AI burst trigger swapped off through `raidSettingsLookup`) holds the AI spam site: `off by
+  default` (deleted, nothing posted or queued, no `fuku:aispam:notice:*` key), `default on` (the default text in the deleted message's
+  topic, no reply, a 600 s `bot:punish_auto` row), `custom`, `caps` (one member's second spam quiet; five more members, two more
+  notices), `quiet failures` (no Redis client, the pacer blocked a minute ahead, a delete refused with a 403: no notice), `shutdown`
+  (the pool cancelled right after the delete through `aispamNoticeCancelClient`: deleted, no notice, no cap spent; the pool restored
+  with `restoreAISpamPool`) and `private copy` (the default `aispam` copy after the notice, and none for a capped second spam).
+  `TestSettingsMessagesScreeningFamily` (`settings_messages_screening_test.go`, plan 24-04, about 2 s, one `newSettingsMsgEnv` per
+  subtest, real presses of drawn buttons) drives the page side: `hub and lists` (the bold 🛂 section with four Default lines, the
+  Automatic section's seven lines with the AI spam notice reading Off, rows `[2 1 1 1 2]`, the Member requirements list `[2 2 2]`, the
+  Automatic list `[2 2 2 1 2]`), `requirement screens` (the `rm` screen's text and buttons parts with no media part, no Silent switch, its
+  private copy row and hint, `rw` with its Silent switch, Set text drawing the prompt `Up to 3496`, a forged `hq` naming `rm` refused as an
+  invalid request with nothing written), `ai notice` (the Notice line reading Off, the toggle's press storing Silent false on the aispam row,
+  the hub then reading Default and Main counting it, a second press turning it off) and `previews` (real locales: a typed `rm` text whose
+  Full preview is the text filled with the presser's mention and the sample rules followed by the requirements line and the photo remedy,
+  with no keyboard; the captcha's default Full preview with the kick word and 2 removed messages; nothing sent to the group).
+  `TestSettingsEditReservedText` (same file, pure) holds the reserve: a requirement text of 3496 units is accepted, 3497 refused with
+  `settings_edit_refuse_too_long_filled` naming 3496, the prompt reads 3496, and the warn and the requirement mute's private copy keep 4096.
+  The page's safeguards over the Phase 24 events (plan 24-07): `settingsMsgValidPresses` holds a valid press of the Member requirements
+  list (`hl&t=r`), the failed captcha's screen and Full preview, the requirement mute's private copy screen, the AI spam notice's Notice
+  switch (`hq&k=ai&v=0`), a requirement Set and the requirement ban's private copy switch, and `settingsMsgScreeningForged` the forms the
+  generated ones do not make (the list and the captcha screen from a group menu, `he&k=rm&d=x`, a media part on `rw` (a private copy may carry media),
+  `hq&k=rm&v=1`, `hq&k=ai&v=2`, `hp&k=rb&v=x`, `hf&k=cf` with an extra key), so `TestSettingsMessagesForged` refuses every one in
+  step 1 with no member lookup; `TestSettingsMessagesReadsCreateNothing` and `TestSettingsMessagesCost` also open the Member requirements
+  list, the `rm` screen and its private copy screen and the `ai` screen. `TestSettingsAuthorityMessagesScreening`
+  (`settings_messages_screening_test.go`, one environment, about 0.05 s): a typist demoted between Set on the captcha's text and the typed
+  message stores nothing; without `can_change_info` the Member requirements list, the `rm` screen and its Full preview and the `ai` screen
+  open, while Set (both forms), Silent (or the AI spam notice's Notice switch, `v=0`), the private copy switch of the six events, Remove of
+  a stored requirement kick text and of a stored captcha private text are each the `settings_no_change_info` alert with no edit, no wait
+  and every row unchanged. `TestSettingsStaffPrivacy` gains `settingsPrivacyPhase24Run` (the Member requirements list, the `rm` event and
+  private copy screens, the `ai` screen and its Notice press, a typed `rw` text and a Full preview of `cf` by an administrator who is not the
+  creator, through `settingsPrivacyMsgRunClean`). The page catalog `settingsMsgScreens` already draws every screen of the three families
+  (the `ai` screen with its notice on and off, the requirement screens empty and full) for the byte and length tests.
+  `event_message_screening_safety_test.go` (plan 24-07, about 0.5 s) holds the sites' safety. `TestEventMessageScreeningLogsCarryIDsOnly`
+  runs each site under a debug-level hook with a stored sentinel text, photo and button: the captcha (`eventMsgCaptchaSite`, a held message
+  holding a sentinel) and the requirement kick (`newMreqEventEnv`) send the default after a failed read and after a refused custom message,
+  each with one Warn naming the chat and the event; the AI spam notice (`newAISpamNoticeEnv`, turned on) posts nothing after a failed read
+  (an off-by-default event) and the default after a refused custom photo; no line carries the stored text, the file ID, the button, the
+  held or spam message, the member's names, the captcha or AI reason or the rule phrase. `TestEventMessageScreeningPrivacy` runs one site
+  per surface, custom and with nothing stored, each group linked to a Staff Group titled with a sentinel (`screenSafeLinkStaff`): the
+  captcha with both private copy options on and the member refusing private messages (the notice, the Details edit and record and the
+  `#PM_COPY` line exist), the AI spam notice and its private copy with the TypeSafe stand-in's category and model sentinels and a
+  probability of 0.9731, and the requirement mute and its private copy for a member whose first name holds U+202E and U+200F and who has
+  no username; no Telegram request, Details record or log line names the Staff Group, the provider, the model, the category or the
+  probability, and no requirement request carries either control (the default mention's own isolate is by design). `/aispam`'s own
+  `[AISpam] verdict` line is the operator's record of the verdict and keeps those details; it is the one line exempt, and the test
+  requires it to carry the sentinel category, which proves the sentinel was in flight. `TestEventMessageMemberReqMuteWaitsOutRateLimit`
+  closes the gap plan 24-05 left: a custom requirement mute notice the requirement pacer gives up on (four 429s) is sent again with the
+  same custom text and its "I fixed it" row, and the mute is never lifted. `TestEventPMTextsFitEveryLocale` also measures each
+  requirement event's default private text with the reason of all eight rule phrases.
+  `TestScreeningMessagesEndToEnd` (`screening_messages_e2e_test.go`, plan 24-08, about 1 to 3 s) is the phase's end-to-end proof through
+  the real dispatcher with only Telegram, Cloudflare's siteverify and TypeSafe faked, one environment per subtest on the toolkit
+  `screeningMessagesE2E` (`newScreeningMessagesE2E(t, real)`: Phase 23's `autoMessagesE2E` with the Greetings and MemberRequirements
+  modules on its dispatcher beside the settings environment's Captcha module, the requirement pacer fast, the enforcement switch on,
+  every requirement job awaited and `captchaFailureNoticeLife` at 20 ms; `joiner`, `openScreening` and `setScreeningPart` and
+  `setScreeningText` (each page step a press of the drawn button, each part a typed private message), `captchaOn`, `joinCaptcha` (a real
+  `chat_member` join through the greetings module that meets the captcha), `expire` (the attempt's expiry moved into the past, then
+  `expireCaptchaAttempt`), `joinAndFail`, `breakRule` (the last-name rule's punishment, then a plain message of a member without a last
+  name), `aispamOn` (the TypeSafe stand-in answering spam, the notice pacer fast, the AI burst trigger off through `raidSettingsLookup`,
+  `LoadAISpam`), `spam`, `turnstile` (the web captcha's runtime over the environment's bot and Redis with a Cloudflare stand-in whose every
+  answer is a failed solve), `clock` (a settable deletion clock that also dates the fake's messages), `captchaGolden` and `reqGolden`).
+  Subtests: `owner sets the captcha message` (a typed text, the hub reading Custom; the join's math challenge unchanged, the member's
+  message held and deleted, the timeout kicks first and then posts the custom text with the kick word and 1, no reply and no queue row,
+  deleted after its life), `web check` (a Turnstile join, a held message, a failed verify answered `failed` with `kick` and the custom text
+  posted once; the same verify again replays the answer and posts nothing), `requirement mute` (no media part and no Silent switch; a
+  typed text and a link button; the member is muted first, then the custom text, a blank line and the requirements line, with the link
+  button then "I fixed it" and a 24 hour `bot:punish_auto` row; the member adds a last name and taps the kept button 20 minutes later:
+  unmuted, the notice edited to the fix text with no keyboard and its row moved to the tap plus the timer), `requirement warn` (a custom
+  text with `{reason}` followed by the requirements line, a 900 s row), `ai notice` (nothing stored: deleted, nothing posted, no
+  `fuku:aispam:notice:*` key; the drawn Notice switch turns it on; the member's next spam is deleted and noticed, the third inside five
+  minutes deleted quietly, three other members' spam all deleted with two more notices, three in the stopped minute), `nothing stored`
+  (real locales: a captcha kick, a requirement kick and a requirement mute equal `goldenScreenCaptchaKick`, `goldenScreenReqKick` and
+  `goldenScreenReqMute` with the case's IDs put in, each with its queue state), `refused` (real locales: a custom captcha photo refused
+  with a 400 comes after the kick and is followed by the golden default once) and `pm copies` (the requirement mute's private copy
+  switched on from its private copy screen sends the default copy with the broken rule on the reason line; the captcha's copy on and the
+  cap at 2 in a stopped minute: three joiners fail the captcha, all kicked and noticed, exactly two copies).
+- Phase 25 test families (the lockdown messages). The golden `TestLegacyLockdownMessageRequests`
+  (`lockdown_message_legacy_request_test.go`, one subtest per case, the constants `goldenLockdown*`) was recorded alone, on the code
+  before any lockdown send site changed, and is never re-recorded or weakened: it pins the `sendMessage` request of the `/lockdown`
+  success reply (all rights; a reason with markup and the delete and invite rights missing; after an anonymous admin's proof tap), of
+  the automatic lockdown's public notice (join surge; flood without the delete right; AI burst without the invite right), of the
+  cannot-lock warning's Staff Group and log channel copies and of the lift notice from `/unlockdown` (finished; a manual change and two
+  joiners being unbanned), from the alert's Lift Confirm and from a private settings menu, and that a lift from a group menu posts
+  nothing beyond the menu's edits, each with no deletion queue row although every rule of the group is at its shortest delay, in
+  Ukrainian with the real locales. The chat and user IDs are replaced by `<chat>`, `<admin>`, `<tapper>`, `<staff>` and `<log>`
+  (`lockdownGoldenTokens`). Its toolkit (`newLockdownGoldenEnv`, `newLockdownGoldenSettingsEnv`, `lockdownGoldenRequest`,
+  `lockdownGoldenWant`, `lockdownGoldenWantSends`, `lockdownGoldenNoQueue`, `lockdownGoldenNoPrivate`, `lockdownGoldenSettingsButton`,
+  `lockdownGoldenWantLifted`) is reused by name and the file is never edited. `TestEventMessageLockdownStart`
+  (`event_message_lockdown_test.go`, plan 25-02, about 2 s, one lockdown environment per subtest with every deletion rule of the group
+  at its shortest delay) holds the manual start's site through the real dispatcher: `custom` (a stored text with `{admin}`,
+  `{chatname}`, `{reason}` and `{mention}`; `/lockdown raid & co` locks first, then one reply to the command with every value escaped
+  and the approved-muted note after it; no queue row), `custom notes` (the bot without the delete and invite rights: the three notes in
+  order), `silent` (the lockdown is active with the locked set, nothing is posted in the group, the next worker cycle posts the alert to
+  the linked Staff Group), `refused` (real locales: a custom message refused with a 400 is followed by exactly `goldenLockdownStart`)
+  and `anonymous` (after the proof tap `{admin}` reads "an admin" and `{mention}` and `{id}` name the bot, never the tapper).
+  `TestLockdownEventDefaults` (same file, pure, real locales, uk) sends each default builder's text and options through the call its
+  site's default makes on an in-memory recording client (`lockdownDefaultRequest`: `msg.Reply` for the command replies, `SendMessage`
+  with the paced notice's options for the automatic notice and a button lift) and compares the request with the nine start,
+  automatic and lift goldens by name through `lockdownGoldenWant`; it also holds that an unknown trigger kind builds nothing, that
+  the defaults end with the very notes a custom text gets, and that `{percent}` fills 80 and renders empty at 0.
+  `TestLockdownNoteFitsReserve` (pure, 8 languages) holds the worst notes to `lockdownNoteReserve`, which leaves at least 600 units
+  of a 1024-unit caption. `TestEventEngineCallers` and its self-check `TestEventEngineCallersGuardFails`
+  (`event_engine_callers_test.go`, about 0.6 s, a parse of the package's files) hold EVT-10 structurally: the exact caller map of the
+  engine and of the `postLockdown*` adapters, and that no never-reach root can reach either (the Event messages bullet).
+  `TestSettingsMessagesLockdownFamily` (`settings_messages_lockdown_test.go`, plan 25-03, about 1.7 s, one `newSettingsMsgEnv` per
+  subtest, real presses of the drawn buttons and real typed messages) drives the Lockdown family through the private menu: `hub and
+  list` (the bold 🚨 section after the Member requirements one and before the private copies, five Default lines, the hub
+  `[2 2 1 1 2]` with the Lockdown cell second on its row, the list `[2 2 1 2]` with five cells and Back to the hub), `screens` (each
+  lockdown event screen has the three part rows, its Silent switch, the hint `settings_msg_hint_lockdown`, no private copy line or
+  row, `[1 1 1 1 1 2]` empty; Set text on `lj` writes the wait `hljg` and draws `Up to 3696`, 624 with a media item; a forged `he`
+  with `d=p` on `ld` and `hp` on `lu` are the invalid request alert with nothing written), `typed and silent` (the live creator's
+  typed text is stored on the `lockdown` group row and the hub reads Custom, a Silent press on `lu` stores Silent and the hub reads
+  Silent, and the next `/lockdown raid & co` replies with the page's text filled and the approved-muted note) and `previews` (real
+  locales: Full preview of a stored `{count} {window} {percent}: {reason}` on `lf` is `30 30 80: `, the flood's trigger sentence,
+  a line break and the approved-muted note; Full preview of `lu` with nothing stored is the lift default naming the presser with no
+  note; nothing is sent to the group). The page's earlier families cover the Lockdown family through `settingsMsgScreens`, where
+  `settingsMsgFamilyPM` requires a private copy spec on every event of `m`, `a` and `r` and forbids one on every `l` event.
+  `TestEventMessageLockdownAuto` (`event_message_lockdown_auto_test.go`, plan 25-04, about 2 s, one lockdown environment per subtest
+  with every deletion rule of the group at its shortest delay, `raidFire` called directly except in `real surge`) holds the automatic
+  notice's site: `join surge` (a stored `{count} joined in {window} s: {reason} ({admin}, {mention})`: the lock first, then one new
+  message with no reply or topic, `15 joined in 60 s: `, the escaped trigger sentence, "an admin" and the bot's mention, then the
+  approved-muted note; no queue row, nothing private), `flood notes` (`30/30/80`, then the approved-muted and no-delete notes),
+  `ai burst notes` (the text, then the approved-muted and no-invite notes), `real surge` (fifteen self joins through the dispatcher post
+  the custom notice once; more joins after the latch is dropped post nothing more), `silent` (a Silent `lockflood`: the lockdown is
+  confirmed, nothing is posted in the group, the next worker cycle posts the alert to the linked Staff Group), `refused` (real locales:
+  a custom message refused with a 400 is followed by exactly `goldenLockdownAutoJoinSurge`) and `drain` (the custom send held with
+  `gateSends`: with `raidPostStopWait` at 20 ms `StopRaidPosts` reports not done, and done once the gate opens, with the custom notice
+  posted).
+  `TestEventMessageLockdownLift` (`event_message_lockdown_lift_test.go`, plan 25-05, about 2 s, one lockdown or settings environment
+  per subtest with every deletion rule of the group at its shortest delay) holds the lift from every door: `command` (a stored
+  `<b>{admin}</b> opened {chatname} ({mention})`: `/unlockdown` replies to the command with the filled, escaped text and no note; no
+  queue row, nothing private), `command notes` (two banned joiners and a hand-changed permission set: the custom text, then the
+  manual change line and the unbanning line with 2), `command refusal unchanged` (no lockdown: `lockdown_not_active` as before),
+  `command silent` (no reply, the lift and the restore done), `alert button` (the custom notice as a new message after the card's
+  edit; with the send held by `gateSends` the worker was already woken, D-23), `alert refused` (real locales: a refused custom
+  notice is followed by exactly `goldenLockdownLiftAlert`), `private menu` (the custom notice once, after the page's redraw), `group
+  menu custom` (the redraw with its notice, the wake, and the custom notice once as a new message), `group menu quiet` (Silent, and
+  a refused custom message, post nothing beyond the menu) and `tally after silent` (a Silent lift that finishes inline with one kept
+  joiner posts no notice and the tally as before).
+  `TestLockdownMessagesLeaveOtherSurfacesAlone` and `TestLockdownEventsSendNoPrivateCopy` (`lockdown_message_surfaces_test.go`, plan
+  25-06, about 1 s together) are the behavioural half of EVT-10, beside the structural `TestEventEngineCallers`. Their toolkit
+  (`lockdownStoreEverySurfaceMessage`: each of the five lockdown events stored for each chat with the sentinel text
+  `lockdownSurfaceSentinel` and a URL button labelled `lockdownSurfaceLabel`, Silent off, a private copy row with the sentinel
+  switched on and both private copy options on; `lockdownWantNoSentinel` over the recorded requests, every parameter as
+  `lockdownParamText` renders it; `lockdownWantNoPrivateSend`, no request with a positive `chat_id` or `from_chat_id`) drives the
+  real dispatcher, the worker cycles and the real senders, and each case first proves it reached its surface. The first test's
+  subtests: `lockdown flow` (one `banEnv` with a log channel: `/lockdown`, a joiner, the alert in the Staff Group and the log channel,
+  a reminder made due with `ageAlert`, "Ban N recent joiners" through the alert's button with its card report and its
+  `#LOCKDOWN_BAN` post, the alert's Lift Confirm, the alert copies closed and the tally: no request to the Staff Group or the log
+  channel carries a sentinel, and in the group only the start reply and the lift notice do), `cannot lock` (the warning's two copies),
+  `staff action` (a staff `/mute`'s card and summary), `captcha challenge` and `log post`. The second test's subtests: `no spec`
+  (`eventPMSpecFor` and `eventPMWouldOffer` are false for the five keys with their pm rows on, while a ban's is true), `manual
+  start`, `automatic start`, `lift by command` and `lift by button` (each posts its stored group message and sends nothing in
+  private, edits no keyboard and posts no `#PM_COPY` line).
+  The page's safeguards over the Lockdown family (plan 25-07): `settingsMsgValidPresses` holds a valid press of the Lockdown list
+  (`hl&t=l`), the `ld` screen and Full preview, Set of the `lj` text, Remove of the `lf` media, Cancel of the `la` buttons, Preview of the
+  `lu` text and the Silent switch of `lj` (`v=1`) and `lu` (`v=0`), and `settingsMsgLockdownForged` the forms the generated ones do not
+  make (the list from a group menu, `he`, `hs`, `hv` and `hf` with `d=p`, `hp` on `lu` and `ld` with either target, `he&k=lu&d=x`,
+  `hq&k=lf&v=2`), so `TestSettingsMessagesForged` refuses every one in step 1 with no member lookup; `TestSettingsMessagesReadsCreateNothing`
+  and `TestSettingsMessagesCost` also open the Lockdown list and the `ld` screen. `TestSettingsAuthorityMessagesLockdown`
+  (`settings_messages_lockdown_test.go`, one environment, about 0.05 s): a typist demoted between Set on the `lu` text and the typed message
+  stores nothing; without `can_change_info` the Lockdown list, the `ld` screen and its Full preview open, while Set of the `lj` text, Remove
+  of a stored `lf` text and Silent of `la` are each the `settings_no_change_info` alert with no edit, no wait and every row unchanged; an
+  administrator the owner gate refuses is refused at the press (`settings_gate_owner_only`); the live creator's Set and typed `lj` text store
+  the row. `TestSettingsDriftMessagesLockdown` (same file, one environment, about 0.1 s): a `lockdown` text stored through the repository
+  is drawn by the `ld` screen with its length and counted Custom on the hub, a typed `ld` text and a Silent press on `la` are what the send
+  path's cached `eventMessagesLookup` returns at once with no cache reset, the next `/lockdown raid & co` replies with the typed text filled
+  and the approved-muted note, and opening every lockdown screen of another chat writes nothing. `TestSettingsStaffPrivacy` gains
+  `settingsPrivacyPhase25Run` (the Lockdown list, the `lu` screen, a typed `lu` text, its Silent switch and its Full preview by an
+  administrator who is not the creator of a group linked to a Staff Group, through `settingsPrivacyMsgRunClean`).
+  `event_message_lockdown_safety_test.go` (plan 25-07, about 0.9 s) holds the lockdown sites' safety, one environment per case with the
+  group titled and its administrator named with sentinels (`lockdownSafeRename`). `TestLockdownMessageLogsCarryIDsOnly` runs, under a
+  debug-level hook and with a sentinel photo, caption and button stored (`lockdownSafeStore`), the manual start and the lift by command
+  (`/lockdown` with a sentinel reason, then `/unlockdown`), the join surge and the alert's lift pressed in the Staff Group
+  (`lockdownSafeAlertLift`), and a group menu's lift, once with the engine's read failing and once with each custom photo refused with a
+  400: each failure leaves the engine's one Warn naming the chat ID and the event (a group menu's lift posts nothing, and its read-error
+  line still says the default was sent, which carries IDs only and is accepted), the other sites send their default once, and no line
+  carries the stored text or caption, the file ID, the button, the reason, the trigger sentence, the admin's name or the group's title.
+  `TestLockdownMessagePrivacy` links the group to a Staff Group titled with a sentinel (`lockdownSafeLinkStaff`) and gives it a log channel
+  known by a sentinel title (`lockdownSafeLogChannel`), stores a custom text with every placeholder (`lockdownSafeEveryPlaceholder`) and
+  drives a join surge followed by the alert's Lift pressed in the Staff Group, and `/lockdown` followed by a group menu's lift: each custom
+  message names the locked group's own title as `{chatname}`, and no request the bot made to the locked group names the Staff Group's title
+  or ID or the log channel's title or ID.
+  `TestLockdownMessagesEndToEnd` (`lockdown_messages_e2e_test.go`, plan 25-08, about 3 s) is the phase's end-to-end proof through the real
+  dispatcher with only Telegram faked, one environment per subtest on the toolkit `lockdownMessagesE2E` (`newLockdownMessagesE2E(t, real)`:
+  Phase 21's `messagesE2E` with the group linked to a Staff Group, a log channel with every category on, the raid settings removed, every
+  deletion rule of the group at its shortest delay and the bot an administrator with every right; `openLockdownEvent` (Main, Messages,
+  Lockdown and the event's cell, each a press of the drawn button), `setLockdownPart`, `setLockdownText`, `silence`, `lockCommand`,
+  `wantLockdownReply`, `wantAutoNotice`, `wantNoPrivateSend`). Every message is set on the page, never through the repository. Subtests:
+  `owner sets the manual start` (a typed text, a photo and a link button; the hub reads Custom; `/lockdown raid & co` locks first, then one
+  `sendPhoto` replying to the command with the filled, escaped caption, a line break and the approved-muted note, and the button; no queue
+  row; the next cycle's alert in the Staff Group and the log channel carries none of it), `join surge` (fifteen self joins: the notice with
+  15, 60 and the trigger sentence, a new message after the lock, the tipping joiner still recorded pending), `flood` (thirty items from four
+  members who joined two hours ago: 30, 30 and 100), `ai burst` (five spam verdicts from three accounts through `raidAIRecordVerdict`: 5 and
+  120), `lift doors` (four lockdowns in one environment, lifted by `/unlockdown`, the alert's Lift pressed in the Staff Group, a private
+  menu's Lift Yes by the owner and a group menu's Lift Yes, each posting the custom lift text naming its lifter once, the group menu also
+  redrawn with its notice), `nothing stored` (real locales: `/lockdown` and `/unlockdown` equal `goldenLockdownStart` and
+  `goldenLockdownLiftCommand` with the command's message ID put in, and fifteen self joins in a second environment equal
+  `goldenLockdownAutoJoinSurge`), `refused` (real locales: a custom photo refused with a 400 comes after the lock and is followed by the
+  golden default once), `silent` (the start and the lift silenced from the page: `/lockdown` locks with no reply and the alert is posted,
+  `/unlockdown` lifts with no reply), `untouched surfaces` (all five texts set from the page: the alert, a reminder, a "Ban N recent joiners"
+  run with its card report and `#LOCKDOWN_BAN` post, the alert's lift and the close of both copies carry none of them, only the start reply
+  and the lift notice do in the group, and nothing goes to a private chat after the page) and `two replicas` (a start text posted by replica
+  B; the owner silences it through replica A; B's next `/lockdown` locks and posts nothing).
+- Phase 26 test families (timed punishments, the escalation ladder and warn expiry). The two goldens of plan 26-01 were recorded alone,
+  in one commit (92f29f1), on the code before any production change of the phase, and are never re-recorded, edited or weakened:
+  `TestLegacyTimedPunishmentRequests` (`timed_punishment_legacy_request_test.go`, 35 subtests, the constants `goldenTimed*`, toolkit
+  `timedGoldenRun`, `timedGoldenRow`, `timedGoldenTokens` and the seed helpers, all on `newNoticeGoldenSite` with the real locales)
+  pins the exact request and the named stored fields of `/setfloodmode`, `/flood`, `/setwarnmode tmute` alone, `/warnings`,
+  `/blacklistaction` (`tmute` and `tban` alone, the current mode with a stored `tmute`), `/warns`, `/rmwarn`, the Remove warn button and
+  `/resetwarns`, and what the warn limit, the flood, the blacklist and a member requirement warn do at a timed setting stored with no
+  duration (inert); `TestLegacyPunishmentExport` (`fuku/db/backup/punish_export_legacy_test.go`, the constants `goldenExportWarns`,
+  `goldenExportAntiflood`, `goldenExportBlacklists`) pins the backup export JSON of the warns, antiflood and blacklists modules for
+  today's rows, which is why every new column is `omitempty`. Every plan of the phase checks
+  `git diff --exit-code 92f29f1 -- fuku/modules/timed_punishment_legacy_request_test.go fuku/db/backup/punish_export_legacy_test.go`.
+  The repository and migration families of plan 26-02 are `TestSetWarnModeDuration` (`fuku/db/warns/timed_mode_test.go`),
+  `TestTimedPunishmentMigrationStatements` and `TestTimedPunishmentMigrationDefaults`
+  (`fuku/db/migrations/timed_punishment_migration_test.go`). Its `fuku/modules` families: `TestPunishTimedCore`
+  (`punish_timed_test.go`, pure: the duration grammar and bounds, the short and translated wording in uk and en, the end date
+  and its 35 s refusal, `autoActionEffective`), `TestApplyWarnModeTimed` and `TestSetWarnModeTimedCommand` (`warns_timed_test.go`:
+  the apply function's outcomes and writes; `/setwarnmode tmute 2h`, `TBAN 1d`, three bad durations and `ban 1d`, and `/warnings`
+  showing `tmute 2h`, through the handlers on `newNoticeGoldenSite` with the real locales) and `TestWarnLimitTimed` (same file, the
+  tracer, `punishNow` fixed at the site's clock: `tmute_default` and `tban_default` (`/setwarnmode` then `/warn` up to the limit: one
+  `restrictChatMember` with `MutedPermissions` or one `banChatMember`, `until_date` now plus 7200, the timed default text with the
+  reasons, the warns reset, queued under `bot:punish_manual`), `tmute_custom` (a stored text filling `{action}`, `{duration}` and
+  `{until}`), `pm_until` (the private copy's Until line, none for an untimed limit), `inert_no_duration` (equal to
+  `goldenTimedWarnLimitInertTmute`), `too_close` (`applyTimedPunishment` with an end 34 s ahead sends nothing and logs one Warn naming
+  the chat) and `mreq_timed_limit` (a requirement warn reaching `tmute 1h` restricts with the end date and posts the mute
+  warn-limit notice; `tban` is a removal)). Toolkit: `warnTimedSite`, `warnTimedOnly`, `warnTimedLimitText`, `warnTimedLastText`,
+  `warnTimedStored`. `TestEventActionWords` holds `tmute` and `tban` to the mute and ban words. Plan 26-03's families are
+  `TestSettingsDurationScreen` (`settings_duration_test.go`, pure over the real locales) and the Warnings page's timed row
+  (`settings_warns_timed_test.go`, on the settings environment with the marker locale): `TestSettingsWarnsTimed` (Timed mute,
+  the duration screen, the 1 hour preset stored as `tmute` 3600 with the timed word on the page and on Main and Timed mute marked,
+  the stored preset again, Ban replacing it, the real English words and the timed states in 8 languages),
+  `TestSettingsParityWarnTimed` (`nt` against `/setwarnmode tmute 6h` and `tban 1d`, the same row and cache),
+  `TestSettingsDriftWarnTimed` (`/setwarnmode tmute 90m` drawn with no preset marked; a page `tban` 6 h applied by `applyWarn` at
+  the limit with `until_date` now plus 21600, `punishNow` fixed), `TestSettingsAuthorityParityWarnTimed` and
+  `TestSettingsWarnsTimedForged` (eleven forged `nt` and `nd` presses refused in step 1 with no lookup). The Messages page's
+  `TestSettingsMessagesAutoFamily` gains `timed sample` (a stored flood text previews `{duration}` as `1 год` in the group's Ukrainian and
+  `{until}` one hour after a fixed `punishNow`; the warn limit's default preview and the flood's default private copy preview stay
+  untimed), and `TestSettingsEditLocaleTokens` holds `<code>{duration}</code>` and `<code>{until}</code>` in `settings_msg_wait_text_auto`. The earlier Warnings tests
+  took the timed row as a width edit only (`[5 3 2]` to `[5 3 2 2]`, the navigation row's index 2 to 3). Plan 26-04's families are
+  `TestSetFloodActionDuration` (`fuku/db/antiflood/timed_action_test.go`, SQLite: both columns stored and read, the first write's
+  limit 5, `SetFloodMode` clearing the seconds, no write for unchanged values, the key dropped by every write),
+  `TestApplyFloodModeTimed` and `TestSetFloodModeTimedCommand` (`antiflood_timed_test.go`: the apply outcomes; `/setfloodmode tmute
+  30m` answering `tmute 30m`, `TBAN 1d`, three bad durations writing nothing, `ban x` storing ban and 0, `/flood` reading `muted for
+  30m` and `banned for 1d`), `TestFloodTimed` (same file, `punishNow` fixed, on `newNoticeGoldenSite` with the real locales: `tmute`
+  restricts until now plus 1800 and posts the timed default with the Unmute row under `bot:punish_auto`, `tban` bans until now plus
+  86400 with no row, `sender_chat_tban` sends nothing and posts nothing, `inert_no_duration` equals `goldenTimedFloodInertTmute`,
+  `custom_text` fills `{action}`, `{duration}` and `{until}`, `pm_until` adds the private copy's Until line; toolkit
+  `floodTimedFlood`, `floodTimedNotice`) and the Antiflood page's five families above. The earlier Antiflood page tests took the
+  timed row as a width edit only (4 rows to 5, the toggle's index 2 to 3 and the navigation row's 3 to 4), and
+  `TestSettingsAntifloodCallbackBytes` and `TestSettingsAntifloodPageFitsEveryLocale` gained timed states, the duration screen and the
+  bad-duration notice. Plan 26-05's families are `TestSetBlacklistActionDuration` (`fuku/db/blacklists/timed_action_test.go`,
+  SQLite: both columns on every word, the rows matched, the key dropped, `SetBlacklistAction` clearing the seconds,
+  `AddBlacklistTimedContext`, `ListBlacklistEntriesFresh` reading the seconds, another chat untouched),
+  `TestApplyBlacklistActionTimed` and `TestBlacklistActionTimedCommand` (`blacklists_timed_test.go`: the apply outcomes;
+  `/blacklistaction tmute 2h` answering `tmute 2h` on every word, `TBAN 1w`, three bad durations writing nothing, the current mode
+  `tban 1w`, `/addblacklist` taking the shared timed action and warn and 0 once the seconds differ), `TestBlacklistTimed` (same file,
+  `punishNow` fixed, on `newNoticeGoldenSite` with the real locales and a stored reason holding markup: `tmute` deletes, restricts
+  until now plus 7200 and posts the timed default with the reason escaped under `bot:punish_auto`, `tban` bans until now plus 604800,
+  `sender_chat_tmute` deletes and sends nothing else, `inert_no_duration` deletes and posts nothing, `custom_text` fills `{action}`,
+  `{duration}` and `{until}`, `pm_until` adds the private copy's Until line; toolkit `blacklistTimedRun`, `blacklistTimedNotice`) and
+  the Blacklist page's five families above. The earlier Blacklist page tests took the timed row as set edits only
+  (`TestSettingsBlacklistAction`'s uniform screen `{3,2,2}` to `{3,2,2,2}` and Back's index 5 to 7,
+  `TestSettingsListBlacklistPageFitsEveryLocale`'s mixed screen `[3 2 2]` to `[3 2 2 2]`, `TestSettingsPhase19Codes` listing `bd` and
+  `bz`), and `TestSettingsListBlacklistCallbackBytes` and `TestSettingsListBlacklistPageFitsEveryLocale` gained the timed states and
+  the duration screen; the seam stubs of `blacklistWrites.Add` and `.SetAction` follow the seconds with no assertion changed.
+  Plan 26-06's families (warn expiry and the backup) are `TestWarnsCounted` (`fuku/db/models/warns_counted_test.go`, pure: every warn
+  with expiry off, the newer suffix with it on, an old row dated at its update time, the padding at the earlier of the update time and
+  the first time, a previous build's cached value counting every warn, extra times cut, decreasing times raised, warns without
+  reasons, fewer reasons than counted warns), `TestWarnExpiryWrites` (`fuku/db/warns/expiry_test.go`, SQLite and PostgreSQL),
+  `TestWarnExpiryMigrationStatements` and `TestWarnExpiryMigrationDefaults` (`fuku/db/migrations/warn_expiry_migration_test.go`),
+  `TestWarnExpiry` (`fuku/modules/warns_expiry_test.go`, on `warnTimedSite` with a moveable `punishNow` (`warnExpirySite`), warns
+  stored through the real `/warn` handler: `display` (1/3, the new reason only and `warns_expiry_note`), `limit` (two expired warns
+  and two counted under a limit of 3 punish nobody, the third counted warn restricts and resets), `rmwarn`, `button` and `resetwarns`
+  (with every warn expired `warns_no_warns_to_remove`, then the newest counted warn removed), `warnings` (`warns_settings_expiry`),
+  `aispam_count` and `off` (every warn counts and no line is added)), and `TestWarnsExportCountsWhatCounts` and
+  `TestImportSanitizesPunishmentSettings` (`fuku/db/backup/punish_import_test.go`). `TestAllModulesRoundTripEveryMeaningfulField` gained
+  the antiflood `tmute` 1800, the blacklist word's `tban` 86400, the warn settings' `tmute` 7200 and expiry 30 and a member's warn
+  times in its seeds and checks.
+  Plan 26-07's families (the expiry on the Warnings page) are `TestSettingsWarnsExpiry`, `TestSettingsDriftWarnExpiry`,
+  `TestSettingsAuthorityWarnExpiry` and `TestSettingsWarnsExpiryForged` (`fuku/modules/settings_warns_expiry_test.go`, on the settings
+  environment with `punishNow` moved through `mreqSwap` and warns dated through `warns.WarnUserAt`: the page reads Off, the button opens
+  the expiry screen with Off marked, 7 days is stored and read as 1 week, `/warns` (its own handler, in reply to the member) then lists
+  only the warn of the last 7 days and Off brings the older one back; a repository write of 30 and of 5 (no preset) is drawn, a page
+  press of 1 day keeps a warn of 2 days ago out of the limit at the next `applyWarn`, opening writes nothing; the bot not an
+  administrator, a plain member and an administrator the owner gate refuses; forged `nx` and `ne` presses refused in step 1 with no
+  lookup). The earlier Warnings tests took the expiry row as set edits only (`settingsWarnsStepper`'s layout, the navigation row's
+  index 3 to 4, two `len(keyboard)` counts 4 to 5, and `[5 3 2 2]` to `[5 3 2 1 2]` in `TestSettingsWarnsTimed`,
+  `TestSettingsWarnsCallbackBytes` and `TestSettingsWarnsPageFitsEveryLocale`), and the two screens tests gained the expiry screen
+  (rows `[2 2 2 1 2]`, 38 bytes private and 34 group at its largest) and the fullest page (an effective timed mute of 366 days and
+  expiry 90 days under the longest notice) in 8 languages, half-width cells at most 20 code points and the full-width expiry button at
+  most 40.
+  Plan 26-09's family (the escalation ladder at its three sites) is `TestEscalation` (`fuku/modules/escalation_test.go`, on
+  `newNoticeGoldenSite` and `newFwdWatchEnv` with `punishNow` moved through `escalationClock`; the ladder stored through
+  `escalation.SetEnabledWithSteps`): `steps_in_order` (blacklist, timed mute 1 h, timed mute 1 day, then bans, each notice naming its
+  action), `flood_steps`, `same_offence`, `forget`, `off`, `unreadable_ladder` and `count_failed` (one gated Warn with IDs only),
+  `sender_chat`, `not_offences`, `second_bot_instance` and `forward_album` (one count for the album, then steps 2 and 3).
+  Plan 26-11's safety sweep: `TestTimedPunishmentLogsCarryIDsOnly` (`timed_punishment_safety_test.go`, under a debug-level hook with
+  sentinels in internal errors, a member's message and the text around a matched word: an unreadable ladder, a failed count, an end date
+  refused as too close, a timed restrict Telegram refuses at the flood and at the blacklist, a failed save of `applyWarnMode`,
+  `applyWarnExpiry`, `applyBlacklistAction` and every `applyEscalation*`, and an unreadable ladder before a change; no line holds a
+  sentinel and every `[Escalation]` and `[Punish]` line names the chat; Telegram's own refusal text is not a sentinel, because the
+  untimed punishments have always logged it and it is the server's wording, never a member's). It found two lines that logged the raw
+  error of a failed write, the blacklist action's and the warn settings' page line, which now log `escalationErrClass` only.
+  `TestTimedNoticeTextsFitEveryLocale` (the six timed default texts with a 64-rune markup name, the longest duration label and a
+  200-character reason, at most 4096 UTF-16 units, no placeholder left, the name only escaped), the extended
+  `TestEventPMTextsFitEveryLocale` (a spec with `UntilLine` ends its text with the Until line before the reason, no other spec has it),
+  `TestPhase26Cost` (a flood offence with the ladder off makes no count and writes no `chat_offences` row, with it on exactly one of each;
+  the Escalation page, a step screen and a duration screen cost the pipeline's `getChatMember` and `getChat` and nothing else; a
+  Warnings timed press adds only the cached bot-administrator check its right asks for), `TestPhase26Codes` and
+  `TestPhase26ReadsCreateNothing` (`settings_phase26_test.go`: the fifteen action codes of the phase belong to exactly their pages and
+  are no core code, a valid press with one extra key is refused in step 1 with no `getChatMember`, a private-only code pressed from a
+  group menu is refused in step 1, and opening every new screen on a chat with no rows creates no row in `warns_settings`,
+  `antiflood_settings`, `blacklists`, `chat_escalation`, `chat_offences` or `chats`), and `settingsPrivacyPhase26Screens` and
+  `settingsPrivacyPhase26Run` inside `TestSettingsStaffPrivacy` (every new screen in 8 languages in a group view and a private view,
+  and a private run by an administrator who is not the creator of a group linked to a Staff Group through the Escalation page, the
+  Warnings timed row and expiry and the Antiflood and Blacklist duration screens).
+  `TestTimedPunishmentsEndToEnd` (`timed_punishments_e2e_test.go`, plan 26-12, about 3 s) is the phase's end-to-end proof through the real
+  dispatcher with only Telegram and the clock faked, one environment per subtest on the toolkit `timedE2E` (`newTimedE2E(t, real)`:
+  Phase 23's `autoMessagesE2E` with `punishNow` held by a moveable `fwdClock`; `openPage`, `setTimed` (the duration screen's two presses),
+  `punishCalls` and `wantPunishment` (the restrict and ban requests in the order they were made), `floodBurst`, `secondReplica` (a second
+  bot over the same database with the Blacklists module)). Every page step is a press of a button the bot drew. Subtests:
+  `warn_limit_page` (Warnings, Timed mute, 6 hours; the second `/warn` at a limit of 2 restricts until now plus 21600 and a custom warn limit text
+  fills `{duration}` and `{until}`), `flood_command` (`/setfloodmode tban 1d`, a burst bans until now plus 86400 and the notice shows the
+  duration), `blacklist_page` (the action screen's Timed mute, 1 hour), `ladder` (the Escalation toggle stores the example; a flood offence is
+  a 1 hour timed mute, a blacklist offence 61 s later on the second bot instance a 1 day one, the flood again a ban, an offence 31 days
+  later step 1 again, and with the ladder off the rule's own plain mute and no offence row), `warn_expiry` (two warns eight days old and one
+  now stored with expiry off, the page sets 7 days: `/warns` shows the one that counts and the expiry note, the next warn reaches a limit of 2
+  by the counted warns only, and with expiry back to Off another member's old warns are listed again), `pm_until` (a timed flood mute sends
+  the private copy with its Until line), `staff_group` (no Escalation cell in a Staff Group's menu, and a staff `/ban` fan-out to a linked
+  group whose ladder is on writes no offence row) and `nothing_set` (real locales: a warn limit, a blacklist word and a flood with a plain
+  mute send exactly `goldenNoticeWarnLimitMute`, `goldenNoticeBlacklistMute` and `goldenNoticeFloodMute` with the case's IDs put in, every
+  punishment has no end date and no offence row exists). `make test-shard-check` fails on a checkout path that holds a space (the script
+  does not quote it); run it from a path without one.
+- Phase 27 test families (manual command defaults, reason shortcuts, and ban appeal button; TUNE-04..TUNE-06, MSG-11, EVT-10). The
+  immutable MSG-11 golden `TestLegacyPhase27ModerationRequests` (`fuku/modules/moderation_phase27_legacy_request_test.go`, plan 27-01,
+  15 exact `goldenP27*` request JSON constants across `/ban`, `/dban`, `/sban`, `/tban`, `/kick`, `/mute`, `/dmute`, `/smute`, `/tmute`,
+  `/warn`, `/dwarn`, `/swarn`) was recorded alone before any production change and is never re-recorded (alongside
+  `TestLegacyModerationRequests`, `TestLegacyPunishmentNoticeRequests`, and `TestLegacyScreeningNoticeRequests`). Repository, cache,
+  migration, backup, and locale suites: `fuku/db/modtuning`, `TestSkipLocalManualDefaultsKey` & `TestSkipLocalReasonShortcutsKey`
+  (`fuku/db/cache`), `TestManualCommandTuningMigration*` (`fuku/db/migrations`), `TestModTuningExcludedFromBackup` (`fuku/db/backup`),
+  and `fuku/i18n/settings_locale_test.go` + `TestSettingsListKeysExist`. Behavior, UI, safeguard, and E2E suites in `fuku/modules`:
+  `TestManualCommandDefaults` (`modtuning_commands_test.go`), `TestReasonShortcutValidationAndApply` & `TestReasonShortcutExpansion`
+  (`modtuning_reasons_test.go`), `TestAppealURLValidationAndApply` & `TestAppealButtonOnBanMessages` (`modtuning_appeal_test.go`),
+  `TestSettingsModDefaults` (`settings_moddefaults_test.go`), `TestSettingsReasons` (`settings_reasons_test.go`), `TestPhase27Codes`,
+  `TestPhase27ReadsCreateNothing`, and `TestPhase27StaffPrivacyAndLogs` (`settings_phase27_test.go`: all 11 codes map to `q`/`rs`,
+  all 27 registered pages exist, step-1 refusal of extra keys and group-menu presses with 0 `getChatMember`, 0 rows on read, zero
+  Staff Group/shortcut/appeal URL leakage into UI or logs, and Staff Group Main hiding), and `TestManualDefaultsEndToEnd`
+  (`modtuning_e2e_test.go`, real dispatcher proof across private `/settings` pages `q` & `rs` and group `/ban`, `/warn`, `/tban` with
+  PM copies and log channel, then clearing settings to restore permanent default `/ban`).
+  Provisional owner decisions recorded for Phase 27:
+  - **P27-01:** Default `/ban` duration (`default_ban_secs > 0`) applies to `/ban` (user target, not channel ban), `/dban`, and `/sban`
+    (`/ban` and `/dban` emit `EventTimedBan` with `Duration` and `Until`; `/sban` stays silent); default `/mute` duration applies
+    symmetrically to `/mute`, `/dmute`, and `/smute` (`/mute` and `/dmute` emit `EventTimedMute`); explicit `/tban` and `/tmute` keep
+    their explicit duration.
+  - **P27-02:** `reason_required` covers all 14 manual user-punishment commands (`/ban` user target, `/dban`, `/sban`, `/tban`, `/kick`,
+    `/dkick`, `/skick`, `/mute`, `/dmute`, `/smute`, `/tmute`, `/warn`, `/dwarn`, `/swarn`), checked after duration extraction on
+    `/tban`/`/tmute` and refused via `replyValidationError` (`moddef_reason_required`, not queued under `bot:punish_manual`) before any
+    message deletion or punishment; channel `/ban`, `/unban`, `/unmute`, `/kickme`, automatic rules (`warnSourceAuto`), and Staff Group
+    commands are untouched.
+  - **P27-03:** Reason shortcut words are trimmed and lower-cased single words (no whitespace, no leading `/`, `<= 32` runes); full
+    reasons are trimmed plain text `1..500` runes; cap is 50 shortcuts per group; duplicates are refused without overwriting; expansion
+    matches exact single-word manual reasons case-insensitively and leaves multi-word or unknown reasons untouched (never touching
+    automatic rules or Staff Group actions).
+  - **P27-04:** Appeal button (`eventmsg_btn_appeal`) attaches to `EventBan`, `EventTimedBan`, `EventReqBan`, and automatic ban outcomes
+    (`EventWarnLimit`, `EventFlood`, `EventBlacklist`, `EventForwardBlock`, `EventCaptcha` when applied action is `ban` or effective
+    `tban`) plus their PM copies (including refused-custom PM fallbacks) as a single-button row after custom buttons within Telegram's
+    100-button limit (`EventBan` reserves 2, `EventTimedBan`/PM defs reserve 1); channel bans, silent bans, non-ban events, lockdowns,
+    and Staff Group actions never carry it.
+  - **P27-05:** Both Manual defaults (`q`) and Reason shortcuts (`rs`) are `PrivateOnly` and `Hidden` in Staff Groups, enforce live
+    `settingsRightRestrict` on all writes and `settingsRightAdmin` on read/view/duration/pager/Cancel actions, and both tables stay
+    outside backup/export/import/reset (Phase 30 decides).
+- Phase 28 test families (advanced thresholds; TUNE-07, MSG-11, EVT-10). The immutable MSG-11 golden
+  `TestLegacyPhase28DefaultThresholds` (`fuku/modules/advthresholds_phase28_legacy_request_test.go`, plan 28-01, pinning unchanged
+  default raid join/flood/AI windows, new-member share/floor/24 h age, `raidAIImageBar` 0.85, `memberReqAIBar` 0.90, member-req
+  10/min cap & 10-min pause, 1-hour `lockdownReminderEvery`, and default captcha timeout) was recorded alone before any production
+  change and is never re-recorded. The drift guard `TestAdvancedThresholdDefaultsMatchConstants` (`fuku/modules/advthresholds_raid_test.go`)
+  compares every `models.Default*` constant and zero-`Thresholds` resolver against the live compiled module constants so any constant
+  drift fails immediately. Repository, cache, migration, backup, and locale suites: `fuku/db/advthresholds`,
+  `TestSkipLocalAdvancedThresholdsKey` (`fuku/db/cache`), `TestAdvancedThresholdsMigration*` (`fuku/db/migrations`),
+  `TestAdvThresholdsExcludedFromBackup` (`fuku/db/backup`), and `fuku/i18n/settings_locale_test.go`. Runtime wiring, UI, safeguard,
+  and E2E suites in `fuku/modules`: `TestAdvancedThresholdsRaidWiring` (`advthresholds_raid_test.go`),
+  `TestAdvancedThresholdsAIAndMemberReq` (`advthresholds_ai_mreq_test.go`), `TestAdvancedThresholdsLockdownAndCaptcha`
+  (`advthresholds_lockdown_captcha_test.go`), `TestSettingsAdvancedThresholds` (`settings_advthresholds_test.go`),
+  `TestPhase28Codes`, `TestPhase28ReadsCreateNothing`, and `TestPhase28StaffPrivacyAndLogs` (`settings_phase28_test.go`), and
+  `TestAdvancedThresholdsEndToEnd` (`advthresholds_e2e_test.go`, in-process miniredis real-dispatcher proof across UI edits, live
+  flood lockdown, lockdown reminder, extended captcha timeout, and resets).
+  Provisional owner decisions recorded for Phase 28:
+  - **P28-01:** Storing `0` in any `chat_advanced_thresholds` column means unset/compiled default; selecting a threshold's default
+    preset in `applyAdvancedThreshold` normalizes storage back to `0`. Safe bounds: `raid_join_window_secs` `15..600` (default `60`),
+    `raid_flood_window_secs` `10..300` (default `30`), `raid_ai_window_secs` `30..900` (default `120`), `raid_flood_new_percent`
+    `20..100` (default `60`), `raid_flood_min_accounts` `2..20` (default `3`), `raid_recent_hours` `1..168` (default `24`),
+    `raid_ai_image_bar_pct` `50..99` (default `85` = `0.85`), `member_req_ai_bar_pct` `50..99` (default `90` = `0.90`),
+    `member_req_cap_per_min` `3..100` (default `10`), `member_req_pause_mins` `1..60` (default `10`), `lockdown_reminder_mins`
+    `15..1440` (default `60`), `captcha_timeout_mins` `0` or `11..60` (default `0`, deferring to `captcha_settings.timeout`).
+  - **P28-02:** Extended captcha timeout above 10 minutes uses Option A (`chat_advanced_thresholds.captcha_timeout_mins` `11..60`,
+    `0` = unset) overriding `sendCaptcha` (`ExpiresAt`, Turnstile challenge TTL, timeout timer, challenge text) and displaying the
+    effective timeout in `/captcha` status and `settings_captcha` body while leaving `captcha_settings.timeout` (`1..10` SQL CHECK),
+    `/captchatime`, the Captcha page 1..10 stepper, and `/export` untouched; resetting `ctm` restores `captcha_settings.timeout`
+    without clobbering it.
+  - **P28-03:** Viewing Advanced (`av`), area (`aa`), and item (`ao`) screens requires live `settingsRightAdmin` + the settings
+    owner gate (private chat only, hidden in Staff Groups); writing or resetting (`as`, `ar`, `ax`) requires live
+    `settingsRightRestrict` (group creator or `can_restrict_members`), and `chat_advanced_thresholds` stays outside
+    backup/export/import/reset.
+  - **P28-04:** On transient `advThresholdsLookup` errors, hot paths log one IDs-only debug/warn line (never chat titles or user
+    text) and fall back to zero `advthresholds.Thresholds{}` (compiled defaults) so a transient DB fault never disables raid
+    detection, screening, reminders, or captcha.
+- Phase 29 test families (Plain tone switch across all 23 events & 18 PM copies and private Copy Settings page; TUNE-08, TUNE-09,
+  MSG-11, EVT-10). The immutable MSG-11 golden `TestLegacyPhase29Baseline` (`fuku/modules/phase29_legacy_request_test.go`, plan 29-01,
+  pinning all 23 group defaults, all 18 PM defaults, and pre-copy target isolation across all 6 tuning areas and excluded tables) was
+  recorded alone on `ca060519` before any production change and is never re-recorded. Repository, migration, backup, and locale suites:
+  `TestPlainToneOption` & `TestEventMsgValidateAndReplaceAll` (`fuku/db/eventmsg`), `TestEventMessagePlainToneMigration*`
+  (`fuku/db/migrations`), `TestSetFloodActionPreserveOffAndGetFresh` (`fuku/db/antiflood`), `TestReplaceLadder` (`fuku/db/escalation`),
+  `TestReplaceDefaultsAndShortcuts` (`fuku/db/modtuning`), `TestReplaceAll` (`fuku/db/advthresholds`),
+  `TestEventMessagesStayOutOfBackup` (`fuku/db/backup`), and `fuku/i18n/settings_locale_test.go` + `TestEventMsgLocaleKeys`. Runtime,
+  UI, safeguard, and E2E suites in `fuku/modules`: `TestPlainToneEveryEventEveryLocale` & `TestPlainToneRuntime`
+  (`event_message_plain_test.go`), `TestEventMsgValidateWriteMatchesSettingsPage` & `TestCopySettingsMirrorAndExclusions`
+  (`copy_settings_test.go`), `TestSettingsCopyPage` (`settings_copy_test.go`), `TestPhase29Codes`, `TestPhase29ReadsCreateNothing`,
+  and `TestPhase29StaffPrivacyAndLogs` (`settings_phase29_test.go`), and `TestPhase29EndToEnd` (`phase29_e2e_test.go`).
+  Provisional owner decisions recorded for Phase 29:
+  - **P29-01 (Full Mirror on Copy):** Copying overwrites the target group's event messages and moderation tuning in scope to match the
+    source group completely; an empty or default source entry clears the target's custom message, switch, option, escalation ladder,
+    manual default, reason shortcuts, or advanced thresholds so the target ends up identical to the source across all 6 copied areas
+    (`chat_event_messages`, `chat_event_message_options`, `warns_settings`/`antiflood_settings`/`blacklists` action tuning,
+    `chat_escalation`, `chat_manual_defaults`/`chat_reason_shortcuts`, and `chat_advanced_thresholds`).
+  - **P29-02 (Authority in Both Groups):** Both source and target groups are verified live at ask (`ck`) and again at confirmed Yes
+    (`cy`) via `lockdownLiveMember` + `settingsGate` + `GetChatWithContext` (`group`/`supergroup` only) + fresh non-Staff-Group check
+    (failing closed on DB error). For non-creator admins admitted by `chat_settings_access`, target verification requires BOTH
+    `can_change_info` AND `can_restrict_members` in the target group; every target-side refusal returns the uniform opaque alert
+    `settings_pick_unavailable` revealing nothing about the target group.
+  - **P29-03 (Blacklist Action Without Copying Words):** Blacklist words themselves are never copied or deleted; only the source
+    group's blacklist action and timed duration (`action`, `action_secs`, or `"warn", 0` when the source has no blacklist words) are
+    applied to the target group's existing blacklist words (if any) via `blacklists.SetBlacklistActionTimedContext`.
+  - **P29-04 (Warns & Antiflood Tuning Scope):** Copy Settings copies `warns_settings` tuning (`warn_mode`, `warn_mode_secs`,
+    `warn_expiry_days` — preserving the target's `warn_limit` or default 3 and never touching `warns_users`) and `antiflood_settings`
+    tuning (`action`, `action_secs` via `antiflood.SetFloodActionPreserveOffContext` — preserving the target's `flood_limit` and
+    `delete_antiflood_message`, and inserting `flood_limit = 0` when the target has no row so antiflood is never accidentally enabled).
+- Phase 30 test families (Custom messages in backups and private Backup settings page `ba`; MSG-10, BKP-01, BKP-02, BKP-03, MSG-11,
+  EVT-10). The immutable MSG-11 golden `TestLegacyPhase30Baseline` (`fuku/modules/phase30_legacy_request_test.go`, plan 30-01, pinning
+  `/export`, `/import`, `/reset`, old-export preservation, and unconfigured default ban replies) was recorded alone on `f73400f4` before
+  any production edit and is never re-recorded. Repository, backup, and locale suites: `TestReplaceAllValidatedTx` (`fuku/db/eventmsg`),
+  `TestEventMessagesInBackup`, `TestEventMessagesImportValidationAndSkipped`, `TestOldExportWithoutMessagesAndOmittedFields`, and
+  `TestAllModulesRoundTripEveryMeaningfulField` (`fuku/db/backup`), and `fuku/i18n/settings_locale_test.go` (covering all 18 Backup
+  page keys, 2 alerts, and all 20 `backup_module_*` labels `<= 20` runes with checkbox prefix across all 8 languages). Runtime, UI,
+  safeguard, and E2E suites in `fuku/modules`: `TestSharedBackupApplyHelpers` and `TestSettingsBackupRedisTokens` (`backup_test.go`),
+  `TestSettingsBackupPage` (`settings_backup_test.go`), `TestPhase30Codes`, `TestPhase30ReadsCreateNothing`, and
+  `TestPhase30StaffPrivacyAndLogs` (`settings_phase30_test.go`), and `TestPhase30EndToEnd` (`phase30_e2e_test.go`).
+  Provisional owner decisions recorded for Phase 30:
+  - **P30-01 (Cross-Replica Pending Backup State):** Pending Backup page Import and Reset confirmations are stored in Redis under
+    `fuku:settings:backup:import:<token>` (serialized parsed `BackupFormat` capped at 2 MiB `maxSettingsBackupRedisBytes`) and
+    `fuku:settings:backup:reset:<token>` (TTL `settingsCardLifetime` 5m, `SET NX`, peek-and-bind check before atomic Lua `GET+DEL`),
+    failing closed when Redis is unavailable rather than re-downloading Telegram files at Yes or relying on single-replica in-memory
+    maps.
+  - **P30-02 (Reset Clears Custom Messages and Options):** Because `"messages"` (`BackupModuleMessages`) is an exportable backup
+    module, `/reset` (all modules or `messages`) and `ClearChatData` clear `chat_event_messages` and `chat_event_message_options` and
+    drop `event_messages:<chat>`, restoring default replies and turning `pm_details`, `pm_log`, and `plain_tone` off.
+  - **P30-03 (Tuning and Staff Tables Stay Outside Backups):** Moderation tuning and conversation tables (`chat_escalation`,
+    `chat_offences`, `chat_manual_defaults`, `chat_reason_shortcuts`, `chat_advanced_thresholds`, `chat_conversations`) and Staff Group
+    tables remain excluded from `AllExportableModules()`, export, import, and reset.
+  - **P30-04 (Stateless 20-Module Bitmask Selector):** The private Backup page `ba` opens with all 20 modules selected (`m=fffff`) and
+    toggles individual modules, Select all (`m=fffff`), or Clear (`m=0`) statelessly via a canonical lowercase hex bitmask in callback
+    data (`bv`), requiring at least one selected module before Export (`be`) or Reset (`bq`).
 
 ## Commits
 

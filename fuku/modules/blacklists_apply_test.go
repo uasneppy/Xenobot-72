@@ -91,11 +91,11 @@ func TestApplyBlacklist(t *testing.T) {
 	t.Run("add sorts words", func(t *testing.T) {
 		chatID := blacklistApplyChat(t)
 		failing := blacklistWrites
-		failing.Add = func(ctx context.Context, chat int64, word, action string) error {
+		failing.Add = func(ctx context.Context, chat int64, word, action string, secs int) error {
 			if word == secretWord {
 				return errors.New("database is down")
 			}
-			return blacklists.AddBlacklistContext(ctx, chat, word, action)
+			return blacklists.AddBlacklistTimedContext(ctx, chat, word, action, secs)
 		}
 		blacklistApplySeams(t, failing)
 		hook.Reset()
@@ -129,7 +129,7 @@ func TestApplyBlacklist(t *testing.T) {
 			t.Errorf("outcome of an already listed word = %v, want nothing added", got)
 		}
 		blacklistApplySeams(t, blacklistWriteSeams{
-			Add: func(context.Context, int64, string, string) error { return errors.New("database is down") },
+			Add: func(context.Context, int64, string, string, int) error { return errors.New("database is down") },
 		})
 		if got := applyBlacklistAdd(ctx, chatID, []string{"spam"}, nil).Outcome; got != blacklistAddSaveFailed {
 			t.Errorf("outcome of a failed write = %v, want save failed", got)
@@ -167,7 +167,7 @@ func TestApplyBlacklist(t *testing.T) {
 		chatID := blacklistApplyChat(t)
 		blacklistApplySeed(t, chatID, "warn", "spam", "eggs")
 		for _, action := range blacklistActionValues {
-			result := applyBlacklistAction(ctx, chatID, action)
+			result := applyBlacklistAction(ctx, chatID, action, 0)
 			if result.Outcome != blacklistActionApplied || result.Rows != 2 {
 				t.Errorf("%s: result = %+v, want applied over 2 rows", action, result)
 			}
@@ -176,7 +176,7 @@ func TestApplyBlacklist(t *testing.T) {
 			}
 		}
 		for _, action := range []string{"Ban", "tban", "delete", ""} {
-			if got := applyBlacklistAction(ctx, chatID, action).Outcome; got != blacklistActionUnknown {
+			if got := applyBlacklistAction(ctx, chatID, action, 0).Outcome; got != blacklistActionUnknown {
 				t.Errorf("%q: outcome = %v, want unknown", action, got)
 			}
 		}
@@ -184,13 +184,13 @@ func TestApplyBlacklist(t *testing.T) {
 			t.Errorf("unknown actions changed the rows: %q", got)
 		}
 		empty := blacklistApplyChat(t)
-		if result := applyBlacklistAction(ctx, empty, "ban"); result.Outcome != blacklistActionNoWords || result.Rows != 0 {
+		if result := applyBlacklistAction(ctx, empty, "ban", 0); result.Outcome != blacklistActionNoWords || result.Rows != 0 {
 			t.Errorf("empty chat: result = %+v, want no words over 0 rows", result)
 		}
 		blacklistApplySeams(t, blacklistWriteSeams{
-			SetAction: func(context.Context, int64, string) (int64, error) { return 0, errors.New("database is down") },
+			SetAction: func(context.Context, int64, string, int) (int64, error) { return 0, errors.New("database is down") },
 		})
-		result := applyBlacklistAction(ctx, chatID, "ban")
+		result := applyBlacklistAction(ctx, chatID, "ban", 0)
 		if result.Outcome != blacklistActionSaveFailed || result.Err == nil {
 			t.Errorf("failing seam: result = %+v, want save failed with the error", result)
 		}

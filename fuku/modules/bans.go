@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/fuku_robot/fuku/db/chats"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/lang"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
 	"github.com/uasneppy/fuku_robot/fuku/utils/chat_status"
@@ -46,6 +47,18 @@ func kickTargetValidation(c *moderationCtx, t *target) error {
 	return validateTarget(c, t.userID, true, prefix+"_kick_user_not_in_chat", prefix+"_kick_cannot_kick_admin", prefix+"_kick_is_bot_itself")
 }
 
+// kickDefaultReply is the kick event's default reply (an eventDefaultReply): the text and the
+// options /kick and /dkick sent before Phase 21, byte for byte (TestLegacyModerationRequests).
+func kickDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	prefix := strings.ToLower(bansModule.moduleName)
+	baseStr, _ := tr.GetString(prefix + "_kick_kicked_user")
+	text := fmt.Sprintf(baseStr, formatting.MentionHtml(in.Target.Id, in.Target.FirstName)) +
+		moderationReasonLine(tr, prefix+"_kick_kicked_reason", in.Reason)
+	return text, formatting.Shtml()
+}
+
+// kickReply is the success reply of /kick and /dkick, the kick event: the default reply built by
+// kickDefaultReply, or the group's stored kick message, through replyEvent after the kick (D-03).
 func kickReply(c *moderationCtx, t *target) error {
 	kickuser, err := c.Bot.GetChat(t.userID, nil)
 	if err != nil {
@@ -53,12 +66,17 @@ func kickReply(c *moderationCtx, t *target) error {
 		return err
 	}
 
-	prefix := strings.ToLower(c.Module.moduleName)
-	baseStr, _ := c.Tr.GetString(prefix + "_kick_kicked_user")
-	text := fmt.Sprintf(baseStr, formatting.MentionHtml(kickuser.Id, kickuser.FirstName)) +
-		moderationReasonSuffix(c, prefix+"_kick_kicked_reason", t.reason)
-
-	err = c.replySuccess(text, formatting.Shtml())
+	member := eventTargetOf(kickuser)
+	kickIn := eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal}
+	text, opts := kickDefaultReply(c.Tr, kickIn)
+	err = c.replyEvent(eventReply{
+		Event:        eventmsg.EventKick,
+		Target:       member,
+		Values:       eventValues{Reason: t.reason},
+		Default:      text,
+		PlainDefault: func() string { return kickPlainDefaultReply(c.Tr, kickIn) },
+		Opts:         opts,
+	})
 	if err != nil {
 		log.Error(err)
 		return err
@@ -73,10 +91,11 @@ func banTargetValidation(c *moderationCtx, t *target) error {
 
 func moderationDkick(m *moduleStruct) *moderationCommand {
 	return &moderationCommand{
-		module:   m,
-		gates:    []gateFn{deleteModGates},
-		extract:  extractFromReply,
-		validate: kickTargetValidation,
+		module:        m,
+		gates:         []gateFn{deleteModGates},
+		extract:       extractFromReply,
+		validate:      kickTargetValidation,
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
 			_, err := extraction.ReplyTarget(c.Msg).Delete(c.Bot, nil)
 			if err != nil {
@@ -101,6 +120,10 @@ func moderationTban(m *moduleStruct) *moderationCommand {
 			if _time == -1 {
 				return ext.EndGroups
 			}
+			if manualApplyReasonRequired(c, t.reason, c.manualDefaults()) {
+				return errManualReasonRequired
+			}
+			t.reason = expandManualReason(c.Chat.Id, t.reason)
 			_, err := c.Chat.BanMember(c.Bot, t.userID, &gotgbot.BanChatMemberOpts{UntilDate: _time})
 			return err
 		},
@@ -111,11 +134,17 @@ func moderationTban(m *moduleStruct) *moderationCommand {
 				return err
 			}
 
-			temp, _ := c.Tr.GetString(strings.ToLower(c.Module.moduleName) + "_ban_tban")
-			baseStr := fmt.Sprintf(temp, formatting.MentionHtml(banUser.Id, banUser.FirstName), t.timeVal) +
-				moderationReasonSuffix(c, strings.ToLower(c.Module.moduleName)+"_ban_ban_reason", t.reason)
-
-			err = c.replySuccess(baseStr, formatting.Shtml())
+			member := eventTargetOf(banUser)
+			tbanIn := eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal}
+			text, opts := tbanDefaultReply(c.Tr, tbanIn)
+			err = c.replyEvent(eventReply{
+				Event:        eventmsg.EventTimedBan,
+				Target:       member,
+				Values:       eventValues{Reason: t.reason, Duration: t.timeVal, Until: eventUntil(t.untilDate)},
+				Default:      text,
+				PlainDefault: func() string { return tbanPlainDefaultReply(c.Tr, tbanIn) },
+				Opts:         opts,
+			})
 			if err != nil {
 				log.Error(err)
 				return err
@@ -126,6 +155,44 @@ func moderationTban(m *moduleStruct) *moderationCommand {
 	}
 }
 
+// tbanDefaultReply is the timed ban event's default reply (an eventDefaultReply): the text and the
+// options /tban sent before Phase 21, byte for byte (TestLegacyModerationRequests).
+func tbanDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	prefix := strings.ToLower(bansModule.moduleName)
+	temp, _ := tr.GetString(prefix + "_ban_tban")
+	text := fmt.Sprintf(temp, formatting.MentionHtml(in.Target.Id, in.Target.FirstName), in.TimeVal) +
+		moderationReasonLine(tr, prefix+"_ban_ban_reason", in.Reason)
+	return text, formatting.Shtml()
+}
+
+// banDefaultReply is the ban event's default reply (an eventDefaultReply): the text and the Unban
+// keyboard /ban and /dban sent before Phase 21, byte for byte (TestLegacyModerationRequests).
+func banDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	prefix := strings.ToLower(bansModule.moduleName)
+	baseStr, _ := tr.GetString(prefix + "_ban_normal_ban")
+	text := fmt.Sprintf(baseStr, formatting.MentionHtml(in.Target.Id, in.Target.FirstName)) +
+		moderationReasonLine(tr, prefix+"_ban_ban_reason", in.Reason)
+	return text, &gotgbot.SendMessageOpts{
+		ParseMode: formatting.HTML,
+		ReplyMarkup: gotgbot.InlineKeyboardMarkup{
+			InlineKeyboard: [][]gotgbot.InlineKeyboardButton{
+				{
+					{
+						Text:         trS(tr, "bans_unban_button"),
+						CallbackData: encodeCallbackData("unrestrict", map[string]string{"a": "unban", "u": fmt.Sprint(in.Target.Id)}),
+					},
+				},
+			},
+		},
+	}
+}
+
+// banDefaultReply is held to the eventDefaultReply shape at compile time.
+var _ eventDefaultReply = banDefaultReply
+
+// banReplyWithButton is the success reply of /ban and /dban, the ban event: the default reply built
+// by banDefaultReply, or the group's stored ban message, through replyEvent after the ban (D-03).
+// When a default ban duration applied (t.untilDate > 0), it emits EventTimedBan with duration and until.
 func banReplyWithButton(c *moderationCtx, t *target) error {
 	banUser, err := c.Bot.GetChat(t.userID, nil)
 	if err != nil {
@@ -133,26 +200,30 @@ func banReplyWithButton(c *moderationCtx, t *target) error {
 		return err
 	}
 
-	prefix := strings.ToLower(c.Module.moduleName)
-	baseStr, _ := c.Tr.GetString(prefix + "_ban_normal_ban")
-	text := fmt.Sprintf(baseStr, formatting.MentionHtml(banUser.Id, banUser.FirstName)) +
-		moderationReasonSuffix(c, prefix+"_ban_ban_reason", t.reason)
-
-	err = c.replySuccess(text,
-		&gotgbot.SendMessageOpts{
-			ParseMode: formatting.HTML,
-			ReplyMarkup: gotgbot.InlineKeyboardMarkup{
-				InlineKeyboard: [][]gotgbot.InlineKeyboardButton{
-					{
-						{
-							Text:         trS(c.Tr, "bans_unban_button"),
-							CallbackData: encodeCallbackData("unrestrict", map[string]string{"a": "unban", "u": fmt.Sprint(t.userID)}),
-						},
-					},
-				},
-			},
-		},
-	)
+	member := eventTargetOf(banUser)
+	if t.untilDate > 0 {
+		tbanIn := eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal}
+		text, opts := tbanDefaultReply(c.Tr, tbanIn)
+		err = c.replyEvent(eventReply{
+			Event:        eventmsg.EventTimedBan,
+			Target:       member,
+			Values:       eventValues{Reason: t.reason, Duration: t.timeVal, Until: eventUntil(t.untilDate)},
+			Default:      text,
+			PlainDefault: func() string { return tbanPlainDefaultReply(c.Tr, tbanIn) },
+			Opts:         opts,
+		})
+	} else {
+		banIn := eventDefaultInput{Target: member, Reason: t.reason, TimeVal: t.timeVal}
+		text, opts := banDefaultReply(c.Tr, banIn)
+		err = c.replyEvent(eventReply{
+			Event:        eventmsg.EventBan,
+			Target:       member,
+			Values:       eventValues{Reason: t.reason},
+			Default:      text,
+			PlainDefault: func() string { return banPlainDefaultReply(c.Tr, banIn) },
+			Opts:         opts,
+		})
+	}
 	if err != nil {
 		log.Error(err)
 		return err
@@ -187,6 +258,7 @@ func moderationBan(m *moduleStruct) *moderationCommand {
 			}
 			return banTargetValidation(c, t)
 		},
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
 			if t.isChannel {
 				if extraction.ReplyTarget(c.Msg) != nil {
@@ -195,8 +267,7 @@ func moderationBan(m *moduleStruct) *moderationCommand {
 				}
 				return nil
 			}
-			_, err := c.Chat.BanMember(c.Bot, t.userID, nil)
-			return err
+			return manualBanMember(c, t)
 		},
 		reply: func(c *moderationCtx, t *target) error {
 			var text string
@@ -243,10 +314,11 @@ func channelTargetName(msg *gotgbot.Message, channelID int64) string {
 
 func moderationKick(m *moduleStruct) *moderationCommand {
 	return &moderationCommand{
-		module:   m,
-		gates:    []gateFn{standardModGates},
-		extract:  extractFromArgs,
-		validate: kickTargetValidation,
+		module:        m,
+		gates:         []gateFn{standardModGates},
+		extract:       extractFromArgs,
+		validate:      kickTargetValidation,
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
 			return kickMember(c.Bot, c.Chat.Id, t.userID)
 		},
@@ -302,16 +374,16 @@ func moderationKickme(m *moduleStruct) *moderationCommand {
 
 func moderationSban(m *moduleStruct) *moderationCommand {
 	return &moderationCommand{
-		module:   m,
-		gates:    []gateFn{deleteModGates},
-		extract:  extractUserOnly,
-		validate: banTargetValidation,
+		module:        m,
+		gates:         []gateFn{deleteModGates},
+		extract:       extractUserAndOptionalReason,
+		validate:      banTargetValidation,
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
-			_, err := c.Chat.BanMember(c.Bot, t.userID, nil)
-			if err != nil {
+			if err := manualBanMember(c, t); err != nil {
 				return err
 			}
-			_, err = c.Msg.Delete(c.Bot, nil)
+			_, err := c.Msg.Delete(c.Bot, nil)
 			return err
 		},
 		reply:     nil,
@@ -342,14 +414,14 @@ func moderationDban(m *moduleStruct) *moderationCommand {
 			}
 			return banTargetValidation(c, t)
 		},
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
 			_, err := extraction.ReplyTarget(c.Msg).Delete(c.Bot, nil)
 			if err != nil {
 				log.Error(err)
 				return err
 			}
-			_, err = c.Chat.BanMember(c.Bot, t.userID, nil)
-			return err
+			return manualBanMember(c, t)
 		},
 		reply:     banReplyWithButton,
 		logAction: "dban",
@@ -421,8 +493,21 @@ func moderationUnban(m *moduleStruct) *moderationCommand {
 					log.Error(err)
 					return err
 				}
-				temp, _ := c.Tr.GetString(strings.ToLower(c.Module.moduleName) + "_unban_unbanned_user")
-				text = fmt.Sprintf(temp, formatting.MentionHtml(banUser.Id, banUser.FirstName))
+				member := eventTargetOf(banUser)
+				unbanIn := eventDefaultInput{Target: member}
+				text, opts := unbanDefaultReply(c.Tr, unbanIn)
+				err = c.replyEvent(eventReply{
+					Event:        eventmsg.EventUnban,
+					Target:       member,
+					Default:      text,
+					PlainDefault: func() string { return unbanPlainDefaultReply(c.Tr, unbanIn) },
+					Opts:         opts,
+				})
+				if err != nil {
+					log.Error(err)
+					return err
+				}
+				return nil
 			}
 			err := c.replySuccess(text, formatting.Shtml())
 			if err != nil {
@@ -433,6 +518,14 @@ func moderationUnban(m *moduleStruct) *moderationCommand {
 		},
 		logAction: "unban",
 	}
+}
+
+// unbanDefaultReply is the unban event's default reply (an eventDefaultReply): the text and the
+// options /unban of a member sent before Phase 21, byte for byte (TestLegacyModerationRequests).
+// The channel /unban keeps its own reply.
+func unbanDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	temp, _ := tr.GetString(strings.ToLower(bansModule.moduleName) + "_unban_unbanned_user")
+	return fmt.Sprintf(temp, formatting.MentionHtml(in.Target.Id, in.Target.FirstName)), formatting.Shtml()
 }
 
 func (m moduleStruct) kick(b *gotgbot.Bot, ctx *ext.Context) error {
@@ -884,17 +977,8 @@ func (moduleStruct) unrestrictButtonHandler(b *gotgbot.Bot, ctx *ext.Context) er
 		helpText = fmt.Sprintf(temp, formatting.MentionHtml(user.Id, user.FirstName))
 	}
 
-	// The card's own text goes back in as HTML, so it is rebuilt from its entities
-	// (OriginalHTML escapes the text and keeps the mentions), never inserted raw.
-	updatedText := ""
-	if ctx.EffectiveMessage != nil {
-		updatedText = ctx.EffectiveMessage.OriginalHTML()
-	}
-	if updatedText != "" {
-		updatedText = "<s>" + updatedText + "</s>\n\n"
-	}
-
-	_, _, editErr := msg.EditText(b, &gotgbot.EditMessageTextOpts{Text: updatedText + helpText, ParseMode: formatting.HTML})
+	pmCopyMarkGroupActionResolved(chat.Id, msg.GetMessageId())
+	editErr := editUnrestrictMessage(b, msg, ctx.EffectiveMessage, helpText)
 	if editErr != nil {
 		log.Error(editErr)
 	}
@@ -912,12 +996,52 @@ func (moduleStruct) unrestrictButtonHandler(b *gotgbot.Bot, ctx *ext.Context) er
 	return ext.EndGroups
 }
 
+// editUnrestrictMessage updates the ban/mute card after its Unban/Unmute button is pressed.
+// Text messages are edited with EditText, captionless media (stickers and video notes) clear
+// their inline keyboard with EditReplyMarkup, and caption-capable media (photo, video,
+// animation, document, audio, voice) are edited with EditCaption.
+func editUnrestrictMessage(b *gotgbot.Bot, msg gotgbot.MaybeInaccessibleMessage, effective *gotgbot.Message, helpText string) error {
+	if effective == nil || effective.Text != "" {
+		// The card's own text goes back in as HTML, so it is rebuilt from its entities
+		// (OriginalHTML escapes the text and keeps the mentions), never inserted raw.
+		updatedText := ""
+		if effective != nil {
+			updatedText = effective.OriginalHTML()
+		}
+		if updatedText != "" {
+			updatedText = "<s>" + updatedText + "</s>\n\n"
+		}
+		_, _, err := msg.EditText(b, &gotgbot.EditMessageTextOpts{
+			Text:      updatedText + helpText,
+			ParseMode: formatting.HTML,
+		})
+		return err
+	}
+	if effective.Sticker != nil || effective.VideoNote != nil {
+		// Stickers and video notes cannot carry a caption; clear the inline keyboard so the button is not left live.
+		_, _, err := msg.EditReplyMarkup(b, &gotgbot.EditMessageReplyMarkupOpts{
+			ReplyMarkup: gotgbot.InlineKeyboardMarkup{},
+		})
+		return err
+	}
+	updatedCaption := effective.OriginalCaptionHTML()
+	if updatedCaption != "" {
+		updatedCaption = "<s>" + updatedCaption + "</s>\n\n"
+	}
+	_, _, err := msg.EditCaption(b, &gotgbot.EditMessageCaptionOpts{
+		Caption:   updatedCaption + helpText,
+		ParseMode: formatting.HTML,
+	})
+	return err
+}
+
 func moderationSkick(m *moduleStruct) *moderationCommand {
 	return &moderationCommand{
-		module:   m,
-		gates:    []gateFn{deleteModGates},
-		extract:  extractUserOnly,
-		validate: kickTargetValidation,
+		module:        m,
+		gates:         []gateFn{deleteModGates},
+		extract:       extractUserAndOptionalReason,
+		validate:      kickTargetValidation,
+		reasonChecked: true,
 		execute: func(c *moderationCtx, t *target) error {
 			if err := kickMember(c.Bot, c.Chat.Id, t.userID); err != nil {
 				return err

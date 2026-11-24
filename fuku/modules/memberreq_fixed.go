@@ -215,6 +215,7 @@ func memberReqFixedRun(ctx context.Context, b *gotgbot.Bot, query *gotgbot.Callb
 	// chat. The edit stays as it always was, but only the hold's own stored notice is rescheduled: a
 	// notice ID never stored (zero) or another message queues nothing.
 	pressedID := query.Message.GetMessageId()
+	pmCopyMarkGroupActionResolved(chat.Id, pressedID)
 	memberReqFixedEdit(ctx, b, tr, chat.Id, chat.Type, pressedID, live.User, noticeKey, memberReqIsOwnNotice(taken, pressedID))
 	if taken.WelcomeHeld {
 		member := live.User

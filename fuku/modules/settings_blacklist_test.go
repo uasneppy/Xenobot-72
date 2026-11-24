@@ -757,13 +757,13 @@ func TestSettingsBlacklistAction(t *testing.T) {
 		if !strings.Contains(text, actionLine(staffMarker("settings_opt_ban"))) || strings.Contains(text, staffMarker("settings_bl_action_count")) || strings.Contains(text, staffMarker("settings_bl_action_mixed_hint")) {
 			t.Errorf("the uniform action screen drew:\n%s", text)
 		}
-		if got := settingsListRowWidths(keyboard); fmt.Sprint(got) != fmt.Sprint([]int{3, 2, 2}) {
-			t.Errorf("action screen rows = %v, want {3,2,2}", got)
+		if got := settingsListRowWidths(keyboard); fmt.Sprint(got) != fmt.Sprint([]int{3, 2, 2, 2}) {
+			t.Errorf("action screen rows = %v, want {3,2,2,2}", got)
 		}
 		if got, want := checked(keyboard), []string{settingsSelectedPrefix + staffMarker("settings_opt_ban")}; !slices.Equal(got, want) {
 			t.Errorf("marked choices = %v, want %v", got, want)
 		}
-		back := settingsAllButtons(keyboard)[5]
+		back := settingsAllButtons(keyboard)[7]
 		if f := settingsButtonFields(t, back); f["a"] != settingsActOpen || f["p"] != settingsPageBlacklist {
 			t.Errorf("Back carries %v, want a=op p=b", f)
 		}
@@ -891,7 +891,7 @@ func TestSettingsBlacklistAction(t *testing.T) {
 		settingsBlacklistSeedActions(t, env.chat.Id, "warn", "warn")
 		m := settingsBlacklistOpenMenu(env, env.chat)
 		setAction := blacklistWrites.SetAction
-		blacklistWrites.SetAction = func(context.Context, int64, string) (int64, error) { return 0, errors.New("update failed") }
+		blacklistWrites.SetAction = func(context.Context, int64, string, int) (int64, error) { return 0, errors.New("update failed") }
 		t.Cleanup(func() { blacklistWrites.SetAction = setAction })
 		m.press("a", settingsActBlacklistSet, "v", "ban")
 		text, _ := m.last()
@@ -1246,10 +1246,19 @@ func TestSettingsListBlacklistCallbackBytes(t *testing.T) {
 	mixed[0].Action = "warn"
 	measure("the mixed action screen", renderSettingsBlacklistAction(private, mixed, ""))
 	measure("the empty action screen", renderSettingsBlacklistAction(private, nil, ""))
+	timed := slices.Clone(worst[:3])
+	for i := range timed {
+		timed[i].Action, timed[i].Secs = "tban", 2592000
+	}
+	measure("the timed action screen", renderSettingsBlacklistAction(private, timed, ""))
+	for _, mode := range []string{"tmute", "tban"} {
+		measure("the "+mode+" duration screen", *settingsTimedDurationScreenBack(private, def.TitleKey, settingsActBlacklistTimed,
+			settingsFloodTimedBan, mode, "tban", 2592000, map[string]string{"a": settingsActBlacklistOpen}))
+	}
 	measure("the group note", renderSettingsPrivateOnlyNote(views["group"], def.TitleKey, "FukuTestBot"))
 
 	for code, want := range map[string]int{
-		"bp": 40, "bx": 60, "by": 64, "bo": 33,
+		"bp": 40, "bx": 60, "by": 64, "bo": 33, "bd": 37, "bz": 47,
 		settingsActBlacklistSet + ":warn": 40, settingsActBlacklistSet + ":mute": 40,
 		settingsActBlacklistSet + ":kick": 40, settingsActBlacklistSet + ":none": 40, settingsActBlacklistSet + ":ban": 39,
 	} {
@@ -1319,6 +1328,10 @@ func TestSettingsListBlacklistPageFitsEveryLocale(t *testing.T) {
 	for i, action := range []string{"warn", "mute", "kick", "ban", "none", "tban", "tmute", "delete"} {
 		eight = append(eight, settingsListEntry{ID: int64(i + 1), Text: fmt.Sprintf("w%d", i), Action: action})
 	}
+	// The same with the two timed values effective at the longest preset: their count lines read the timed word.
+	eightTimed := slices.Clone(eight)
+	eightTimed[5].Secs, eightTimed[6].Secs = 2592000, 2592000
+	uniformTimed := []settingsListEntry{{ID: 1, Text: "w", Action: "tmute", Secs: 2592000}, {ID: 2, Text: "x", Action: "tmute", Secs: 2592000}}
 	widths := func(screen settingsScreen) string {
 		return fmt.Sprint(settingsListRowWidths(screen.Keyboard.InlineKeyboard))
 	}
@@ -1363,13 +1376,17 @@ func TestSettingsListBlacklistPageFitsEveryLocale(t *testing.T) {
 			}
 			for i, notice := range notices {
 				check(fmt.Sprintf("the list page with notice %d", i), renderSettingsList(private, def, entries, 2, notice), "[4 4 2 2 2]")
-				check(fmt.Sprintf("the mixed action screen with notice %d", i), renderSettingsBlacklistAction(private, eight, notice), "[3 2 2]")
+				check(fmt.Sprintf("the mixed action screen with notice %d", i), renderSettingsBlacklistAction(private, eight, notice), "[3 2 2 2]")
+				check(fmt.Sprintf("the mixed timed action screen with notice %d", i), renderSettingsBlacklistAction(private, eightTimed, notice), "[3 2 2 2]")
+				check(fmt.Sprintf("the uniform timed action screen with notice %d", i), renderSettingsBlacklistAction(private, uniformTimed, notice), "[3 2 2 2]")
 			}
 			card := renderSettingsListCard(private, def, settingsListEntry{ID: 12345678901234567, Text: ampersands}, 9999)
 			check("the card", card, "[2 2]")
 			if !strings.Contains(card.Text, strings.Repeat("&amp;", 100)) {
 				t.Errorf("the card does not name the 100-code-point entry")
 			}
+			check("the duration screen", *settingsTimedDurationScreenBack(private, def.TitleKey, settingsActBlacklistTimed,
+				settingsFloodTimedMute, "tmute", "tmute", 2592000, map[string]string{"a": settingsActBlacklistOpen}), "[2 2 2 2 2]")
 			check("the group note", renderSettingsPrivateOnlyNote(views["group"], def.TitleKey, "FukuTestBot"), "[1 2]")
 			check("the group note without a bot username", renderSettingsPrivateOnlyNote(views["group"], def.TitleKey, ""), "[2]")
 		})

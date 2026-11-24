@@ -1,6 +1,7 @@
 package helpers
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -36,12 +37,19 @@ func IsPermissionError(errStr string) bool {
 		strings.Contains(errStr, "need administrator rights in the channel chat")
 }
 func SendMessageWithErrorHandling(bot *gotgbot.Bot, chatId int64, text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+	return SendMessageWithErrorHandlingContext(context.Background(), bot, chatId, text, opts)
+}
+
+func SendMessageWithErrorHandlingContext(ctx context.Context, bot *gotgbot.Bot, chatId int64, text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if cache.IsChatRestricted(chatId) {
 		log.WithField("chat_id", chatId).Debug("[Helpers] Skipping send to restricted chat")
 		return nil, nil
 	}
 	sentAt := time.Now()
-	msg, err := bot.SendMessage(chatId, text, opts)
+	msg, err := bot.SendMessageWithContext(ctx, chatId, text, opts)
 	if err != nil {
 		errStr := err.Error()
 		if IsPermissionError(errStr) {

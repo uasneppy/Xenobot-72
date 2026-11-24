@@ -1,43 +1,45 @@
 ---
 gsd_state_version: "1.0"
 milestone: v1.2
-status: In progress
-stopped_at: Completed 19-12-PLAN.md
-last_updated: "2026-11-17T06:59:09.171Z"
-last_activity: 2026-11-17
-last_activity_desc: Quick task 261113-tjj completed (Staff Group forward-source blocklist)
-state_head: 95d8ff420583e92b3cdf470c0a45f75e23f8b924
-milestone_name: PM Settings Hub & Member Screening
-current_phase: 19
-current_phase_name: Blacklist, Filter and Note Pages
+milestone_name: Conversations, Custom Messages and Tuning
+current_phase: 21
+current_phase_name: Message Engine, Messages Page and Manual Punishments
+status: verifying
+stopped_at: Phase 30 complete, ready to verify Phase 21
+last_updated: "2026-11-23T22:23:39.241Z"
+last_activity: 2026-11-24
+last_activity_desc: Phase 30 complete, transitioned to Phase 21
+state_head: b5859d8f70966f45937964ea7122ea8792ee9a57
 progress:
-  total_phases: 10
-  completed_phases: 10
-  total_plans: 126
-  completed_plans: 126
-  percent: 100
+  total_phases: 11
+  completed_phases: 4
+  total_plans: 80
+  completed_plans: 80
+  percent: 36
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-13)
+See: .planning/PROJECT.md (updated 2026-11-22)
 
 **Core value:** My trusted staff can protect every one of my communities from one place. We act on a bad actor across all groups at once, and the bot never lets anyone act in a group where they aren't an admin.
-**Current focus:** Planning the next milestone (`/gsd-new-milestone`). v1.1 shipped 2026-11-13: ten phases, 126 plans, 53 of 53 requirements; every phase is code-verified and security-audited, the owner's live Telegram checks are deferred (see Deferred Items below). Next-milestone candidates are in PROJECT.md.
+**Current focus:** Phase 29 — Plain Tone and Copy Settings
 
 ## Current Position
 
-Phase: 20 (Conversations), milestone v1.2
-Plan: 20-01 to 20-03 done (owner approved the persona and archive 2026-11-19); next 20-04 storage
-Status: In progress
-Last activity: 2026-11-17 - Completed quick task 261116-wh2: Fix raw placeholder strings, note deep links, wiki, reports in PM and disable no-ops
+Phase: 21 — Message Engine, Messages Page and Manual Punishments
+Plan: 11
+Status: Phase complete — ready for verification
+Last activity: 2026-11-24 — Phase 30 complete, transitioned to Phase 21
+
+Progress: [████░░░░░░] 36%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 108
+- Total plans completed: 131
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -54,6 +56,10 @@ Last activity: 2026-11-17 - Completed quick task 261116-wh2: Fix raw placeholder
 | 7 | 14 | - | - |
 | 8 | 11 | - | - |
 | 9 | 14 | - | - |
+| 20 | 8 | - | - |
+| 28 | 6 | - | - |
+| 29 | 6 | - | - |
+| 30 | 5 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -193,6 +199,29 @@ Last activity: 2026-11-17 - Completed quick task 261116-wh2: Fix raw placeholder
 | Phase 19 P09 | about 2h | 3 tasks | 18 files |
 | Phase 19 P10 | 135min | 3 tasks | 5 files |
 | Phase 19 P12 | about 55min (gate runs) | 3 tasks | 6 files |
+| Phase 27 P01 | 6min | 2 tasks | 1 files |
+| Phase 27 P02 | 16min | 3 tasks | 26 files |
+| Phase 27 P03 | 6min | 2 tasks | 6 files |
+| Phase 27-manual-command-defaults-reason-shortcuts-and-appeal-button P04 | 30min | 3 tasks | 17 files |
+| Phase 27 P05 | 23min | 3 tasks | 15 files |
+| Phase 27 P06 | 22min | 3 tasks | 15 files |
+| Phase 27-manual-command-defaults-reason-shortcuts-and-appeal-button P07 | 22min | 3 tasks | 3 files |
+| Phase 28-advanced-thresholds P01 | 9min | 2 tasks | 1 files |
+| Phase 28 P02 | 10min | 3 tasks | 19 files |
+| Phase 28 P03 | 9min | 3 tasks | 5 files |
+| Phase 28 P04 | 29min | 3 tasks | 4 files |
+| Phase 28 P05 | 21min | 3 tasks | 14 files |
+| Phase 28 P06 | 17min | 3 tasks | 3 files |
+| Phase 29 P01 | 6min | 2 tasks | 1 files |
+| Phase 29 P02 | 23 min | 3 tasks | 36 files |
+| Phase 29 P03 | 22min | 3 tasks | 25 files |
+| Phase 29-plain-tone-and-copy-settings P04 | 11min | 3 tasks | 13 files |
+| Phase 29 P05 | 25 min | 3 tasks | 13 files |
+| Phase 30 P01 | 6min | 2 tasks | 1 files |
+| Phase 30 P02 | 20min | 3 tasks | 15 files |
+| Phase 30 P03 | 9min | 2 tasks | 2 files |
+| Phase 30 P04 | 19min | 3 tasks | 16 files |
+| Phase 30-backup-page-and-custom-messages-in-backups P05 | 29min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -301,12 +330,48 @@ Recent decisions affecting current work:
 - [Phase 19]: 19-05: ExtractTypedNoteOrFilter shares extractReplyContent with ExtractNoteAndFilter so a typed filter or note reply is stored exactly as the command stores it; the two-word-keyword reply quirk is not copied
 - [Phase 19]: 19-08: the shape outcome of checkNoteName is noteNameBadShape because noteNameInvalid is the validation function; A19-4 and the fail-closed /save lookup are provisional owner confirmations, each in its own revertable commit (2eeac8f, ed7988a)
 
+- [v1.2 Roadmap]: Ten phases (21 to 30) in the owner's order: engine, Messages page and manual punishments (21), PM copies (22), automatic events in two groups (23 warn, flood, blacklist, forward blocklist; 24 captcha, requirement notices, AI spam notice), lockdown messages (25), tuning in three phases (26 timed punishments, ladder, warn expiry; 27 manual defaults, reason shortcuts, appeal; 28 Advanced thresholds), plain tone and copy settings (29), Backup page with custom messages in backups (30).
+- [v1.2 Roadmap]: The Backup page (BKP-01 to BKP-03, added by the owner on 2026-11-18) shares Phase 30 with MSG-10, because both rest on one backup file format that has to carry the custom messages. It is last because the page's export must equal `/export` and the messages table and event keys must be stable first. 40 requirements in all.
+- [v1.2 Roadmap]: MSG-11 (goldens before send sites change) is a rule for every phase and is mapped to Phase 21, where the harness starts. EVT-10 (excluded surfaces unchanged) is mapped to Phase 25, where its guard test sees the full event list.
+- [v1.2 Roadmap]: Events are table rows validated in Go, so a later phase adds rows and strings and no migration for the event key. PM copies and tuning follow the v1.1 rules: pacing on their own Redis keys, no new shutdown drain if it can be avoided (the worst case is already 68 s against the 60 s budget).
+- [Phase 27]: 27-01: Phase 27 MSG-11 manual command characterization goldens frozen in fuku/modules/moderation_phase27_legacy_request_test.go (17 subtests, 15 goldenP27* constants, commit 71dbf865); /swarn sends a warn reply after deleting command 101 and no-reason warns store localized fallback reason on unchanged b7393953.
+- [Phase 27]: TUNE-05 reason shortcut apply helpers check existence before the 50-entry cap, treat ON CONFLICT DO NOTHING races as exists, and log IDs only without raw error strings.
+- [Phase 27]: expandManualReason uses a zero-I/O fast-path for empty/multi-word reasons and is wired after reason-required in moderation.go, bans.go (/tban), mute.go (/tmute), and warns.go (dispatchWarn only).
+- [Phase 27]: P27-04 implemented: appeal button attaches to EventBan, EventTimedBan, EventReqBan, and automatic ban/tban outcomes (EventWarnLimit, EventFlood, EventBlacklist, EventForwardBlock, EventCaptcha) on group messages, PM copies, refused-custom PM fallbacks, and Messages Full previews, respecting the 100-button Telegram cap and skipping channel bans, silent bans, non-ban events, lockdowns, and Staff Group actions.
+- [Phase 27]: Registered Manual defaults private settings page q (Order 41, Icon ⚖️, PrivateOnly, hidden in Staff Groups) with WaitEndedKey on settingsTypedPage and live settingsRightRestrict on writes/typed appeal URL.
+- [Phase 27]: Extended settingsListTwoStep with plain-text Step 2 (CheckPlain, ApplyPlain) and registered private Reason shortcuts list page rs (Order 45, Icon 🏷, codes sg/sx/sy/sa/sc, parts w->r, hidden in Staff Groups)
+- [Phase 27-manual-command-defaults-reason-shortcuts-and-appeal-button]: Documented Phase 27 tables, skipLocal prefixes, pages q & rs, action codes, zero shutdown drain, TestLegacyPhase27ModerationRequests golden, and provisional decisions P27-01..P27-05 in AGENTS.md
+- [Phase 28]: P28-01: chat_advanced_thresholds stores 0 for default and applyAdvancedThreshold normalizes submitted default values to 0
+- [Phase 28]: P28-04: advThresholdsFor bounds hot-path lookups to 2 s and falls back to compiled defaults on transient read errors
+- [Phase 28]: 28-03: memberReqAIJudge returns raw Probability (HasProbability, Fresh) from cross-chat singleflight; memberReqAIRule evaluates per-caller advMemberReqAIBar (T-28-06)
+- [Phase 28]: 28-03: memberReqLookupCachedWith gates advMemberReqAIBar reads on rules.AI and passes cache.Context to preserve the 2s read timeout (T-28-07)
+- [Phase 28]: P28-02: Option A extended captcha timeout (11..60 min) wired via effectiveCaptchaTimeout into sendCaptcha, /captcha status, and settings_captcha body without altering captcha_settings.timeout (1..10), /captchatime, stepper, or backups
+- [Phase 28]: P28-03: Private Advanced page av requires live settingsRightAdmin + owner gate for views (av, aa, ao) and live settingsRightRestrict for all writes/resets (as, ar, ax).
+- [Phase 28]: P28-01..P28-04, zero new shutdown drain, chat_advanced_thresholds skipLocal, page av, and Phase 28 safeguard/E2E/golden suites recorded in AGENTS.md
+- [Phase 29]: Drove tone_off_all_18_pm_defaults through postEventSent + waitEventPM over phase28InProcessMiniredis to stay decoupled from Plan 29-02 PM composer signature changes with zero localhost TCP dials
+- [Phase 29]: 29-02: Lazy eventReply.PlainDefault evaluated in postEventSent after site.Admit with pure builders in event_message_plain.go outside eventEngineEntries; PlainTone threaded via settingsEditState to previews.
+- [Phase 29]: Used Action: {action} phrasing in plain-tone flood, blacklist/fwdblock, and captcha templates for cross-language grammar parity across all 8 locales
+- [Phase 29]: Spliced user/admin HTML mentions post-interpolation via eventPlainRender (lockdownNameToken + lockdownSplice) to prevent HTML injection and secondary placeholder expansion
+- [Phase 29-plain-tone-and-copy-settings]: eventmsg.ReplaceAllValidated in package eventmsg (zero fuku/modules dependency) validates all event messages with editor-aligned reserves and limits for Copy Settings and Phase 30 MSG-10 reuse
+- [Phase 29-plain-tone-and-copy-settings]: antiflood.SetFloodActionPreserveOffContext uses explicit SQL INSERT with flood_limit=0 and ON CONFLICT DO UPDATE of action/action_secs to bypass GORM default:5 and keep unconfigured targets off (P29-04)
+- [Phase 29]: Private Copy Settings page cp (Order 82, actions cg/ck/cy) enforces live dual-group verification at both ask and Yes with uniform opaque settings_pick_unavailable target refusals and atomic Lua GET+DEL consumption of fuku:settings:copy:<token>
+- [Phase 30]: Used explicit module lists (/export notes rules, /reset notes rules) and in-memory backupRoundTripFunc in TestLegacyPhase30Baseline so Plan 30-02 adding BackupModuleMessages keeps the Wave 1 golden 100% untouched with zero localhost TCP dials
+- [Phase 30]: Extracted eventmsg.ReplaceAllValidatedTx(tx, chatID, rows, opts, by) so backup.withBackupTx keeps multi-module rollback atomicity and invalidates eventmsg.CacheKey(chatID) after commit (T-30-03).
+- [Phase 30]: Added BackupModuleMessages = "messages" (20th exportable module) covering chat_event_messages and chat_event_message_options, cleared on /reset (P30-02), while tuning and staff tables stay excluded (P30-03).
+- [Phase 30]: Kept backup_import_skipped_entries byte-identical across all 8 locales so Wave 1 golden TestLegacyPhase30Baseline stays untouched.
+- [Phase 30]: Extracted shared backup apply helpers (applyBackupExport, downloadAndParseBackupFile, applyBackupImport, formatBackupImportSuccess, applyBackupReset, formatBackupResetSuccess) and cross-replica Redis pending import/reset tokens (fuku:settings:backup:{import,reset}:, 2 MiB cap, 5m TTL, json.Number precision, peek-before-consume, atomic Lua GET+DEL) in fuku/modules/backup.go (P30-01)
+- [Phase 30]: Implemented private-only Backup settings page ba (Order 83, actions bv/be/bi/bl/bj/br/bu, stateless 20-bit hex mask m=0..fffff, settingsTypedPages[settingsPageBackup] document wait, peek-before-consume Lua GET+DEL two-tap cards, shared BackupRateLimiter and apply helpers) with 8-locale UI and TestSettingsBackupPage
+- [Phase 30]: Checked settingsLockRows alongside settingsCoreActions and all 30 settingsPages in TestPhase30Codes to guard against lock-row code collisions
+- [Phase 30]: Documented Phase 30 invariants and provisional decisions P30-01..P30-04 in AGENTS.md with zero new goroutines, handler groups, or shutdown drains
+
 ### Pending Todos
 
 None yet.
 
 ### Blockers/Concerns
 
+- [v1.2 Roadmap]: Open owner questions: (a) does a lift from a settings menu opened in the group also post the custom lifted message, or does it keep redrawing the menu only (Phase 25, EVT-08); (b) does `{percent}` join the placeholder set for the flood trigger (Phase 25, EVT-07); (c) which automatic sources join the escalation ladder, and where offence counts live (Phase 26); (d) which commands "reason required" covers, and whether the silent and delete-first variants get the default duration (Phase 27); (e) whether an empty source entry clears the target's custom message on copy (Phase 29); (f) whether `/reset` of all modules clears custom messages once they are a backup module, and whether tuning values join the backup (Phase 30).
+- [v1.2 Roadmap]: Technical risks to settle in discussion: how an event, a destination and a part fit the editor's wait hash and the 64-byte callbacks (21); the Details button's short-lived record and deep link (22); `warns_users` has no time per warn, so warn expiry needs a migration (26); hot-path reads and Lua script windows for the Advanced thresholds (28); the command's pending import and reset live in one replica's memory, so the page's cards need another home (30). No research was run for v1.2; `research/SUMMARY.md` is stale v1.1 research.
 - [v1.1 Roadmap]: Live Telegram spikes the owner runs before the phase that needs them is planned (Gaps to Address in `research/SUMMARY.md`): caption placement with `show_caption_above_media` (Phase 12); the per-group message rate limit for notices during a raid (Phase 13); `getUserProfilePhotos` for a hidden photo and `getChatMember` on a channel whose admin the bot is not (Phase 14); a Claude Haiku name accuracy, latency and cost run with the owner's key (Phase 15); `deleteMessages` with one undeletable ID in a batch (Phase 16); how often link previews and caption touches arrive as edits (Phase 17).
 - [v1.1 Roadmap]: Open owner questions: a group with no live creator, admins allowed or everyone denied (Phase 10); whether "I fixed it" in a captcha group re-runs the challenge, which the captcha-first decision may already answer (Phase 13); the name-AI verdict bar and the AI rule's default punishment (Phase 15); the self-destruct storage failure mode the owner must accept, PostgreSQL rows or a Redis set (Phase 17).
 - [v1.1 Roadmap]: `locales/uk.yml` exists but is shorter than `en.yml` (2,437 lines against 3,095), and `AGENTS.md` still says 7 locales. Phase 10 runs `make check-translations` first to see which keys uk lacks. PLAT-05 covers new keys; whether to fill older uk gaps in the same phase is the owner's call.
@@ -410,14 +475,21 @@ Items acknowledged and deferred at milestone close, most recent first:
 | 17 | verification_deferred_human | /gsd-verify-work 17 |
 | 18 | verification_deferred_human | /gsd-verify-work 18 |
 | 19 | verification_deferred_human | /gsd-verify-work 19 |
+| 21 | verification_deferred_human | /gsd-verify-work 21 |
+| 22 | verification_deferred_human | /gsd-verify-work 22 |
+| 23 | verification_deferred_human | /gsd-verify-work 23 |
+| 24 | verification_deferred_human | /gsd-verify-work 24 |
+| 25 | verification_deferred_human | /gsd-verify-work 25 |
+| 26 | verification_deferred_human | /gsd-verify-work 26 |
+| 27 | verification_deferred_human | /gsd-verify-work 27 |
 
 ## Session Continuity
 
-Last session: 2026-11-13T19:31:03.090Z
-Stopped at: Completed 19-12-PLAN.md
+Last session: 2026-11-23T22:00:31.915Z
+Stopped at: Phase 30 complete, ready to verify Phase 21
 Resume file: None
 
 ## Operator Next Steps
 
 
-- Start the next milestone with /gsd-new-milestone
+- Phase 23 is planned (7 plans in `phases/23-warn-flood-blacklist-and-forward-blocklist-messages/`, its CONTEXT records the provisional decisions P1 to P10 for owner confirmation); next: execute its plans with /gsd-execute-phase 23

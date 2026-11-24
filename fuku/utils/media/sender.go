@@ -1,6 +1,7 @@
 package media
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -65,6 +66,13 @@ type Options struct {
 }
 
 func Send(b *gotgbot.Bot, content Content, opts Options) (*gotgbot.Message, error) {
+	return SendWithContext(context.Background(), b, content, opts)
+}
+
+func SendWithContext(ctx context.Context, b *gotgbot.Bot, content Content, opts Options) (*gotgbot.Message, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if cache.IsChatRestricted(opts.ChatID) {
 		log.WithField("chat_id", opts.ChatID).Debug("[Media] Skipping send to restricted chat")
 		return nil, ErrNoPermission
@@ -85,32 +93,32 @@ func Send(b *gotgbot.Bot, content Content, opts Options) (*gotgbot.Message, erro
 
 	switch content.MsgType {
 	case db.TEXT, 0:
-		return sendText(b, content, opts, parseMode, replyParams)
+		return sendText(ctx, b, content, opts, parseMode, replyParams)
 	case db.STICKER:
-		return sendSticker(b, content, opts, replyParams)
+		return sendUncaptioned(ctx, b, content, opts, replyParams)
 	case db.DOCUMENT:
-		return sendDocument(b, content, opts, parseMode, replyParams)
+		return sendFile(ctx, b, content, opts, parseMode, replyParams)
 	case db.PHOTO:
-		return sendCaptioned(b, content, opts, parseMode, replyParams)
+		return sendCaptioned(ctx, b, content, opts, parseMode, replyParams)
 	case db.AUDIO:
-		return sendAudio(b, content, opts, parseMode, replyParams)
+		return sendFile(ctx, b, content, opts, parseMode, replyParams)
 	case db.VOICE:
-		return sendVoice(b, content, opts, parseMode, replyParams)
+		return sendFile(ctx, b, content, opts, parseMode, replyParams)
 	case db.VIDEO:
-		return sendCaptioned(b, content, opts, parseMode, replyParams)
+		return sendCaptioned(ctx, b, content, opts, parseMode, replyParams)
 	case db.VIDEO_NOTE:
-		return sendVideoNote(b, content, opts, replyParams)
+		return sendUncaptioned(ctx, b, content, opts, replyParams)
 	case db.ANIMATION:
-		return sendCaptioned(b, content, opts, parseMode, replyParams)
+		return sendCaptioned(ctx, b, content, opts, parseMode, replyParams)
 	default:
 		log.Warnf("[Media] Unknown message type %d, falling back to text", content.MsgType)
-		return sendText(b, content, opts, parseMode, replyParams)
+		return sendText(ctx, b, content, opts, parseMode, replyParams)
 	}
 }
 
-func sendText(b *gotgbot.Bot, content Content, opts Options, parseMode string, replyParams *gotgbot.ReplyParameters) (*gotgbot.Message, error) {
+func sendText(ctx context.Context, b *gotgbot.Bot, content Content, opts Options, parseMode string, replyParams *gotgbot.ReplyParameters) (*gotgbot.Message, error) {
 	sentAt := time.Now()
-	msg, err := b.SendMessage(opts.ChatID, content.Text, &gotgbot.SendMessageOpts{
+	msg, err := b.SendMessageWithContext(ctx, opts.ChatID, content.Text, &gotgbot.SendMessageOpts{
 		ParseMode: parseMode,
 		LinkPreviewOptions: &gotgbot.LinkPreviewOptions{
 			IsDisabled: !opts.WebPreview,
@@ -124,51 +132,17 @@ func sendText(b *gotgbot.Bot, content Content, opts Options, parseMode string, r
 	return resolveSendResult(msg, err, opts.ChatID, "text", sentAt)
 }
 
-func sendSticker(b *gotgbot.Bot, content Content, opts Options, replyParams *gotgbot.ReplyParameters) (*gotgbot.Message, error) {
-	if content.FileID == "" {
-		log.Warnf("[Media] Empty FileID for STICKER '%s' in chat %d, falling back to text", content.Name, opts.ChatID)
-		return sendText(b, content, opts, formatting.HTML, replyParams)
-	}
-	sentAt := time.Now()
-	msg, err := b.SendSticker(opts.ChatID, gotgbot.InputFileByID(content.FileID), &gotgbot.SendStickerOpts{
-		ReplyParameters:     replyParams,
-		ReplyMarkup:         opts.Keyboard,
-		ProtectContent:      opts.IsProtected,
-		DisableNotification: opts.NoNotif,
-		MessageThreadId:     opts.ThreadID,
-	})
-	return resolveSendResult(msg, err, opts.ChatID, "sticker", sentAt)
-}
-
-func sendDocument(b *gotgbot.Bot, content Content, opts Options, parseMode string, replyParams *gotgbot.ReplyParameters) (*gotgbot.Message, error) {
-	if content.FileID == "" {
-		log.Warnf("[Media] Empty FileID for DOCUMENT '%s' in chat %d, falling back to text", content.Name, opts.ChatID)
-		return sendText(b, content, opts, parseMode, replyParams)
-	}
-	sentAt := time.Now()
-	msg, err := b.SendDocument(opts.ChatID, gotgbot.InputFileByID(content.FileID), &gotgbot.SendDocumentOpts{
-		ReplyParameters:     replyParams,
-		ParseMode:           parseMode,
-		ReplyMarkup:         opts.Keyboard,
-		Caption:             content.Text,
-		ProtectContent:      opts.IsProtected,
-		DisableNotification: opts.NoNotif,
-		MessageThreadId:     opts.ThreadID,
-	})
-	return resolveSendResult(msg, err, opts.ChatID, "document", sentAt)
-}
-
 // captionedKinds names the media types sendCaptioned sends, in lower case, for its logs and errors.
 var captionedKinds = map[int]string{db.PHOTO: "photo", db.VIDEO: "video", db.ANIMATION: "animation"}
 
 // sendCaptioned sends a photo, a video or an animation with its caption. It falls back to the text when the
 // file ID is empty and turns the outcome of the one Telegram call into the sender's error values. Only these
 // three types have a method that can place the caption above the media.
-func sendCaptioned(b *gotgbot.Bot, content Content, opts Options, parseMode string, replyParams *gotgbot.ReplyParameters) (*gotgbot.Message, error) {
+func sendCaptioned(ctx context.Context, b *gotgbot.Bot, content Content, opts Options, parseMode string, replyParams *gotgbot.ReplyParameters) (*gotgbot.Message, error) {
 	kind := captionedKinds[content.MsgType]
 	if content.FileID == "" {
 		log.Warnf("[Media] Empty FileID for %s '%s' in chat %d, falling back to text", strings.ToUpper(kind), content.Name, opts.ChatID)
-		return sendText(b, content, opts, parseMode, replyParams)
+		return sendText(ctx, b, content, opts, parseMode, replyParams)
 	}
 	var (
 		msg    *gotgbot.Message
@@ -178,65 +152,67 @@ func sendCaptioned(b *gotgbot.Bot, content Content, opts Options, parseMode stri
 	)
 	switch content.MsgType {
 	case db.PHOTO:
-		msg, err = b.SendPhoto(opts.ChatID, file, &gotgbot.SendPhotoOpts{ReplyParameters: replyParams, ParseMode: parseMode, ReplyMarkup: opts.Keyboard, Caption: content.Text, ShowCaptionAboveMedia: content.CaptionAbove, ProtectContent: opts.IsProtected, DisableNotification: opts.NoNotif, MessageThreadId: opts.ThreadID})
+		msg, err = b.SendPhotoWithContext(ctx, opts.ChatID, file, &gotgbot.SendPhotoOpts{ReplyParameters: replyParams, ParseMode: parseMode, ReplyMarkup: opts.Keyboard, Caption: content.Text, ShowCaptionAboveMedia: content.CaptionAbove, ProtectContent: opts.IsProtected, DisableNotification: opts.NoNotif, MessageThreadId: opts.ThreadID})
 	case db.VIDEO:
-		msg, err = b.SendVideo(opts.ChatID, file, &gotgbot.SendVideoOpts{ReplyParameters: replyParams, ParseMode: parseMode, ReplyMarkup: opts.Keyboard, Caption: content.Text, ShowCaptionAboveMedia: content.CaptionAbove, ProtectContent: opts.IsProtected, DisableNotification: opts.NoNotif, MessageThreadId: opts.ThreadID})
+		msg, err = b.SendVideoWithContext(ctx, opts.ChatID, file, &gotgbot.SendVideoOpts{ReplyParameters: replyParams, ParseMode: parseMode, ReplyMarkup: opts.Keyboard, Caption: content.Text, ShowCaptionAboveMedia: content.CaptionAbove, ProtectContent: opts.IsProtected, DisableNotification: opts.NoNotif, MessageThreadId: opts.ThreadID})
 	default:
-		msg, err = b.SendAnimation(opts.ChatID, file, &gotgbot.SendAnimationOpts{ReplyParameters: replyParams, ParseMode: parseMode, ReplyMarkup: opts.Keyboard, Caption: content.Text, ShowCaptionAboveMedia: content.CaptionAbove, ProtectContent: opts.IsProtected, DisableNotification: opts.NoNotif, MessageThreadId: opts.ThreadID})
+		msg, err = b.SendAnimationWithContext(ctx, opts.ChatID, file, &gotgbot.SendAnimationOpts{ReplyParameters: replyParams, ParseMode: parseMode, ReplyMarkup: opts.Keyboard, Caption: content.Text, ShowCaptionAboveMedia: content.CaptionAbove, ProtectContent: opts.IsProtected, DisableNotification: opts.NoNotif, MessageThreadId: opts.ThreadID})
 	}
 	return resolveSendResult(msg, err, opts.ChatID, kind, sentAt)
 }
 
-func sendAudio(b *gotgbot.Bot, content Content, opts Options, parseMode string, replyParams *gotgbot.ReplyParameters) (*gotgbot.Message, error) {
+// fileKinds names the media types sendFile sends: the name its fallback log uses and the kind of its errors.
+var fileKinds = map[int][2]string{db.DOCUMENT: {"DOCUMENT", "document"}, db.AUDIO: {"AUDIO", "audio"}, db.VOICE: {"VOICE", "voice"}}
+
+// sendFile sends a document, an audio or a voice message with its caption, falling back to the text when the
+// file ID is empty.
+func sendFile(ctx context.Context, b *gotgbot.Bot, content Content, opts Options, parseMode string, replyParams *gotgbot.ReplyParameters) (*gotgbot.Message, error) {
+	kind := fileKinds[content.MsgType]
 	if content.FileID == "" {
-		log.Warnf("[Media] Empty FileID for AUDIO '%s' in chat %d, falling back to text", content.Name, opts.ChatID)
-		return sendText(b, content, opts, parseMode, replyParams)
+		log.Warnf("[Media] Empty FileID for %s '%s' in chat %d, falling back to text", kind[0], content.Name, opts.ChatID)
+		return sendText(ctx, b, content, opts, parseMode, replyParams)
 	}
-	sentAt := time.Now()
-	msg, err := b.SendAudio(opts.ChatID, gotgbot.InputFileByID(content.FileID), &gotgbot.SendAudioOpts{
-		ReplyParameters:     replyParams,
-		ParseMode:           parseMode,
-		ReplyMarkup:         opts.Keyboard,
-		Caption:             content.Text,
-		ProtectContent:      opts.IsProtected,
-		DisableNotification: opts.NoNotif,
-		MessageThreadId:     opts.ThreadID,
-	})
-	return resolveSendResult(msg, err, opts.ChatID, "audio", sentAt)
+	var (
+		msg    *gotgbot.Message
+		err    error
+		sentAt = time.Now()
+		file   = gotgbot.InputFileByID(content.FileID)
+	)
+	switch content.MsgType {
+	case db.DOCUMENT:
+		msg, err = b.SendDocumentWithContext(ctx, opts.ChatID, file, &gotgbot.SendDocumentOpts{ReplyParameters: replyParams, ParseMode: parseMode, ReplyMarkup: opts.Keyboard, Caption: content.Text, ProtectContent: opts.IsProtected, DisableNotification: opts.NoNotif, MessageThreadId: opts.ThreadID})
+	case db.AUDIO:
+		msg, err = b.SendAudioWithContext(ctx, opts.ChatID, file, &gotgbot.SendAudioOpts{ReplyParameters: replyParams, ParseMode: parseMode, ReplyMarkup: opts.Keyboard, Caption: content.Text, ProtectContent: opts.IsProtected, DisableNotification: opts.NoNotif, MessageThreadId: opts.ThreadID})
+	default:
+		msg, err = b.SendVoiceWithContext(ctx, opts.ChatID, file, &gotgbot.SendVoiceOpts{ReplyParameters: replyParams, ParseMode: parseMode, ReplyMarkup: opts.Keyboard, Caption: content.Text, ProtectContent: opts.IsProtected, DisableNotification: opts.NoNotif, MessageThreadId: opts.ThreadID})
+	}
+	return resolveSendResult(msg, err, opts.ChatID, kind[1], sentAt)
 }
 
-func sendVoice(b *gotgbot.Bot, content Content, opts Options, parseMode string, replyParams *gotgbot.ReplyParameters) (*gotgbot.Message, error) {
-	if content.FileID == "" {
-		log.Warnf("[Media] Empty FileID for VOICE '%s' in chat %d, falling back to text", content.Name, opts.ChatID)
-		return sendText(b, content, opts, parseMode, replyParams)
-	}
-	sentAt := time.Now()
-	msg, err := b.SendVoice(opts.ChatID, gotgbot.InputFileByID(content.FileID), &gotgbot.SendVoiceOpts{
-		ReplyParameters:     replyParams,
-		ParseMode:           parseMode,
-		ReplyMarkup:         opts.Keyboard,
-		Caption:             content.Text,
-		ProtectContent:      opts.IsProtected,
-		DisableNotification: opts.NoNotif,
-		MessageThreadId:     opts.ThreadID,
-	})
-	return resolveSendResult(msg, err, opts.ChatID, "voice", sentAt)
-}
+// uncaptionedKinds names the media types sendUncaptioned sends: the name its fallback log uses and the kind of
+// its errors.
+var uncaptionedKinds = map[int][2]string{db.STICKER: {"STICKER", "sticker"}, db.VIDEO_NOTE: {"VideoNote", "video note"}}
 
-func sendVideoNote(b *gotgbot.Bot, content Content, opts Options, replyParams *gotgbot.ReplyParameters) (*gotgbot.Message, error) {
+// sendUncaptioned sends a sticker or a video note, which carry no caption, falling back to the text (as HTML)
+// when the file ID is empty.
+func sendUncaptioned(ctx context.Context, b *gotgbot.Bot, content Content, opts Options, replyParams *gotgbot.ReplyParameters) (*gotgbot.Message, error) {
+	kind := uncaptionedKinds[content.MsgType]
 	if content.FileID == "" {
-		log.Warnf("[Media] Empty FileID for VideoNote '%s' in chat %d, falling back to text", content.Name, opts.ChatID)
-		return sendText(b, content, opts, formatting.HTML, replyParams)
+		log.Warnf("[Media] Empty FileID for %s '%s' in chat %d, falling back to text", kind[0], content.Name, opts.ChatID)
+		return sendText(ctx, b, content, opts, formatting.HTML, replyParams)
 	}
-	sentAt := time.Now()
-	msg, err := b.SendVideoNote(opts.ChatID, gotgbot.InputFileByID(content.FileID), &gotgbot.SendVideoNoteOpts{
-		ReplyParameters:     replyParams,
-		ReplyMarkup:         opts.Keyboard,
-		ProtectContent:      opts.IsProtected,
-		DisableNotification: opts.NoNotif,
-		MessageThreadId:     opts.ThreadID,
-	})
-	return resolveSendResult(msg, err, opts.ChatID, "video note", sentAt)
+	var (
+		msg    *gotgbot.Message
+		err    error
+		sentAt = time.Now()
+		file   = gotgbot.InputFileByID(content.FileID)
+	)
+	if content.MsgType == db.STICKER {
+		msg, err = b.SendStickerWithContext(ctx, opts.ChatID, file, &gotgbot.SendStickerOpts{ReplyParameters: replyParams, ReplyMarkup: opts.Keyboard, ProtectContent: opts.IsProtected, DisableNotification: opts.NoNotif, MessageThreadId: opts.ThreadID})
+	} else {
+		msg, err = b.SendVideoNoteWithContext(ctx, opts.ChatID, file, &gotgbot.SendVideoNoteOpts{ReplyParameters: replyParams, ReplyMarkup: opts.Keyboard, ProtectContent: opts.IsProtected, DisableNotification: opts.NoNotif, MessageThreadId: opts.ThreadID})
+	}
+	return resolveSendResult(msg, err, opts.ChatID, kind[1], sentAt)
 }
 
 func SendNote(b *gotgbot.Bot, ctx *ext.Context, chat *gotgbot.Chat, note *db.Notes, replyMsgID, threadID int64) (*gotgbot.Message, error) {
@@ -361,7 +337,12 @@ type GreetingMessage struct {
 // takes effect for a type CaptionAboveEligible accepts, so a stored "on" with any other media sends the request it
 // always sent.
 func SendGreetingMessage(b *gotgbot.Bot, chatID int64, msg GreetingMessage) (*gotgbot.Message, error) {
-	return Send(b, Content{
+	return SendGreetingMessageWithContext(context.Background(), b, chatID, msg)
+}
+
+// SendGreetingMessageWithContext is SendGreetingMessage bounded by ctx.
+func SendGreetingMessageWithContext(ctx context.Context, b *gotgbot.Bot, chatID int64, msg GreetingMessage) (*gotgbot.Message, error) {
+	return SendWithContext(ctx, b, Content{
 		Text:         msg.Text,
 		FileID:       msg.FileID,
 		MsgType:      msg.MsgType,

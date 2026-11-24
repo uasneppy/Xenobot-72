@@ -139,7 +139,7 @@ func TestInitDataRejects(t *testing.T) {
 		{"hash in uppercase hex", edit(t, good, func(v url.Values) { v.Set("hash", strings.ToUpper(goodHash)) })},
 		{"hash of 63 characters", edit(t, good, func(v url.Values) { v.Set("hash", goodHash[:63]) })},
 		{"signed with another bot token", SignInitDataForTest("654321:another-bot-token", baseFields())},
-		{"auth_date 11 minutes 1 second old", withAge(11*time.Minute + time.Second)},
+		{"auth_date 61 minutes 1 second old", withAge(61*time.Minute + time.Second)},
 		{"auth_date 61 seconds in the future", withAhead(61 * time.Second)},
 		{"auth_date missing", signed(func(f map[string]string) { delete(f, "auth_date") })},
 		{"auth_date not a number", signed(func(f map[string]string) { f["auth_date"] = "abc" })},
@@ -174,10 +174,10 @@ func TestInitDataRejects(t *testing.T) {
 		assert.Equal(t, int64(4242), got.UserID)
 	})
 
-	// C7: an attempt lasts up to 10 minutes (captcha_settings.timeout), so a page opened at the
-	// start of the longest attempt still verifies near its end.
-	t.Run("auth_date 10 minutes old is accepted", func(t *testing.T) {
-		got, err := ValidateInitData(withAge(10*time.Minute), token, now)
+	// C7: an attempt lasts up to 60 minutes (chat_advanced_thresholds.captcha_timeout_mins),
+	// so a page opened at the start of the longest attempt still verifies near its end.
+	t.Run("auth_date 60 minutes old is accepted", func(t *testing.T) {
+		got, err := ValidateInitData(withAge(60*time.Minute), token, now)
 		require.NoError(t, err)
 		assert.Equal(t, int64(4242), got.UserID)
 	})

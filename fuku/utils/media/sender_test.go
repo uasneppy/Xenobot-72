@@ -16,12 +16,14 @@ import (
 )
 
 type recordingBotClient struct {
+	ctx    context.Context
 	method string
 	params map[string]any
 	err    error
 }
 
-func (c *recordingBotClient) RequestWithContext(_ context.Context, _ string, method string, params map[string]any, _ *gotgbot.RequestOpts) (json.RawMessage, error) {
+func (c *recordingBotClient) RequestWithContext(ctx context.Context, _ string, method string, params map[string]any, _ *gotgbot.RequestOpts) (json.RawMessage, error) {
+	c.ctx = ctx
 	c.method = method
 	c.params = params
 	if c.err != nil {
@@ -845,4 +847,29 @@ func assertTextSendParams(t *testing.T, client *recordingBotClient, want textSen
 func boolParam(params map[string]any, key string) bool {
 	value, _ := params[key].(bool)
 	return value
+}
+
+func TestSendGreetingMessageWithContextPropagatesContext(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	client := &recordingBotClient{}
+	bot := newRecordingBot(client)
+
+	if _, err := SendGreetingMessageWithContext(ctx, bot, 42, GreetingMessage{Text: "hello", MsgType: db.TEXT}); err != nil {
+		t.Fatalf("send text: %v", err)
+	}
+	if client.ctx != ctx {
+		t.Fatalf("text send did not propagate caller context")
+	}
+
+	client.ctx = nil
+	if _, err := SendGreetingMessageWithContext(ctx, bot, 42, GreetingMessage{Text: "cap", FileID: "photo_1", MsgType: db.PHOTO}); err != nil {
+		t.Fatalf("send photo: %v", err)
+	}
+	if client.ctx != ctx {
+		t.Fatalf("photo send did not propagate caller context")
+	}
 }

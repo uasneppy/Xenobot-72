@@ -12,9 +12,11 @@ import (
 	"github.com/uasneppy/fuku_robot/fuku/db/admin"
 	"github.com/uasneppy/fuku_robot/fuku/db/antiflood"
 	"github.com/uasneppy/fuku_robot/fuku/db/blacklists"
+	dbcache "github.com/uasneppy/fuku_robot/fuku/db/cache"
 	"github.com/uasneppy/fuku_robot/fuku/db/captcha"
 	"github.com/uasneppy/fuku_robot/fuku/db/chats"
 	"github.com/uasneppy/fuku_robot/fuku/db/connections"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/filters"
 	"github.com/uasneppy/fuku_robot/fuku/db/greetings"
 	"github.com/uasneppy/fuku_robot/fuku/db/locks"
@@ -117,6 +119,20 @@ func TestBackupTypes(t *testing.T) {
 				},
 				wantErr: true,
 			},
+			{
+				name: "duplicate modules",
+				backup: &BackupFormat{
+					Version: "1.0",
+					BotName: "Xenobot-72",
+					ChatID:  12345,
+					Modules: []string{"rules", "notes", "rules"},
+					Data: map[string]interface{}{
+						"rules": map[string]interface{}{},
+						"notes": map[string]interface{}{},
+					},
+				},
+				wantErr: true,
+			},
 		}
 
 		for _, tt := range tests {
@@ -179,16 +195,18 @@ func TestBackupTypes(t *testing.T) {
 func TestModuleValidation(t *testing.T) {
 	t.Run("AllExportableModules returns expected modules", func(t *testing.T) {
 		modules := AllExportableModules()
-		assert.NotEmpty(t, modules)
+		assert.Len(t, modules, 20)
 		assert.Contains(t, modules, BackupModuleAdmin)
 		assert.Contains(t, modules, BackupModuleNotes)
 		assert.Contains(t, modules, BackupModuleFilters)
 		assert.Contains(t, modules, BackupModuleRules)
+		assert.Contains(t, modules, BackupModuleMessages)
 	})
 
 	t.Run("IsValidModule validates correctly", func(t *testing.T) {
 		assert.True(t, IsValidModule("notes"))
 		assert.True(t, IsValidModule("filters"))
+		assert.True(t, IsValidModule("messages"))
 		assert.False(t, IsValidModule("invalid"))
 		assert.False(t, IsValidModule(""))
 		assert.True(t, IsValidModule("rules"))
@@ -358,6 +376,13 @@ func cleanupBackupChat(t *testing.T, chatID int64) {
 	if err := db.DB.Where("chat_id = ?", chatID).Delete(&models.LogChannel{}).Error; err != nil {
 		t.Errorf("cleanup failed deleting LogChannel: %v", err)
 	}
+	if err := db.DB.Where("chat_id = ?", chatID).Delete(&models.ChatEventMessage{}).Error; err != nil {
+		t.Errorf("cleanup failed deleting ChatEventMessage: %v", err)
+	}
+	if err := db.DB.Where("chat_id = ?", chatID).Delete(&models.ChatEventMessageOptions{}).Error; err != nil {
+		t.Errorf("cleanup failed deleting ChatEventMessageOptions: %v", err)
+	}
+	dbcache.DeleteCache(eventmsg.CacheKey(chatID))
 	if err := db.DB.Where("chat_id = ?", chatID).Delete(&models.Chat{}).Error; err != nil {
 		t.Errorf("cleanup failed deleting Chat: %v", err)
 	}

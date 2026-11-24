@@ -110,9 +110,11 @@ func TestBlacklistActionValuesOnPostgres(t *testing.T) {
 
 	var checks []string
 	if err := tx.Raw(
-		`SELECT conname FROM pg_constraint
-		 WHERE conrelid = 'blacklists'::regclass AND contype = 'c'
-		   AND pg_get_constraintdef(oid) LIKE '%action%'`,
+		// The checks whose columns include action itself: matching the definition's text would also catch
+		// the check of action_secs (migration 20261122120000), which constrains another column.
+		`SELECT c.conname FROM pg_constraint c
+		 JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+		 WHERE c.conrelid = 'blacklists'::regclass AND c.contype = 'c' AND a.attname = 'action'`,
 	).Scan(&checks).Error; err != nil {
 		t.Fatalf("list the action checks: %v", err)
 	}

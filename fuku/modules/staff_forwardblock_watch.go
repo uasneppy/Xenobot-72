@@ -17,6 +17,7 @@ import (
 	"github.com/uasneppy/fuku_robot/fuku/utils/chat_status"
 	"github.com/uasneppy/fuku_robot/fuku/utils/error_handling"
 	"github.com/uasneppy/fuku_robot/fuku/utils/helpers"
+	"github.com/uasneppy/fuku_robot/fuku/utils/tracing"
 )
 
 // The forward blocklist watcher. A message a member forwards from a source the Staff Group lists is
@@ -323,6 +324,13 @@ func forwardBlockEnforce(b *gotgbot.Bot, ctx *ext.Context, msg *gotgbot.Message,
 	if !granted {
 		return
 	}
+	if action != "warn" {
+		// The linked group's own escalation ladder, when it is on, picks the punishment of this
+		// offence (the latch above makes an album one offence); otherwise the list's action applies.
+		p := escalate(tracing.UpdateContext(ctx), b, chatID, userID, "fwdblock", autoPunishment{Action: action})
+		punish = forwardBlockPunishmentOf(p)
+		action = p.Action
+	}
 	if err := punish(b, ctx, userID); err != nil {
 		forwardBlockWarnf(forwardBlockWarnPunishFailed, chatID,
 			"[Staff] forward blocklist: the %s of user %d in chat %d failed: %s",
@@ -337,6 +345,31 @@ var forwardBlockPunishments = map[string]func(*gotgbot.Bot, *ext.Context, int64)
 	"mute": forwardBlockMute,
 	"kick": forwardBlockKick,
 	"ban":  forwardBlockBan,
+}
+
+// forwardBlockPunishmentOf returns the function that applies p, the list's action or a ladder step.
+func forwardBlockPunishmentOf(p autoPunishment) func(*gotgbot.Bot, *ext.Context, int64) error {
+	if p.Timed() {
+		return func(b *gotgbot.Bot, ctx *ext.Context, userID int64) error {
+			return forwardBlockPunishTimed(b, ctx, userID, p)
+		}
+	}
+	return forwardBlockPunishments[p.Action]
+}
+
+// forwardBlockPunishTimed applies a ladder's timed mute or ban through applyTimedPunishment, then
+// posts the notice naming the action and its end. An end date refused locally punishes nobody and
+// posts nothing.
+func forwardBlockPunishTimed(b *gotgbot.Bot, ctx *ext.Context, userID int64, p autoPunishment) error {
+	until, err := applyTimedPunishment(b, ctx.EffectiveMessage.Chat.Id, userID, p.Action, p.Secs)
+	if errors.Is(err, errPunishTimeRanOut) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	p.Until = until
+	return forwardBlockNotice(b, ctx, userID, p)
 }
 
 // forwardBlockReason is the translated reason of a warn and of a notice. It names neither the source
@@ -361,7 +394,7 @@ func forwardBlockMute(b *gotgbot.Bot, ctx *ext.Context, userID int64) error {
 	if _, err := b.RestrictChatMember(chatID, userID, MutedPermissions, nil); err != nil {
 		return err
 	}
-	return forwardBlockNotice(b, ctx, userID, "blacklists_bl_watcher_muted_user")
+	return forwardBlockNotice(b, ctx, userID, autoPunishment{Action: "mute"})
 }
 
 // forwardBlockKick removes the member (they can join again), then posts the notice.
@@ -369,7 +402,7 @@ func forwardBlockKick(b *gotgbot.Bot, ctx *ext.Context, userID int64) error {
 	if err := kickMember(b, ctx.EffectiveMessage.Chat.Id, userID); err != nil {
 		return err
 	}
-	return forwardBlockNotice(b, ctx, userID, "blacklists_bl_watcher_kicked_user")
+	return forwardBlockNotice(b, ctx, userID, autoPunishment{Action: "kick"})
 }
 
 // forwardBlockBan bans the member with no end date, then posts the notice.
@@ -377,5 +410,5 @@ func forwardBlockBan(b *gotgbot.Bot, ctx *ext.Context, userID int64) error {
 	if _, err := b.BanChatMember(ctx.EffectiveMessage.Chat.Id, userID, nil); err != nil {
 		return err
 	}
-	return forwardBlockNotice(b, ctx, userID, "blacklists_bl_watcher_banned_user")
+	return forwardBlockNotice(b, ctx, userID, autoPunishment{Action: "ban"})
 }

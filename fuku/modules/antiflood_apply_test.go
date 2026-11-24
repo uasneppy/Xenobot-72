@@ -162,7 +162,7 @@ func TestApplyFloodMode(t *testing.T) {
 	t.Run("ban kick and mute are stored", func(t *testing.T) {
 		chatID := floodApplyFreshChat(t)
 		for _, mode := range []string{"ban", "kick", "mute"} {
-			got := applyFloodMode(ctx, chatID, mode)
+			got := applyFloodMode(ctx, chatID, mode, 0)
 			if got.Outcome != floodApplied || got.Err != nil {
 				t.Fatalf("applyFloodMode(%q) = outcome %v err %v, want floodApplied", mode, got.Outcome, got.Err)
 			}
@@ -177,7 +177,7 @@ func TestApplyFloodMode(t *testing.T) {
 
 	t.Run("a first mode write on a fresh chat reports the limit it stored", func(t *testing.T) {
 		chatID := floodApplyFreshChat(t)
-		got := applyFloodMode(ctx, chatID, "ban")
+		got := applyFloodMode(ctx, chatID, "ban", 0)
 		// TestSetFloodModeOnFreshChatStoredLimit pins the repository's 5 (D-27).
 		if got.Stored == nil || got.Stored.Limit != 5 {
 			t.Fatalf("stored = %+v, want the pinned first-write limit 5", got.Stored)
@@ -187,7 +187,7 @@ func TestApplyFloodMode(t *testing.T) {
 	t.Run("anything else is refused and writes nothing", func(t *testing.T) {
 		for _, mode := range []string{"warn", "tban", "tmute", "Ban ", "BAN", ""} {
 			chatID := floodApplyFreshChat(t)
-			got := applyFloodMode(ctx, chatID, mode)
+			got := applyFloodMode(ctx, chatID, mode, 0)
 			if got.Outcome != floodUnknownMode || got.Stored != nil || got.Err != nil {
 				t.Fatalf("applyFloodMode(%q) = %+v, want floodUnknownMode with no row and no error", mode, got)
 			}
@@ -199,7 +199,7 @@ func TestApplyFloodMode(t *testing.T) {
 
 	t.Run("a repository error is a failed save", func(t *testing.T) {
 		floodApplyBrokenDB(t)
-		got := applyFloodMode(ctx, uniqueModuleChatID(), "ban")
+		got := applyFloodMode(ctx, uniqueModuleChatID(), "ban", 0)
 		if got.Outcome != floodSaveFailed || got.Err == nil || got.Stored != nil {
 			t.Fatalf("applyFloodMode on a broken database = %+v, want floodSaveFailed with Err set and no row", got)
 		}
@@ -278,17 +278,17 @@ func TestAntifloodCommandsUseApply(t *testing.T) {
 		{
 			name: "setfloodmode kick", command: "/setfloodmode kick", run: antifloodModule.setFloodMode,
 			reply: text("antiflood_setfloodmode_success", "kick"),
-			apply: func(ctx context.Context, chatID int64) { applyFloodMode(ctx, chatID, "kick") },
+			apply: func(ctx context.Context, chatID int64) { applyFloodMode(ctx, chatID, "kick", 0) },
 		},
 		{
 			name: "setfloodmode upper case", command: "/setfloodmode BAN", run: antifloodModule.setFloodMode,
 			reply: text("antiflood_setfloodmode_success", "ban"),
-			apply: func(ctx context.Context, chatID int64) { applyFloodMode(ctx, chatID, "ban") },
+			apply: func(ctx context.Context, chatID int64) { applyFloodMode(ctx, chatID, "ban", 0) },
 		},
 		{
 			name: "setfloodmode warn", command: "/setfloodmode warn", run: antifloodModule.setFloodMode,
 			reply: text("antiflood_setfloodmode_unknown_type", "warn"),
-			apply: func(ctx context.Context, chatID int64) { applyFloodMode(ctx, chatID, "warn") },
+			apply: func(ctx context.Context, chatID int64) { applyFloodMode(ctx, chatID, "warn", 0) },
 		},
 		{
 			name: "delflood on", command: "/delflood on", run: antifloodModule.setFloodDeleter,

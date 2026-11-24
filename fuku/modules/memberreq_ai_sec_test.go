@@ -34,7 +34,7 @@ func TestMemberReqAIEstablishedMemberIgnoresCachedBreach(t *testing.T) {
 	t.Run("an equal baseline and no marker pass at once: nobody is punished and the provider is not asked", func(t *testing.T) {
 		env, ai := jobEnv(t)
 		member := mreqAIOrdinary(env)
-		mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
+		mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
 		mreqAIPlantBreach(t, env, member)
 		before := mreqAIVerdictKeys(t)
 
@@ -49,7 +49,7 @@ func TestMemberReqAIEstablishedMemberIgnoresCachedBreach(t *testing.T) {
 		}
 		mreqAIWantMarker(t, env.chat.Id, member.Id, false)
 		// The planted baseline has no expiry, so a rewrite would give it one: the pass writes nothing.
-		if value, ttl, ok := mreqAIBaselineOf(t, member.Id); !ok || value != mreqAIHashOfUser(t, member) || ttl > 0 {
+		if value, ttl, ok := mreqAIBaselineOf(t, env.chat.Id, member.Id); !ok || value != mreqAIHashOfUser(t, member) || ttl > 0 {
 			t.Errorf("baseline = %q ttl %v present %t, want it untouched", value, ttl, ok)
 		}
 	})
@@ -57,7 +57,7 @@ func TestMemberReqAIEstablishedMemberIgnoresCachedBreach(t *testing.T) {
 	t.Run("the rule itself answers pass for an equal baseline and no marker", func(t *testing.T) {
 		env, ai := jobEnv(t)
 		member := mreqAIOrdinary(env)
-		mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
+		mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
 		mreqAIPlantBreach(t, env, member)
 
 		if got := mreqAIAskAs(env, member.Id, mreqAINamesOfUser(member), memberReqLookupMode{}); got != memberReqPass {
@@ -71,7 +71,7 @@ func TestMemberReqAIEstablishedMemberIgnoresCachedBreach(t *testing.T) {
 	t.Run("a renamer with a cached breach is punished", func(t *testing.T) {
 		env, ai := jobEnv(t)
 		member := mreqAIOrdinary(env)
-		mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), "0123456789abcdef0123456789abcdef")
+		mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), "0123456789abcdef0123456789abcdef")
 		mreqAIPlantBreach(t, env, member)
 
 		got := env.mreqEnforce(env.mreqCase(member))
@@ -100,7 +100,7 @@ func TestMemberReqAIEstablishedMemberIgnoresCachedBreach(t *testing.T) {
 	t.Run("a marker holder with an equal baseline and a cached breach is punished", func(t *testing.T) {
 		env, _ := jobEnv(t)
 		member := mreqAIOrdinary(env)
-		mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
+		mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
 		mreqAIMarkNew(t, env.chat.Id, member.Id)
 		mreqAIPlantBreach(t, env, member)
 
@@ -114,7 +114,7 @@ func TestMemberReqAIEstablishedMemberIgnoresCachedBreach(t *testing.T) {
 	t.Run("a joiner with an equal baseline and a cached breach is punished", func(t *testing.T) {
 		env, _ := jobEnv(t)
 		member := mreqAIOrdinary(env)
-		mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
+		mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
 		mreqAIPlantBreach(t, env, member)
 		join := env.mreqCase(member)
 		join.Source, join.MessageID, join.MessageDate = memberReqFromJoin, 0, 0
@@ -130,7 +130,7 @@ func TestMemberReqAIEstablishedMemberIgnoresCachedBreach(t *testing.T) {
 		env, ai := mreqAIWatchEnv(t, models.RequirementActionWarn)
 		member := mreqAIOrdinary(env)
 		mreqSeedHeld(t, env, member, mreqBitOf(t, "ai"), models.RequirementActionWarn, 10*time.Minute)
-		mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
+		mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
 		mreqAIPlantBreach(t, env, member)
 
 		got := env.mreqEnforce(env.mreqCase(member))
@@ -150,7 +150,7 @@ func TestMemberReqAIEstablishedMemberIgnoresCachedBreach(t *testing.T) {
 	t.Run("the rule with IgnoreBaseline reads the cached breach", func(t *testing.T) {
 		env, _ := jobEnv(t)
 		member := mreqAIOrdinary(env)
-		mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
+		mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
 		mreqAIPlantBreach(t, env, member)
 
 		got := mreqAIAskAs(env, member.Id, mreqAINamesOfUser(member), memberReqLookupMode{IgnoreBaseline: true})

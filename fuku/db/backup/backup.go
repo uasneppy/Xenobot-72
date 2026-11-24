@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	dbcache "github.com/uasneppy/fuku_robot/fuku/db/cache"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/utils/content"
 	"gorm.io/gorm"
@@ -57,6 +59,8 @@ func ExportModuleData(chatID int64, module string) (interface{}, error) {
 		return exportFederationsData(chatID)
 	case BackupModuleLogChannels:
 		return exportLogChannelsData(chatID)
+	case BackupModuleMessages:
+		return exportMessagesData(chatID)
 	default:
 		return nil, fmt.Errorf("unknown module: %s", module)
 	}
@@ -85,10 +89,12 @@ func ImportModuleData(chatID int64, module string, data interface{}) error {
 	})
 }
 
-// ImportReport is what an import left out on purpose: Skipped counts the filters, blacklist words and notes
-// that would not pass the checks the commands make (a keyword or word too broad or too long, a note name that
-// could never be fetched, a button link that is not http or https, a repeat after lower-casing), and
-// LogChannelSkipped says the log channel categories were not imported because the target has no log channel.
+// ImportReport is what an import left out on purpose: Skipped counts the filters, blacklist words,
+// notes and custom event messages that would not pass the checks the commands/editor make (a keyword
+// or word too broad or too long, a note name that could never be fetched, a button link that is not
+// http or https, an unknown event/destination, disallowed media, over-limit text/caption, or a repeat
+// after lower-casing), and LogChannelSkipped says the log channel categories were not imported because
+// the target has no log channel.
 type ImportReport struct {
 	Skipped           int
 	LogChannelSkipped bool
@@ -477,7 +483,39 @@ func exportWarnsData(chatID int64) (*WarnsBackup, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &WarnsBackup{WarnSettings: settings, Warns: rows}, nil
+	expiryDays := 0
+	if settings != nil {
+		expiryDays = settings.ExpiryDays
+	}
+	return &WarnsBackup{WarnSettings: settings, Warns: exportedWarns(rows, expiryDays, time.Now())}, nil
+}
+
+// exportedWarns is what the warns export carries of the members' rows. With expiry off every row
+// is exported as stored, without its times: they decide nothing while every warn counts, and a group
+// that sets no expiry keeps the export it had before warn times existed. With expiry on each row
+// carries only what counts (Counted with the group's expiry and the current time), so the group that
+// imports it counts what the source counted; a member with no counted warn is left out, and the times
+// travel only when the row stores one per warn (otherwise the importer dates the warns itself).
+func exportedWarns(rows []models.Warns, expiryDays int, now time.Time) []models.Warns {
+	out := make([]models.Warns, 0, len(rows))
+	for _, row := range rows {
+		if expiryDays <= 0 {
+			row.WarnTimes = nil
+			out = append(out, row)
+			continue
+		}
+		complete := len(row.WarnTimes) == row.NumWarns
+		count, reasons, times := row.Counted(expiryDays, now)
+		if count == 0 {
+			continue
+		}
+		row.NumWarns, row.Reasons, row.WarnTimes = count, models.StringArray(reasons), nil
+		if complete {
+			row.WarnTimes = models.Int64Array(times)
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 func exportFederationsData(chatID int64) (*FederationsBackup, error) {
@@ -494,6 +532,24 @@ func exportLogChannelsData(chatID int64) (*LogChannelsBackup, error) {
 		return nil, err
 	}
 	return &LogChannelsBackup{Settings: settings}, nil
+}
+
+func exportMessagesData(chatID int64) (*MessagesBackup, error) {
+	database, err := backupDB()
+	if err != nil {
+		return nil, err
+	}
+	var rows []models.ChatEventMessage
+	if err := database.Where("chat_id = ?", chatID).
+		Order("event ASC, dest ASC").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	opts, err := findChatSetting[models.ChatEventMessageOptions](chatID)
+	if err != nil {
+		return nil, err
+	}
+	return &MessagesBackup{Messages: rows, Options: opts}, nil
 }
 
 func importModuleData(tx *gorm.DB, chatID int64, module string, data interface{}, preserveLegacyOmissions bool, report *ImportReport) ([]string, error) {
@@ -538,7 +594,7 @@ func importModuleData(tx *gorm.DB, chatID int64, module string, data interface{}
 }
 
 // importListModule imports the modules whose import takes the report or the legacy flag
-// (the list modules, warns and the log channel). ok is false for every other module.
+// (the list modules, warns, log channel and custom messages). ok is false for every other module.
 func importListModule(tx *gorm.DB, chatID int64, module string, data interface{}, preserveLegacyOmissions bool, report *ImportReport) (keys []string, ok bool, err error) {
 	switch module {
 	case BackupModuleBlacklists:
@@ -551,6 +607,8 @@ func importListModule(tx *gorm.DB, chatID int64, module string, data interface{}
 		keys, err = importWarns(tx, chatID, data, preserveLegacyOmissions)
 	case BackupModuleLogChannels:
 		keys, err = importLogChannels(tx, chatID, data, report)
+	case BackupModuleMessages:
+		keys, err = importMessages(tx, chatID, data, report)
 	default:
 		return nil, false, nil
 	}
@@ -567,6 +625,7 @@ func importAdmin(tx *gorm.DB, chatID int64, payload interface{}) ([]string, erro
 	}
 	if data.AntifloodSettings != nil {
 		data.AntifloodSettings.ChatId = chatID
+		sanitizeImportedAntiflood(data.AntifloodSettings)
 	}
 	if data.CaptchaSettings != nil {
 		data.CaptchaSettings.ChatID = chatID
@@ -611,6 +670,7 @@ func importAntiflood(tx *gorm.DB, chatID int64, payload interface{}) ([]string, 
 		if data.Settings.Limit < 0 {
 			return nil, fmt.Errorf("invalid antiflood limit %d", data.Settings.Limit)
 		}
+		sanitizeImportedAntiflood(data.Settings)
 	}
 	if err := replaceChatSetting(tx, chatID, data.Settings); err != nil {
 		return nil, err
@@ -671,6 +731,7 @@ func importBlacklists(tx *gorm.DB, chatID int64, payload interface{}, report *Im
 		if data.Entries[i].Action == "" {
 			data.Entries[i].Action = "warn"
 		}
+		sanitizeImportedBlacklist(&data.Entries[i])
 	}
 	data.Entries = keepValidEntries(data.Entries, report, func(e *models.BlacklistSettings) (string, bool) {
 		e.Word = strings.ToLower(e.Word)
@@ -892,12 +953,15 @@ func importWarns(tx *gorm.DB, chatID int64, payload interface{}, preserveLegacyO
 		if data.WarnSettings.WarnMode == "" {
 			data.WarnSettings.WarnMode = "mute"
 		}
+		sanitizeImportedWarnSettings(data.WarnSettings)
 	}
+	now := time.Now()
 	for i := range data.Warns {
 		if data.Warns[i].UserId == 0 || data.Warns[i].NumWarns < 0 {
 			return nil, fmt.Errorf("invalid warn record")
 		}
 		data.Warns[i].ChatId = chatID
+		sanitizeImportedWarnTimes(&data.Warns[i], now)
 	}
 	if len(data.Warns) > 0 {
 		users := make([]models.User, len(data.Warns))
@@ -937,6 +1001,69 @@ func importWarns(tx *gorm.DB, chatID int64, payload interface{}, preserveLegacyO
 		}
 	}
 	return keys, nil
+}
+
+// timedPunishAction reports whether action is a timed punishment (tmute, tban), the only actions an
+// imported duration is kept for.
+func timedPunishAction(action string) bool {
+	return strings.EqualFold(action, "tmute") || strings.EqualFold(action, "tban")
+}
+
+// sanitizeImportedWarnSettings stores 0 for an imported warn limit duration that is not a valid
+// duration (models.PunishDurationValid) of a timed mode, and for a warn expiry outside 0 to
+// models.WarnExpiryMaxDays (D-37). A file is never refused over them: a timed mode left with 0 is inert
+// and an expiry of 0 is off, the safe readings.
+func sanitizeImportedWarnSettings(s *models.WarnSettings) {
+	if !timedPunishAction(s.WarnMode) || !models.PunishDurationValid(s.WarnModeSecs) {
+		s.WarnModeSecs = 0
+	}
+	if s.ExpiryDays < 0 || s.ExpiryDays > models.WarnExpiryMaxDays {
+		s.ExpiryDays = 0
+	}
+}
+
+// sanitizeImportedAntiflood stores 0 for an imported flood action duration that is not a valid
+// duration of a timed action, so a tampered value never reaches a restriction (D-37).
+func sanitizeImportedAntiflood(s *models.AntifloodSettings) {
+	if !timedPunishAction(s.Action) || !models.PunishDurationValid(s.ActionSecs) {
+		s.ActionSecs = 0
+	}
+}
+
+// sanitizeImportedBlacklist stores 0 for an imported blacklist word's action duration that is not a
+// valid duration of a timed action (D-37).
+func sanitizeImportedBlacklist(e *models.BlacklistSettings) {
+	if !timedPunishAction(e.Action) || !models.PunishDurationValid(e.ActionSecs) {
+		e.ActionSecs = 0
+	}
+}
+
+// sanitizeImportedWarnTimes keeps an imported member's warn times only when there is one per warn,
+// each positive, non-decreasing and at most one minute after now (validImportedWarnTimes). Otherwise it
+// drops them and dates the row at the import, so its warns are counted from now and a tampered time can
+// neither expire a warn early nor keep one forever (D-37).
+func sanitizeImportedWarnTimes(row *models.Warns, now time.Time) {
+	if validImportedWarnTimes(row.WarnTimes, row.NumWarns, now) {
+		return
+	}
+	row.WarnTimes = nil
+	row.UpdatedAt = now
+}
+
+// validImportedWarnTimes is the import's check of a member's warn times; see sanitizeImportedWarnTimes.
+func validImportedWarnTimes(times []int64, numWarns int, now time.Time) bool {
+	if len(times) != numWarns {
+		return false
+	}
+	latest := now.Add(time.Minute).Unix()
+	var prev int64
+	for _, t := range times {
+		if t <= 0 || t < prev || t > latest {
+			return false
+		}
+		prev = t
+	}
+	return true
 }
 
 func moduleFieldPresent(payload interface{}, field string) bool {
@@ -995,6 +1122,8 @@ func clearModuleData(tx *gorm.DB, chatID int64, module string) ([]string, error)
 		return clearFederations(tx, chatID)
 	case BackupModuleLogChannels:
 		return clearLogChannels(tx, chatID)
+	case BackupModuleMessages:
+		return clearMessages(tx, chatID)
 	default:
 		return nil, fmt.Errorf("unknown module: %s", module)
 	}
@@ -1255,4 +1384,44 @@ func clearLogChannels(tx *gorm.DB, chatID int64) ([]string, error) {
 		return nil, err
 	}
 	return []string{cacheKey("log_channel", chatID)}, nil
+}
+
+func importMessages(tx *gorm.DB, chatID int64, payload interface{}, report *ImportReport) ([]string, error) {
+	var data MessagesBackup
+	if err := decodeModuleData(payload, BackupModuleMessages, &data); err != nil {
+		return nil, err
+	}
+	rows := make([]eventmsg.Message, len(data.Messages))
+	for i, row := range data.Messages {
+		rows[i] = eventmsg.Message{
+			Event:     row.Event,
+			Dest:      row.Dest,
+			Text:      row.Text,
+			FileID:    row.FileID,
+			MediaType: row.MediaType,
+			Buttons:   []models.Button(row.Buttons),
+			Silent:    row.Silent,
+		}
+	}
+	var opts eventmsg.Options
+	if data.Options != nil {
+		opts = eventmsg.Options{
+			PMDetails: data.Options.PMDetails,
+			PMLog:     data.Options.PMLog,
+			PlainTone: data.Options.PlainTone,
+		}
+	}
+	writeReport, err := eventmsg.ReplaceAllValidatedTx(tx, chatID, rows, opts, 0)
+	if err != nil {
+		return nil, err
+	}
+	report.Skipped += len(writeReport.Skipped)
+	return []string{eventmsg.CacheKey(chatID)}, nil
+}
+
+func clearMessages(tx *gorm.DB, chatID int64) ([]string, error) {
+	if _, err := eventmsg.ReplaceAllValidatedTx(tx, chatID, nil, eventmsg.Options{}, 0); err != nil {
+		return nil, err
+	}
+	return []string{eventmsg.CacheKey(chatID)}, nil
 }

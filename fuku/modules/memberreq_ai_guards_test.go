@@ -937,7 +937,7 @@ func TestMemberReqAINamesChangedDuringLookup(t *testing.T) {
 		if n := ai.count(); n != 2 {
 			t.Errorf("requests = %d, want 2: the new names are judged at the next message", n)
 		}
-		mreqAIWantBaseline(t, member.Id, mreqAIHashOfUser(t, renamed))
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAIHashOfUser(t, renamed))
 		mreqAIWantMarker(t, env.chat.Id, member.Id, false)
 	})
 

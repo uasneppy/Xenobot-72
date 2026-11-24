@@ -102,7 +102,7 @@ func TestMemberReqFixedAI(t *testing.T) {
 		if n := ai.count() - requestsBefore; n != 1 {
 			t.Errorf("provider requests for the press = %d, want exactly 1 for the new names", n)
 		}
-		mreqAIWantBaseline(t, member.Id, mreqAIHashOfUser(t, ordinary))
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAIHashOfUser(t, ordinary))
 		mreqAIWantMarker(t, env.chat.Id, member.Id, false)
 
 		starts := mreqCountJobStarts(t)

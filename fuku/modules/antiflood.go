@@ -2,7 +2,9 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"html"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,6 +20,7 @@ import (
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/antiflood"
 	"github.com/uasneppy/fuku_robot/fuku/db/deletion"
+	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/lang"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
@@ -265,10 +268,6 @@ func (m *moduleStruct) checkFlood(b *gotgbot.Bot, ctx *ext.Context) error {
 		return ext.ContinueGroups
 	}
 
-	var (
-		fmode    string
-		keyboard [][]gotgbot.InlineKeyboardButton
-	)
 	userId := user.Id()
 
 	if antifloodModule.userIsFloodExempt(b, chatId, userId) {
@@ -285,8 +284,11 @@ func (m *moduleStruct) checkFlood(b *gotgbot.Bot, ctx *ext.Context) error {
 	}
 
 	tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
+	p := autoPunishment{Action: flood.Action, Secs: flood.ActionSecs}
 
-	if flood.Action == "mute" || flood.Action == "kick" || flood.Action == "ban" {
+	// Every action that punishes (mute, kick, ban, and a timed mute or ban with a duration) needs the
+	// right to restrict; warn and a timed action stored with no duration apply nothing and need none.
+	if autoActionEffective(p.Action, p.Secs) {
 		if !chat_status.CanBotRestrict(b, ctx, chat) {
 			log.WithFields(log.Fields{
 				"chatId": chatId,
@@ -343,93 +345,176 @@ func (m *moduleStruct) checkFlood(b *gotgbot.Bot, ctx *ext.Context) error {
 		_ = helpers.DeleteMessageWithErrorHandling(b, chatId, msg.MessageId)
 	}
 
-	switch flood.Action {
-	case "mute":
-		if !user.IsUser() {
-			return ext.ContinueGroups
-		}
-		fmode = "muted"
-		keyboard = [][]gotgbot.InlineKeyboardButton{
-			{
-				{
-					Text:         trS(tr, "button_unmute_admins"),
-					CallbackData: encodeCallbackData("unrestrict", map[string]string{"a": "unmute", "u": fmt.Sprint(user.Id())}),
-				},
-			},
-		}
-
-		_, err := chat.RestrictMember(b, userId,
-			MutedPermissions,
-			nil,
-		)
-		if err != nil {
-			log.Errorf(" checkFlood: %d (%d) - %v", chatId, user.Id(), err)
-			return err
-		}
-	case "kick":
-		if !user.IsUser() {
-			return ext.ContinueGroups
-		}
-		fmode = "kicked"
-		keyboard = nil
-		if err := kickMember(b, chat.Id, userId); err != nil {
-			log.Errorf(" checkFlood: %d (%d) - %v", chatId, user.Id(), err)
-			return err
-		}
-	case "ban":
-		fmode = "banned"
-		if user.IsUser() {
-			_, err := chat.BanMember(b, userId, nil)
-			if err != nil {
-				log.Errorf(" checkFlood: %d (%d) - %v", chatId, user.Id(), err)
-				return err
-			}
-		} else {
-			keyboard = [][]gotgbot.InlineKeyboardButton{
-				{
-					{
-						Text:         trS(tr, "antiflood_button_unban_admins"),
-						CallbackData: encodeCallbackData("unrestrict", map[string]string{"a": "unban", "u": fmt.Sprint(user.Id())}),
-					},
-				},
-			}
-			_, err := chat.BanSenderChat(b, userId, nil)
-			if err != nil {
-				log.Errorf(" checkFlood: %d (%d) - %v", chatId, user.Id(), err)
-				return err
-			}
-		}
-	}
-	sent, err := helpers.SendMessageWithErrorHandling(b, chatId,
-		func() string {
-			temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_checkflood_perform_action")
-			return fmt.Sprintf(temp, formatting.MentionHtml(userId, user.Name()), fmode)
-		}(),
-		&gotgbot.SendMessageOpts{
-			ParseMode: formatting.HTML,
-			ReplyMarkup: gotgbot.InlineKeyboardMarkup{
-				InlineKeyboard: keyboard,
-			},
-			MessageThreadId: msg.MessageThreadId,
-		},
-	)
+	p = escalate(tracing.UpdateContext(ctx), b, chatId, userId, "flood", p)
+	rows, applied, notice, err := floodPunish(b, chat, tr, user, p)
 	if err != nil {
+		return err
+	}
+	if !notice {
+		return ext.ContinueGroups
+	}
+	if err := floodNotice(b, chat, msg, tr, user, applied, flood.Limit, floodCrc.messageCount, rows); err != nil {
 		log.Error(err)
 		return err
 	}
-	// The notice is an automatic punishment message (D-11); the helper answers nil for a chat it
-	// cannot post in, and scheduleBotMessage ignores that.
-	scheduleBotMessage(sent, deletion.KindBotAuto)
-
 	return ext.ContinueGroups
+}
+
+// floodUnmuteRows is the admins' Unmute row of a flood mute, plain or timed.
+func floodUnmuteRows(tr *i18n.Translator, userID int64) [][]gotgbot.InlineKeyboardButton {
+	return [][]gotgbot.InlineKeyboardButton{
+		{
+			{
+				Text:         trS(tr, "button_unmute_admins"),
+				CallbackData: encodeCallbackData("unrestrict", map[string]string{"a": "unmute", "u": fmt.Sprint(userID)}),
+			},
+		},
+	}
+}
+
+// floodPunish applies p to the flooding sender, the one place the flood's action is decided (plan
+// 26-09 adds the escalation ladder here). It returns the bot's rows of the notice, the punishment as
+// applied (Until set for a timed one) and whether a notice is due; an error is a punishment Telegram
+// refused, logged here, after which nothing is posted.
+//   - mute, kick and ban send today's requests with today's rows: a mute or a kick of a sender chat
+//     sends nothing and posts nothing, a ban of a sender chat bans the chat and carries the Unban row;
+//   - an effective timed mute or ban (a duration of 1m to 366d) goes through applyTimedPunishment, a
+//     timed mute keeping the Unmute row and a timed ban carrying none, and a sender chat gets nothing
+//     and no notice (D-13: a sender chat has no timed form, and banSenderChat would ban it for good);
+//   - anything else (warn, a timed action stored with no duration) applies nothing and posts today's
+//     inert notice.
+func floodPunish(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator, user *gotgbot.Sender, p autoPunishment) (
+	rows [][]gotgbot.InlineKeyboardButton, applied autoPunishment, notice bool, err error) {
+	if p.Timed() && autoActionEffective(p.Action, p.Secs) {
+		return floodPunishTimed(b, chat, tr, user, p)
+	}
+	userID := user.Id()
+	switch p.Action {
+	case "mute":
+		if !user.IsUser() {
+			return nil, p, false, nil
+		}
+		rows = floodUnmuteRows(tr, userID)
+		if _, err = chat.RestrictMember(b, userID, MutedPermissions, nil); err != nil {
+			log.Errorf(" checkFlood: %d (%d) - %v", chat.Id, userID, err)
+			return nil, p, false, err
+		}
+	case "kick":
+		if !user.IsUser() {
+			return nil, p, false, nil
+		}
+		if err = kickMember(b, chat.Id, userID); err != nil {
+			log.Errorf(" checkFlood: %d (%d) - %v", chat.Id, userID, err)
+			return nil, p, false, err
+		}
+	case "ban":
+		if user.IsUser() {
+			_, err = chat.BanMember(b, userID, nil)
+		} else {
+			rows = [][]gotgbot.InlineKeyboardButton{
+				{
+					{
+						Text:         trS(tr, "antiflood_button_unban_admins"),
+						CallbackData: encodeCallbackData("unrestrict", map[string]string{"a": "unban", "u": fmt.Sprint(userID)}),
+					},
+				},
+			}
+			_, err = chat.BanSenderChat(b, userID, nil)
+		}
+		if err != nil {
+			log.Errorf(" checkFlood: %d (%d) - %v", chat.Id, userID, err)
+			return nil, p, false, err
+		}
+	}
+	return rows, p, true, nil
+}
+
+// floodPunishTimed applies an effective timed mute or ban of the flooding member through
+// applyTimedPunishment, whose end date it records on the punishment. A sender chat gets nothing and no
+// notice. An end date refused locally (errPunishTimeRanOut, logged by the helper) punishes nobody: the
+// notice is today's inert one, with no row and no duration.
+func floodPunishTimed(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator, user *gotgbot.Sender, p autoPunishment) (
+	rows [][]gotgbot.InlineKeyboardButton, applied autoPunishment, notice bool, err error) {
+	if !user.IsUser() {
+		return nil, p, false, nil
+	}
+	userID := user.Id()
+	p.Until, err = applyTimedPunishment(b, chat.Id, userID, p.Action, p.Secs)
+	switch {
+	case errors.Is(err, errPunishTimeRanOut):
+		return nil, autoPunishment{Action: p.Action}, true, nil
+	case err != nil:
+		log.Errorf(" checkFlood: %d (%d) - %v", chat.Id, userID, err)
+		return nil, p, false, err
+	}
+	if p.Action == "tmute" {
+		rows = floodUnmuteRows(tr, userID)
+	}
+	return rows, p, true, nil
+}
+
+// floodNotice posts the flood notice after the punishment (D-03). A mute, a kick, a ban and an applied
+// timed mute or ban are the flood event (postEvent): a group's stored flood message replaces the default,
+// keeping the bot's Unmute or Unban row first (the rows of the default's options, D-15), with {action} the
+// translated word, {reason} the fixed flood reason, {count} the messages of the burst and {limit} the
+// flood limit; a timed punishment also fills {duration} (the duration in the group's language) and
+// {until} (the end date its request was sent with, in the chat's zone, D-16). A stored inert action (warn,
+// a timed action with no duration) applies nothing and is not an event: its notice is today's, sent as
+// is. The default is today's request byte for byte for every untimed action: no reply, the message's
+// topic, sent through helpers.SendMessageWithErrorHandling (which answers no message for a chat the bot
+// cannot post in) and queued as an automatic punishment message (D-11, D-17); a timed punishment's default
+// names the duration.
+func floodNotice(b *gotgbot.Bot, chat *gotgbot.Chat, msg *gotgbot.Message, tr *i18n.Translator, sender *gotgbot.Sender,
+	p autoPunishment, limit, count int, rows [][]gotgbot.InlineKeyboardButton) error {
+	target := eventSenderTarget(sender)
+	timed := p.Timed() && p.Until > 0
+	in := eventDefaultInput{Target: target, Action: p.Action, Rows: rows}
+	if timed {
+		in.Secs = p.Secs
+	}
+	text, opts := floodDefaultReply(tr, in)
+	opts.MessageThreadId = msg.MessageThreadId
+	site := eventSite{
+		Bot:       b,
+		Chat:      chat,
+		Tr:        tr,
+		ThreadID:  msg.MessageThreadId,
+		Kind:      deletion.KindBotAuto,
+		Automatic: true,
+		SendDefault: func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			return helpers.SendMessageWithErrorHandling(b, chat.Id, text, opts)
+		},
+	}
+	values := eventValues{Reason: floodEventReason(tr), Count: count, Limit: limit, Action: eventActionWord(tr, p.Action)}
+	if timed {
+		values.Duration, values.Until = punishDurationLabel(tr, p.Secs), time.Unix(p.Until, 0)
+	}
+	r := eventReply{
+		Event:        eventmsg.EventFlood,
+		Target:       target,
+		Values:       values,
+		Default:      text,
+		PlainDefault: func() string { return floodPlainDefaultReply(tr, in) },
+		Opts:         opts,
+		Appeal:       p.Action == "ban" || (p.Action == "tban" && timed),
+	}
+	if _, acts := floodWords[p.Action]; !acts && !timed {
+		_, err := sendDefaultPost(site, r)
+		return err
+	}
+	return postEvent(site, r)
 }
 
 // floodOffWords are the arguments /setflood reads as "turn antiflood off".
 var floodOffWords = []string{"off", "no", "false", "0"}
 
-// floodModes are the only actions a command or the settings page may write. warn, tban and
-// tmute stay valid in the database check but are never written (D-20).
+// floodModes are the plain actions a command or the settings page may write, with seconds 0.
+// warn stays valid in the database check but is never written (D-20).
 var floodModes = []string{"ban", "kick", "mute"}
+
+// floodTimedModes are the timed actions (Phase 26, D-09): written only with a duration of
+// punishMinSecs to punishMaxSecs, and inert when stored with none.
+var floodTimedModes = []string{"tban", "tmute"}
 
 // floodApplyOutcome is what an apply function did with its input.
 type floodApplyOutcome int
@@ -441,10 +526,14 @@ const (
 	floodDisabled
 	// floodOutOfRange means the limit was neither 0 nor 3..100; nothing was written.
 	floodOutOfRange
-	// floodUnknownMode means the action was not ban, kick or mute; nothing was written.
+	// floodUnknownMode means the action was not ban, kick or mute, or a timed action came with
+	// no duration; nothing was written.
 	floodUnknownMode
 	// floodSaveFailed means the repository returned an error; Err holds it.
 	floodSaveFailed
+	// floodBadDuration means a timed action (tban, tmute) came with a duration outside
+	// punishMinSecs to punishMaxSecs; nothing was written.
+	floodBadDuration
 )
 
 // floodApplyResult is the verdict of an apply function. Stored is the row read back from the
@@ -488,13 +577,26 @@ func applyFloodLimit(ctx context.Context, chatID int64, limit int) floodApplyRes
 	}
 }
 
-// applyFloodMode validates and stores the antiflood action. Only ban, kick and mute are
-// accepted, exactly as spelled; the caller lower-cases user text first.
-func applyFloodMode(ctx context.Context, chatID int64, mode string) floodApplyResult {
-	if !slices.Contains(floodModes, mode) {
+// applyFloodMode validates and stores the antiflood action and its duration in seconds, exactly
+// as spelled; the caller lower-cases user text first (D-09, the rules of applyWarnMode):
+//   - a plain action (ban, kick, mute) stores seconds 0, clearing any duration, whatever secs says;
+//   - a timed action (tban, tmute) with seconds 0 is floodUnknownMode, the pinned reply of a timed
+//     word alone;
+//   - a timed action with seconds outside punishMinSecs to punishMaxSecs is floodBadDuration;
+//   - a valid timed action stores the action and the seconds in one write.
+//
+// Nothing is written on a refusal. The repository write invalidates its own cache key. It judges
+// no person's rights.
+func applyFloodMode(ctx context.Context, chatID int64, mode string, secs int) floodApplyResult {
+	switch {
+	case slices.Contains(floodModes, mode):
+		secs = 0
+	case !slices.Contains(floodTimedModes, mode), secs == 0:
 		return floodApplyResult{Outcome: floodUnknownMode}
+	case !punishDurationValid(secs):
+		return floodApplyResult{Outcome: floodBadDuration}
 	}
-	return floodSaved(ctx, chatID, floodApplied, antiflood.SetFloodModeContext(ctx, chatID, mode))
+	return floodSaved(ctx, chatID, floodApplied, antiflood.SetFloodActionContext(ctx, chatID, mode, secs))
 }
 
 // applyFloodDelete stores whether messages that caused a flood are deleted.
@@ -578,23 +680,45 @@ func (m *moduleStruct) flood(b *gotgbot.Bot, ctx *ext.Context) error {
 	if flood.Limit == 0 {
 		text, _ = tr.GetString(strings.ToLower(m.moduleName) + "_flood_disabled")
 	} else {
-		var mode string
-		switch flood.Action {
-		case "mute":
-			mode = "muted"
-		case "ban":
-			mode = "banned"
-		case "kick":
-			mode = "kicked"
-		}
 		temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_flood_show_settings")
-		text = fmt.Sprintf(temp, flood.Limit, mode)
+		text = fmt.Sprintf(temp, flood.Limit, floodShownAction(flood.Action, flood.ActionSecs))
 	}
 	_, err := msg.Reply(b, text, formatting.Shtml())
 	if err != nil {
 		return err
 	}
 	return ext.EndGroups
+}
+
+// floodShownAction is the untranslated word /flood shows for a stored action: muted, banned or kicked
+// for a plain action, the mute or ban word followed by " for " and the short duration ("muted for
+// 30m") for an effective timed action, and nothing for anything else (warn, or a timed action stored
+// with no duration, as before Phase 26).
+func floodShownAction(action string, secs int) string {
+	switch {
+	case action == "tmute" && autoActionEffective(action, secs):
+		return "muted for " + punishDurationShort(secs)
+	case action == "tban" && autoActionEffective(action, secs):
+		return "banned for " + punishDurationShort(secs)
+	}
+	return floodWords[action]
+}
+
+// floodModeArgs reads the arguments of /setfloodmode: the lower-cased first word and the seconds to
+// hand applyFloodMode. A timed word followed by a second word gets that word's duration, or -1 when
+// it is not a valid duration (applyFloodMode answers bad duration); a timed word alone gets 0, which
+// keeps the pinned unknown reply; a plain word gets 0 whatever follows it (/setfloodmode ban x stores
+// ban).
+func floodModeArgs(args []string) (string, int) {
+	mode := strings.ToLower(args[0])
+	if !slices.Contains(floodTimedModes, mode) || len(args) < 2 {
+		return mode, 0
+	}
+	secs, ok := parsePunishDuration(args[1])
+	if !ok {
+		return mode, -1
+	}
+	return mode, secs
 }
 
 func (m *moduleStruct) setFloodMode(b *gotgbot.Bot, ctx *ext.Context) error {
@@ -609,8 +733,8 @@ func (m *moduleStruct) setFloodMode(b *gotgbot.Bot, ctx *ext.Context) error {
 	args := ctx.Args()[1:]
 
 	if len(args) > 0 {
-		selectedMode := strings.ToLower(args[0])
-		result := applyFloodMode(tracing.UpdateContext(ctx), chat.Id, selectedMode)
+		selectedMode, secs := floodModeArgs(args)
+		result := applyFloodMode(tracing.UpdateContext(ctx), chat.Id, selectedMode, secs)
 		switch result.Outcome {
 		case floodSaveFailed:
 			log.Errorf("[Antiflood] SetFloodMode failed for chat %d: %v", chat.Id, result.Err)
@@ -618,15 +742,25 @@ func (m *moduleStruct) setFloodMode(b *gotgbot.Bot, ctx *ext.Context) error {
 			_, _ = msg.Reply(b, errText, formatting.Shtml())
 			return ext.EndGroups
 		case floodApplied:
+			shown := selectedMode
+			if slices.Contains(floodTimedModes, selectedMode) {
+				shown += " " + punishDurationShort(secs)
+			}
 			temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_setfloodmode_success")
-			_, err := msg.Reply(b, fmt.Sprintf(temp, selectedMode), formatting.Shtml())
+			_, err := msg.Reply(b, fmt.Sprintf(temp, shown), formatting.Shtml())
 			if err != nil {
 				log.Error(err)
 			}
 			return ext.EndGroups
+		case floodBadDuration:
+			text, _ := tr.GetString(strings.ToLower(m.moduleName) + "_setfloodmode_bad_duration")
+			_, err := msg.Reply(b, text, formatting.Shtml())
+			if err != nil {
+				return err
+			}
 		default:
 			temp, _ := tr.GetString(strings.ToLower(m.moduleName) + "_setfloodmode_unknown_type")
-			_, err := msg.Reply(b, fmt.Sprintf(temp, args[0]), formatting.Shtml())
+			_, err := msg.Reply(b, fmt.Sprintf(temp, html.EscapeString(args[0])), formatting.Shtml())
 			if err != nil {
 				return err
 			}

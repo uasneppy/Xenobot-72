@@ -46,11 +46,11 @@ func mreqAIHashOfUser(t *testing.T, user gotgbot.User) string {
 	return mreqAICanon(t, user.FirstName, user.LastName, user.Username).Hash
 }
 
-// mreqAIWantBaseline fails the test unless the user's baseline holds want and lives about 180 days
+// mreqAIWantBaseline fails the test unless the member's baseline in chatID holds want and lives about 180 days
 // (memberReqAIBaselineTTL, WR-02).
-func mreqAIWantBaseline(t *testing.T, userID int64, want string) {
+func mreqAIWantBaseline(t *testing.T, chatID, userID int64, want string) {
 	t.Helper()
-	value, ttl, ok := mreqAIBaselineOf(t, userID)
+	value, ttl, ok := mreqAIBaselineOf(t, chatID, userID)
 	if !ok || value != want {
 		t.Fatalf("baseline = %q (present %t), want %q", value, ok, want)
 	}
@@ -62,10 +62,10 @@ func mreqAIWantBaseline(t *testing.T, userID int64, want string) {
 	}
 }
 
-// mreqAIWantNoBaseline fails the test when the user has a baseline.
-func mreqAIWantNoBaseline(t *testing.T, userID int64) {
+// mreqAIWantNoBaseline fails the test when the member has a baseline in chatID.
+func mreqAIWantNoBaseline(t *testing.T, chatID, userID int64) {
 	t.Helper()
-	if value, _, ok := mreqAIBaselineOf(t, userID); ok {
+	if value, _, ok := mreqAIBaselineOf(t, chatID, userID); ok {
 		t.Errorf("baseline = %q, want none", value)
 	}
 }
@@ -99,20 +99,20 @@ func TestMemberReqAIBaseline(t *testing.T) {
 		if n := ai.count(); n != 0 {
 			t.Errorf("provider requests = %d, want none for a first sighting", n)
 		}
-		mreqAIWantBaseline(t, member.Id, hash)
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, hash)
 		mreqAIWantMarker(t, env.chat.Id, member.Id, false)
-		if value, _, _ := mreqAIBaselineOf(t, member.Id); value == member.FirstName || value == member.Username {
+		if value, _, _ := mreqAIBaselineOf(t, env.chat.Id, member.Id); value == member.FirstName || value == member.Username {
 			t.Errorf("the baseline holds a name")
 		}
 
 		// The second sighting is a pass with no call and no write: the baseline's own expiry, which
 		// a rewrite would reset, is left as the test shortened it.
-		env.redis.SetTTL(memberReqAIBaselineKey(member.Id), time.Hour)
+		env.redis.SetTTL(memberReqAIBaselineKey(env.chat.Id, member.Id), time.Hour)
 		mreqAIWantNothing(t, env, member, env.mreqEnforce(env.mreqCase(member)))
 		if n := ai.count(); n != 0 {
 			t.Errorf("provider requests = %d, want none for the second sighting", n)
 		}
-		if ttl := env.redis.TTL(memberReqAIBaselineKey(member.Id)); ttl > time.Hour {
+		if ttl := env.redis.TTL(memberReqAIBaselineKey(env.chat.Id, member.Id)); ttl > time.Hour {
 			t.Errorf("baseline ttl = %v after the second sighting, want it not rewritten", ttl)
 		}
 	})
@@ -120,8 +120,8 @@ func TestMemberReqAIBaseline(t *testing.T) {
 	t.Run("a baseline equal to the current names passes with no write at all", func(t *testing.T) {
 		env, ai := jobEnv(t)
 		member := mreqAIOrdinary(env)
-		mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
-		env.redis.SetTTL(memberReqAIBaselineKey(member.Id), time.Hour)
+		mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
+		env.redis.SetTTL(memberReqAIBaselineKey(env.chat.Id, member.Id), time.Hour)
 
 		if got := mreqAIAskAs(env, member.Id, mreqAINamesOfUser(member), memberReqLookupMode{}); got != memberReqPass {
 			t.Errorf("verdict = %v, want pass", got)
@@ -129,7 +129,7 @@ func TestMemberReqAIBaseline(t *testing.T) {
 		if n := ai.count(); n != 0 {
 			t.Errorf("provider requests = %d, want none", n)
 		}
-		if ttl := env.redis.TTL(memberReqAIBaselineKey(member.Id)); ttl > time.Hour {
+		if ttl := env.redis.TTL(memberReqAIBaselineKey(env.chat.Id, member.Id)); ttl > time.Hour {
 			t.Errorf("baseline ttl = %v, want it not rewritten", ttl)
 		}
 		if keys := mreqAIVerdictKeys(t); len(keys) != 0 {
@@ -145,7 +145,7 @@ func TestMemberReqAIBaseline(t *testing.T) {
 			t.Errorf("verdict = %v, want unknown", got)
 		}
 		memberReqRedisClient = raidRedis
-		mreqAIWantNoBaseline(t, member.Id)
+		mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 		if n := ai.count(); n != 0 {
 			t.Errorf("provider requests = %d, want none", n)
 		}
@@ -160,7 +160,7 @@ func TestMemberReqAIBaseline(t *testing.T) {
 		if got != memberReqUnknown {
 			t.Errorf("verdict = %v, want unknown", got)
 		}
-		mreqAIWantNoBaseline(t, member.Id)
+		mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 		if n := ai.count(); n != 0 {
 			t.Errorf("provider requests = %d, want none", n)
 		}
@@ -174,7 +174,7 @@ func TestMemberReqAIBaseline(t *testing.T) {
 				t.Errorf("names %+v: verdict = %v, want inert", names, got)
 			}
 		}
-		mreqAIWantNoBaseline(t, userID)
+		mreqAIWantNoBaseline(t, env.chat.Id, userID)
 		mreqAIWantMarker(t, env.chat.Id, userID, false)
 		if n := ai.count(); n != 0 {
 			t.Errorf("provider requests = %d, want none", n)
@@ -193,7 +193,7 @@ func TestMemberReqAIBaseline(t *testing.T) {
 		if n := ai.count(); n == 0 {
 			t.Errorf("provider requests = 0, want the marker to force a judgement")
 		}
-		mreqAIWantNoBaseline(t, member.Id)
+		mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 		mreqAIWantMarker(t, env.chat.Id, member.Id, true)
 	})
 }
@@ -217,7 +217,7 @@ func TestMemberReqAIRename(t *testing.T) {
 		if got := ask(ordinary); got != memberReqPass {
 			t.Fatalf("first sighting = %v, want pass", got)
 		}
-		mreqAIWantBaseline(t, member.Id, hash)
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, hash)
 
 		ai.setDefault(mreqAIProbability(0.97))
 		if got := ask(spam); got != memberReqBreach {
@@ -230,7 +230,7 @@ func TestMemberReqAIRename(t *testing.T) {
 			t.Errorf("provider requests = %d, want 1 (a rename is judged once)", n)
 		}
 		mreqAIWantMarker(t, env.chat.Id, member.Id, true)
-		mreqAIWantBaseline(t, member.Id, hash)
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, hash)
 
 		ai.setDefault(mreqAIProbability(0.1))
 		if got := ask(ordinary); got != memberReqPass {
@@ -240,7 +240,7 @@ func TestMemberReqAIRename(t *testing.T) {
 			t.Errorf("provider requests = %d, want 2 (the marker forces a judgement of the old names)", n)
 		}
 		mreqAIWantMarker(t, env.chat.Id, member.Id, false)
-		mreqAIWantBaseline(t, member.Id, hash)
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, hash)
 	})
 
 	t.Run("a pass writes the new hash and a rename to a cached pass costs no request", func(t *testing.T) {
@@ -258,14 +258,14 @@ func TestMemberReqAIRename(t *testing.T) {
 		if n := ai.count(); n != 0 {
 			t.Errorf("provider requests = %d, want none for a cached pass", n)
 		}
-		mreqAIWantBaseline(t, member.Id, mreqAICanon(t, renamed.First, renamed.Last, renamed.Username).Hash)
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAICanon(t, renamed.First, renamed.Last, renamed.Username).Hash)
 	})
 
 	t.Run("a member who renames to spam is punished by the rule's action at their next message", func(t *testing.T) {
 		env, ai := direct(t)
 		member := mreqAIOrdinary(env)
 		mreqAIWantNothing(t, env, member, env.mreqEnforce(env.mreqCase(member)))
-		mreqAIWantBaseline(t, member.Id, mreqAIHashOfUser(t, member))
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAIHashOfUser(t, member))
 
 		ai.setDefault(mreqAIProbability(0.97))
 		renamed := mreqAIRename(env, member, "Casino")
@@ -298,7 +298,7 @@ func TestMemberReqAINewMember(t *testing.T) {
 		ai.setDefault(mreqAIProbability(0.97))
 		member := mreqAIMember(env, "Casino")
 		hash := mreqAIHashOfUser(t, member)
-		mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), hash)
+		mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), hash)
 
 		env.mreqJoin(member)
 		if n := ai.count(); n != 1 {
@@ -308,7 +308,7 @@ func TestMemberReqAINewMember(t *testing.T) {
 			t.Errorf("hold = %+v, want a punished AI hold", hold)
 		}
 		mreqAIWantMarker(t, env.chat.Id, member.Id, true)
-		if value, _, _ := mreqAIBaselineOf(t, member.Id); value != hash {
+		if value, _, _ := mreqAIBaselineOf(t, env.chat.Id, member.Id); value != hash {
 			t.Errorf("baseline = %q, want it unchanged by a breach", value)
 		}
 	})
@@ -324,7 +324,7 @@ func TestMemberReqAINewMember(t *testing.T) {
 		if n := ai.count(); n != 1 {
 			t.Errorf("provider requests = %d, want 1", n)
 		}
-		mreqAIWantBaseline(t, member.Id, mreqAIHashOfUser(t, member))
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAIHashOfUser(t, member))
 		mreqAIWantMarker(t, env.chat.Id, member.Id, false)
 	})
 
@@ -338,7 +338,7 @@ func TestMemberReqAINewMember(t *testing.T) {
 			t.Errorf("welcomes = %d, want 1 (an unanswered check welcomes)", got)
 		}
 		mreqAIWantMarker(t, env.chat.Id, member.Id, true)
-		mreqAIWantNoBaseline(t, member.Id)
+		mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 		if hold := env.mreqHold(member.Id); hold != nil {
 			t.Fatalf("hold = %+v, want none after an unanswered join", hold)
 		}
@@ -353,7 +353,7 @@ func TestMemberReqAINewMember(t *testing.T) {
 		if hold := env.mreqHold(member.Id); hold == nil || hold.Rules != mreqBitOf(t, "ai") {
 			t.Errorf("hold = %+v, want the AI hold from the first message", hold)
 		}
-		mreqAIWantNoBaseline(t, member.Id)
+		mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 	})
 
 	t.Run("a joiner who rejoins is judged again", func(t *testing.T) {
@@ -364,7 +364,7 @@ func TestMemberReqAINewMember(t *testing.T) {
 		if n := ai.count(); n != 1 {
 			t.Fatalf("provider requests after the first join = %d, want 1", n)
 		}
-		mreqAIWantBaseline(t, member.Id, mreqAIHashOfUser(t, member))
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAIHashOfUser(t, member))
 
 		// A new membership: the leave clears the join dedupe claim, and the cached verdict of the
 		// old names is gone, so only the rule's own order can decide whether the baseline counts.
@@ -398,7 +398,7 @@ func TestMemberReqAINewMember(t *testing.T) {
 			member := mreqAIOrdinary(env)
 			env.mreqJoin(member)
 			mreqAIWantMarker(t, env.chat.Id, member.Id, false)
-			mreqAIWantNoBaseline(t, member.Id)
+			mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 			if n := ai.count(); n != 0 {
 				t.Errorf("%s: provider requests = %d, want none", tc.name, n)
 			}
@@ -415,7 +415,7 @@ func TestMemberReqAINewMember(t *testing.T) {
 			t.Errorf("welcomes = %d, want 1", got)
 		}
 		mreqAIWantMarker(t, env.chat.Id, member.Id, false)
-		mreqAIWantNoBaseline(t, member.Id)
+		mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 		if n := ai.count(); n != 0 {
 			t.Errorf("provider requests = %d, want none", n)
 		}
@@ -452,7 +452,7 @@ func TestMemberReqAICheckOnJoinOff(t *testing.T) {
 	if n := ai.count(); n != 1 {
 		t.Errorf("provider requests = %d, want still 1 (an established member costs no request)", n)
 	}
-	mreqAIWantBaseline(t, established.Id, mreqAIHashOfUser(t, established))
+	mreqAIWantBaseline(t, env.chat.Id, established.Id, mreqAIHashOfUser(t, established))
 	if hold := env.mreqHold(established.Id); hold != nil {
 		t.Errorf("hold = %+v, want none for an established member", hold)
 	}
@@ -471,7 +471,7 @@ func TestMemberReqAIMarkerSurvivesLongHold(t *testing.T) {
 
 	// The baseline and the verdict expire during the hold. The marker is what is left.
 	mreqAIDeleteVerdicts()
-	env.redis.Del(memberReqAIBaselineKey(member.Id))
+	env.redis.Del(memberReqAIBaselineKey(env.chat.Id, member.Id))
 	requests := ai.count()
 
 	later := env.mreqCase(member)
@@ -482,7 +482,7 @@ func TestMemberReqAIMarkerSurvivesLongHold(t *testing.T) {
 	if n := ai.count() - requests; n != 1 {
 		t.Errorf("provider requests = %d, want 1 (the marker forces a judgement, a baseline-only pass would launder the member)", n)
 	}
-	mreqAIWantNoBaseline(t, member.Id)
+	mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 	mreqAIWantMarker(t, env.chat.Id, member.Id, true)
 	if hold := env.mreqHold(member.Id); hold == nil {
 		t.Fatalf("the hold was released although the names were judged spam again")
@@ -499,5 +499,5 @@ func TestMemberReqAIMarkerSurvivesLongHold(t *testing.T) {
 		t.Errorf("hold = %+v, want it released by the pass", hold)
 	}
 	mreqAIWantMarker(t, env.chat.Id, member.Id, false)
-	mreqAIWantBaseline(t, member.Id, mreqAIHashOfUser(t, member))
+	mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAIHashOfUser(t, member))
 }

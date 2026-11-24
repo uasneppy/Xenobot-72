@@ -283,12 +283,12 @@ func TestExcludedKeysNeverServedLocally(t *testing.T) {
 }
 
 func TestSkipLocalMatchesFreshnessCriticalKeys(t *testing.T) {
-	for _, prefix := range []string{"captcha_pending", "staff_group", "staff_link_of", "raid_detection", "member_requirements", "delete_rules", "staff_forward_block", "chat_conv"} {
+	for _, prefix := range []string{"captcha_pending", "staff_group", "staff_link_of", "raid_detection", "member_requirements", "delete_rules", "staff_forward_block", "chat_conv", "event_messages", "chat_escalation"} {
 		if !skipLocal(CacheKey(prefix, int64(-1001))) {
 			t.Errorf("%s key not excluded from the local layer", prefix)
 		}
 	}
-	for _, prefix := range []string{"captcha_settings", "staff_groupx", "staff_link_ofx", "raid_detectionx", "member_requirementsx", "delete_rulesx", "staff_forward_blockx", "chat_convx"} {
+	for _, prefix := range []string{"captcha_settings", "staff_groupx", "staff_link_ofx", "raid_detectionx", "member_requirementsx", "delete_rulesx", "staff_forward_blockx", "chat_convx", "event_messagesx", "chat_escalationx"} {
 		if skipLocal(CacheKey(prefix, int64(-1001))) {
 			t.Errorf("%s key excluded, want it cached locally", prefix)
 		}
@@ -315,6 +315,51 @@ func TestSkipLocalMemberRequirementsKey(t *testing.T) {
 		if !skipLocal(CacheKey("member_requirements", chatID)) {
 			t.Errorf("member requirements key of chat %d is served from the local layer", chatID)
 		}
+	}
+}
+
+// TestSkipLocalChatEscalationKey pins the exact key the escalation repository reads and
+// invalidates (cache.CacheKey("chat_escalation", chat)): it is read at every automatic punishment a
+// ladder source raises, and a ladder change must act on every replica at the next one (D-28).
+func TestSkipLocalChatEscalationKey(t *testing.T) {
+	if !skipLocal(CacheKey("chat_escalation", int64(-100123))) {
+		t.Error("the escalation ladder key is served from the local layer")
+	}
+	if skipLocal(CacheKey("chat_escalationx", int64(1))) {
+		t.Error("a key that only starts with chat_escalation is excluded from the local layer")
+	}
+}
+
+// TestSkipLocalChatManualDefaultsKey pins the exact key the modtuning repository reads and
+// invalidates for manual defaults (cache.CacheKey("chat_manual_defaults", chat)).
+func TestSkipLocalChatManualDefaultsKey(t *testing.T) {
+	if !skipLocal(CacheKey("chat_manual_defaults", int64(-100123))) {
+		t.Error("the manual defaults key is served from the local layer")
+	}
+	if skipLocal(CacheKey("chat_manual_defaultsx", int64(1))) {
+		t.Error("a key that only starts with chat_manual_defaults is excluded from the local layer")
+	}
+}
+
+// TestSkipLocalChatReasonShortcutsKey pins the exact key the modtuning repository reads and
+// invalidates for reason shortcuts (cache.CacheKey("chat_reason_shortcuts", chat)).
+func TestSkipLocalChatReasonShortcutsKey(t *testing.T) {
+	if !skipLocal(CacheKey("chat_reason_shortcuts", int64(-100123))) {
+		t.Error("the reason shortcuts key is served from the local layer")
+	}
+	if skipLocal(CacheKey("chat_reason_shortcutsx", int64(1))) {
+		t.Error("a key that only starts with chat_reason_shortcuts is excluded from the local layer")
+	}
+}
+
+// TestSkipLocalChatAdvancedThresholdsKey pins the exact key the advthresholds repository reads and
+// invalidates for advanced thresholds (cache.CacheKey("chat_advanced_thresholds", chat)).
+func TestSkipLocalChatAdvancedThresholdsKey(t *testing.T) {
+	if !skipLocal(CacheKey("chat_advanced_thresholds", int64(-100123))) {
+		t.Error("the advanced thresholds key is served from the local layer")
+	}
+	if skipLocal(CacheKey("chat_advanced_thresholdsx", int64(1))) {
+		t.Error("a key that only starts with chat_advanced_thresholds is excluded from the local layer")
 	}
 }
 

@@ -15,8 +15,9 @@ import (
 )
 
 type telegramHelperBotClient struct {
-	errors map[string]error
-	calls  map[string]int
+	errors  map[string]error
+	calls   map[string]int
+	lastCtx context.Context
 }
 
 func newTelegramHelperBotClient() *telegramHelperBotClient {
@@ -26,7 +27,8 @@ func newTelegramHelperBotClient() *telegramHelperBotClient {
 	}
 }
 
-func (c *telegramHelperBotClient) RequestWithContext(_ context.Context, _ string, method string, _ map[string]any, _ *gotgbot.RequestOpts) (json.RawMessage, error) {
+func (c *telegramHelperBotClient) RequestWithContext(ctx context.Context, _ string, method string, _ map[string]any, _ *gotgbot.RequestOpts) (json.RawMessage, error) {
+	c.lastCtx = ctx
 	c.calls[method]++
 	if err := c.errors[method]; err != nil {
 		return nil, err
@@ -140,6 +142,24 @@ func TestSendMessageWithErrorHandlingReturnsSentMessage(t *testing.T) {
 	}
 	if msg == nil || msg.MessageId != 1 {
 		t.Fatalf("SendMessageWithErrorHandling() msg = %#v, want sent message", msg)
+	}
+}
+
+func TestSendMessageWithErrorHandlingContextPropagatesContext(t *testing.T) {
+	type ctxKey struct{}
+	client := newTelegramHelperBotClient()
+	bot := newTelegramHelperBot(client)
+	ctx := context.WithValue(context.Background(), ctxKey{}, "marker")
+
+	msg, err := helpers.SendMessageWithErrorHandlingContext(ctx, bot, -1001, "hello", nil)
+	if err != nil {
+		t.Fatalf("SendMessageWithErrorHandlingContext() error = %v, want nil", err)
+	}
+	if msg == nil || msg.MessageId != 1 {
+		t.Fatalf("SendMessageWithErrorHandlingContext() msg = %#v, want sent message", msg)
+	}
+	if client.lastCtx == nil || client.lastCtx.Value(ctxKey{}) != "marker" {
+		t.Fatalf("RequestWithContext received ctx %v, want caller context propagated", client.lastCtx)
 	}
 }
 

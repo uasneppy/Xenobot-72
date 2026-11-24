@@ -219,6 +219,29 @@ func GetStaffGroupFresh(chatID int64) (*models.StaffGroup, error) {
 	return &row, nil
 }
 
+// StaffGroupChatIDsFresh returns the subset of chatIDs that are registered Staff Groups in a
+// single fresh database query bounded by ctx. An empty slice returns an empty map with no query.
+func StaffGroupChatIDsFresh(ctx context.Context, chatIDs []int64) (map[int64]bool, error) {
+	out := make(map[int64]bool)
+	if len(chatIDs) == 0 {
+		return out, nil
+	}
+	if db.DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var found []int64
+	if err := db.DB.WithContext(ctx).Model(&models.StaffGroup{}).
+		Where("chat_id IN ?", chatIDs).
+		Pluck("chat_id", &found).Error; err != nil {
+		log.Errorf("[Staff] StaffGroupChatIDsFresh: %v", err)
+		return nil, fukuerrors.Wrap(err, "list staff group chat IDs")
+	}
+	for _, id := range found {
+		out[id] = true
+	}
+	return out, nil
+}
+
 // checkLinkRoles verifies, on q, that the Staff Group of link exists and that the
 // group being linked is not itself a Staff Group.
 func checkLinkRoles(q *gorm.DB, link *models.StaffGroupLink) error {

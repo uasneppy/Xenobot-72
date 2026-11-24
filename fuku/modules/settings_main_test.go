@@ -33,9 +33,9 @@ func settingsMainStateLine(text, titleKey string) (string, bool) {
 // private shape ends with the Groups and Close row; the hand-built subtests of
 // TestSettingsMainGrid keep their own literals.
 const (
-	settingsMainShapeGroup   = "s|l / c|f / n|k / b|i / w|g / r|e / x|m / d|t / u|z / o|y / p / a / close"
-	settingsMainShapePrivate = "s|l / c|f / n|k / b|i / w|g / r|e / x|m / d|t / u|z / o|y / p / a / groups|close"
-	settingsMainOwnerRows    = 13
+	settingsMainShapeGroup   = "s|l / c|f / q|n / j|k / rs|b / i|w / g|r / e|x / h|m / av|cp / ba|d / t|u / z|o / y / p / a / close"
+	settingsMainShapePrivate = "s|l / c|f / q|n / j|k / rs|b / i|w / g|r / e|x / h|m / av|cp / ba|d / t|u / z|o / y / p / a / groups|close"
+	settingsMainOwnerRows    = 17
 	// settingsMainOwnerOnlyRows is the number of owner-only rows (Conversations and Access) an
 	// administrator's Main lacks.
 	settingsMainOwnerOnlyRows = 2
@@ -399,11 +399,22 @@ func settingsMainWorstState(tr *i18n.Translator) string {
 		// reads n/150, digits only, so five digits is the widest).
 		settingsText(tr, "settings_state_private_only"),
 		"99999/150",
+		// Phase 21: the Messages line at its widest.
+		settingsText(tr, "settings_state_msg_n", i18n.TranslationParams{"n": 99}),
 	}
 	for _, mode := range settingsWarnsStoredModes {
 		candidates = append(candidates, settingsText(tr, "settings_state_warns", i18n.TranslationParams{
-			"n": settingsWarnsMaxLimit, "action": settingsWarnsActionWord(tr, mode),
+			"n": settingsWarnsMaxLimit, "action": settingsWarnsActionWord(tr, mode, 0),
 		}))
+	}
+	// Phase 26: a timed warn limit's word at the largest limit, for every preset and the longest duration a
+	// command can store.
+	for _, mode := range []string{"tmute", "tban"} {
+		for _, secs := range append(slices.Clone(settingsDurationPresets), punishMaxSecs, 5400) {
+			candidates = append(candidates, settingsText(tr, "settings_state_warns", i18n.TranslationParams{
+				"n": settingsWarnsMaxLimit, "action": settingsWarnsActionWord(tr, mode, secs),
+			}))
+		}
 	}
 	// The Language line is the stored language by its own name and flag: the longest of the eight.
 	for _, code := range groupLanguageCodes {
@@ -557,12 +568,12 @@ func settingsMainLines(text string) []string {
 	return lines
 }
 
-// settingsMainTitleKeys are the title keys of the twenty-one pages in the order Main draws them for the
-// owner: the twenty grid pages in grid order, then Access.
+// settingsMainTitleKeys are the title keys of the twenty-three pages in the order Main draws them for the
+// owner: the twenty-one grid pages in grid order, then Access.
 var settingsMainTitleKeys = []string{
 	"settings_page_staff", "settings_page_lockdown", "settings_page_captcha", "settings_page_antiflood",
-	"settings_page_warns", "settings_page_locks", "settings_page_blacklist", "settings_page_filters", "settings_page_welcome", "settings_page_goodbye",
-	"settings_page_rules", "settings_page_notes", "settings_page_reactions", "settings_page_mreq", "settings_page_del", "settings_page_switches",
+	"settings_page_moddefaults", "settings_page_warns", "settings_page_esc", "settings_page_locks", "settings_page_reasons", "settings_page_blacklist", "settings_page_filters", "settings_page_welcome", "settings_page_goodbye",
+	"settings_page_rules", "settings_page_notes", "settings_page_reactions", "settings_page_msgs", "settings_page_mreq", "settings_page_advanced", "settings_page_copy", "settings_page_backup", "settings_page_del", "settings_page_switches",
 	"settings_page_lang", "settings_page_tz", "settings_page_log", "settings_page_anon", "settings_page_chat", "settings_page_access",
 }
 

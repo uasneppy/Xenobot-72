@@ -51,6 +51,15 @@ var (
 
 	staffForwardBlockPrefix = CacheKey("staff_forward_block") + ":"
 	chatConvPrefix          = CacheKey("chat_conv") + ":"
+
+	eventMessagesPrefix = CacheKey("event_messages") + ":"
+
+	chatEscalationPrefix = CacheKey("chat_escalation") + ":"
+
+	chatManualDefaultsPrefix  = CacheKey("chat_manual_defaults") + ":"
+	chatReasonShortcutsPrefix = CacheKey("chat_reason_shortcuts") + ":"
+
+	chatAdvancedThresholdsPrefix = CacheKey("chat_advanced_thresholds") + ":"
 )
 
 // skipLocal reports whether key must never be served from process memory.
@@ -86,6 +95,21 @@ func skipLocal(key string) bool {
 	// The chat_conv key (a group's conversation setting) is read on every message addressed to
 	// the bot: an owner who switches conversations off must stop replies on every replica at the
 	// next message, not after CACHE_LOCAL_TTL seconds.
+	// The event_messages key (a group's custom event messages) is read at every manual
+	// punishment reply: a Remove or a Silent switch must act at the very next command on every
+	// replica, not after CACHE_LOCAL_TTL seconds (D-05).
+	//
+	// The chat_escalation key (a group's escalation ladder) is read at every automatic punishment
+	// a ladder source raises: a ladder an owner switched off or changed must act on every replica
+	// at the next punishment, not after CACHE_LOCAL_TTL seconds (D-28).
+	//
+	// The chat_manual_defaults and chat_reason_shortcuts keys are read on every manual moderation
+	// command: a default duration, reason-required switch, appeal link, or shortcut change must
+	// act on every replica at the very next command, not after CACHE_LOCAL_TTL seconds.
+	//
+	// The chat_advanced_thresholds key holds per-group overrides for raid detection, member
+	// requirements, lockdown reminders, and captcha timeout: a threshold change or reset must
+	// act on every replica on the very next event, not after CACHE_LOCAL_TTL seconds.
 	return strings.HasPrefix(key, captchaPendingPrefix) ||
 		strings.HasPrefix(key, staffGroupPrefix) ||
 		strings.HasPrefix(key, staffLinkOfPrefix) ||
@@ -93,7 +117,12 @@ func skipLocal(key string) bool {
 		strings.HasPrefix(key, memberRequirementsPrefix) ||
 		strings.HasPrefix(key, deleteRulesPrefix) ||
 		strings.HasPrefix(key, staffForwardBlockPrefix) ||
-		strings.HasPrefix(key, chatConvPrefix)
+		strings.HasPrefix(key, chatConvPrefix) ||
+		strings.HasPrefix(key, eventMessagesPrefix) ||
+		strings.HasPrefix(key, chatEscalationPrefix) ||
+		strings.HasPrefix(key, chatManualDefaultsPrefix) ||
+		strings.HasPrefix(key, chatReasonShortcutsPrefix) ||
+		strings.HasPrefix(key, chatAdvancedThresholdsPrefix)
 }
 
 func localSettings() (ttl, size int) {

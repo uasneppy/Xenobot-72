@@ -7,6 +7,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	"github.com/stretchr/testify/require"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
@@ -525,6 +526,9 @@ func TestWarnCallbackHandlersPropagateGotgbotRequestErrors(t *testing.T) {
 		if !errors.Is(err, requestErr) {
 			t.Fatalf("rmWarnButton() error = %v, want edit request error", err)
 		}
+		if calls := client.callsFor("answerCallbackQuery"); len(calls) != 1 {
+			t.Fatalf("answerCallbackQuery calls = %d, want 1 even after edit failure", len(calls))
+		}
 	})
 
 	t.Run("remove warn answer failure", func(t *testing.T) {
@@ -654,5 +658,141 @@ func TestLoadWarnsRegistersHelpAndHandlers(t *testing.T) {
 
 	if !DefaultHelpRegistry().AbleMap[warnsModule.moduleName] {
 		t.Fatal("warns help registration = false, want enabled")
+	}
+}
+
+func TestRmWarnButtonEditsMediaCards(t *testing.T) {
+	admin := gotgbot.User{Id: 777000, FirstName: "Telegram"}
+	target := gotgbot.User{Id: 42, FirstName: "Member"}
+	data := encodeCallbackData("rmWarn", map[string]string{"u": "42"})
+
+	t.Run("captioned photo edits caption", func(t *testing.T) {
+		client := newModuleBotClient()
+		bot := newModuleTestBot(client)
+		chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Warn Chat"}
+		_, _, err := warns.WarnUser(target.Id, chat.Id, "media")
+		require.NoError(t, err)
+		ctx := newModuleCallbackContext(bot, chat, admin, data)
+		mediaMsg := &gotgbot.Message{
+			MessageId: 501,
+			Chat:      chat,
+			Caption:   "warned",
+			Photo:     []gotgbot.PhotoSize{{FileId: "photo-1"}},
+		}
+		ctx.CallbackQuery.Message = mediaMsg
+		ctx.EffectiveMessage = mediaMsg
+
+		if err := warnsModule.rmWarnButton(bot, ctx); err != ext.EndGroups {
+			t.Fatalf("rmWarnButton() error = %v, want EndGroups", err)
+		}
+		if got := len(client.callsFor("editMessageCaption")); got != 1 {
+			t.Fatalf("editMessageCaption calls = %d, want 1", got)
+		}
+		if got := len(client.callsFor("editMessageText")); got != 0 {
+			t.Fatalf("editMessageText calls = %d, want 0", got)
+		}
+		if got := len(client.callsFor("answerCallbackQuery")); got != 1 {
+			t.Fatalf("answerCallbackQuery calls = %d, want 1", got)
+		}
+	})
+
+	t.Run("captionless sticker clears reply markup", func(t *testing.T) {
+		client := newModuleBotClient()
+		bot := newModuleTestBot(client)
+		chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Warn Chat"}
+		_, _, err := warns.WarnUser(target.Id, chat.Id, "sticker")
+		require.NoError(t, err)
+		ctx := newModuleCallbackContext(bot, chat, admin, data)
+		stickerMsg := &gotgbot.Message{
+			MessageId: 502,
+			Chat:      chat,
+			Sticker:   &gotgbot.Sticker{FileId: "sticker-1"},
+		}
+		ctx.CallbackQuery.Message = stickerMsg
+		ctx.EffectiveMessage = stickerMsg
+
+		if err := warnsModule.rmWarnButton(bot, ctx); err != ext.EndGroups {
+			t.Fatalf("rmWarnButton() error = %v, want EndGroups", err)
+		}
+		if got := len(client.callsFor("editMessageReplyMarkup")); got != 1 {
+			t.Fatalf("editMessageReplyMarkup calls = %d, want 1", got)
+		}
+		if got := len(client.callsFor("editMessageText")); got != 0 {
+			t.Fatalf("editMessageText calls = %d, want 0", got)
+		}
+		if got := len(client.callsFor("answerCallbackQuery")); got != 1 {
+			t.Fatalf("answerCallbackQuery calls = %d, want 1", got)
+		}
+	})
+}
+
+func TestWarnTopicThreadIDPropagated(t *testing.T) {
+	admin := gotgbot.User{Id: 777000, FirstName: "Telegram"}
+	target := gotgbot.User{Id: 42, FirstName: "Member"}
+
+	t.Run("topic message sets thread id on swarn notice", func(t *testing.T) {
+		client := newModuleBotClient()
+		bot := newModuleTestBot(client)
+		chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Forum Chat", IsForum: true}
+		ctx := newWarnReplyContext(bot, chat, admin, target, "/swarn off-topic")
+		ctx.EffectiveMessage.IsTopicMessage = true
+		ctx.EffectiveMessage.MessageThreadId = 777
+
+		if err := warnsModule.sWarnUser(bot, ctx); err != ext.EndGroups {
+			t.Fatalf("sWarnUser() error = %v, want EndGroups", err)
+		}
+		calls := client.callsFor("sendMessage")
+		if len(calls) != 1 {
+			t.Fatalf("sendMessage calls = %d, want 1", len(calls))
+		}
+		if got := calls[0].Params["message_thread_id"]; got != int64(777) {
+			t.Fatalf("message_thread_id = %#v, want int64(777)", got)
+		}
+	})
+
+	t.Run("non-topic message omits thread id", func(t *testing.T) {
+		client := newModuleBotClient()
+		bot := newModuleTestBot(client)
+		chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Regular Chat"}
+		ctx := newWarnReplyContext(bot, chat, admin, target, "/swarn spam")
+		ctx.EffectiveMessage.IsTopicMessage = false
+		ctx.EffectiveMessage.MessageThreadId = 777
+
+		if err := warnsModule.sWarnUser(bot, ctx); err != ext.EndGroups {
+			t.Fatalf("sWarnUser() error = %v, want EndGroups", err)
+		}
+		calls := client.callsFor("sendMessage")
+		if len(calls) != 1 {
+			t.Fatalf("sendMessage calls = %d, want 1", len(calls))
+		}
+		if got, ok := calls[0].Params["message_thread_id"]; ok && got != "" && got != "0" {
+			t.Fatalf("message_thread_id = %v, want omitted for non-topic message", got)
+		}
+	})
+}
+
+func TestWarnPostLimitSkipsEmptyReply(t *testing.T) {
+	client := newModuleBotClient()
+	bot := newModuleTestBot(client)
+	chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Warn Chat"}
+	msg := &gotgbot.Message{MessageId: 101, Chat: chat}
+	target := gotgbot.User{Id: 42, FirstName: "Member"}
+
+	// Inert mode with no stored reasons produces an empty reply and must not call sendMessage.
+	res := warnApplyResult{Count: 3, Limit: 3, Mode: "", LimitReached: true}
+	if err := warnPostLimit(bot, &chat, msg, nil, target, res, warnSourceManual); err != nil {
+		t.Fatalf("warnPostLimit(empty) error = %v, want nil", err)
+	}
+	if got := len(client.callsFor("sendMessage")); got != 0 {
+		t.Fatalf("sendMessage calls = %d, want 0 for empty reply", got)
+	}
+
+	// Inert mode with stored reasons still posts the reasons list.
+	res.Reasons = []string{"first reason"}
+	if err := warnPostLimit(bot, &chat, msg, nil, target, res, warnSourceManual); err != nil {
+		t.Fatalf("warnPostLimit(with reasons) error = %v, want nil", err)
+	}
+	if got := len(client.callsFor("sendMessage")); got != 1 {
+		t.Fatalf("sendMessage calls = %d, want 1 when reasons are present", got)
 	}
 }

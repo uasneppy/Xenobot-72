@@ -44,7 +44,7 @@ func warnApplyFailingWrites(t *testing.T) {
 	previous := warnSettingsWrites
 	warnSettingsWrites = warnSettingsWriter{
 		Limit: func(int64, int) error { return errors.New("database is down") },
-		Mode:  func(int64, string) error { return errors.New("database is down") },
+		Mode:  func(context.Context, int64, string, int) error { return errors.New("database is down") },
 	}
 	t.Cleanup(func() { warnSettingsWrites = previous })
 }
@@ -90,7 +90,7 @@ func TestApplyWarnSettings(t *testing.T) {
 	t.Run("the accepted modes are stored and read back", func(t *testing.T) {
 		for _, mode := range []string{"ban", "kick", "mute"} {
 			chatID := warnApplyFreshChat(t)
-			got := applyWarnMode(ctx, chatID, mode)
+			got := applyWarnMode(ctx, chatID, mode, 0)
 			if got.Outcome != warnSettingsApplied || got.Key != "warns_mode_updated_"+mode || got.Err != nil {
 				t.Fatalf("applyWarnMode(%q) = %+v, want warnSettingsApplied", mode, got)
 			}
@@ -103,7 +103,7 @@ func TestApplyWarnSettings(t *testing.T) {
 	t.Run("every other word is unknown and writes nothing", func(t *testing.T) {
 		for _, mode := range []string{"BAN", "tban", "tmute", "", "warn"} {
 			chatID := warnApplyFreshChat(t)
-			got := applyWarnMode(ctx, chatID, mode)
+			got := applyWarnMode(ctx, chatID, mode, 0)
 			if got.Outcome != warnSettingsUnknownMode || got.Key != "warns_mode_unknown" || got.Stored != nil || got.Err != nil {
 				t.Fatalf("applyWarnMode(%q) = %+v, want warnSettingsUnknownMode", mode, got)
 			}
@@ -116,7 +116,7 @@ func TestApplyWarnSettings(t *testing.T) {
 	t.Run("a failed mode write is a save failure", func(t *testing.T) {
 		chatID := warnApplyFreshChat(t)
 		warnApplyFailingWrites(t)
-		got := applyWarnMode(ctx, chatID, "ban")
+		got := applyWarnMode(ctx, chatID, "ban", 0)
 		if got.Outcome != warnSettingsSaveFailed || got.Key != "common_settings_save_failed" || got.Stored != nil || got.Err == nil {
 			t.Fatalf("applyWarnMode(ban) = %+v, want warnSettingsSaveFailed with the error and no row", got)
 		}
@@ -139,7 +139,7 @@ func TestApplyWarnSettings(t *testing.T) {
 		if got := warns.GetWarnSettingContext(ctx, chatID); got.WarnLimit != 8 {
 			t.Fatalf("cached read after applyWarnLimit = %+v, want limit 8", got)
 		}
-		if got := applyWarnMode(ctx, chatID, "kick"); got.Outcome != warnSettingsApplied {
+		if got := applyWarnMode(ctx, chatID, "kick", 0); got.Outcome != warnSettingsApplied {
 			t.Fatalf("applyWarnMode(kick) = %+v", got)
 		}
 		if got := warns.GetWarnSettingContext(ctx, chatID); got.WarnMode != "kick" {

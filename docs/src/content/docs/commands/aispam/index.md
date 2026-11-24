@@ -28,9 +28,25 @@ data sent to the model.
 ## What Happens To A Flagged Message
 
 Only one action exists: the message is deleted. No warning, no mute, no
-restriction, no reply, and no notice to the sender. Every deletion is mirrored
-to `MESSAGE_DUMP` with the probability, category, model version and the message
-text, which is the audit trail and the only feedback loop for tuning.
+restriction and no reply. Every deletion is mirrored to `MESSAGE_DUMP` with the
+probability, category, model version and the message text, which is the audit
+trail and the only feedback loop for tuning.
+
+## The AI Spam Notice
+
+By default a deletion posts nothing in the group. The group owner can turn on
+the AI spam notice on the Messages page of `/settings` in the bot's private
+chat. With it on, a deletion posts one short notice naming the member, in the
+deleted message's topic and never as a reply, or the group's own text when one
+is set there. The notice never shows the probability, the category, the provider
+or the model.
+
+The notice is rate-limited: at most one per member every 5 minutes, and at most
+3 per group a minute. Every spam message is still deleted whatever happens to the
+notice; without Redis, or when Telegram's rate limit is near, no notice is
+posted. The notice is removed by the group's "Bot messages" timer for automatic
+punishments, and its private copy to the member, when the group turns it on, is
+limited the same way.
 
 ## Thresholds
 

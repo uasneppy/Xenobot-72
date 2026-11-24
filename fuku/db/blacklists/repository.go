@@ -20,14 +20,22 @@ func AddBlacklist(chatId int64, trigger string) error {
 	return AddBlacklistContext(context.Background(), chatId, trigger, "warn")
 }
 
-// AddBlacklistContext stores a lower-cased word for the chat with the given action and
-// drops the chat's cached blacklist after a successful insert.
+// AddBlacklistContext stores a lower-cased word for the chat with the given action and seconds 0.
+// It is the wrapper of AddBlacklistTimedContext that the older callers use.
 func AddBlacklistContext(ctx context.Context, chatId int64, trigger, action string) error {
+	return AddBlacklistTimedContext(ctx, chatId, trigger, action, 0)
+}
+
+// AddBlacklistTimedContext stores a lower-cased word for the chat with the given action and its
+// seconds (the duration of a timed action, 0 for a plain one) and drops the chat's cached blacklist
+// after a successful insert.
+func AddBlacklistTimedContext(ctx context.Context, chatId int64, trigger, action string, secs int) error {
 	blacklist := &models.BlacklistSettings{
-		ChatId: chatId,
-		Word:   strings.ToLower(trigger),
-		Action: action,
-		Reason: "Blacklisted word: '%s'",
+		ChatId:     chatId,
+		Word:       strings.ToLower(trigger),
+		Action:     action,
+		ActionSecs: secs,
+		Reason:     "Blacklisted word: '%s'",
 	}
 
 	err := db.CreateRecordContext(ctx, blacklist)
@@ -79,18 +87,42 @@ func SetBlacklistAction(chatId int64, action string) error {
 	return err
 }
 
-// SetBlacklistActionContext sets the lower-cased action of every word of the chat, drops
-// the chat's cached blacklist after a successful update and returns how many rows the
-// update matched (zero for a chat with no words).
+// SetBlacklistActionContext sets the lower-cased action of every word of the chat with seconds
+// 0. It is the wrapper of SetBlacklistActionTimedContext that the older callers use.
 func SetBlacklistActionContext(ctx context.Context, chatId int64, action string) (int64, error) {
-	result := db.DB.WithContext(ctx).Model(&models.BlacklistSettings{}).Where("chat_id = ?", chatId).Update("action", strings.ToLower(action))
+	return SetBlacklistActionTimedContext(ctx, chatId, action, 0)
+}
+
+// SetBlacklistActionTimedTx sets the lower-cased action and its seconds of every word of chatId
+// inside caller-supplied transaction tx. The caller is responsible for dropping blacklist:<chat>
+// after commit.
+func SetBlacklistActionTimedTx(tx *gorm.DB, chatId int64, action string, secs int) (int64, error) {
+	if tx == nil {
+		return 0, errors.New("database not initialized")
+	}
+	result := tx.Model(&models.BlacklistSettings{}).Where("chat_id = ?", chatId).
+		Updates(map[string]any{"action": strings.ToLower(action), "action_secs": secs})
 	if result.Error != nil {
 		log.Errorf("[Database] SetBlacklistAction: %v - %d", result.Error, chatId)
 		return 0, result.Error
 	}
-
-	cache.DeleteCache(cache.CacheKey("blacklist", chatId))
 	return result.RowsAffected, nil
+}
+
+// SetBlacklistActionTimedContext sets the lower-cased action and its seconds (the duration of a
+// timed action, 0 for a plain one) of every word of the chat in one update of both columns,
+// drops the chat's cached blacklist after a successful update and returns how many rows the
+// update matched (zero for a chat with no words).
+func SetBlacklistActionTimedContext(ctx context.Context, chatId int64, action string, secs int) (int64, error) {
+	if db.DB == nil {
+		return 0, errors.New("database not initialized")
+	}
+	rows, err := SetBlacklistActionTimedTx(db.DB.WithContext(ctx), chatId, action, secs)
+	if err != nil {
+		return 0, err
+	}
+	cache.DeleteCache(cache.CacheKey("blacklist", chatId))
+	return rows, nil
 }
 
 func GetBlacklistSettings(chatId int64) models.BlacklistSettingsSlice {
@@ -114,11 +146,11 @@ func GetBlacklistSettingsContext(ctx context.Context, chatId int64) models.Black
 	return result
 }
 
-// ListBlacklistEntriesFresh reads the chat's blacklist rows (ID, word and action) with one
-// query. It is fresh, chat-scoped and uncached, returns its error, and creates nothing.
+// ListBlacklistEntriesFresh reads the chat's blacklist rows (ID, word, action and its seconds)
+// with one query. It is fresh, chat-scoped and uncached, returns its error, and creates nothing.
 func ListBlacklistEntriesFresh(ctx context.Context, chatId int64) ([]models.BlacklistSettings, error) {
 	var rows []models.BlacklistSettings
-	err := db.DB.WithContext(ctx).Select("id", "word", "action").Where("chat_id = ?", chatId).Order("id").Find(&rows).Error
+	err := db.DB.WithContext(ctx).Select("id", "word", "action", "action_secs").Where("chat_id = ?", chatId).Order("id").Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
