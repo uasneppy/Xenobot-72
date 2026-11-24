@@ -80,10 +80,11 @@ return v
 `)
 
 	// Test seams (production defaults never reassigned outside tests).
-	settingsCopyRedisClient = settingsCopyDefaultRedis
-	settingsCopyStaffLookup = settingsCopyDefaultStaffLookup
-	settingsCopyApply       = applyCopySettings
-	settingsCopyHubLookup   = func(ctx context.Context, userID int64) ([]adminindex.ListedGroup, error) {
+	settingsCopyRedisClient      = settingsCopyDefaultRedis
+	settingsCopyStaffLookup      = settingsCopyDefaultStaffLookup
+	settingsCopyStaffBatchLookup = settingsCopyDefaultStaffBatchLookup
+	settingsCopyApply            = applyCopySettings
+	settingsCopyHubLookup        = func(ctx context.Context, userID int64) ([]adminindex.ListedGroup, error) {
 		return settingsHubLookup(ctx, userID)
 	}
 )
@@ -100,6 +101,13 @@ func settingsCopyDefaultStaffLookup(chatID int64) (*models.StaffGroup, error) {
 		return nil, errCopyNoDatabase
 	}
 	return staff.GetStaffGroupFresh(chatID)
+}
+
+func settingsCopyDefaultStaffBatchLookup(ctx context.Context, chatIDs []int64) (map[int64]bool, error) {
+	if db.DB == nil {
+		return nil, errCopyNoDatabase
+	}
+	return staff.StaffGroupChatIDsFresh(ctx, chatIDs)
 }
 
 func init() {
@@ -258,7 +266,8 @@ func settingsCopyTitleOrID(title string, chatID int64) string {
 }
 
 // settingsCopyLoadCandidates reads the presser's roster from adminindex (creating 0 rows),
-// excludes the source group and any definite Staff Group, and sorts deterministically.
+// excludes the source group and any definite Staff Group in a single readCtx-bounded batch query,
+// and sorts deterministically.
 func settingsCopyLoadCandidates(ctx context.Context, userID, sourceChatID int64) ([]adminindex.ListedGroup, error) {
 	readCtx, cancel := context.WithTimeout(ctx, settingsReadTimeout)
 	defer cancel()
@@ -266,12 +275,23 @@ func settingsCopyLoadCandidates(ctx context.Context, userID, sourceChatID int64)
 	if err != nil {
 		return nil, err
 	}
-	filtered := make([]adminindex.ListedGroup, 0, len(groups))
+	candidateIDs := make([]int64, 0, len(groups))
 	for _, g := range groups {
-		if g.ChatID == sourceChatID {
-			continue
+		if g.ChatID != sourceChatID {
+			candidateIDs = append(candidateIDs, g.ChatID)
 		}
-		if row, staffErr := settingsCopyStaffLookup(g.ChatID); staffErr == nil && row != nil {
+	}
+	var staffIDs map[int64]bool
+	if len(candidateIDs) > 0 {
+		var staffErr error
+		staffIDs, staffErr = settingsCopyStaffBatchLookup(readCtx, candidateIDs)
+		if staffErr != nil && readCtx.Err() != nil {
+			return nil, staffErr
+		}
+	}
+	filtered := make([]adminindex.ListedGroup, 0, len(candidateIDs))
+	for _, g := range groups {
+		if g.ChatID == sourceChatID || staffIDs[g.ChatID] {
 			continue
 		}
 		filtered = append(filtered, g)
