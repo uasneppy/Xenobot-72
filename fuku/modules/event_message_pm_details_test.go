@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
+	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
@@ -387,5 +388,120 @@ func TestPMCopyDetailsDeepLink(t *testing.T) {
 		t.Cleanup(func() { _ = client.Close() })
 		mreqSwap(t, &pmCopyRedisClient, func() *redis.Client { return client })
 		neutral(t, s, eventPMMember, pmCopyDetailsPrefix+token)
+	})
+}
+
+type pmDetailsMockCall struct {
+	method string
+	params map[string]any
+}
+
+type pmDetailsMockClient struct {
+	calls []pmDetailsMockCall
+	fn    func(method string, params map[string]any) error
+}
+
+func (c *pmDetailsMockClient) RequestWithContext(_ context.Context, _ string, method string, params map[string]any, _ *gotgbot.RequestOpts) (json.RawMessage, error) {
+	c.calls = append(c.calls, pmDetailsMockCall{method: method, params: params})
+	if c.fn != nil {
+		if err := c.fn(method, params); err != nil {
+			return nil, err
+		}
+	}
+	return json.RawMessage(`{"message_id":99,"date":1,"chat":{"id":42,"type":"private"}}`), nil
+}
+
+func (c *pmDetailsMockClient) GetAPIURL(_ *gotgbot.RequestOpts) string { return gotgbot.DefaultAPIURL }
+
+func (c *pmDetailsMockClient) FileURL(_ string, p string, _ *gotgbot.RequestOpts) string {
+	return gotgbot.DefaultAPIURL + "/file/" + p
+}
+
+func TestEventPMDetailsDeepLinkFallbackAndNeutral(t *testing.T) {
+	withRealLocales(t)
+	phase28InProcessMiniredis(t)
+
+	newCtx := func(b *gotgbot.Bot, userID int64) (*ext.Context, *gotgbot.User) {
+		u := &gotgbot.User{Id: userID, FirstName: "Bob"}
+		msg := &gotgbot.Message{MessageId: 10, Date: 1, Chat: gotgbot.Chat{Id: userID, Type: "private"}, From: u, Text: "/start"}
+		return ext.NewContext(b, &gotgbot.Update{Message: msg}, nil), u
+	}
+
+	t.Run("refused custom copy sends fallback with appeal row", func(t *testing.T) {
+		appeal := []gotgbot.InlineKeyboardButton{{Text: "Appeal", Url: "https://example.com/appeal"}}
+		offer := eventPMOffer{
+			Chat:      gotgbot.Chat{Id: -1001234567890},
+			Event:     eventmsg.EventBan,
+			UserID:    eventPMMember,
+			Custom:    true,
+			Fallback:  "Default ban text",
+			AppealRow: appeal,
+		}
+		customMsg := media.GreetingMessage{Text: "Custom caption", FileID: "expired-photo", MsgType: db.PHOTO}
+		token, err := pmCopyDetailsPut(t.Context(), pmCopyDetailsRecordOf(offer, customMsg))
+		if err != nil {
+			t.Fatalf("pmCopyDetailsPut() error = %v", err)
+		}
+
+		client := &pmDetailsMockClient{
+			fn: func(method string, _ map[string]any) error {
+				if method == "sendPhoto" {
+					return &gotgbot.TelegramError{Method: method, Code: 400, Description: "Bad Request: wrong file identifier"}
+				}
+				return nil
+			},
+		}
+		b := &gotgbot.Bot{Token: "1:test", BotClient: client}
+		ctx, u := newCtx(b, eventPMMember)
+
+		if err := pmCopyDetailsDeepLink(b, ctx, u, pmCopyDetailsPrefix+token); err != ext.EndGroups {
+			t.Fatalf("pmCopyDetailsDeepLink() = %v, want ext.EndGroups", err)
+		}
+		if len(client.calls) != 2 || client.calls[0].method != "sendPhoto" || client.calls[1].method != "sendMessage" {
+			t.Fatalf("calls = %+v, want [sendPhoto, sendMessage]", client.calls)
+		}
+		if got := client.calls[1].params["text"]; got != "Default ban text" {
+			t.Fatalf("fallback text = %v, want %q", got, "Default ban text")
+		}
+		markup, ok := client.calls[1].params["reply_markup"].(*gotgbot.InlineKeyboardMarkup)
+		if !ok || markup == nil || len(markup.InlineKeyboard) != 1 || markup.InlineKeyboard[0][0].Url != "https://example.com/appeal" {
+			t.Fatalf("fallback markup = %#v, want appeal row", client.calls[1].params["reply_markup"])
+		}
+	})
+
+	t.Run("non-refused send error replies neutral instead of silence", func(t *testing.T) {
+		token, err := pmCopyDetailsPut(t.Context(), pmCopyDetailsRecord{
+			UserID: eventPMMember, ChatID: -1001234567890, Event: eventmsg.EventBan,
+			Text: "Custom text", MediaType: db.TEXT, Fallback: "Default ban text",
+		})
+		if err != nil {
+			t.Fatalf("pmCopyDetailsPut() error = %v", err)
+		}
+
+		sendCalls := 0
+		client := &pmDetailsMockClient{
+			fn: func(method string, _ map[string]any) error {
+				if method == "sendMessage" {
+					sendCalls++
+					if sendCalls == 1 {
+						return &gotgbot.TelegramError{Method: method, Code: 500, Description: "Internal Server Error"}
+					}
+				}
+				return nil
+			},
+		}
+		b := &gotgbot.Bot{Token: "1:test", BotClient: client}
+		ctx, u := newCtx(b, eventPMMember)
+
+		if err := pmCopyDetailsDeepLink(b, ctx, u, pmCopyDetailsPrefix+token); err != ext.EndGroups {
+			t.Fatalf("pmCopyDetailsDeepLink() = %v, want ext.EndGroups", err)
+		}
+		if len(client.calls) != 2 {
+			t.Fatalf("calls = %+v, want 2 (failed copy + neutral reply)", client.calls)
+		}
+		want, _ := i18n.MustNewTranslator(lang.GetLanguage(ctx)).GetString("eventmsg_pm_details_none")
+		if got := client.calls[1].params["text"]; got != want || want == "" {
+			t.Fatalf("second reply = %v, want neutral %q", got, want)
+		}
 	})
 }

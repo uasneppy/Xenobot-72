@@ -352,6 +352,7 @@ func runEventPM(ctx context.Context, o eventPMOffer) {
 	outcome, code := pmCopySend(ctx, o, tried)
 	if outcome == pmCopyRefused && o.Custom {
 		log.Warnf("[EventMessage] the custom private %s copy of user %d in chat %d was refused (code %d), the default was sent", o.Event, o.UserID, o.Chat.Id, code)
+		o.Custom = false
 		tried = media.GreetingMessage{Text: o.Fallback, MsgType: db.TEXT}
 		if len(o.AppealRow) > 0 {
 			tried.Keyboard = &gotgbot.InlineKeyboardMarkup{

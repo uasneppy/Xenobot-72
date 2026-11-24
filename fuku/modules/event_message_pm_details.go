@@ -54,8 +54,10 @@ func pmCopyDetailsKey(token string) string {
 }
 
 // pmCopyDetailsRecord is one undelivered private copy: the punished user (u, the only person the record is
-// ever shown to), the group (c), the event (e) and the copy as the job tried to send it (t the text, f the
-// file ID, y the media type, b the URL button rows). It never carries the Staff Group or another group.
+// ever shown to), the group (c), the event (e), the copy as the job tried to send it (t the text, f the
+// file ID, y the media type, b the URL button rows), and for an unvalidated custom copy its default fallback
+// text (fb) and appeal button row (ar) in case Telegram refuses the custom payload when opened. It never
+// carries the Staff Group or another group.
 type pmCopyDetailsRecord struct {
 	UserID    int64                            `json:"u"`
 	ChatID    int64                            `json:"c"`
@@ -64,6 +66,8 @@ type pmCopyDetailsRecord struct {
 	FileID    string                           `json:"f,omitempty"`
 	MediaType int                              `json:"y"`
 	Buttons   [][]gotgbot.InlineKeyboardButton `json:"b,omitempty"`
+	Fallback  string                           `json:"fb,omitempty"`
+	AppealRow []gotgbot.InlineKeyboardButton   `json:"ar,omitempty"`
 }
 
 // errPMCopyNoRedis is returned when a Details record cannot be stored or read because there is no Redis.
@@ -87,6 +91,12 @@ func pmCopyDetailsRecordOf(o eventPMOffer, msg media.GreetingMessage) pmCopyDeta
 	rec := pmCopyDetailsRecord{UserID: o.UserID, ChatID: o.Chat.Id, Event: o.Event, Text: msg.Text, FileID: msg.FileID, MediaType: msg.MsgType}
 	if msg.Keyboard != nil {
 		rec.Buttons = msg.Keyboard.InlineKeyboard
+	}
+	if o.Custom && o.Fallback != "" {
+		rec.Fallback = o.Fallback
+		if len(o.AppealRow) > 0 {
+			rec.AppealRow = append([]gotgbot.InlineKeyboardButton(nil), o.AppealRow...)
+		}
 	}
 	return rec
 }
@@ -241,7 +251,19 @@ func pmCopyDetailsDeepLink(b *gotgbot.Bot, ctx *ext.Context, user *gotgbot.User,
 		copyMsg.Keyboard = &gotgbot.InlineKeyboardMarkup{InlineKeyboard: rec.Buttons}
 	}
 	if _, err := media.SendGreetingMessage(b, user.Id, copyMsg); err != nil {
+		if eventMessageRefused(err) && rec.Fallback != "" {
+			fallbackMsg := media.GreetingMessage{Text: rec.Fallback, MsgType: db.TEXT}
+			if len(rec.AppealRow) > 0 {
+				fallbackMsg.Keyboard = &gotgbot.InlineKeyboardMarkup{
+					InlineKeyboard: [][]gotgbot.InlineKeyboardButton{append([]gotgbot.InlineKeyboardButton(nil), rec.AppealRow...)},
+				}
+			}
+			if _, fbErr := media.SendGreetingMessage(b, user.Id, fallbackMsg); fbErr == nil {
+				return ext.EndGroups
+			}
+		}
 		log.Warnf("[EventMessage] the Details copy of user %d in chat %d could not be shown (code %d)", user.Id, rec.ChatID, pmCopyErrCode(err))
+		return neutral()
 	}
 	return ext.EndGroups
 }
