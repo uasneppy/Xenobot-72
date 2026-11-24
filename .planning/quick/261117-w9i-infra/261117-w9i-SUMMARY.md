@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: unknown
+---
+
 # 261117-w9i: Wave 9 summary (deletion and infrastructure)
 
 Branch `wave9-infra`, base `79a7e52`. I11 and I12 were done before this wave and were skipped.

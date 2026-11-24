@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: unknown
+---
+
 # Quick task 261117-w8s: Wave 8 (Staff Group), summary
 
 Branch `wave8-staff`, base `faa311d`. Every item was reproduced by a test that failed on the unchanged code before

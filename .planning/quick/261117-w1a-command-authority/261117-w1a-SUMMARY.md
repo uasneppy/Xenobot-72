@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: unknown
+---
+
 # Quick task 261117-w1a: command authority (Wave 1), summary
 
 Branch `wave1-authority`, from `6f2acd4`.

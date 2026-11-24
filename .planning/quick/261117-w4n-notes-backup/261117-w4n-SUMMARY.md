@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: unknown
+---
+
 # Quick task 261117-w4n: Wave 4 review fixes (notes, filters, greetings, rules, backup)
 
 Plan: `.planning/quick/261117-rv0-code-review-fix-plan/REVIEW-261117-FIX-PLAN.md`, Wave 4 (N1 to N12).

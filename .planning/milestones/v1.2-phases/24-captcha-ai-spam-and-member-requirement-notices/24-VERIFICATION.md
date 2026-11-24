@@ -45,6 +45,10 @@ human_verification:
   - test: "Run `make test-postgres-integrity` against a PostgreSQL database (DATABASE_URL set, FUKU_TEST_DATABASE=true)"
     expected: "Passes unchanged. Phase 24 adds no migration, index or CHECK (D-41), but the six new event key strings are written to chat_event_messages.event for the first time and the aispam group row is inserted with silent=true by the part writers"
     why_human: "No PostgreSQL in this environment; 24-08 did not run it either. The SQLite halves pass (fuku/db/eventmsg ok)"
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: human_needed
 ---
 
 # Phase 24: Captcha, AI Spam and Member Requirement Notices Verification Report

@@ -47,6 +47,10 @@ human_verification:
   - test: "Set the group's timezone (for example Asia/Tokyo), give Timed mute a text with {duration} and {until}, run /tmute @member 30m"
     expected: "{duration} reads '30 minutes' and {until} the end time in the group's zone with its label, e.g. '19.11.2026 15:04 (UTC+9)'"
     why_human: "Live confirmation of the time formatting a member sees"
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: human_needed
 ---
 
 # Phase 21: Message Engine, Messages Page and Manual Punishments Verification Report

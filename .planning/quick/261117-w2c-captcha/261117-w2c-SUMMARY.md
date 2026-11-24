@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: unknown
+---
+
 # Quick task 261117-w2c: captcha review fixes (Wave 2), summary
 
 Branch `wave2-captcha` from `6f2acd4`, not pushed. Every fix has a test that failed on the code before it.

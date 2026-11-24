@@ -1,5 +1,26 @@
 # Milestones
 
+## v1.2 Conversations, Custom Messages and Tuning (Shipped: 2026-11-24)
+
+**Phases completed:** 11 phases (20 to 30), 87 plans
+
+**Delivered:** owner-enabled group Conversations, per-group custom event messages and optional fleet-paced PM copies across all moderation, screening and lockdown events, per-group punishment and threshold tuning (timed punishments, escalation ladder, warn expiry, manual command defaults, reason shortcuts, appeal button, advanced thresholds, plain tone, copy settings), and a private-chat Backup page with custom messages inside `/export` and `/import`.
+
+**Stats:** 11 phases (20 to 30), 87 plans, 40 Custom Messages & Tuning requirements plus Phase 20 Conversations; about 116,600 lines of Go in production code and 265,900 in tests; 2026-11-18 to 2026-11-24, ~709 commits since v1.1. Merged to `main` via PR #23 with 14/14 CI checks green. Per-plan summaries are archived in `milestones/v1.2-phases/*/NN-NN-SUMMARY.md`.
+
+**Key accomplishments:**
+- **Conversations (Phase 20):** owner-enabled per-group AI replies in character as Xenobot-72 via Anthropic or Google (`ENABLE_CHAT`, 2-tap data notice card, never in private chat).
+- **Messages engine, Messages page & manual punishments (Phase 21):** per-group custom text, one media item, URL buttons, and Silent switch on one shared renderer with default fallback, MSG-11 characterization goldens, and a private Messages page on the v1.1 editor for ban, timed ban, kick, mute, timed mute, unban, and unmute.
+- **PM copies (Phase 22):** optional best-effort private copies to punished members on a fleet-wide pacing budget with a per-group automatic cap, Details deep-link fallback, and `#PM_COPY` log line; never sent for raid-scale removals or Staff Group actions.
+- **Automatic, screening & lockdown events (Phases 23–25):** custom group/PM messages for warn, warn limit, antiflood, blacklist, forward blocklist, failed captcha, member requirement notices, a new rate-limited AI spam deletion notice (off by default), and manual/automatic/lift lockdowns while keeping alerts, raid-scale paths, and Staff Group untouched.
+- **Punishment & manual tuning (Phases 26–28):** working timed bans/mutes for warn limit, blacklist, and antiflood; per-group escalation ladder; expiring warns; default manual durations, reason-required switch, reason shortcuts, and ban appeal button; and an Advanced thresholds page (`av`) exposing 12 tunable constants inside safe bounds with per-item/area resets.
+- **Plain tone & copy settings (Phase 29):** per-group neutral default texts across all 23 group events and 18 PM specs in all 8 languages, plus a private Copy Settings page (`cp`) with live dual-group permission checks and pair-bound confirmation cards.
+- **Backup page & custom messages in backups (Phase 30):** private-only Backup page (`ba`) reusing `/export`, `/import`, and `/reset` behind two-tap cards, with `event_messages` carried in backups via shared `eventmsg.ValidateWrite` and backward-compatible imports.
+
+**Known verification overrides:** 19 newly acknowledged, 12 carried forward from a prior close (see STATE.md Deferred Items). Phases 21–27 verifications read `human_needed` (plus 3 pending live scenarios in `26-UAT.md`) because live Telegram checks were deferred on purpose; all 11 phases are code-verified, security-audited with 0 open threats, and code-reviewed with all actionable findings fixed (`21-REVIEW-FIX.md`..`30-REVIEW-FIX.md`). Note: 30 of 40 requirement checkboxes in `v1.2-REQUIREMENTS.md` (Phases 21–26) remained `[ ]` due to deferred live checks despite full code and CI verification.
+
+---
+
 ## v1.1 PM Settings Hub & Member Screening (Shipped: 2026-11-13)
 
 **Phases completed:** 10 phases, 126 plans, 81 tasks

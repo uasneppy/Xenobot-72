@@ -39,6 +39,10 @@ human_verification:
   - test: "Run `make test-postgres-integrity` against a PostgreSQL database (DATABASE_URL set, FUKU_TEST_DATABASE=true)"
     expected: "Passes unchanged; Phase 23 adds no migration, index or CHECK (D-36), but the event key strings `warnlimit` and `fwdblock` are written to chat_event_messages.event for the first time, and the Phase 21/22 PostgreSQL tests (TestEventMessagesUpsert, the migration defaults) should still pass"
     why_human: "No PostgreSQL in this environment; 23-07 did not run it either. The SQLite halves pass (fuku/db/eventmsg ok)"
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: human_needed
 ---
 
 # Phase 23: Warn, Flood, Blacklist and Forward Blocklist Messages Verification Report

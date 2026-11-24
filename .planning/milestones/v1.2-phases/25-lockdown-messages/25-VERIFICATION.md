@@ -42,6 +42,10 @@ human_verification:
   - test: "Run `make test-postgres-integrity` against a PostgreSQL database (DATABASE_URL set, FUKU_TEST_DATABASE=true)"
     expected: "Passes unchanged. Phase 25 adds no migration, index or CHECK (D-40), but the five new event key strings are written to chat_event_messages.event for the first time"
     why_human: "No PostgreSQL in this environment; the SQLite halves pass (fuku/db/eventmsg ok)"
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: human_needed
 ---
 
 # Phase 25: Lockdown Messages Verification Report

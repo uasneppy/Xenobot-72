@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: unknown
+---
+
 # 261117-w10t: Wave 10 summary
 
 Branch `wave10-settings`, base `a09b91c`.

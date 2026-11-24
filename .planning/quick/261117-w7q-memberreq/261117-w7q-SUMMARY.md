@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: unknown
+---
+
 # Quick task 261117-w7q: member requirements review fixes (Wave 7) — summary
 
 Branch `wave7-memberreq`, based on `90f7cb4`. Every fix was written test first and the test failed on the old code.

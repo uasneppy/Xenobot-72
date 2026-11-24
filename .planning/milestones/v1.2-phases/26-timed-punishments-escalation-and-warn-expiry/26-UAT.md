@@ -4,6 +4,10 @@ phase: 26-timed-punishments-escalation-and-warn-expiry
 source: [26-VERIFICATION.md]
 started: 2026-11-22T15:26:42Z
 updated: 2026-11-22T15:26:42Z
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  gap_snapshot: "testing::scenarios=3"
 ---
 
 ## Current Test

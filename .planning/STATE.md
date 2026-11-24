@@ -2,39 +2,37 @@
 gsd_state_version: "1.0"
 milestone: v1.2
 milestone_name: Conversations, Custom Messages and Tuning
-current_phase: 21
-current_phase_name: Message Engine, Messages Page and Manual Punishments
-status: verifying
+status: Awaiting next milestone
 stopped_at: Phase 30 complete, ready to verify Phase 21
-last_updated: "2026-11-23T22:23:39.241Z"
+last_updated: "2026-11-24T16:53:08.667Z"
 last_activity: 2026-11-24
-last_activity_desc: Phase 30 complete, transitioned to Phase 21
-state_head: b5859d8f70966f45937964ea7122ea8792ee9a57
+last_activity_desc: Milestone v1.2 completed and archived
+state_head: c91367ced2afbfe8c7c282c7863d671ded22dcb8
 progress:
   total_phases: 11
-  completed_phases: 4
-  total_plans: 80
-  completed_plans: 80
-  percent: 36
+  completed_phases: 11
+  total_plans: 87
+  completed_plans: 87
+  percent: 100
+current_phase: 30
+current_phase_name: Backup Page and Custom Messages in Backups
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-22)
+See: .planning/PROJECT.md (updated 2026-11-24)
 
 **Core value:** My trusted staff can protect every one of my communities from one place. We act on a bad actor across all groups at once, and the bot never lets anyone act in a group where they aren't an admin.
-**Current focus:** Phase 29 — Plain Tone and Copy Settings
+**Current focus:** Planning next milestone (v1.2 shipped 2026-11-24)
 
 ## Current Position
 
-Phase: 21 — Message Engine, Messages Page and Manual Punishments
-Plan: 11
-Status: Phase complete — ready for verification
-Last activity: 2026-11-24 — Phase 30 complete, transitioned to Phase 21
-
-Progress: [████░░░░░░] 36%
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-11-24 — Milestone v1.2 completed and archived
 
 ## Performance Metrics
 
@@ -449,6 +447,25 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 | Category | Item | Status | Deferred At | Milestone |
 |----------|------|--------|-------------|-----------|
+| uat_gaps | 26/26-UAT.md | testing (3 pending scenarios) | 2026-11-24 | v1.2 |
+| verification_gaps | 27/27-VERIFICATION.md | human_needed | 2026-11-24 | v1.2 |
+| verification_gaps | 26/26-VERIFICATION.md | human_needed | 2026-11-24 | v1.2 |
+| verification_gaps | 25/25-VERIFICATION.md | human_needed | 2026-11-24 | v1.2 |
+| verification_gaps | 24/24-VERIFICATION.md | human_needed | 2026-11-24 | v1.2 |
+| verification_gaps | 23/23-VERIFICATION.md | human_needed | 2026-11-24 | v1.2 |
+| verification_gaps | 22/22-VERIFICATION.md | human_needed | 2026-11-24 | v1.2 |
+| verification_gaps | 21/21-VERIFICATION.md | human_needed | 2026-11-24 | v1.2 |
+| quick_tasks | 261117-rv0-code-review-fix-plan | missing | 2026-11-24 | v1.2 |
+| quick_tasks | 261117-w10t-settings | unknown | 2026-11-24 | v1.2 |
+| quick_tasks | 261117-w1a-command-authority | unknown | 2026-11-24 | v1.2 |
+| quick_tasks | 261117-w2c-captcha | unknown | 2026-11-24 | v1.2 |
+| quick_tasks | 261117-w3m-moderation | unknown | 2026-11-24 | v1.2 |
+| quick_tasks | 261117-w4n-notes-backup | unknown | 2026-11-24 | v1.2 |
+| quick_tasks | 261117-w5l-lockdown | unknown | 2026-11-24 | v1.2 |
+| quick_tasks | 261117-w6r-raid-ai | unknown | 2026-11-24 | v1.2 |
+| quick_tasks | 261117-w7q-memberreq | unknown | 2026-11-24 | v1.2 |
+| quick_tasks | 261117-w8s-staff | unknown | 2026-11-24 | v1.2 |
+| quick_tasks | 261117-w9i-infra | unknown | 2026-11-24 | v1.2 |
 | verification | Quick task 261113-tjj (Staff Group forward-source blocklist) live Telegram checks (`quick/261113-tjj-staff-group-forward-source-blocklist-blo/261113-tjj-VERIFICATION.md`, status `human_needed`, code verified, no gaps): BEFORE the owner relies on it in a real group, forward a post of a listed channel into a linked group and see it deleted with the list's action applied once; resolve an `@username` and a negative ID with `/addfwdblock`; confirm a plain member's forward of a GROUP message cannot be matched (Telegram labels it a user or hidden-user origin, so only channels and an anonymous admin's group post can match); check the bot's delete and restrict rights and the notice wording; then decide whether writes should stay Staff Group creator only (the plan's deviation from creator or administrator, one right swap to relax). | deferred | 2026-11-14 | quick |
 | verification | Phase 19 live Telegram checks and owner review (`milestones/v1.1-phases/19-blacklist-filter-and-note-pages/19-SPIKE.md`, 15 numbered checks, `19-VERIFICATION.md` status `human_needed`, `19-SECURITY.md` verified, 59 of 59 threats closed): BEFORE the owner relies on the three list pages in a real group run checks 1 (the production `blacklists` CHECK constraints and `/blacklistaction none`), 2 (Main at 11 rows on a phone), 4 (the two-step add in a real client against `/filter K` and `/save K` as replies), 5 (the effect in the group) and 7 (the six changed commands in a real group), and answer the provisional confirmations A19-1 to A19-11: A19-2 (`/addblacklist` and `/filter` refuse a one-character word), A19-3 (a new blacklist word takes the shared action), A19-4 (`/save` refuses a name with whitespace, a leading `#` or over 100 code points) and the two fail-closed lookups of `/filter` and `/save`, each listed with its reply key and revert commit under 'Command behaviour this phase changed'; the native-speaker read of the 67 new strings (check 9) and the stale `settings_help_msg` (A19-A17) stay open | deferred | 2026-11-13 | v1.1 |
 | verification | Phase 18 live Telegram checks and owner review (`milestones/v1.1-phases/18-remaining-settings-pages/18-SPIKE.md`, 25 numbered checks, `18-VERIFICATION.md` status `human_needed`, `18-SECURITY.md` verified): BEFORE the owner relies on the six pages in a real group run checks 1 to 3 (the warn limit and each action at the limit, a hand-written `tban`, the `/reset warnings` empty-mode follow-up), 4 to 6 (the AI line with and without `TYPESAFE_API_KEY` and with `ENABLE_AISPAM=false`, Auto-approve's first press on PostgreSQL, `/report` against the Reports switch), 7 and 8 (the language redraw on two replicas within `CACHE_LOCAL_TTL` and from a private menu), 9 to 12 (the log categories with a real channel and the `#SETTINGS` line, the anonymous-admin flow before and after a toggle, the owner and non-owner refusals, the page opening while the bot is not an administrator), 13 to 15 (each lock live, `all`, `messages` and `url`), 16 to 19 (hi, ru and uk cells at phone width, the native-speaker read of the 55 new strings), 20 (the stale `settings_help_msg` and `/settings` docs page that name no page since Phase 16: A18-A15 and A16-A11) and 21 to 25 (the owner confirmations A18-1 to A18-9, the flagged UI points, the four deviation notes, `make lint` on a Go 1.26 golangci-lint; the CI Test Suite for `fuku/modules` took 1129 s to 1760 s of a limit that is now 2400 s, trim a heavy test before it grows) | deferred (owner's standing choice: defer live checks) | 2026-11-13 | v1.1 |
@@ -492,4 +509,5 @@ Resume file: None
 ## Operator Next Steps
 
 
-- Phase 23 is planned (7 plans in `phases/23-warn-flood-blacklist-and-forward-blocklist-messages/`, its CONTEXT records the provisional decisions P1 to P10 for owner confirmation); next: execute its plans with /gsd-execute-phase 23
+
+- Start the next milestone with /gsd-new-milestone

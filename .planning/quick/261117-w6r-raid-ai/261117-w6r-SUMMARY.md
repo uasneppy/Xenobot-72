@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: unknown
+---
+
 # Quick task 261117-w6r: raid and AI review fixes (Wave 6), summary
 
 Branch `wave6-raid`, base `86fafe0`. Every fix started with a test that failed on the base code.

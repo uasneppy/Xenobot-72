@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: unknown
+---
+
 # Quick task 261117-w5l: lockdown review fixes (Wave 5) — summary
 
 Branch `wave5-lockdown` from `6f2acd4`, not pushed. Each item has a test written first that failed on the old code

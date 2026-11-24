@@ -49,6 +49,45 @@
 
 ---
 
+## Milestone: v1.2 — Conversations, Custom Messages and Tuning
+
+**Shipped:** 2026-11-24
+**Phases:** 11 | **Plans:** 87 | **Sessions:** not tracked (spanned Claude Code & Antigravity sessions)
+
+### What Was Built
+- Group Conversations (Phase 20): owner-enabled in-character AI replies in groups via Anthropic or Google, never in private chat.
+- Per-group Messages engine & Messages page (Phases 21, 23–25): one shared renderer with default fallback, Silent switch, and MSG-11 characterization goldens covering manual punishments, warn/warn-limit, antiflood, blacklist, forward blocklist, failed captcha, rate-limited AI spam notice, member requirements, and lockdowns.
+- Optional fleet-paced PM copies (Phase 22): best-effort private copies with a per-group automatic cap, Details deep-link fallback, and `#PM_COPY` log line, excluded from raid-scale removals and Staff Group actions.
+- Punishment & threshold tuning (Phases 26–29): timed bans/mutes for warn limit, blacklist and antiflood; escalation ladder; warn expiry; manual command defaults, reason shortcuts, and ban appeal button; 12 advanced thresholds inside safe bounds; per-group plain tone across all 8 languages; and live-checked Copy Settings between owned groups.
+- Backup page & custom messages in backups (Phase 30): private-only Backup page reusing `/export`, `/import`, and `/reset` behind two-tap cards, with custom messages validated by shared `eventmsg.ValidateWrite`.
+
+### What Worked
+- MSG-11 golden-first discipline: freezing every baseline send site in its own commit before touching production code kept unconfigured chats byte-identical across all 11 phases.
+- Sharded CI (`fuku/modules` split 1/4..4/4) kept full `-race` test runs under ~5 minutes per shard instead of hitting the 40-minute ceiling from v1.1.
+- Running full code reviews (`21-REVIEW.md`..`30-REVIEW.md`) and fixing every actionable warning before merging PR #23 caught subtle cross-phase bugs (shared `eventmsg.ValidateWrite` alignment, media sender dedup, Details deep-link fallback logging, action-code collisions).
+- Keeping `go.mod` unchanged (zero new dependencies) and keeping `AGENTS.md` updated in the same commits as the code.
+
+### What Was Inefficient
+- Code-review fixes across Phases 21–28 were applied in bulk at the end of the milestone rather than immediately after each phase, which caused a few CI regressions (`dupl`, `errcheck`, and two outdated test assertions) that had to be reconciled before PR #23 went green.
+- Live Telegram checks for Phases 21–27 were again deferred (`human_needed`), carrying the same accumulation risk noted in v1.1.
+
+### Patterns Established
+- Shared pure-Go validation packages (`fuku/db/eventmsg/validate_write.go`) consumed identically by settings editors, Copy Settings, and Backup imports with zero circular dependencies.
+- One-time cross-replica Redis confirmation tokens consumed atomically via Lua `GET+DEL` for destructive or cross-group operations (Copy Settings, Backup Import/Reset).
+- Parallel phase code reviews + targeted fix passes followed by full PR CI verification before merging to `main`.
+
+### Key Lessons
+1. Run `/gsd-code-review` + `--fix` right after each phase (while its tests and context are fresh) instead of batching 8 phases at the end of a milestone.
+2. When a review fix changes allowed behavior (e.g., enabling Media on requirement PM copies), grep safety/forged-press tests in the same commit so CI never sees stale assertions.
+3. Keep live Telegram check passes scheduled after every 2–3 phases so deferred checklists don't grow across milestones.
+
+### Cost Observations
+- Model mix: budget/balanced profiles across planning, execution, verification, security audits, and code reviews.
+- Sessions: not tracked.
+- Notable: sharded CI and in-process `net.Pipe()` miniredis tests cut local and CI iteration time significantly compared to v1.1.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -57,6 +96,7 @@
 |-----------|----------|--------|------------|
 | v1.0 | not tracked | 9 | Staff Group, lockdowns, Turnstile captcha, first settings menu |
 | v1.1 | not tracked | 10 | Golden-first apply functions, per-boundary orchestrator gates, deferred live checks as SPIKE files |
+| v1.2 | not tracked | 11 | Sharded CI (`fuku/modules` 4x), MSG-11 goldens per phase, full security + code-review-fix pass before merge |
 
 ### Cumulative Quality
 
@@ -64,6 +104,7 @@
 |-----------|-------|----------|-------------------|
 | v1.0 | not recorded | not recorded | 0 |
 | v1.1 | about 1,840 top-level tests in `fuku/modules` plus the repository packages (about 201,000 lines of test code) | not measured here | 0 (`go.mod` unchanged against the v1.0 closing commit) |
+| v1.2 | ~265,900 lines of Go test code across 14/14 green CI checks (4 sharded `fuku/modules` suites + other packages + gosec + golangci-lint) | not measured here | 0 (`go.mod` unchanged) |
 
 ### Top Lessons (Verified Across Milestones)
 

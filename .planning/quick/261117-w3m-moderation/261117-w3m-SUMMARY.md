@@ -1,3 +1,10 @@
+---
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: unknown
+---
+
 # Quick task 261117-w3m: moderation commands and reply targets (Wave 3) — summary
 
 Branch `wave3-moderation`, based on `79ae218`. Items M1 to M14 of

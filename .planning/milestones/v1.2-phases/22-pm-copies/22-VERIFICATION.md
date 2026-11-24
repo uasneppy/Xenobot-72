@@ -33,6 +33,10 @@ human_verification:
   - test: "Run `make test-postgres-integrity` against a PostgreSQL database"
     expected: "TestEventMessageOptionsMigrationDefaults and the pm subtests of TestEventMessagesUpsert pass (migration runs twice, both options default false, the inline primary key refuses a second row with SQLSTATE 23505, concurrent pm part writers leave silent true)"
     why_human: "No PostgreSQL is available in this environment (DATABASE_URL unset), and 22-09 did not run it either; the SQLite halves pass"
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: human_needed
 ---
 
 # Phase 22: PM Copies Verification Report

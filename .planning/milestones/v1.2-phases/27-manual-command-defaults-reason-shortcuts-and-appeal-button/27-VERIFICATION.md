@@ -89,6 +89,10 @@ human_verification:
   - test: "Confirm or request changes to provisional owner decisions P27-01 through P27-05 documented in AGENTS.md."
     expected: "Owner signs off on: P27-01 (default ban/mute duration applies to /ban, /dban, /sban and /mute, /dmute, /smute; /ban & /dban emit EventTimedBan and /mute & /dmute emit EventTimedMute; channel /ban stays permanent; /tban & /tmute keep explicit duration), P27-02 (reason_required covers all 14 manual user-punishment commands including d*/s*/t* variants; channel /ban, /unban, /unmute, /kickme, warnSourceAuto, and Staff Group untouched), P27-03 (single-word lower-cased <=32 rune shortcuts, 1..500 rune plain text, cap 50, no overwrite on duplicate, exact single-word manual match only), P27-04 (appeal button also attaches to automatic ban/tban outcomes — EventReqBan, EventWarnLimit, EventFlood, EventBlacklist, EventForwardBlock, EventCaptcha — plus their PM copies; never channel/silent/lockdown/Staff Group), and P27-05 (pages q and rs are PrivateOnly, hidden in Staff Groups, require live settingsRightRestrict on writes, and stay outside backup/export/import/reset until Phase 30)."
     why_human: "Discuss phase was skipped via workflow.skip_discuss=true, so owner-noticeable scope choices require explicit owner confirmation."
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: human_needed
 ---
 
 # Phase 27: Manual Command Defaults, Reason Shortcuts and Appeal Button Verification Report

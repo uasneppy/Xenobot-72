@@ -158,6 +158,10 @@ human_verification:
   - test: "TZ=UTC go test -tags testtools -count=1 ./fuku/modules, and compare failures with commit 78648d16."
     expected: "Phase 26 tests stay green. Remaining failures are the pre-existing captcha expiry set (chk_captcha_expires_at) and TestChatClockReadsTheGroup, TestApplyTimezone, TestSettingsTimezoneTyped."
     why_human: "The full package is not green here. TestLegacyScreeningNoticeRequests captcha_kick, captcha_ban, captcha_mute, and captcha_kick_held failed in this pass on CreateCaptchaAttemptPreMessage / chk_captcha_expires_at. That is the known pre-phase captcha set, not a timed-punishment golden drift, and it is not proof the suite passed."
+audit_acknowledged:
+  milestone: v1.2
+  at: 2026-11-24
+  status: human_needed
 ---
 
 # Phase 26: Timed Punishments, Escalation and Warn Expiry Verification Report
