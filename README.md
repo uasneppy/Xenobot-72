@@ -4,7 +4,7 @@
 
 <h1>Xenobot-72</h1>
 
-<p><b>Telegram group management in Go. Moderation, raid protection, captcha. No sweat.</b></p>
+<p><b>Telegram group management in Go. Moderation, raid protection, custom messages, tuning and captcha. No sweat.</b></p>
 
 <p>
   <a href="go.mod"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26"></a>
@@ -54,7 +54,9 @@ If you run several groups, one Staff Group of trusted admins can act on all of t
 Procedure first. Rights are checked every time, mine included.
 
 - Ban and mute, each with silent (`s`), delete-the-message (`d`) and timed (`t`) variants. Kick with silent and delete variants. Inline keyboards for restrict and unrestrict.
-- Warnings with a limit (default 3, from 1 to 100) and an action at the limit: mute (the default), kick or ban.
+- Manual command defaults and shortcuts, set per group in `/settings`: default durations for `/ban` and `/mute` given without one, a "reason required" switch, saved reason shortcuts that expand to full text, and an optional appeal button added to ban messages and their private copies.
+- Warnings with a limit (default 3, from 1 to 100), optional warn expiry in days (off by default), and an action at the limit: mute (the default), kick, ban, timed mute or timed ban.
+- Escalation ladder (off by default): define what a member's 1st, 2nd and later automatic offences receive (for example timed mute, longer mute, then ban), per group.
 - Purges, message deletion, promote and demote, custom admin titles, and changing the group title, photo and description.
 - Approvals: trusted members skip antiflood, blacklists, locks and captcha without becoming admins.
 - Anonymous admins prove who they are with one tap on a button before an admin command runs, and the command then runs as the person who tapped. `/anonadmin` shows or changes the group's AnonAdmin mode, and only the group creator can change it.
@@ -63,12 +65,12 @@ Procedure first. Rights are checked every time, mine included.
 
 Spam gets the same treatment as everything else: a procedure, and no opinions.
 
-- **Antiflood.** Ban, kick or mute anyone who sends more than N messages in a row, with N from 3 to 100. `/setflood` with `0`, `off` or `no` switches it off.
+- **Antiflood.** Ban, kick, mute, timed ban or timed mute anyone who sends more than N messages in a row, with N from 3 to 100. `/setflood` with `0`, `off` or `no` switches it off.
 - **Locks.** 22 lock types: links, media, stickers, forwards, bots, right-to-left text and more. Admins and approved members are never affected.
-- **Blacklists.** An action on a match: mute, kick, ban, warn or none. With none, I only delete the message.
+- **Blacklists.** An action on a match: mute, kick, ban, timed mute, timed ban, warn or none. With none, I only delete the message.
 - **Filters.** Keyword auto-replies, at most 150 filters in one chat.
-- **AI spam filter.** Off in every chat until an admin turns it on with `/aispam on`. When the model is confident, I delete the message quietly: no warn, no mute, no reply. Confident means 80 percent for English text and 90 percent for other languages. The filter does nothing without `TYPESAFE_API_KEY`, and `ENABLE_AISPAM=false` switches off every AI check I have. Deletions are mirrored to the `MESSAGE_DUMP` chat.
-- **Join captcha.** Three modes: math, text in an image, and Turnstile. New members stay muted until they pass. The defaults are a time limit of 2 minutes, kick on failure and 3 attempts, and each member gets one attempt per group. Turnstile is a Cloudflare check on a web page that opens as a Telegram Mini App. The bot's server decides the result, and the page only shows it. Math and text need none of the Turnstile setup. Without Redis the web captcha is unavailable, and a group set to Turnstile gets the math captcha instead. Setup is in [Getting started](#getting-started).
+- **AI spam filter.** Off in every chat until an admin turns it on with `/aispam on`. When the model is confident, I delete the message quietly by default: no warn, no mute, no reply. An optional, rate-limited deletion notice can be enabled per group on the Messages page. Confident means 80 percent for English text and 90 percent for other languages (tunable per group on the Advanced page). The filter does nothing without `TYPESAFE_API_KEY`, and `ENABLE_AISPAM=false` switches off every AI check I have. Deletions are mirrored to the `MESSAGE_DUMP` chat.
+- **Join captcha.** Three modes: math, text in an image, and Turnstile. New members stay muted until they pass. The defaults are a time limit of 2 minutes (1 to 10 minutes via `/captchatime`, or 11 to 60 minutes on the Advanced page), kick on failure and 3 attempts, and each member gets one attempt per group. Turnstile is a Cloudflare check on a web page that opens as a Telegram Mini App. The bot's server decides the result, and the page only shows it. Math and text need none of the Turnstile setup. Without Redis the web captcha is unavailable, and a group set to Turnstile gets the math captcha instead. Setup is in [Getting started](#getting-started).
 
 ### Staff Group
 
@@ -128,14 +130,35 @@ Scheduled deletion lives on the Deletion page of `/settings` and keeps a chat re
 
 A message older than 47 hours is dropped quietly, because Telegram no longer allows deleting it. Staff Group messages, lockdown alerts, captcha challenges and log posts are never deleted, and the Deletion page does not exist in a Staff Group.
 
+### Custom messages and PM copies
+
+Every group can decide what I say when I punish someone or lock the chat, from the **Messages** page in a private `/settings` menu. A group that sets nothing keeps the exact default replies.
+
+- **Events.** Four families: manual punishments (ban, timed ban, kick, mute, timed mute, unban, unmute), automatic punishments (warn, warn limit, antiflood, blacklist, forward blocklist), screening notices (failed captcha, member requirement warn/kick/ban/mute, optional AI spam deletion notice) and lockdowns (manual start, join surge, flood, AI burst, lift). Staff Group actions, lockdown alerts, raid-scale removals, log posts and captcha challenges are never changed.
+- **Editor and fallback.** Each event takes one custom text (replacing all 8 languages for that group), at most one media item, URL buttons, previews and a **Silent** switch (act without posting in the group). Placeholders such as `{first}`, `{mention}`, `{reason}`, `{admin}`, `{duration}`, `{until}`, `{action}`, `{count}`, `{limit}` and `{window}` are filled safely with HTML escaping; `{admin}` reads "an admin" for anonymous or automatic actions and never names the Staff Group. If Telegram refuses a custom message, I fall back to the default text so the punishment or lockdown is never delayed or skipped.
+- **PM copies.** Off by default, per event. When turned on, I also send the punished person a private copy with its own text, media and buttons on a fleet-wide pacing budget (and a per-group cap for automatic events). If the person blocked me or never started a private chat, an optional **Details** button on the group message lets only that person open their copy in private, and an optional log line records the missed delivery. No PM copy is ever sent for raid-scale removals or Staff Group actions.
+- **Plain tone.** A per-group switch on the Messages page replaces my themed default texts with neutral wording across all 8 languages.
+
+### Tuning, advanced thresholds and copy settings
+
+Everything is configured group by group in the bot's private chat, with no Staff Group defaults or inheritance.
+
+- **Advanced thresholds.** A private-only **Advanced** page exposes 12 detection and screening limits inside safe bounds, each with per-item and per-area resets: raid windows, new-member share and age, AI spam bars, member requirement cap and pause, lockdown reminder interval and extended captcha timeouts (11 to 60 minutes).
+- **Copy settings.** The **Copy settings** page copies custom messages and tuning values from one group you manage to another, after live permission checks on both groups and a confirmation card showing what will be overwritten.
+- **Timezone.** `/timezone` (or the Timezone page) sets each group's IANA timezone (default `Europe/Kyiv`, configurable via `DEFAULT_TIMEZONE`) so timestamps in replies and logs match the group.
+
+### Conversations
+
+Off globally (`ENABLE_CHAT=false`). When enabled, a group's live owner can turn on in-character Xenobot-72 replies for that group from the private **Conversations** settings page behind a two-tap data notice card, choosing Anthropic Claude or Google Gemini as the provider. I never converse in private chats, and messages deleted by moderation, locks, blacklists or antiflood are never answered.
+
 ### Settings menu
 
-`/settings` opens a button menu. Only the owner of the group can open it, unless the owner lets admins in on the Access page. A menu opened in the group answers only to the person who opened it. Every press checks again that the person is still allowed, and every change is the same change the matching command makes. The menu itself keeps no state; the one exception is the ten-minute wait for a typed reply in the message editor.
+`/settings` opens a button menu. Only the owner of the group can open it, unless the owner lets admins in on the Access page. A menu opened in the group answers only to the person who opened it. Every press checks again that the person is still allowed, and every change is the same change the matching command makes. The menu itself keeps no state; the exceptions are the short-lived private wait for a typed reply or backup file and one-time confirmation tokens in Redis.
 
-Its pages: Staff Group, Lockdown, Captcha, Antiflood, Warnings, Locks, Welcome, Goodbye, Rules, Notes, Filters, Blacklist, Requirements, Deletion, Switches, Language, Log channel, Anonymous admins, Access (owner only) and Blocked sources (in a Staff Group only).
+Its pages: Staff Group, Lockdown, Captcha, Antiflood, Defaults, Warnings, Escalation, Locks, Welcome, Goodbye, Rules, Notes, Filters, Blacklist, Reactions, Messages, Requirements, Advanced, Copy settings, Backup, Deletion, Switches, Language, Timezone, Log channel, Anonymous admins, Conversations, Access (owner only) and Blocked sources (in a Staff Group only).
 
-- Welcome, Goodbye and Rules take their text, media and buttons from a message you send to me in private. `/cancel` ends the wait.
-- Blacklist, Filters and Notes work only in the private menu, and a menu opened in the group shows a note instead. You add an entry with Add and type it in private. Delete asks Yes or No. A filter keyword or a note name that already exists is refused, never overwritten.
+- Welcome, Goodbye, Rules and Messages take their text, media and buttons from a message you send to me in private. `/cancel` ends the wait.
+- Blacklist, Filters, Notes, Messages, Defaults, Reasons, Escalation, Advanced, Copy settings, Backup and Conversations work only in the private menu; a menu opened in the group shows a note instead.
 - In a private chat with me, `/settings` lists the groups you manage.
 
 ### Content
@@ -156,7 +179,7 @@ Notes, filters and greetings are where I get to be friendly. Today's ration is t
 ### Languages and backup
 
 - 8 interface languages: Ukrainian (the default), English, Spanish, French, Hindi, Indonesian, Portuguese and Russian.
-- `/export` writes a group's settings to a JSON file. `/import` and `/reset` work module by module. Lockdown, staff, deletion, member requirement and forward blocklist data are never part of backups.
+- `/export` writes a group's settings — custom event messages included — to a JSON file. `/import` and `/reset` work module by module, and the private **Backup** page in `/settings` runs the same export, import and reset paths behind two-tap confirmation cards without ever posting the backup file in a group. Old backups without custom messages import as before. Lockdown, staff, deletion, member requirement, tuning and forward blocklist data are never part of backups.
 
 ### Operations
 
@@ -222,7 +245,7 @@ Notice. I keep the count. Issuing a warning needs the same rights as a ban.
 | `/resetallwarns` | Delete every warning in the chat. Group creator only, with a confirmation button |
 | `/warnings` | Show the chat's warn settings |
 | `/setwarnlimit <n>` | Number of warnings before the action (1 to 100, default 3) |
-| `/setwarnmode <ban/kick/mute>` | Action taken at the limit (default mute) |
+| `/setwarnmode <ban/kick/mute/tban/tmute> [time]` | Action taken at the limit (default mute); `tban` and `tmute` take a duration |
 
 </details>
 
@@ -284,7 +307,7 @@ Flood control. I count the messages so that you do not have to. These are admin 
 | --- | --- |
 | `/flood` | Show the current antiflood settings |
 | `/setflood <number/off/no>` | Act after this many messages in a row (3 to 100). `0`, `off` or `no` disables it |
-| `/setfloodmode <ban/kick/mute>` | Action for flooders |
+| `/setfloodmode <ban/kick/mute/tban/tmute> [time]` | Action for flooders; `tban` and `tmute` take a duration |
 | `/delflood` (`/clearflood`) `<yes/no/on/off>` | Also delete the flooded messages |
 
 </details>
@@ -342,7 +365,7 @@ Words I remove on sight. You decide which. A word of one character is refused un
 | `/blacklists` (`/blocklists`) | List the blacklisted words (anyone) |
 | `/addblacklist` (`/blacklist`, `/addblocklist`, `/blocklist`) `<words>` | Add words. The admin and I both need the right to restrict members |
 | `/rmblacklist` (`/rmblocklist`, `/unblacklist`) `<words>` | Remove words (same rights) |
-| `/blaction` (`/blacklistaction`) `<mute/kick/ban/warn/none>` | Action on a match. `none` only deletes the message (same rights) |
+| `/blaction` (`/blacklistaction`) `<mute/kick/ban/tmute/tban/warn/none> [time]` | Action on a match. `none` only deletes the message; `tmute` and `tban` take a duration (same rights) |
 | `/remallbl` (`/rmallbl`, `/rmblocklistall`, `/rmallblocklist`) | Remove every blacklisted word. Group creator only |
 
 </details>
@@ -594,6 +617,7 @@ Backups are rate limited per chat: `/export` once every 5 minutes, `/import` onc
 | `/import [modules…]` | Restore from a replied-to backup file. Group creator only, and I must be an admin |
 | `/reset [modules…]` | Reset settings to their defaults. Group creator only, and I must be an admin |
 | `/lang` | In a private chat, choose your own language. In a group, an admin sets the group's language |
+| `/timezone [IANA name]` | Show or set the group's timezone (for example `Europe/Kyiv`, `UTC`) |
 | `/start` · `/help [module]` · `/about` · `/donate` | Navigation, help, bot info, donation info |
 
 </details>
@@ -661,7 +685,7 @@ flowchart TD
         direction TB
         G1["-10 captcha sweeper · -9 forward blocklist · -8 member deletion<br/>-7 lockdown join guard · -6 fed-ban · -5 service message deletion<br/>-4 raid flood counter · -3 staff watchers<br/>-2 admin cache, member requirements · -1 user tracker"]
         G2["0 commands, help, greetings · 1 settings typed reply · 2 raid AI watcher"]
-        G3["3 AI spam · 4 antiflood · 5/6 locks · 7 blacklists · 8 reports, reactions<br/>9 filters · 10 pins · 11 log channel · 12 late raid flood counter"]
+        G3["3 AI spam · 4 antiflood · 5/6 locks · 7 blacklists · 8 reports, reactions<br/>9 filters · 10 pins · 11 log channel · 12 late raid flood · 13 conversations"]
         G1 --> G2 --> G3
     end
 
@@ -672,11 +696,11 @@ flowchart TD
     L -->|"miss"| RD[("Redis<br/>cache, raid counters,<br/>captcha challenges, pacing")]
     RD -->|"miss"| PG[("PostgreSQL<br/>schema from migrations/*.sql")]
     R -->|"writes, then cache invalidation"| PG
-    M -.->|"optional"| AI["TypeSafe and Anthropic Claude<br/>AI checks"]
+    M -.->|"optional"| AI["TypeSafe, Anthropic Claude<br/>and Google Gemini"]
     M -->|"replies and actions"| TG
 ```
 
-- **Startup.** `fuku/config` loads `.env` and validates it. `fuku/db` connects to PostgreSQL (5 attempts) before `main()` runs and applies the SQL migrations when `AUTO_MIGRATE=true`. `main.go` then sets up Redis, the embedded locales, tracing, the bot client, the dispatcher, the monitors and the HTTP server. It loads the 39 modules, which register themselves in `init()` (help loads last), and posts a "Started Bot!" message to `MESSAGE_DUMP`.
+- **Startup.** `fuku/config` loads `.env` and validates it. `fuku/db` connects to PostgreSQL (5 attempts) before `main()` runs and applies the SQL migrations when `AUTO_MIGRATE=true`. `main.go` then sets up Redis, the embedded locales, tracing, the bot client, the dispatcher, the monitors and the HTTP server. It loads the 41 modules, which register themselves in `init()` (help loads last), and posts a "Started Bot!" message to `MESSAGE_DUMP`.
 - **Handler groups.** Handlers run in numeric order. Watchers pass the update on to the next handler. Commands end it. New commands go through `helpers.WrapCommand`, a pipeline that runs the permission and disable checks, and every command handler is built by `helpers.NewBotCommand`, which records its name. Command deletion wraps the dispatcher's processor and acts after every group has run. See [handler groups](docs/src/content/docs/architecture/handler-groups.md) and [AGENTS.md](AGENTS.md).
 - **Data.** Each domain has a repository package in `fuku/db/<domain>/`. Reads go through a cache loader (process memory, then Redis, then PostgreSQL), and every write drops the cache keys it affects. Operational state in Redis, such as the raid counters and the captcha challenges, sits outside the cache prefix and survives `CLEAR_CACHE_ON_STARTUP`.
 - **Background work.** The lockdown worker and the scheduled deletion worker resume from the database after a restart. Sweepers recheck the Staff Group links and the settings roster every hour.
@@ -706,6 +730,7 @@ flowchart TD
 | 10 | Pins |
 | 11 | Log channel |
 | 12 | Late raid flood counter (slash-prefixed texts only) |
+| 13 | Group conversations watcher (in-character AI replies) |
 
 ## Tech stack
 
@@ -715,7 +740,7 @@ flowchart TD
 | Telegram | [gotgbot v2](https://github.com/PaulSonOfLars/gotgbot), [gotg_md2html](https://github.com/PaulSonOfLars/gotg_md2html) |
 | Database | PostgreSQL through [GORM](https://gorm.io), with plain SQL migrations in [`migrations/`](migrations) |
 | Cache | Redis ([go-redis v9](https://github.com/redis/go-redis), [gocache](https://github.com/eko/gocache)) with an in-process LRU ([golang-lru](https://github.com/hashicorp/golang-lru)) in front, msgpack encoding |
-| Features | [base64Captcha](https://github.com/mojocn/base64Captcha) for captcha images, [Aho-Corasick](https://github.com/cloudflare/ahocorasick) keyword matching, Cloudflare Turnstile for the web captcha, TypeSafe and Anthropic Claude for the optional AI checks |
+| Features | [base64Captcha](https://github.com/mojocn/base64Captcha) for captcha images, [Aho-Corasick](https://github.com/cloudflare/ahocorasick) keyword matching, Cloudflare Turnstile for the web captcha, TypeSafe, Anthropic Claude and Google Gemini for optional AI checks and group conversations |
 | Observability | Prometheus client, OpenTelemetry (OTLP gRPC or console exporter), logrus JSON logs with secret redaction |
 | Tests | testify, SQLite (GORM driver), miniredis, optional real PostgreSQL |
 | Tooling | golangci-lint v2, pre-commit, GoReleaser v2, Docker (distroless runtime) |
@@ -881,6 +906,7 @@ I read every variable below in [`fuku/config/config.go`](fuku/config/config.go),
 | `HTTP_MAX_IDLE_CONNS` | `100` | Idle connections kept for the Bot API client |
 | `HTTP_MAX_IDLE_CONNS_PER_HOST` | `50` | Idle connections per host for the Bot API client |
 | `ENABLED_LOCALES` | `uk,en,es,fr,hi,id,pt,ru` | Comma-separated languages offered by `/lang`. `uk` is always offered |
+| `DEFAULT_TIMEZONE` | `Europe/Kyiv` | Default IANA timezone used by groups until changed with `/timezone` or in `/settings`. An invalid name stops startup |
 | `DEBUG` | `false` | Debug logging with caller info. Also turns the two monitoring defaults below off |
 
 </details>
@@ -907,8 +933,20 @@ I read every variable below in [`fuku/config/config.go`](fuku/config/config.go),
 | --- | --- | --- |
 | `TYPESAFE_API_KEY` | — | TypeSafe API key. The AI spam filter and the raid AI text checks do nothing without it |
 | `ENABLE_AISPAM` | `true` | Master switch for every AI check: text, images and names. `/aispam` still has to be turned on per chat, and the AI spam-name rule stays off until an owner sets it to a punishment |
-| `ANTHROPIC_API_KEY` | — | Anthropic API key for the raid image checks and the AI spam-name rule. Without it neither runs, and no image or name leaves the server |
-| `ANTHROPIC_MODEL` | `claude-haiku-5-5` | Claude model for those checks. It must accept a forced tool call. An invalid name is replaced by the default, with a warning |
+| `ANTHROPIC_API_KEY` | — | Anthropic API key for the raid image checks, the AI spam-name rule and Anthropic group conversations. Without it none of those run, and no data leaves the server |
+| `ANTHROPIC_MODEL` | `claude-haiku-5-5` | Claude model for the image and name checks. It must accept a forced tool call. An invalid name is replaced by the default, with a warning |
+
+</details>
+
+<details>
+<summary><b>Conversations</b></summary>
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `ENABLE_CHAT` | `false` | Global switch for group conversations. Even when `true`, a group's live owner must enable it per group from private `/settings` behind a two-tap data notice card |
+| `GEMINI_API_KEY` | — | Google Gemini API key, needed only for groups whose owner picks Google for conversations. Registered with the log redactor |
+| `CHAT_ANTHROPIC_MODEL` | `claude-haiku-5-5` | Claude model used for Anthropic group conversations |
+| `CHAT_GEMINI_MODEL` | `gemini-4-hydrogen` | Gemini model used for Google group conversations |
 
 </details>
 
@@ -1004,7 +1042,7 @@ Fuku_Robot/
 │   ├── modules/               # one file per bot module: bans.go, notes.go, captcha.go, lockdown.go, staff.go, settings.go, …
 │   └── utils/                 # command pipeline, permission checks, callback codec, cache, HTTP server, web captcha, tracing, monitoring, …
 ├── locales/                   # uk, en, es, fr, hi, id, pt, ru + config.yml (help aliases)
-├── migrations/                # 64 timestamped .sql files: the schema's source of truth
+├── migrations/                # 76 timestamped .sql files: the schema's source of truth
 ├── docker/                    # alpine (production), alpine.debug, goreleaser, pr-build Dockerfiles
 ├── docs/                      # Blume docs site: generated command pages, guides, architecture notes
 ├── scripts/                   # docs generator, translation checker, psql migrate and backup, test-result gate, captcha page tests
