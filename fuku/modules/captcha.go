@@ -24,6 +24,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
+	"github.com/uasneppy/fuku_robot/fuku/db/advthresholds"
 	"github.com/uasneppy/fuku_robot/fuku/db/captcha"
 	"github.com/uasneppy/fuku_robot/fuku/db/chats"
 	"github.com/uasneppy/fuku_robot/fuku/db/lang"
@@ -829,8 +830,9 @@ func effectiveCaptchaTimeout(ctx context.Context, chatID int64, baseTimeout int)
 
 // applyCaptchaTimeout is the one path that changes a group's captcha time limit, called by
 // /captchatime and by the settings menu. It validates the range, writes through
-// captcha.SetCaptchaTimeout (which invalidates the settings cache) and reads the stored row
-// back.
+// captcha.SetCaptchaTimeout (which invalidates the settings cache), clears any active
+// extended captcha_timeout_mins override so the new 1..10 minute limit takes effect
+// immediately, and reads the stored row back.
 func applyCaptchaTimeout(ctx context.Context, chatID int64, minutes int64) captchaApplyResult {
 	if minutes < 1 || minutes > 10 {
 		return captchaApplyResult{Outcome: captchaInvalid, Key: "captcha_timeout_invalid"}
@@ -840,6 +842,12 @@ func applyCaptchaTimeout(ctx context.Context, chatID int64, minutes int64) captc
 			return captchaApplyResult{Outcome: captchaSaveFailed, Key: "captcha_timeout_range_error", Err: err}
 		}
 		return captchaApplyResult{Outcome: captchaSaveFailed, Key: "captcha_timeout_failed", Err: err}
+	}
+	if advThresholdsFor(ctx, chatID).CaptchaTimeoutMins > 0 {
+		if err := advThresholdsWrites.ResetField(ctx, chatID, advthresholds.FieldCaptchaTimeout, 0); err != nil {
+			log.Warnf("[Captcha] failed to clear extended captcha timeout override of chat %d: %v", chatID, err)
+			return captchaApplyResult{Outcome: captchaSaveFailed, Key: "captcha_timeout_failed", Err: err}
+		}
 	}
 	result := captchaApplyResult{Outcome: captchaApplied}
 	settings, err := captcha.GetCaptchaSettingsContext(ctx, chatID)

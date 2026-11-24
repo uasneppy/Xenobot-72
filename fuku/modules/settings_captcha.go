@@ -174,7 +174,7 @@ func renderSettingsCaptchaWithTimeout(v settingsView, s *models.CaptchaSettings,
 		{Value: "turnstile", Label: turnstileLabel},
 	}, s.CaptchaMode)...)
 
-	valueLabel := settingsText(v.Tr, "settings_btn_minutes", i18n.TranslationParams{"n": s.Timeout})
+	valueLabel := settingsText(v.Tr, "settings_btn_minutes", i18n.TranslationParams{"n": effectiveTimeout})
 	k.row(settingsStepperRow(k, settingsPageCaptcha, settingsCaptchaTime, s.Timeout, []int{-1, 1}, settingsCaptchaClamp, valueLabel)...)
 
 	k.row(settingsChoiceRow(k, settingsPageCaptcha, settingsCaptchaAction, []settingsOption{
@@ -281,7 +281,7 @@ func settingsCaptchaSetTime(p *settingsPress, value string) *settingsScreen {
 		p.cannotOpen()
 		return nil
 	}
-	if minutes == stored.Timeout {
+	if minutes == stored.Timeout && effectiveCaptchaTimeout(ctx, p.group.Id, stored.Timeout) == stored.Timeout {
 		switch minutes {
 		case settingsCaptchaMinTime:
 			p.answer(settingsText(p.tr, "settings_min_value", i18n.TranslationParams{"min": settingsCaptchaMinTime}), false)

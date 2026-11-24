@@ -376,4 +376,44 @@ func TestAdvancedThresholdsLockdownAndCaptcha(t *testing.T) {
 			t.Fatalf("captcha.SetCaptchaTimeout(11) err = %v, want ErrInvalidTimeout", err)
 		}
 	})
+
+	t.Run("captcha_timeout_command_clears_extended_override", func(t *testing.T) {
+		phase28InProcessMiniredis(t)
+
+		chatID := uniqueModuleChatID()
+		t.Cleanup(func() {
+			if db.DB != nil {
+				_ = db.DB.Where("chat_id = ?", chatID).Delete(&models.CaptchaSettings{}).Error
+				_ = db.DB.Where("chat_id = ?", chatID).Delete(&models.ChatAdvancedThresholds{}).Error
+			}
+			dbcache.DeleteCache(dbcache.CacheKey("captcha_settings", chatID))
+			dbcache.DeleteCache(advthresholds.CacheKey(chatID))
+		})
+
+		ctx := context.Background()
+		if err := captcha.SetCaptchaTimeout(chatID, 3); err != nil {
+			t.Fatalf("SetCaptchaTimeout(3) error = %v", err)
+		}
+		if err := advthresholds.SetField(ctx, chatID, advthresholds.FieldCaptchaTimeout, 30, 1); err != nil {
+			t.Fatalf("SetField(30) error = %v", err)
+		}
+		if got := effectiveCaptchaTimeout(ctx, chatID, 3); got != 30 {
+			t.Fatalf("effectiveCaptchaTimeout before = %d, want 30", got)
+		}
+
+		res := applyCaptchaTimeout(ctx, chatID, 5)
+		if res.Outcome != captchaApplied {
+			t.Fatalf("applyCaptchaTimeout(5).Outcome = %v, want captchaApplied (err=%v)", res.Outcome, res.Err)
+		}
+		if got := effectiveCaptchaTimeout(ctx, chatID, 5); got != 5 {
+			t.Fatalf("effectiveCaptchaTimeout after = %d, want 5", got)
+		}
+		th, err := advthresholds.Get(ctx, chatID)
+		if err != nil {
+			t.Fatalf("advthresholds.Get() error = %v", err)
+		}
+		if th.CaptchaTimeoutMins != 0 {
+			t.Fatalf("stored CaptchaTimeoutMins = %d, want 0 (cleared)", th.CaptchaTimeoutMins)
+		}
+	})
 }
