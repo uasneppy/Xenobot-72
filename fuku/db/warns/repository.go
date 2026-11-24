@@ -413,6 +413,9 @@ func SetWarnExpiryContext(ctx context.Context, chatId int64, days int) error {
 	if days < 0 || days > models.WarnExpiryMaxDays {
 		return ErrWarnExpiryOutOfRange
 	}
+	if db.DB == nil {
+		return errors.New("database not initialized")
+	}
 	if err := SetWarnExpiryTx(db.DB.WithContext(ctx), chatId, days); err != nil {
 		return err
 	}
@@ -463,6 +466,9 @@ func SetWarnModeTx(tx *gorm.DB, chatID int64, mode string, secs int) error {
 // existing row has only warn_mode and warn_mode_secs updated, so a concurrent limit write is never
 // clobbered (see SetWarnLimit). It validates nothing (the caller does) and drops warn_settings:<chat>.
 func SetWarnModeContext(ctx context.Context, chatID int64, mode string, secs int) error {
+	if db.DB == nil {
+		return errors.New("database not initialized")
+	}
 	if err := SetWarnModeTx(db.DB.WithContext(ctx), chatID, mode, secs); err != nil {
 		return err
 	}

@@ -114,6 +114,9 @@ func SetBlacklistActionTimedTx(tx *gorm.DB, chatId int64, action string, secs in
 // drops the chat's cached blacklist after a successful update and returns how many rows the
 // update matched (zero for a chat with no words).
 func SetBlacklistActionTimedContext(ctx context.Context, chatId int64, action string, secs int) (int64, error) {
+	if db.DB == nil {
+		return 0, errors.New("database not initialized")
+	}
 	rows, err := SetBlacklistActionTimedTx(db.DB.WithContext(ctx), chatId, action, secs)
 	if err != nil {
 		return 0, err
