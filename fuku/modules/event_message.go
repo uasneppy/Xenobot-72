@@ -548,6 +548,7 @@ func postEventGroup(site eventSite, r eventReply, msgs *eventmsg.Messages) (even
 // so r.Opts is never mutated and pmCopyAddDetails preserves the appeal button.
 func sendDefaultPost(site eventSite, r eventReply) (eventGroupPost, error) {
 	opts := r.Opts
+	hasAppeal := false
 	if appealRow := eventAppealRow(site.Tr, r.AppealURL); len(appealRow) > 0 {
 		baseRows := eventBotRows(r.Opts)
 		rows := eventAppendAppealRow(baseRows, appealRow)
@@ -558,9 +559,15 @@ func sendDefaultPost(site eventSite, r eventReply) (eventGroupPost, error) {
 			}
 			copied.ReplyMarkup = gotgbot.InlineKeyboardMarkup{InlineKeyboard: rows}
 			opts = &copied
+			hasAppeal = true
 		}
 	}
 	sent, err := site.SendDefault(r.Default, opts)
+	if err != nil && hasAppeal && eventMessageRefused(err) {
+		log.Warnf("[EventMessage] the default %s message of chat %d with appeal button was refused, retrying without appeal button", r.Event, site.Chat.Id)
+		opts = r.Opts
+		sent, err = site.SendDefault(r.Default, opts)
+	}
 	if err != nil {
 		return eventGroupPost{}, err
 	}

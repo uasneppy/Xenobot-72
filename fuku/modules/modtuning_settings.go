@@ -3,6 +3,7 @@ package modules
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -149,6 +150,10 @@ func validateAppealURL(raw string) (string, bool) {
 		return "", false
 	}
 	if !content.ValidButtonURL(trimmed) {
+		return "", false
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return "", false
 	}
 	return trimmed, true

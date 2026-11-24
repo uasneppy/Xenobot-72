@@ -361,6 +361,15 @@ func runEventPM(ctx context.Context, o eventPMOffer) {
 		}
 		outcome, code = pmCopySend(ctx, o, tried)
 	}
+	if outcome == pmCopyRefused && len(o.AppealRow) > 0 {
+		log.Warnf("[EventMessage] the private %s copy of user %d in chat %d with appeal button was refused (code %d), retrying without appeal button", o.Event, o.UserID, o.Chat.Id, code)
+		fallbackText := tried.Text
+		if o.Fallback != "" {
+			fallbackText = o.Fallback
+		}
+		tried = media.GreetingMessage{Text: fallbackText, MsgType: db.TEXT}
+		outcome, code = pmCopySend(ctx, o, tried)
+	}
 	switch outcome {
 	case pmCopyDelivered:
 		log.Debugf("[EventMessage] the private %s copy of user %d in chat %d was delivered", o.Event, o.UserID, o.Chat.Id)

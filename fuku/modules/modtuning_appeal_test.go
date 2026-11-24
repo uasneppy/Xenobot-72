@@ -185,6 +185,8 @@ func TestAppealURLValidationAndApply(t *testing.T) {
 			{"ftp", "ftp://example.com/appeal"},
 			{"bare_host", "example.com/appeal"},
 			{"no_host", "https://"},
+			{"empty_hostname_port", "https://:80"},
+			{"empty_hostname_path", "http://:8080/appeal"},
 			{"whitespace_only", "   \t\n "},
 			{"internal_space", "https://example.com/a b"},
 			{"internal_newline", "https://example.com/a\nb"},
@@ -889,6 +891,103 @@ func TestAppealButtonOnBanMessages(t *testing.T) {
 		}
 		if !content.ValidButtonURL(appealURL) {
 			t.Fatalf("content.ValidButtonURL(%q) = false", appealURL)
+		}
+	})
+
+	t.Run("appeal_refused_falls_back_without_appeal_button", func(t *testing.T) {
+		s := newAppealTestSite(t)
+		const badURL = "https://appeal/broken"
+		if err := modtuning.SetAppealURL(ctx, s.chat.Id, badURL, 1); err != nil {
+			t.Fatalf("SetAppealURL: %v", err)
+		}
+
+		// 1) Group default post: SendDefault refuses appeal button with 400 -> retries without appeal row.
+		var attempts int
+		var lastOpts *gotgbot.SendMessageOpts
+		site := eventSite{
+			Bot:  s.bot,
+			Chat: &s.chat,
+			Tr:   ukTr,
+			SendDefault: func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+				attempts++
+				lastOpts = opts
+				if attempts == 1 {
+					return nil, &gotgbot.TelegramError{Code: 400, Description: "Bad Request: BUTTON_URL_INVALID"}
+				}
+				return &gotgbot.Message{MessageId: 777, Chat: s.chat}, nil
+			},
+		}
+		origOpts := &gotgbot.SendMessageOpts{
+			ReplyMarkup: gotgbot.InlineKeyboardMarkup{
+				InlineKeyboard: [][]gotgbot.InlineKeyboardButton{{{Text: "Unban", CallbackData: "unban:1"}}},
+			},
+		}
+		post, err := sendDefaultPost(site, eventReply{
+			Event:     eventmsg.EventBan,
+			Default:   "Banned",
+			Opts:      origOpts,
+			AppealURL: badURL,
+		})
+		if err != nil {
+			t.Fatalf("sendDefaultPost fallback err = %v", err)
+		}
+		if attempts != 2 {
+			t.Fatalf("sendDefaultPost attempts = %d, want 2", attempts)
+		}
+		if post.Msg == nil || post.Msg.MessageId != 777 {
+			t.Fatalf("sendDefaultPost msg = %+v, want MessageId 777", post.Msg)
+		}
+		if len(post.Rows) != 1 || post.Rows[0][0].Text != "Unban" {
+			t.Fatalf("sendDefaultPost rows = %+v, want only [Unban]", post.Rows)
+		}
+		if lastOpts != origOpts {
+			t.Fatalf("sendDefaultPost retry did not use original opts without appeal row")
+		}
+
+		// 2) Default PM copy: refused with 400 -> retries without appeal row.
+		if err := eventmsg.SetSilent(ctx, s.chat.Id, eventmsg.EventBan, eventmsg.DestPM, false, 1); err != nil {
+			t.Fatalf("enable PM copy: %v", err)
+		}
+		resetSiteCalls(s)
+		eventPMRefuse(t, s, &gotgbot.TelegramError{Code: 400, Description: "Bad Request: BUTTON_URL_INVALID"})
+		if err := bansModule.ban(s.bot, s.commandCtx("/ban spam", true, false)); err != ext.EndGroups {
+			t.Fatalf("default PM /ban err = %v", err)
+		}
+		waitEventPM(t)
+		pms := sendMessagesToChat(s, eventPMMember)
+		if len(pms) != 2 {
+			t.Fatalf("default PM sends = %d, want 2 (refused + retry without appeal)", len(pms))
+		}
+		if len(appealCallKeyboard(t, pms[0])) != 1 {
+			t.Fatalf("first default PM attempt should carry appeal row, got %+v", appealCallKeyboard(t, pms[0]))
+		}
+		if kb := appealCallKeyboard(t, pms[1]); len(kb) != 0 {
+			t.Fatalf("retry default PM should omit appeal row, got %+v", kb)
+		}
+		if fmt.Sprint(pms[1].Params["text"]) == "" {
+			t.Fatalf("retry default PM text was empty")
+		}
+
+		// 3) Custom PM copy: both custom and default-with-appeal refused with 400 -> retries plain default without appeal.
+		if err := eventmsg.SetText(ctx, s.chat.Id, eventmsg.EventBan, eventmsg.DestPM, "Custom PM for {first}", 1); err != nil {
+			t.Fatalf("SetText PM: %v", err)
+		}
+		resetSiteCalls(s)
+		eventPMRefuse(t, s, &gotgbot.TelegramError{Code: 400, Description: "Bad Request: BUTTON_URL_INVALID"})
+		eventPMRefuse(t, s, &gotgbot.TelegramError{Code: 400, Description: "Bad Request: BUTTON_URL_INVALID"})
+		if err := bansModule.ban(s.bot, s.commandCtx("/ban spam", true, false)); err != ext.EndGroups {
+			t.Fatalf("custom PM /ban err = %v", err)
+		}
+		waitEventPM(t)
+		pms = sendMessagesToChat(s, eventPMMember)
+		if len(pms) != 3 {
+			t.Fatalf("custom PM sends = %d, want 3 (custom + default-with-appeal + default-without-appeal)", len(pms))
+		}
+		if kb := appealCallKeyboard(t, pms[2]); len(kb) != 0 {
+			t.Fatalf("final custom PM fallback should omit appeal row, got %+v", kb)
+		}
+		if fmt.Sprint(pms[2].Params["text"]) == "" {
+			t.Fatalf("final custom PM fallback text was empty")
 		}
 	})
 }
