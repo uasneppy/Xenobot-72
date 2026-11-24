@@ -222,36 +222,46 @@ func manualApplyReasonRequired(c *moderationCtx, reason string, defs modtuning.D
 }
 
 // manualBanMember executes a manual user ban, applying the chat's default ban duration when set
-// (P27-01) and populating t.untilDate and t.timeVal for EventTimedBan.
+// (P27-01) and populating t.untilDate and t.timeVal for EventTimedBan. If a positive default
+// duration cannot produce a valid non-permanent until_date, it fails safe and aborts instead of
+// escalating to a permanent ban.
 func manualBanMember(c *moderationCtx, t *target) error {
 	defs := c.manualDefaults()
 	if defs.DefaultBanSecs > 0 {
-		if until, ok := manualDefaultUntil(defs.DefaultBanSecs); ok {
-			if _, err := c.Chat.BanMember(c.Bot, t.userID, &gotgbot.BanChatMemberOpts{UntilDate: until}); err != nil {
-				return err
-			}
-			t.untilDate = until
-			t.timeVal = punishDurationLabel(c.Tr, defs.DefaultBanSecs)
-			return nil
+		until, ok := manualDefaultUntil(defs.DefaultBanSecs)
+		if !ok {
+			log.Warnf("[ModTuning] default ban expiry of chat %d could not be computed; aborting ban", c.Chat.Id)
+			return errPunishTimeRanOut
 		}
+		if _, err := c.Chat.BanMember(c.Bot, t.userID, &gotgbot.BanChatMemberOpts{UntilDate: until}); err != nil {
+			return err
+		}
+		t.untilDate = until
+		t.timeVal = punishDurationLabel(c.Tr, defs.DefaultBanSecs)
+		return nil
 	}
 	_, err := c.Chat.BanMember(c.Bot, t.userID, nil)
 	return err
 }
 
 // manualMuteMember executes a manual user mute, applying the chat's default mute duration when set
-// (P27-01) and populating t.untilDate and t.timeVal for EventTimedMute.
+// (P27-01) and populating t.untilDate and t.timeVal for EventTimedMute. If a positive default
+// duration cannot produce a valid non-permanent until_date, it fails safe and aborts instead of
+// escalating to a permanent mute.
 func manualMuteMember(c *moderationCtx, t *target) error {
 	defs := c.manualDefaults()
 	if defs.DefaultMuteSecs > 0 {
-		if until, ok := manualDefaultUntil(defs.DefaultMuteSecs); ok {
-			if _, err := c.Chat.RestrictMember(c.Bot, t.userID, MutedPermissions, &gotgbot.RestrictChatMemberOpts{UntilDate: until}); err != nil {
-				return err
-			}
-			t.untilDate = until
-			t.timeVal = punishDurationLabel(c.Tr, defs.DefaultMuteSecs)
-			return nil
+		until, ok := manualDefaultUntil(defs.DefaultMuteSecs)
+		if !ok {
+			log.Warnf("[ModTuning] default mute expiry of chat %d could not be computed; aborting mute", c.Chat.Id)
+			return errPunishTimeRanOut
 		}
+		if _, err := c.Chat.RestrictMember(c.Bot, t.userID, MutedPermissions, &gotgbot.RestrictChatMemberOpts{UntilDate: until}); err != nil {
+			return err
+		}
+		t.untilDate = until
+		t.timeVal = punishDurationLabel(c.Tr, defs.DefaultMuteSecs)
+		return nil
 	}
 	_, err := c.Chat.RestrictMember(c.Bot, t.userID, MutedPermissions, nil)
 	return err

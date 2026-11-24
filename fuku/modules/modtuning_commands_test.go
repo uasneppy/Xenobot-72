@@ -614,4 +614,30 @@ func TestManualCommandDefaults(t *testing.T) {
 			t.Errorf("applyReasonRequired on err = %v, want modTuningFailed", got)
 		}
 	})
+
+	t.Run("invalid_positive_default_fails_safe", func(t *testing.T) {
+		s := newModerationGoldenSite(t)
+		cleanupModTuningChat(t, s.chat.Id)
+
+		prevLookup := manualDefaultsLookup
+		manualDefaultsLookup = func(context.Context, int64) (modtuning.Defaults, error) {
+			return modtuning.Defaults{DefaultBanSecs: 10, DefaultMuteSecs: 10}, nil
+		}
+		t.Cleanup(func() { manualDefaultsLookup = prevLookup })
+
+		c := &moderationCtx{Bot: s.bot, Chat: &s.chat}
+		tgt := &target{userID: noticeGoldenTarget.Id}
+		if err := manualBanMember(c, tgt); !errors.Is(err, errPunishTimeRanOut) {
+			t.Fatalf("manualBanMember with invalid positive default = %v, want errPunishTimeRanOut", err)
+		}
+		if err := manualMuteMember(c, tgt); !errors.Is(err, errPunishTimeRanOut) {
+			t.Fatalf("manualMuteMember with invalid positive default = %v, want errPunishTimeRanOut", err)
+		}
+		if bans := s.client.callsFor("banChatMember"); len(bans) != 0 {
+			t.Fatalf("expected 0 banChatMember calls on failed default expiry, got %d", len(bans))
+		}
+		if restricts := s.client.callsFor("restrictChatMember"); len(restricts) != 0 {
+			t.Fatalf("expected 0 restrictChatMember calls on failed default expiry, got %d", len(restricts))
+		}
+	})
 }
