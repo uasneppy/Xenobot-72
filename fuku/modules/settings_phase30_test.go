@@ -16,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
+	"github.com/uasneppy/fuku_robot/fuku/db/backup"
 	dbcache "github.com/uasneppy/fuku_robot/fuku/db/cache"
 	"github.com/uasneppy/fuku_robot/fuku/db/chats"
 	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
@@ -95,6 +96,15 @@ func TestPhase30Codes(t *testing.T) {
 	if typedCfg.Part != settingsBackupImportPart || typedCfg.CancelCode != settingsActBackupImportCancel || typedCfg.Right != settingsRightOwnerBotAdmin {
 		t.Errorf("settingsTypedPages[%q] = %+v, want Part=%q CancelCode=%q Right=%v",
 			settingsPageBackup, typedCfg, settingsBackupImportPart, settingsActBackupImportCancel, settingsRightOwnerBotAdmin)
+	}
+
+	exportableCount := len(backup.AllExportableModules())
+	wantAllMask := computeSettingsBackupAllMask(exportableCount)
+	if settingsBackupAllMask != wantAllMask {
+		t.Errorf("settingsBackupAllMask = %#x, want %#x for %d exportable modules", settingsBackupAllMask, wantAllMask, exportableCount)
+	}
+	if wantHex := len(strconv.FormatUint(uint64(wantAllMask), 16)); settingsBackupMaskMaxHex != wantHex {
+		t.Errorf("settingsBackupMaskMaxHex = %d, want %d", settingsBackupMaskMaxHex, wantHex)
 	}
 
 	lockCodes := make(map[string]bool, len(settingsLockRows))

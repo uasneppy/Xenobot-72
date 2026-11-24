@@ -40,13 +40,28 @@ const (
 
 	// settingsBackupImportPart is the typed-reply wait part for uploading a backup JSON file.
 	settingsBackupImportPart = "i"
-
-	// settingsBackupAllMask selects all 20 exportable backup modules (bits 0..19 -> "fffff").
-	settingsBackupAllMask uint32 = (1 << 20) - 1
 )
 
-// settingsBackupStaffLookup reads a chat's Staff Group row fresh; a variable only so tests can fail it.
-var settingsBackupStaffLookup = settingsCopyDefaultStaffLookup
+var (
+	// settingsBackupAllMask selects all exportable backup modules derived from backup.AllExportableModules().
+	settingsBackupAllMask = computeSettingsBackupAllMask(len(backup.AllExportableModules()))
+
+	// settingsBackupMaskMaxHex is the maximum lowercase hex length of settingsBackupAllMask.
+	settingsBackupMaskMaxHex = len(strconv.FormatUint(uint64(settingsBackupAllMask), 16))
+
+	// settingsBackupStaffLookup reads a chat's Staff Group row fresh; a variable only so tests can fail it.
+	settingsBackupStaffLookup = settingsCopyDefaultStaffLookup
+)
+
+func computeSettingsBackupAllMask(count int) uint32 {
+	if count <= 0 || count > 32 {
+		panic(fmt.Sprintf("settings backup module count %d out of uint32 mask range [1..32]", count))
+	}
+	if count == 32 {
+		return ^uint32(0)
+	}
+	return (uint32(1) << count) - 1
+}
 
 func init() {
 	private := func(check func(map[string]string) bool) func(map[string]string) bool {
@@ -111,7 +126,7 @@ func settingsBackupFormatMask(mask uint32) string {
 }
 
 func settingsBackupParseMask(raw string) (uint32, bool) {
-	if raw == "" || len(raw) > 5 {
+	if raw == "" || len(raw) > settingsBackupMaskMaxHex {
 		return 0, false
 	}
 	v, err := strconv.ParseUint(raw, 16, 32)
