@@ -767,3 +767,29 @@ func TestWarnTopicThreadIDPropagated(t *testing.T) {
 		}
 	})
 }
+
+func TestWarnPostLimitSkipsEmptyReply(t *testing.T) {
+	client := newModuleBotClient()
+	bot := newModuleTestBot(client)
+	chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Warn Chat"}
+	msg := &gotgbot.Message{MessageId: 101, Chat: chat}
+	target := gotgbot.User{Id: 42, FirstName: "Member"}
+
+	// Inert mode with no stored reasons produces an empty reply and must not call sendMessage.
+	res := warnApplyResult{Count: 3, Limit: 3, Mode: "", LimitReached: true}
+	if err := warnPostLimit(bot, &chat, msg, nil, target, res, warnSourceManual); err != nil {
+		t.Fatalf("warnPostLimit(empty) error = %v, want nil", err)
+	}
+	if got := len(client.callsFor("sendMessage")); got != 0 {
+		t.Fatalf("sendMessage calls = %d, want 0 for empty reply", got)
+	}
+
+	// Inert mode with stored reasons still posts the reasons list.
+	res.Reasons = []string{"first reason"}
+	if err := warnPostLimit(bot, &chat, msg, nil, target, res, warnSourceManual); err != nil {
+		t.Fatalf("warnPostLimit(with reasons) error = %v, want nil", err)
+	}
+	if got := len(client.callsFor("sendMessage")); got != 1 {
+		t.Fatalf("sendMessage calls = %d, want 1 when reasons are present", got)
+	}
+}

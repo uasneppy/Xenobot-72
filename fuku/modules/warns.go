@@ -560,6 +560,9 @@ func warnPostLimit(b *gotgbot.Bot, chat *gotgbot.Chat, msg *gotgbot.Message, tr 
 		fmt.Fprintf(&sb, "\n - %s", html.EscapeString(warnReason))
 	}
 	reply += sb.String()
+	if strings.TrimSpace(reply) == "" {
+		return nil
+	}
 	var threadID int64
 	if msg.IsTopicMessage {
 		threadID = msg.MessageThreadId
