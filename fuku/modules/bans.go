@@ -977,17 +977,7 @@ func (moduleStruct) unrestrictButtonHandler(b *gotgbot.Bot, ctx *ext.Context) er
 		helpText = fmt.Sprintf(temp, formatting.MentionHtml(user.Id, user.FirstName))
 	}
 
-	// The card's own text goes back in as HTML, so it is rebuilt from its entities
-	// (OriginalHTML escapes the text and keeps the mentions), never inserted raw.
-	updatedText := ""
-	if ctx.EffectiveMessage != nil {
-		updatedText = ctx.EffectiveMessage.OriginalHTML()
-	}
-	if updatedText != "" {
-		updatedText = "<s>" + updatedText + "</s>\n\n"
-	}
-
-	_, _, editErr := msg.EditText(b, &gotgbot.EditMessageTextOpts{Text: updatedText + helpText, ParseMode: formatting.HTML})
+	editErr := editUnrestrictMessage(b, msg, ctx.EffectiveMessage, helpText)
 	if editErr != nil {
 		log.Error(editErr)
 	}
@@ -1003,6 +993,45 @@ func (moduleStruct) unrestrictButtonHandler(b *gotgbot.Bot, ctx *ext.Context) er
 	}
 
 	return ext.EndGroups
+}
+
+// editUnrestrictMessage updates the ban/mute card after its Unban/Unmute button is pressed.
+// Text messages are edited with EditText, captionless media (stickers and video notes) clear
+// their inline keyboard with EditReplyMarkup, and caption-capable media (photo, video,
+// animation, document, audio, voice) are edited with EditCaption.
+func editUnrestrictMessage(b *gotgbot.Bot, msg gotgbot.MaybeInaccessibleMessage, effective *gotgbot.Message, helpText string) error {
+	if effective == nil || effective.Text != "" {
+		// The card's own text goes back in as HTML, so it is rebuilt from its entities
+		// (OriginalHTML escapes the text and keeps the mentions), never inserted raw.
+		updatedText := ""
+		if effective != nil {
+			updatedText = effective.OriginalHTML()
+		}
+		if updatedText != "" {
+			updatedText = "<s>" + updatedText + "</s>\n\n"
+		}
+		_, _, err := msg.EditText(b, &gotgbot.EditMessageTextOpts{
+			Text:      updatedText + helpText,
+			ParseMode: formatting.HTML,
+		})
+		return err
+	}
+	if effective.Sticker != nil || effective.VideoNote != nil {
+		// Stickers and video notes cannot carry a caption; clear the inline keyboard so the button is not left live.
+		_, _, err := msg.EditReplyMarkup(b, &gotgbot.EditMessageReplyMarkupOpts{
+			ReplyMarkup: gotgbot.InlineKeyboardMarkup{},
+		})
+		return err
+	}
+	updatedCaption := effective.OriginalCaptionHTML()
+	if updatedCaption != "" {
+		updatedCaption = "<s>" + updatedCaption + "</s>\n\n"
+	}
+	_, _, err := msg.EditCaption(b, &gotgbot.EditMessageCaptionOpts{
+		Caption:   updatedCaption + helpText,
+		ParseMode: formatting.HTML,
+	})
+	return err
 }
 
 func moderationSkick(m *moduleStruct) *moderationCommand {

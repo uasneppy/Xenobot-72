@@ -44,4 +44,61 @@ func TestUnrestrictButtonEditKeepsTextSafe(t *testing.T) {
 			t.Fatalf("answerCallbackQuery calls = %d, want 1", len(calls))
 		}
 	})
+
+	t.Run("captioned media uses editMessageCaption and escapes HTML", func(t *testing.T) {
+		client := newModuleBotClient()
+		bot := newModuleTestBot(client)
+		ctx := newModuleCallbackContext(bot, chat, admin, data)
+		ctx.EffectiveMessage.Text = ""
+		ctx.EffectiveMessage.Photo = []gotgbot.PhotoSize{{FileId: "photo-1"}}
+		ctx.EffectiveMessage.Caption = cardText
+		_ = bansModule.unrestrictButtonHandler(bot, ctx)
+		if calls := client.callsFor("editMessageText"); len(calls) != 0 {
+			t.Fatalf("editMessageText calls = %d, want 0", len(calls))
+		}
+		calls := client.callsFor("editMessageCaption")
+		if len(calls) != 1 {
+			t.Fatalf("editMessageCaption calls = %d, want 1", len(calls))
+		}
+		caption := fmt.Sprint(calls[0].Params["caption"])
+		if !strings.Contains(caption, "<s>Banned &lt;b&gt;Eve&lt;/b&gt; &amp; co</s>\n\n") {
+			t.Fatalf("edited caption = %q, want struck-through escaped caption", caption)
+		}
+	})
+
+	t.Run("uncaptioned media uses editMessageCaption without empty strikethrough", func(t *testing.T) {
+		client := newModuleBotClient()
+		bot := newModuleTestBot(client)
+		ctx := newModuleCallbackContext(bot, chat, admin, data)
+		ctx.EffectiveMessage.Text = ""
+		ctx.EffectiveMessage.Photo = []gotgbot.PhotoSize{{FileId: "photo-2"}}
+		ctx.EffectiveMessage.Caption = ""
+		_ = bansModule.unrestrictButtonHandler(bot, ctx)
+		calls := client.callsFor("editMessageCaption")
+		if len(calls) != 1 {
+			t.Fatalf("editMessageCaption calls = %d, want 1", len(calls))
+		}
+		caption := fmt.Sprint(calls[0].Params["caption"])
+		if strings.Contains(caption, "<s>") {
+			t.Fatalf("edited caption = %q, must not have empty strikethrough", caption)
+		}
+	})
+
+	t.Run("sticker clears inline keyboard with editMessageReplyMarkup", func(t *testing.T) {
+		client := newModuleBotClient()
+		bot := newModuleTestBot(client)
+		ctx := newModuleCallbackContext(bot, chat, admin, data)
+		ctx.EffectiveMessage.Text = ""
+		ctx.EffectiveMessage.Sticker = &gotgbot.Sticker{FileId: "sticker-1"}
+		_ = bansModule.unrestrictButtonHandler(bot, ctx)
+		if calls := client.callsFor("editMessageText"); len(calls) != 0 {
+			t.Fatalf("editMessageText calls = %d, want 0", len(calls))
+		}
+		if calls := client.callsFor("editMessageCaption"); len(calls) != 0 {
+			t.Fatalf("editMessageCaption calls = %d, want 0", len(calls))
+		}
+		if calls := client.callsFor("editMessageReplyMarkup"); len(calls) != 1 {
+			t.Fatalf("editMessageReplyMarkup calls = %d, want 1", len(calls))
+		}
+	})
 }
