@@ -225,12 +225,10 @@ func SetForgetDays(ctx context.Context, chatID int64, days int, by int64) error 
 	return upsert(ctx, row, "forget_days")
 }
 
-// ReplaceLadder atomically replaces chatID's entire escalation ladder (enabled, all five steps,
-// and forget_days) and drops chat_escalation:<chat>. ForgetDays == 0 is normalized to
-// DefaultForgetDays. Invalid values return ErrInvalidValue before touching the database. When the
-// normalized ladder matches Defaults() (disabled, no steps, DefaultForgetDays), any existing row
-// is deleted so the target mirrors an unconfigured source cleanly.
-func ReplaceLadder(ctx context.Context, chatID int64, ladder Ladder, by int64) error {
+// ReplaceLadderTx validates ladder and replaces chatID's entire escalation ladder inside
+// caller-supplied transaction tx. The caller is responsible for dropping CacheKey(chatID) after
+// commit.
+func ReplaceLadderTx(tx *gorm.DB, chatID int64, ladder Ladder, by int64) error {
 	forgetDays := ladder.ForgetDays
 	if forgetDays == 0 {
 		forgetDays = DefaultForgetDays
@@ -250,14 +248,13 @@ func ReplaceLadder(ctx context.Context, chatID int64, ladder Ladder, by int64) e
 		}
 		hasSteps = true
 	}
+	if tx == nil {
+		return fukuerrors.Wrap(errNoDatabase, "write the escalation ladder")
+	}
 	if !ladder.Enabled && !hasSteps && forgetDays == DefaultForgetDays {
-		if db.DB == nil {
-			return fukuerrors.Wrap(errNoDatabase, "reset the escalation ladder")
-		}
-		if err := db.DB.WithContext(ctx).Where("chat_id = ?", chatID).Delete(&models.ChatEscalation{}).Error; err != nil {
+		if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatEscalation{}).Error; err != nil {
 			return fukuerrors.Wrapf(err, "reset the escalation ladder of chat %d", chatID)
 		}
-		cache.DeleteCache(CacheKey(chatID))
 		return nil
 	}
 	row := defaultRow(chatID, by)
@@ -271,11 +268,42 @@ func ReplaceLadder(ctx context.Context, chatID int64, ladder Ladder, by int64) e
 		}
 		columns = append(columns, stepColumns(n)...)
 	}
-	return upsert(ctx, row, columns...)
+	return upsertTx(tx, row, columns...)
+}
+
+// ReplaceLadder atomically replaces chatID's entire escalation ladder (enabled, all five steps,
+// and forget_days) and drops chat_escalation:<chat>. ForgetDays == 0 is normalized to
+// DefaultForgetDays. Invalid values return ErrInvalidValue before touching the database. When the
+// normalized ladder matches Defaults() (disabled, no steps, DefaultForgetDays), any existing row
+// is deleted so the target mirrors an unconfigured source cleanly.
+func ReplaceLadder(ctx context.Context, chatID int64, ladder Ladder, by int64) error {
+	var tx *gorm.DB
+	if db.DB != nil {
+		tx = db.DB.WithContext(ctx)
+	}
+	if err := ReplaceLadderTx(tx, chatID, ladder, by); err != nil {
+		return err
+	}
+	cache.DeleteCache(CacheKey(chatID))
+	return nil
 }
 
 func defaultRow(chatID, by int64) *models.ChatEscalation {
 	return &models.ChatEscalation{ChatId: chatID, ForgetDays: DefaultForgetDays, UpdatedBy: by, UpdatedAt: time.Now()}
+}
+
+func upsertTx(tx *gorm.DB, row *models.ChatEscalation, columns ...string) error {
+	if tx == nil {
+		return fukuerrors.Wrap(errNoDatabase, "write the escalation ladder")
+	}
+	err := tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "chat_id"}},
+		DoUpdates: clause.AssignmentColumns(append(columns, "updated_by", "updated_at")),
+	}).Create(row).Error
+	if err != nil {
+		return fukuerrors.Wrapf(err, "write the escalation ladder of chat %d", row.ChatId)
+	}
+	return nil
 }
 
 // upsert inserts the row or updates only columns, updated_by and updated_at, so two admins
@@ -284,12 +312,8 @@ func upsert(ctx context.Context, row *models.ChatEscalation, columns ...string) 
 	if db.DB == nil {
 		return fukuerrors.Wrap(errNoDatabase, "write the escalation ladder")
 	}
-	err := db.DB.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "chat_id"}},
-		DoUpdates: clause.AssignmentColumns(append(columns, "updated_by", "updated_at")),
-	}).Create(row).Error
-	if err != nil {
-		return fukuerrors.Wrapf(err, "write the escalation ladder of chat %d", row.ChatId)
+	if err := upsertTx(db.DB.WithContext(ctx), row, columns...); err != nil {
+		return err
 	}
 	cache.DeleteCache(CacheKey(row.ChatId))
 	return nil

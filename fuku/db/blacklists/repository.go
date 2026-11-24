@@ -93,20 +93,33 @@ func SetBlacklistActionContext(ctx context.Context, chatId int64, action string)
 	return SetBlacklistActionTimedContext(ctx, chatId, action, 0)
 }
 
-// SetBlacklistActionTimedContext sets the lower-cased action and its seconds (the duration of a
-// timed action, 0 for a plain one) of every word of the chat in one update of both columns,
-// drops the chat's cached blacklist after a successful update and returns how many rows the
-// update matched (zero for a chat with no words).
-func SetBlacklistActionTimedContext(ctx context.Context, chatId int64, action string, secs int) (int64, error) {
-	result := db.DB.WithContext(ctx).Model(&models.BlacklistSettings{}).Where("chat_id = ?", chatId).
+// SetBlacklistActionTimedTx sets the lower-cased action and its seconds of every word of chatId
+// inside caller-supplied transaction tx. The caller is responsible for dropping blacklist:<chat>
+// after commit.
+func SetBlacklistActionTimedTx(tx *gorm.DB, chatId int64, action string, secs int) (int64, error) {
+	if tx == nil {
+		return 0, errors.New("database not initialized")
+	}
+	result := tx.Model(&models.BlacklistSettings{}).Where("chat_id = ?", chatId).
 		Updates(map[string]any{"action": strings.ToLower(action), "action_secs": secs})
 	if result.Error != nil {
 		log.Errorf("[Database] SetBlacklistAction: %v - %d", result.Error, chatId)
 		return 0, result.Error
 	}
-
-	cache.DeleteCache(cache.CacheKey("blacklist", chatId))
 	return result.RowsAffected, nil
+}
+
+// SetBlacklistActionTimedContext sets the lower-cased action and its seconds (the duration of a
+// timed action, 0 for a plain one) of every word of the chat in one update of both columns,
+// drops the chat's cached blacklist after a successful update and returns how many rows the
+// update matched (zero for a chat with no words).
+func SetBlacklistActionTimedContext(ctx context.Context, chatId int64, action string, secs int) (int64, error) {
+	rows, err := SetBlacklistActionTimedTx(db.DB.WithContext(ctx), chatId, action, secs)
+	if err != nil {
+		return 0, err
+	}
+	cache.DeleteCache(cache.CacheKey("blacklist", chatId))
+	return rows, nil
 }
 
 func GetBlacklistSettings(chatId int64) models.BlacklistSettingsSlice {

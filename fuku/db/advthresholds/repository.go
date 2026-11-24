@@ -417,18 +417,25 @@ func ResetAll(ctx context.Context, chatID int64) error {
 	return nil
 }
 
-// ReplaceAll validates all 12 threshold fields against their specs and atomically replaces chatID's
-// chat_advanced_thresholds row (or deletes it via ResetAll when th has no customized fields),
-// dropping chat_advanced_thresholds:<chat> after commit.
-func ReplaceAll(ctx context.Context, chatID int64, th Thresholds, by int64) error {
+// ReplaceAllTx validates all 12 threshold fields against their specs and replaces chatID's
+// chat_advanced_thresholds row (or deletes it when th has no customized fields) inside
+// caller-supplied transaction tx. The caller is responsible for dropping CacheKey(chatID) after
+// commit.
+func ReplaceAllTx(tx *gorm.DB, chatID int64, th Thresholds, by int64) error {
 	for _, spec := range allSpecs {
 		v := th.Value(spec.Field)
 		if v != 0 && (v < spec.Min || v > spec.Max) {
 			return ErrInvalidValue
 		}
 	}
+	if tx == nil {
+		return fukuerrors.Wrap(errNoDatabase, "write advanced thresholds")
+	}
 	if th.CustomizedCount() == 0 {
-		return ResetAll(ctx, chatID)
+		if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatAdvancedThresholds{}).Error; err != nil {
+			return fukuerrors.Wrapf(err, "reset advanced thresholds of chat %d", chatID)
+		}
+		return nil
 	}
 	row := baseRow(chatID, by)
 	cols := make([]string, len(allSpecs))
@@ -436,7 +443,22 @@ func ReplaceAll(ctx context.Context, chatID int64, th Thresholds, by int64) erro
 		setRowField(row, spec.Field, th.Value(spec.Field))
 		cols[i] = spec.Column
 	}
-	return upsertColumns(ctx, row, cols...)
+	return upsertColumnsTx(tx, row, cols...)
+}
+
+// ReplaceAll validates all 12 threshold fields against their specs and atomically replaces chatID's
+// chat_advanced_thresholds row (or deletes it via ResetAll when th has no customized fields),
+// dropping chat_advanced_thresholds:<chat> after commit.
+func ReplaceAll(ctx context.Context, chatID int64, th Thresholds, by int64) error {
+	var tx *gorm.DB
+	if db.DB != nil {
+		tx = db.DB.WithContext(ctx)
+	}
+	if err := ReplaceAllTx(tx, chatID, th, by); err != nil {
+		return err
+	}
+	cache.DeleteCache(CacheKey(chatID))
+	return nil
 }
 
 func baseRow(chatID, updatedBy int64) *models.ChatAdvancedThresholds {
@@ -476,19 +498,29 @@ func setRowField(row *models.ChatAdvancedThresholds, field Field, value int) {
 	}
 }
 
-func upsertColumns(ctx context.Context, row *models.ChatAdvancedThresholds, columns ...string) error {
-	if db.DB == nil {
+func upsertColumnsTx(tx *gorm.DB, row *models.ChatAdvancedThresholds, columns ...string) error {
+	if tx == nil {
 		return fukuerrors.Wrap(errNoDatabase, "write advanced thresholds")
 	}
 	updateCols := make([]string, 0, len(columns)+2)
 	updateCols = append(updateCols, columns...)
 	updateCols = append(updateCols, "updated_by", "updated_at")
-	err := db.DB.WithContext(ctx).Clauses(clause.OnConflict{
+	err := tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "chat_id"}},
 		DoUpdates: clause.AssignmentColumns(updateCols),
 	}).Create(row).Error
 	if err != nil {
 		return fukuerrors.Wrapf(err, "write advanced thresholds of chat %d", row.ChatId)
+	}
+	return nil
+}
+
+func upsertColumns(ctx context.Context, row *models.ChatAdvancedThresholds, columns ...string) error {
+	if db.DB == nil {
+		return fukuerrors.Wrap(errNoDatabase, "write advanced thresholds")
+	}
+	if err := upsertColumnsTx(db.DB.WithContext(ctx), row, columns...); err != nil {
+		return err
 	}
 	cache.DeleteCache(CacheKey(row.ChatId))
 	return nil

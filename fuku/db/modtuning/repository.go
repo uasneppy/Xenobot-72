@@ -145,23 +145,22 @@ func SetAppealURL(ctx context.Context, chatID int64, rawURL string, by int64) er
 	return upsertDefaults(ctx, row, "appeal_url")
 }
 
-// ReplaceDefaults atomically replaces all four manual-default columns of chatID and drops
-// chat_manual_defaults:<chat>. Invalid durations or over-long appeal URLs return ErrInvalidValue
-// before touching the database. When defs is the zero Defaults, any existing row is deleted.
-func ReplaceDefaults(ctx context.Context, chatID int64, defs Defaults, by int64) error {
+// ReplaceDefaultsTx validates defs and replaces all four manual-default columns of chatID inside
+// caller-supplied transaction tx. The caller is responsible for dropping DefaultsCacheKey(chatID)
+// after commit.
+func ReplaceDefaultsTx(tx *gorm.DB, chatID int64, defs Defaults, by int64) error {
 	if !ValidDefaultDuration(defs.DefaultBanSecs) ||
 		!ValidDefaultDuration(defs.DefaultMuteSecs) ||
 		utf8.RuneCountInString(defs.AppealURL) > models.ManualAppealURLMaxRunes {
 		return ErrInvalidValue
 	}
+	if tx == nil {
+		return fukuerrors.Wrap(errNoDatabase, "write manual defaults")
+	}
 	if defs == (Defaults{}) {
-		if db.DB == nil {
-			return fukuerrors.Wrap(errNoDatabase, "reset manual defaults")
-		}
-		if err := db.DB.WithContext(ctx).Where("chat_id = ?", chatID).Delete(&models.ChatManualDefaults{}).Error; err != nil {
+		if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatManualDefaults{}).Error; err != nil {
 			return fukuerrors.Wrapf(err, "reset manual defaults of chat %d", chatID)
 		}
-		cache.DeleteCache(DefaultsCacheKey(chatID))
 		return nil
 	}
 	row := defaultRow(chatID, by)
@@ -169,7 +168,22 @@ func ReplaceDefaults(ctx context.Context, chatID int64, defs Defaults, by int64)
 	row.DefaultMuteSecs = defs.DefaultMuteSecs
 	row.ReasonRequired = defs.ReasonRequired
 	row.AppealURL = defs.AppealURL
-	return upsertDefaults(ctx, row, "default_ban_secs", "default_mute_secs", "reason_required", "appeal_url")
+	return upsertDefaultsTx(tx, row, "default_ban_secs", "default_mute_secs", "reason_required", "appeal_url")
+}
+
+// ReplaceDefaults atomically replaces all four manual-default columns of chatID and drops
+// chat_manual_defaults:<chat>. Invalid durations or over-long appeal URLs return ErrInvalidValue
+// before touching the database. When defs is the zero Defaults, any existing row is deleted.
+func ReplaceDefaults(ctx context.Context, chatID int64, defs Defaults, by int64) error {
+	var tx *gorm.DB
+	if db.DB != nil {
+		tx = db.DB.WithContext(ctx)
+	}
+	if err := ReplaceDefaultsTx(tx, chatID, defs, by); err != nil {
+		return err
+	}
+	cache.DeleteCache(DefaultsCacheKey(chatID))
+	return nil
 }
 
 func defaultRow(chatID, by int64) *models.ChatManualDefaults {
@@ -180,16 +194,26 @@ func defaultRow(chatID, by int64) *models.ChatManualDefaults {
 	}
 }
 
-func upsertDefaults(ctx context.Context, row *models.ChatManualDefaults, columns ...string) error {
-	if db.DB == nil {
+func upsertDefaultsTx(tx *gorm.DB, row *models.ChatManualDefaults, columns ...string) error {
+	if tx == nil {
 		return fukuerrors.Wrap(errNoDatabase, "write manual defaults")
 	}
-	err := db.DB.WithContext(ctx).Clauses(clause.OnConflict{
+	err := tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "chat_id"}},
 		DoUpdates: clause.AssignmentColumns(append(columns, "updated_by", "updated_at")),
 	}).Create(row).Error
 	if err != nil {
 		return fukuerrors.Wrapf(err, "write manual defaults of chat %d", row.ChatId)
+	}
+	return nil
+}
+
+func upsertDefaults(ctx context.Context, row *models.ChatManualDefaults, columns ...string) error {
+	if db.DB == nil {
+		return fukuerrors.Wrap(errNoDatabase, "write manual defaults")
+	}
+	if err := upsertDefaultsTx(db.DB.WithContext(ctx), row, columns...); err != nil {
+		return err
 	}
 	cache.DeleteCache(DefaultsCacheKey(row.ChatId))
 	return nil
@@ -320,11 +344,7 @@ func AddShortcut(ctx context.Context, chatID int64, word, reason string, by int6
 	return added, nil
 }
 
-// ReplaceShortcuts atomically replaces all chat_reason_shortcuts rows of chatID in one
-// transaction and drops chat_reason_shortcuts:<chat> after commit. Count, word/reason bounds,
-// and duplicate words are validated before opening the transaction so invalid input leaves the
-// database untouched.
-func ReplaceShortcuts(ctx context.Context, chatID int64, entries []ShortcutEntry, by int64) error {
+func validateShortcuts(entries []ShortcutEntry) error {
 	if len(entries) > models.ReasonShortcutsCapMax {
 		return ErrInvalidValue
 	}
@@ -339,30 +359,54 @@ func ReplaceShortcuts(ctx context.Context, chatID int64, entries []ShortcutEntry
 		}
 		seen[entry.Word] = struct{}{}
 	}
-	if db.DB == nil {
+	return nil
+}
+
+// ReplaceShortcutsTx validates entries and replaces all chat_reason_shortcuts rows of chatID
+// inside caller-supplied transaction tx. The caller is responsible for dropping
+// ShortcutsCacheKey(chatID) after commit.
+func ReplaceShortcutsTx(tx *gorm.DB, chatID int64, entries []ShortcutEntry, by int64) error {
+	if err := validateShortcuts(entries); err != nil {
+		return err
+	}
+	if tx == nil {
 		return fukuerrors.Wrap(errNoDatabase, "replace reason shortcuts")
 	}
 	now := time.Now()
+	if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatReasonShortcut{}).Error; err != nil {
+		return fukuerrors.Wrapf(err, "replace reason shortcuts of chat %d", chatID)
+	}
+	for _, entry := range entries {
+		rec := models.ChatReasonShortcut{
+			ChatId:    chatID,
+			Word:      entry.Word,
+			Reason:    entry.Reason,
+			CreatedBy: by,
+			CreatedAt: now,
+		}
+		if err := tx.Create(&rec).Error; err != nil {
+			return fukuerrors.Wrapf(err, "replace reason shortcuts of chat %d", chatID)
+		}
+	}
+	return nil
+}
+
+// ReplaceShortcuts atomically replaces all chat_reason_shortcuts rows of chatID in one
+// transaction and drops chat_reason_shortcuts:<chat> after commit. Count, word/reason bounds,
+// and duplicate words are validated before opening the transaction so invalid input leaves the
+// database untouched.
+func ReplaceShortcuts(ctx context.Context, chatID int64, entries []ShortcutEntry, by int64) error {
+	if err := validateShortcuts(entries); err != nil {
+		return err
+	}
+	if db.DB == nil {
+		return fukuerrors.Wrap(errNoDatabase, "replace reason shortcuts")
+	}
 	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("chat_id = ?", chatID).Delete(&models.ChatReasonShortcut{}).Error; err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			rec := models.ChatReasonShortcut{
-				ChatId:    chatID,
-				Word:      entry.Word,
-				Reason:    entry.Reason,
-				CreatedBy: by,
-				CreatedAt: now,
-			}
-			if err := tx.Create(&rec).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+		return ReplaceShortcutsTx(tx, chatID, entries, by)
 	})
 	if err != nil {
-		return fukuerrors.Wrapf(err, "replace reason shortcuts of chat %d", chatID)
+		return err
 	}
 	cache.DeleteCache(ShortcutsCacheKey(chatID))
 	return nil

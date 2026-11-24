@@ -114,13 +114,12 @@ func GetFloodFreshContext(ctx context.Context, chatID int64) (*models.AntifloodS
 	return &row, true, nil
 }
 
-// SetFloodActionPreserveOffContext writes ONLY action and action_secs for chatID, preserving an
-// existing row's flood_limit and delete_antiflood_message. When chatID has no antiflood_settings
-// row yet, it inserts flood_limit = 0 explicitly (bypassing GORM's default:5 tag) so Copy Settings
-// never silently turns antiflood on for an unconfigured target group (P29-04). Drops
-// antiflood:<chat> after a successful write.
-func SetFloodActionPreserveOffContext(ctx context.Context, chatID int64, mode string, secs int) error {
-	if db.DB == nil {
+// SetFloodActionPreserveOffTx writes ONLY action and action_secs for chatID inside
+// caller-supplied transaction tx, preserving an existing row's flood_limit and
+// delete_antiflood_message (and inserting flood_limit = 0 when absent). The caller is responsible
+// for dropping antiflood:<chat> after commit.
+func SetFloodActionPreserveOffTx(tx *gorm.DB, chatID int64, mode string, secs int) error {
+	if tx == nil {
 		return errors.New("database not initialized")
 	}
 	now := time.Now()
@@ -130,8 +129,23 @@ ON CONFLICT (chat_id) DO UPDATE SET
 	action = EXCLUDED.action,
 	action_secs = EXCLUDED.action_secs,
 	updated_at = EXCLUDED.updated_at`
-	if err := db.DB.WithContext(ctx).Exec(sqlStmt, chatID, mode, secs, false, now, now).Error; err != nil {
+	if err := tx.Exec(sqlStmt, chatID, mode, secs, false, now, now).Error; err != nil {
 		log.Errorf("[Database] SetFloodActionPreserveOffContext: %v - %d", err, chatID)
+		return err
+	}
+	return nil
+}
+
+// SetFloodActionPreserveOffContext writes ONLY action and action_secs for chatID, preserving an
+// existing row's flood_limit and delete_antiflood_message. When chatID has no antiflood_settings
+// row yet, it inserts flood_limit = 0 explicitly (bypassing GORM's default:5 tag) so Copy Settings
+// never silently turns antiflood on for an unconfigured target group (P29-04). Drops
+// antiflood:<chat> after a successful write.
+func SetFloodActionPreserveOffContext(ctx context.Context, chatID int64, mode string, secs int) error {
+	if db.DB == nil {
+		return errors.New("database not initialized")
+	}
+	if err := SetFloodActionPreserveOffTx(db.DB.WithContext(ctx), chatID, mode, secs); err != nil {
 		return err
 	}
 	cache.DeleteCache(cache.CacheKey("antiflood", chatID))

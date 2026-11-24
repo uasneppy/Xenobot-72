@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/advthresholds"
 	"github.com/uasneppy/fuku_robot/fuku/db/antiflood"
@@ -627,6 +629,82 @@ func TestCopySettingsMirrorAndExclusions(t *testing.T) {
 		}
 		if dstDefs.AppealURL != "" {
 			t.Errorf("malformed appeal_url copied to dstChat: %q", dstDefs.AppealURL)
+		}
+	})
+
+	t.Run("atomic_rollback_on_late_step_failure", func(t *testing.T) {
+		utilscache.SetupTestMemoryMarshaler(t)
+		dstChat := freshCopyChat(t)
+		const actorID = int64(5004)
+
+		// Seed dstChat with known prior values across earlier tables.
+		if err := eventmsg.SetText(ctx, dstChat, eventmsg.EventBan, eventmsg.DestGroup, "Keep dst ban", actorID); err != nil {
+			t.Fatal(err)
+		}
+		if err := warns.SetWarnModeContext(ctx, dstChat, "kick", 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := escalation.ReplaceLadder(ctx, dstChat, escalation.Ladder{
+			Enabled:    true,
+			Steps:      []escalation.Step{{Action: escalation.ActionKick}},
+			ForgetDays: 7,
+		}, actorID); err != nil {
+			t.Fatal(err)
+		}
+		if err := modtuning.ReplaceShortcuts(ctx, dstChat, []modtuning.ShortcutEntry{{Word: "keep", Reason: "Keep reason"}}, actorID); err != nil {
+			t.Fatal(err)
+		}
+
+		// Snapshot has valid changes for steps 1..8 and an out-of-range threshold for step 9.
+		badSnap := copySettingsSnapshot{
+			EventMessages: []eventmsg.Message{{
+				Event: eventmsg.EventBan,
+				Dest:  eventmsg.DestGroup,
+				Text:  "Should roll back",
+			}},
+			EventOptions:    eventmsg.Options{PlainTone: true},
+			WarnMode:        "ban",
+			WarnExpiryDays:  30,
+			FloodAction:     "ban",
+			BlacklistAction: "ban",
+			Escalation:      escalation.Defaults(),
+			ManualDefaults:  modtuning.Defaults{ReasonRequired: true},
+			ReasonShortcuts: []modtuning.ShortcutEntry{{Word: "new", Reason: "New reason"}},
+			AdvThresholds:   advthresholds.Thresholds{RaidJoinWindowSecs: -1}, // invalid -> fails step 9
+		}
+
+		var failedStep string
+		txErr := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var wErr error
+			_, failedStep, wErr = writeCopySettingsTx(tx, dstChat, actorID, badSnap)
+			return wErr
+		})
+		if txErr == nil || failedStep != "write_advthresholds" {
+			t.Fatalf("txErr=%v failedStep=%q, want error at write_advthresholds", txErr, failedStep)
+		}
+
+		// Every earlier table must be rolled back to its prior state.
+		gotMsgs, err := eventmsg.GetFresh(ctx, dstChat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ban, ok := gotMsgs.Lookup(eventmsg.EventBan, eventmsg.DestGroup); !ok || ban.Text != "Keep dst ban" {
+			t.Errorf("eventmsg rolled back? got=%+v ok=%v, want Keep dst ban", ban, ok)
+		}
+		if gotMsgs.Options.PlainTone {
+			t.Errorf("eventmsg PlainTone leaked after rollback")
+		}
+		mode, _, _, err := loadCopyWarnSettingsFresh(ctx, dstChat)
+		if err != nil || mode != "kick" {
+			t.Errorf("warn mode after rollback = %q, err=%v, want kick", mode, err)
+		}
+		gotLadder, err := escalation.GetFresh(ctx, dstChat)
+		if err != nil || !gotLadder.Enabled || gotLadder.ForgetDays != 7 {
+			t.Errorf("escalation after rollback = %+v, err=%v, want enabled/7d", gotLadder, err)
+		}
+		gotShortcuts, err := modtuning.ListShortcutsFresh(ctx, dstChat)
+		if err != nil || len(gotShortcuts) != 1 || gotShortcuts[0].Word != "keep" {
+			t.Errorf("shortcuts after rollback = %+v, err=%v, want [keep]", gotShortcuts, err)
 		}
 	})
 }

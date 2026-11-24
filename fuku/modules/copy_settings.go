@@ -13,6 +13,7 @@ import (
 	"github.com/uasneppy/fuku_robot/fuku/db/advthresholds"
 	"github.com/uasneppy/fuku_robot/fuku/db/antiflood"
 	"github.com/uasneppy/fuku_robot/fuku/db/blacklists"
+	"github.com/uasneppy/fuku_robot/fuku/db/cache"
 	"github.com/uasneppy/fuku_robot/fuku/db/escalation"
 	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
@@ -161,9 +162,56 @@ func readCopySettingsSnapshot(ctx context.Context, srcChatID int64) (copySetting
 	return snap, "", nil
 }
 
-// applyCopySettings performs a one-time full-mirror copy of all 6 named tuning and message areas
-// across 9 tables from srcChatID to dstChatID (P29-01, P29-03, P29-04):
-//  1. chat_event_messages + chat_event_message_options (via eventmsg.ReplaceAllValidated)
+// writeCopySettingsTx applies all 9 target table writes inside one caller-supplied transaction so
+// any mid-way failure rolls back every earlier table cleanly.
+func writeCopySettingsTx(tx *gorm.DB, dstChatID, by int64, snap copySettingsSnapshot) (eventmsg.WriteReport, string, error) {
+	rep, err := eventmsg.ReplaceAllValidatedTx(tx, dstChatID, snap.EventMessages, snap.EventOptions, by)
+	if err != nil {
+		return rep, "write_event_messages", err
+	}
+	if err := warns.SetWarnModeTx(tx, dstChatID, snap.WarnMode, snap.WarnModeSecs); err != nil {
+		return rep, "write_warn_mode", err
+	}
+	if err := warns.SetWarnExpiryTx(tx, dstChatID, snap.WarnExpiryDays); err != nil {
+		return rep, "write_warn_expiry", err
+	}
+	if err := antiflood.SetFloodActionPreserveOffTx(tx, dstChatID, snap.FloodAction, snap.FloodActionSecs); err != nil {
+		return rep, "write_antiflood", err
+	}
+	if _, err := blacklists.SetBlacklistActionTimedTx(tx, dstChatID, snap.BlacklistAction, snap.BlacklistActionSecs); err != nil {
+		return rep, "write_blacklist_action", err
+	}
+	if err := escalation.ReplaceLadderTx(tx, dstChatID, snap.Escalation, by); err != nil {
+		return rep, "write_escalation", err
+	}
+	if err := modtuning.ReplaceDefaultsTx(tx, dstChatID, snap.ManualDefaults, by); err != nil {
+		return rep, "write_manual_defaults", err
+	}
+	if err := modtuning.ReplaceShortcutsTx(tx, dstChatID, snap.ReasonShortcuts, by); err != nil {
+		return rep, "write_reason_shortcuts", err
+	}
+	if err := advthresholds.ReplaceAllTx(tx, dstChatID, snap.AdvThresholds, by); err != nil {
+		return rep, "write_advthresholds", err
+	}
+	return rep, "", nil
+}
+
+// dropCopySettingsTargetCaches invalidates every target cache key touched by applyCopySettings.
+// Called only after the enclosing transaction commits.
+func dropCopySettingsTargetCaches(dstChatID int64) {
+	cache.DeleteCache(eventmsg.CacheKey(dstChatID))
+	cache.DeleteCache(cache.CacheKey("warn_settings", dstChatID))
+	cache.DeleteCache(cache.CacheKey("antiflood", dstChatID))
+	cache.DeleteCache(cache.CacheKey("blacklist", dstChatID))
+	cache.DeleteCache(escalation.CacheKey(dstChatID))
+	cache.DeleteCache(modtuning.DefaultsCacheKey(dstChatID))
+	cache.DeleteCache(modtuning.ShortcutsCacheKey(dstChatID))
+	cache.DeleteCache(advthresholds.CacheKey(dstChatID))
+}
+
+// applyCopySettings performs an atomic, one-time full-mirror copy of all 6 named tuning and
+// message areas across 9 tables from srcChatID to dstChatID (P29-01, P29-03, P29-04):
+//  1. chat_event_messages + chat_event_message_options (via eventmsg.ReplaceAllValidatedTx)
 //  2. warns_settings.{warn_mode, warn_mode_secs, warn_expiry_days} (preserving target warn_limit)
 //  3. antiflood_settings.{action, action_secs} (preserving target flood_limit including 0)
 //  4. blacklists.{action, action_secs} on existing target rows only (never copying words)
@@ -171,9 +219,11 @@ func readCopySettingsSnapshot(ctx context.Context, srcChatID int64) (copySetting
 //  6. chat_manual_defaults + chat_reason_shortcuts (full replace; appeal_url re-validated)
 //  7. chat_advanced_thresholds (full replace)
 //
-// It leaves srcChatID completely untouched, creates no ongoing link, drops every target cache key,
-// and never touches excluded tables (Staff Group links, approvals, warns_users, chat_offences,
-// lockdowns, blacklist words, greetings, rules, notes, filters, locks, chat_settings_access).
+// All 9 writes execute in a single database transaction so a mid-way failure rolls back all
+// target tables cleanly and drops no cache keys. On commit it drops every target cache key,
+// leaves srcChatID completely untouched, creates no ongoing link, and never touches excluded
+// tables (Staff Group links, approvals, warns_users, chat_offences, lockdowns, blacklist words,
+// greetings, rules, notes, filters, locks, chat_settings_access).
 // Logs contain only chat IDs, user ID, counts, and step names — never group titles, message texts,
 // file IDs, button URLs, or appeal URLs.
 func applyCopySettings(ctx context.Context, srcChatID, dstChatID, by int64) copySettingsResult {
@@ -187,53 +237,31 @@ func applyCopySettings(ctx context.Context, srcChatID, dstChatID, by int64) copy
 		return copySettingsResult{Outcome: copySettingsFailed, Err: err}
 	}
 
-	rep, err := eventmsg.ReplaceAllValidated(ctx, dstChatID, snap.EventMessages, snap.EventOptions, by)
-	if err != nil {
-		log.Warnf("[CopySettings] step write_event_messages failed (src=%d dst=%d by=%d)", srcChatID, dstChatID, by)
-		return copySettingsResult{Outcome: copySettingsFailed, Err: err}
+	if db.DB == nil {
+		log.Warnf("[CopySettings] step write_tx failed (src=%d dst=%d by=%d)", srcChatID, dstChatID, by)
+		return copySettingsResult{Outcome: copySettingsFailed, Err: errCopyNoDatabase}
 	}
+
+	var rep eventmsg.WriteReport
+	failedStep := "write_tx"
+	txErr := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var wErr error
+		rep, failedStep, wErr = writeCopySettingsTx(tx, dstChatID, by, snap)
+		return wErr
+	})
+	if txErr != nil {
+		if failedStep == "" {
+			failedStep = "write_tx"
+		}
+		log.Warnf("[CopySettings] step %s failed (src=%d dst=%d by=%d)", failedStep, srcChatID, dstChatID, by)
+		return copySettingsResult{Outcome: copySettingsFailed, Err: txErr}
+	}
+
+	dropCopySettingsTargetCaches(dstChatID)
+
 	if len(rep.Skipped) > 0 {
 		log.Warnf("[CopySettings] skipped invalid event messages (src=%d dst=%d by=%d written=%d skipped=%d)",
 			srcChatID, dstChatID, by, rep.Written, len(rep.Skipped))
-	}
-
-	if err := warns.SetWarnModeContext(ctx, dstChatID, snap.WarnMode, snap.WarnModeSecs); err != nil {
-		log.Warnf("[CopySettings] step write_warn_mode failed (src=%d dst=%d by=%d)", srcChatID, dstChatID, by)
-		return copySettingsResult{Outcome: copySettingsFailed, MessagesWritten: rep.Written, MessagesSkipped: len(rep.Skipped), Err: err}
-	}
-	if err := warns.SetWarnExpiryContext(ctx, dstChatID, snap.WarnExpiryDays); err != nil {
-		log.Warnf("[CopySettings] step write_warn_expiry failed (src=%d dst=%d by=%d)", srcChatID, dstChatID, by)
-		return copySettingsResult{Outcome: copySettingsFailed, MessagesWritten: rep.Written, MessagesSkipped: len(rep.Skipped), Err: err}
-	}
-
-	if err := antiflood.SetFloodActionPreserveOffContext(ctx, dstChatID, snap.FloodAction, snap.FloodActionSecs); err != nil {
-		log.Warnf("[CopySettings] step write_antiflood failed (src=%d dst=%d by=%d)", srcChatID, dstChatID, by)
-		return copySettingsResult{Outcome: copySettingsFailed, MessagesWritten: rep.Written, MessagesSkipped: len(rep.Skipped), Err: err}
-	}
-
-	if _, err := blacklists.SetBlacklistActionTimedContext(ctx, dstChatID, snap.BlacklistAction, snap.BlacklistActionSecs); err != nil {
-		log.Warnf("[CopySettings] step write_blacklist_action failed (src=%d dst=%d by=%d)", srcChatID, dstChatID, by)
-		return copySettingsResult{Outcome: copySettingsFailed, MessagesWritten: rep.Written, MessagesSkipped: len(rep.Skipped), Err: err}
-	}
-
-	if err := escalation.ReplaceLadder(ctx, dstChatID, snap.Escalation, by); err != nil {
-		log.Warnf("[CopySettings] step write_escalation failed (src=%d dst=%d by=%d)", srcChatID, dstChatID, by)
-		return copySettingsResult{Outcome: copySettingsFailed, MessagesWritten: rep.Written, MessagesSkipped: len(rep.Skipped), Err: err}
-	}
-
-	if err := modtuning.ReplaceDefaults(ctx, dstChatID, snap.ManualDefaults, by); err != nil {
-		log.Warnf("[CopySettings] step write_manual_defaults failed (src=%d dst=%d by=%d)", srcChatID, dstChatID, by)
-		return copySettingsResult{Outcome: copySettingsFailed, MessagesWritten: rep.Written, MessagesSkipped: len(rep.Skipped), Err: err}
-	}
-
-	if err := modtuning.ReplaceShortcuts(ctx, dstChatID, snap.ReasonShortcuts, by); err != nil {
-		log.Warnf("[CopySettings] step write_reason_shortcuts failed (src=%d dst=%d by=%d)", srcChatID, dstChatID, by)
-		return copySettingsResult{Outcome: copySettingsFailed, MessagesWritten: rep.Written, MessagesSkipped: len(rep.Skipped), Err: err}
-	}
-
-	if err := advthresholds.ReplaceAll(ctx, dstChatID, snap.AdvThresholds, by); err != nil {
-		log.Warnf("[CopySettings] step write_advthresholds failed (src=%d dst=%d by=%d)", srcChatID, dstChatID, by)
-		return copySettingsResult{Outcome: copySettingsFailed, MessagesWritten: rep.Written, MessagesSkipped: len(rep.Skipped), Err: err}
 	}
 
 	log.Infof("[CopySettings] completed copy (src=%d dst=%d by=%d messages_written=%d messages_skipped=%d)",

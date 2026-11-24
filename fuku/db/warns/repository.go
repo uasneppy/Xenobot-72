@@ -384,6 +384,26 @@ func GetWarnsAt(ctx context.Context, userId, chatId int64, now time.Time) (int, 
 	return count, reasons
 }
 
+// SetWarnExpiryTx stores the chat's warn expiry in days (0 is off) inside caller-supplied
+// transaction tx. The caller is responsible for dropping warn_settings:<chat> after commit.
+func SetWarnExpiryTx(tx *gorm.DB, chatId int64, days int) error {
+	if days < 0 || days > models.WarnExpiryMaxDays {
+		return ErrWarnExpiryOutOfRange
+	}
+	if tx == nil {
+		return errors.New("database not initialized")
+	}
+	err := tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "chat_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"warn_expiry_days"}),
+	}).Create(&models.WarnSettings{ChatId: chatId, WarnLimit: 3, WarnMode: "mute", ExpiryDays: days}).Error
+	if err != nil {
+		log.Errorf("[Database] SetWarnExpiry: %v", err)
+		return err
+	}
+	return nil
+}
+
 // SetWarnExpiryContext stores the chat's warn expiry in days (0 is off) in one column-targeted
 // upsert of warn_expiry_days: a chat with no row gets one with limit 3 and mode mute, and an existing
 // row has only the expiry updated, so a concurrent limit or mode write is never clobbered. A value
@@ -393,12 +413,7 @@ func SetWarnExpiryContext(ctx context.Context, chatId int64, days int) error {
 	if days < 0 || days > models.WarnExpiryMaxDays {
 		return ErrWarnExpiryOutOfRange
 	}
-	err := db.DB.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "chat_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"warn_expiry_days"}),
-	}).Create(&models.WarnSettings{ChatId: chatId, WarnLimit: 3, WarnMode: "mute", ExpiryDays: days}).Error
-	if err != nil {
-		log.Errorf("[Database] SetWarnExpiry: %v", err)
+	if err := SetWarnExpiryTx(db.DB.WithContext(ctx), chatId, days); err != nil {
 		return err
 	}
 	cache.DeleteCache(cache.CacheKey("warn_settings", chatId))
@@ -425,17 +440,30 @@ func SetWarnMode(chatId int64, warnMode string) error {
 	return SetWarnModeContext(context.Background(), chatId, warnMode, 0)
 }
 
-// SetWarnModeContext stores the action at the warn limit and its duration in seconds (0 for a
-// plain action) in one single-statement upsert: a chat with no row gets one with limit 3, and an
-// existing row has only warn_mode and warn_mode_secs updated, so a concurrent limit write is never
-// clobbered (see SetWarnLimit). It validates nothing (the caller does) and drops warn_settings:<chat>.
-func SetWarnModeContext(ctx context.Context, chatID int64, mode string, secs int) error {
-	err := db.DB.WithContext(ctx).Clauses(clause.OnConflict{
+// SetWarnModeTx stores the action at the warn limit and its duration in seconds inside
+// caller-supplied transaction tx. The caller is responsible for dropping warn_settings:<chat>
+// after commit.
+func SetWarnModeTx(tx *gorm.DB, chatID int64, mode string, secs int) error {
+	if tx == nil {
+		return errors.New("database not initialized")
+	}
+	err := tx.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "chat_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{"warn_mode", "warn_mode_secs"}),
 	}).Create(&models.WarnSettings{ChatId: chatID, WarnLimit: 3, WarnMode: mode, WarnModeSecs: secs}).Error
 	if err != nil {
 		log.Errorf("[Database] SetWarnMode: %v", err)
+		return err
+	}
+	return nil
+}
+
+// SetWarnModeContext stores the action at the warn limit and its duration in seconds (0 for a
+// plain action) in one single-statement upsert: a chat with no row gets one with limit 3, and an
+// existing row has only warn_mode and warn_mode_secs updated, so a concurrent limit write is never
+// clobbered (see SetWarnLimit). It validates nothing (the caller does) and drops warn_settings:<chat>.
+func SetWarnModeContext(ctx context.Context, chatID int64, mode string, secs int) error {
+	if err := SetWarnModeTx(db.DB.WithContext(ctx), chatID, mode, secs); err != nil {
 		return err
 	}
 	cache.DeleteCache(cache.CacheKey("warn_settings", chatID))
