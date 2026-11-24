@@ -219,6 +219,8 @@ func ReplaceAllValidated(ctx context.Context, chatID int64, rows []Message, opts
 }
 
 // validateMessageMedia checks the media part of msg and reports whether it carries media.
+// Events with mandatory bot-appended text (ReservedTextFor > 0, such as lockdown notices)
+// also refuse captionless media (db.STICKER) so custom text and technical notes are never dropped.
 func validateMessageMedia(msg Message) (bool, string) {
 	if msg.FileID == "" && msg.MediaType == 0 {
 		return false, ""
@@ -228,6 +230,9 @@ func validateMessageMedia(msg Message) (bool, string) {
 	}
 	if NoMedia(msg.Event, msg.Dest) {
 		return false, "media_not_allowed"
+	}
+	if msg.MediaType == db.STICKER && ReservedTextFor(msg.Event, msg.Dest) > 0 {
+		return false, "invalid_media"
 	}
 	return true, ""
 }

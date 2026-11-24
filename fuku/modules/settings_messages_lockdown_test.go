@@ -123,6 +123,26 @@ func TestSettingsMessagesLockdownFamily(t *testing.T) {
 		if got := settingsEditPromptMax(def, withMedia); got != 624 {
 			t.Errorf("with a media item stored the join surge's prompt shows %d, want 624", got)
 		}
+		stickerVerdict := settingsEditCheck(settingsEditCheckInput{
+			Def: def, Part: settingsEditPartMedia,
+			Msg:        &gotgbot.Message{Sticker: &gotgbot.Sticker{FileId: "st-1"}},
+			State:      settingsEditState{Kind: def.Kind, Text: "Locked down"},
+			Owner:      gotgbot.User{Id: 1, FirstName: "Al"},
+			GroupTitle: "Lock Chat", Language: "en",
+		})
+		if stickerVerdict.OK || stickerVerdict.RefusalKey != "settings_edit_refuse_need_media" {
+			t.Errorf("sticker on lockdown event gave OK=%v key=%q, want settings_edit_refuse_need_media", stickerVerdict.OK, stickerVerdict.RefusalKey)
+		}
+		photoVerdict := settingsEditCheck(settingsEditCheckInput{
+			Def: def, Part: settingsEditPartMedia,
+			Msg:        &gotgbot.Message{Photo: []gotgbot.PhotoSize{{FileId: "ph-1"}}},
+			State:      settingsEditState{Kind: def.Kind, Text: "Locked down"},
+			Owner:      gotgbot.User{Id: 1, FirstName: "Al"},
+			GroupTitle: "Lock Chat", Language: "en",
+		})
+		if !photoVerdict.OK {
+			t.Errorf("photo on lockdown event refused with %q, want OK", photoVerdict.RefusalKey)
+		}
 
 		// A forged private copy press on a lockdown event is an invalid request and writes nothing.
 		for _, forged := range [][]string{

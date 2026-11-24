@@ -337,6 +337,15 @@ func TestEventMessageCompose(t *testing.T) {
 		if media.Text != r.Default || media.FileID != "photo-file" || media.MsgType != db.PHOTO {
 			t.Fatalf("default with media = %+v, want the default text once (no second note)", media)
 		}
+		stickerWithNote := composeEventMessage(s.bot, &s.chat, tr, r, eventmsg.Message{Text: "{first} locked", FileID: "st-1", MediaType: db.STICKER}, eventActor{})
+		if stickerWithNote.MsgType != db.TEXT || stickerWithNote.FileID != "" || stickerWithNote.Text != "Ann locked\nlockdown note" {
+			t.Fatalf("sticker with note = %+v, want fallback to TEXT preserving custom text and note", stickerWithNote)
+		}
+		liftReply := eventReply{Event: eventmsg.EventLockLift, Target: gotgbot.User{Id: 42, FirstName: "Ann"}, Default: "lifted", Opts: formatting.Shtml()}
+		stickerLockLift := composeEventMessage(s.bot, &s.chat, tr, liftReply, eventmsg.Message{Text: "custom lift", FileID: "st-2", MediaType: db.STICKER}, eventActor{})
+		if stickerLockLift.MsgType != db.TEXT || stickerLockLift.FileID != "" || stickerLockLift.Text != "custom lift" {
+			t.Fatalf("sticker on locklift = %+v, want fallback to TEXT preserving custom text", stickerLockLift)
+		}
 	})
 }
 

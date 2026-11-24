@@ -12,6 +12,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
+	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/lockdown"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
@@ -106,6 +107,30 @@ func TestEventMessageLockdownStart(t *testing.T) {
 
 	t.Run("custom notes", func(t *testing.T) {
 		customReply(t, false, false, "lockdown_note_no_delete", "lockdown_note_no_invite")
+	})
+
+	t.Run("stored sticker falls back to text", func(t *testing.T) {
+		env := lockdownEventEnv(t, false)
+		env.fake.setBotMember(env.chat.Id, lockdownBotAdminJSON(true, false, false))
+		eventMsgStore(t, env.chat.Id, eventmsg.EventLockdown, stored)
+		if err := eventmsg.SetMedia(t.Context(), env.chat.Id, eventmsg.EventLockdown, eventmsg.DestGroup, "sticker-legacy", db.STICKER, 1); err != nil {
+			t.Fatalf("SetMedia error = %v", err)
+		}
+
+		env.send(env.admin, "/lockdown raid & co")
+
+		lockdownEventWantStarted(t, env, env.admin.Id)
+		if got := len(env.fake.callsFor("sendSticker")); got != 0 {
+			t.Fatalf("sendSticker calls = %d, want 0", got)
+		}
+		text, _ := lockdownEventOnlySend(t, env)
+		want := "<b>Ad&lt;b&gt;min</b> locked Lock Chat: raid &amp; co (" + formatting.MentionHtml(env.admin.Id, "Ad<b>min") + ")" +
+			"\n" + staffMarker("lockdown_note_approved_muted") +
+			"\n" + staffMarker("lockdown_note_no_delete") +
+			"\n" + staffMarker("lockdown_note_no_invite")
+		if text != want {
+			t.Fatalf("sticker fallback reply\n got %q\nwant %q", text, want)
+		}
 	})
 
 	t.Run("silent", func(t *testing.T) {

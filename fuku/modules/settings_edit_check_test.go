@@ -665,6 +665,29 @@ func TestSettingsEditMediaKinds(t *testing.T) {
 			t.Fatal("CaptionIgnored is true for a photo with no caption")
 		}
 	})
+
+	t.Run("refuses sticker when ReservedText > 0 (lockdown events)", func(t *testing.T) {
+		def, ok := settingsEditPageByKey("hldg")
+		if !ok || def.ReservedText <= 0 {
+			t.Fatalf("expected lockdown edit def with ReservedText > 0, got ok=%v reserve=%d", ok, def.ReservedText)
+		}
+		got := settingsEditCheck(settingsEditCheckInput{
+			Def: def, Part: settingsEditPartMedia, Msg: accepted["sticker"],
+			State: settingsEditState{Kind: def.Kind, Text: "Locked down"},
+			Owner: gotgbot.User{Id: 1, FirstName: "Al"}, GroupTitle: "Lock Chat", Language: "en",
+		})
+		if got.OK || got.RefusalKey != "settings_edit_refuse_need_media" {
+			t.Fatalf("sticker on lockdown gave OK=%v key=%q, want settings_edit_refuse_need_media", got.OK, got.RefusalKey)
+		}
+		photo := settingsEditCheck(settingsEditCheckInput{
+			Def: def, Part: settingsEditPartMedia, Msg: accepted["photo"],
+			State: settingsEditState{Kind: def.Kind, Text: "Locked down"},
+			Owner: gotgbot.User{Id: 1, FirstName: "Al"}, GroupTitle: "Lock Chat", Language: "en",
+		})
+		if !photo.OK {
+			t.Fatalf("photo on lockdown refused with %q, want OK", photo.RefusalKey)
+		}
+	})
 }
 
 func TestSettingsEditMediaTextLong(t *testing.T) {

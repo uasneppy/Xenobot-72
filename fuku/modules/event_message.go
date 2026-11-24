@@ -354,7 +354,8 @@ func composeEventMessage(b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator
 		}
 	}
 	msg := media.GreetingMessage{Text: text, FileID: row.FileID, MsgType: row.MediaType}
-	if row.FileID == "" || row.MediaType == 0 {
+	if row.FileID == "" || row.MediaType == 0 ||
+		(row.MediaType == db.STICKER && (r.Note != "" || eventmsg.ReservedTextFor(r.Event, eventmsg.DestGroup) > 0)) {
 		msg.FileID, msg.MsgType = "", db.TEXT
 	}
 	kept := r.KeepRows

@@ -91,6 +91,16 @@ func TestEventMsgValidateAndReplaceAll(t *testing.T) {
 				reason: "media_not_allowed",
 			},
 			{
+				name:   "lockdown group sticker refused",
+				msg:    Message{Event: EventLockdown, Dest: DestGroup, FileID: "sticker-1", MediaType: db.STICKER},
+				reason: "invalid_media",
+			},
+			{
+				name:   "locklift group sticker refused",
+				msg:    Message{Event: EventLockLift, Dest: DestGroup, FileID: "sticker-1", MediaType: db.STICKER},
+				reason: "invalid_media",
+			},
+			{
 				name:   "javascript button URL",
 				msg:    Message{Event: EventBan, Dest: DestGroup, Buttons: []models.Button{{Name: "X", Url: "javascript:alert(1)"}}},
 				reason: "invalid_button_url",

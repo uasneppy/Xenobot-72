@@ -302,15 +302,19 @@ func settingsEditRulesHeadings(title string) []string {
 }
 
 // settingsEditCheckMedia accepts exactly one message with media of a kind the commands store (a
-// video note, which cannot carry the text, and everything that is not media are refused) and
-// holds the stored text to the caption limit, because the text is sent as its caption. The
-// Rules page shares every predicate and measures the heading in.
+// video note, which cannot carry the text, a sticker on an event with ReservedText > 0 whose
+// mandatory appended notes require caption-capable media, and everything that is not media are
+// refused) and holds the stored text to the caption limit, because the text is sent as its caption.
+// The Rules page shares every predicate and measures the heading in.
 func settingsEditCheckMedia(in settingsEditCheckInput) settingsEditVerdict {
 	if in.Msg.Text != "" {
 		return settingsEditRefusal("settings_edit_refuse_need_media", nil)
 	}
 	fileID, dataType := content.ExtractMedia(in.Msg)
 	if dataType == -1 || dataType == db.VIDEO_NOTE {
+		return settingsEditRefusal("settings_edit_refuse_need_media", nil)
+	}
+	if dataType == db.STICKER && in.Def.ReservedText > 0 {
 		return settingsEditRefusal("settings_edit_refuse_need_media", nil)
 	}
 	if refusal, refused := settingsEditMediaCaptionRefusal(in, dataType); refused {
