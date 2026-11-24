@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/uasneppy/fuku_robot/fuku/db"
+	"github.com/uasneppy/Xenobot-72/xenobot/db"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )

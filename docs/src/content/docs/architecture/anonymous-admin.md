@@ -63,8 +63,8 @@ sequenceDiagram
 
 ## Technical Details
 
-- **Cache key format:** `fuku:anonAdmin:{chatId}:{msgId}` with 20-second TTL
-- **Callback data encoding:** Versioned codec format `anon_admin|v1|c={chatId}&m={msgId}` with legacy fallback `fuku:anonAdmin:{chatId}:{msgId}` for backward compatibility
+- **Cache key format:** `xenobot:anonAdmin:{chatId}:{msgId}` with 20-second TTL
+- **Callback data encoding:** Versioned codec format `anon_admin|v1|c={chatId}&m={msgId}` with legacy fallback `xenobot:anonAdmin:{chatId}:{msgId}` for backward compatibility
 - **Command re-dispatch:** After verification, the bot sets `ctx.EffectiveMessage` to the original cached message, clears `SenderChat` (prevents re-triggering anonymous admin detection), clears `CallbackQuery`, extracts the command from message text, and dispatches to the appropriate handler via a switch statement
 - **Non-admin click handling:** Shows a toast notification ("Need to be admin") without error; does not consume the keyboard
 

@@ -8,7 +8,7 @@ description: How Xenobot-72 writes its help pages and replies in Ukrainian and E
 This guide covers the Ukrainian (`locales/uk.yml`) and English (`locales/en.yml`) texts of the bot: the help pages and
 the replies after commands. The other six languages keep their wording; only mechanical markup changes reach them.
 
-`TestLocaleStyle` in `fuku/i18n` checks the rules a program can check, the old two-line reply shape included (a short
+`TestLocaleStyle` in `xenobot/i18n` checks the rules a program can check, the old two-line reply shape included (a short
 opener of at most four words on line 1 and the fact alone on line 2). Its allow-list is empty: every Ukrainian and
 English text follows the guide, and a new one must too. The only exceptions are the texts a `TestLegacy*Requests`
 golden pins byte for byte (`localeStyleGoldenPinned`: the `/filter` and `/stop` success replies), which keep their

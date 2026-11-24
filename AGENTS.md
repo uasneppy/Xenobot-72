@@ -1,26 +1,26 @@
 # AGENTS.md
 
-Xenobot-72: Telegram group-management bot. Go module `github.com/uasneppy/fuku_robot`; PostgreSQL (GORM) + Redis.
+Xenobot-72: Telegram group-management bot. Go module `github.com/uasneppy/Xenobot-72`; PostgreSQL (GORM) + Redis.
 Update this file in the same commit as any change that invalidates a rule below.
 
 ## Commands
 
 ```bash
-make test                 # the only valid full test run (tags, race, coverage, skip gate; 40 min per package; fuku/modules ran 9-15 min early on and 19-30 min on CI runners by Phase 18 (the same code measured 1143 s to 1760 s on two runners), so keep a new test light: cut a cross product of languages, states and notices down to its worst cases)
-make test-shard SHARD=1   # one quarter of fuku/modules (CI runs test-rest + test-shard 1..4 in parallel jobs, then coverage-merge; together exactly `make test`)
+make test                 # the only valid full test run (tags, race, coverage, skip gate; 40 min per package; xenobot/modules ran 9-15 min early on and 19-30 min on CI runners by Phase 18 (the same code measured 1143 s to 1760 s on two runners), so keep a new test light: cut a cross product of languages, states and notices down to its worst cases)
+make test-shard SHARD=1   # one quarter of xenobot/modules (CI runs test-rest + test-shard 1..4 in parallel jobs, then coverage-merge; together exactly `make test`)
 make lint                 # golangci-lint v2
 make check-translations   # missing locale keys
 make check-docs           # generated-docs drift; fix with `make generate-docs`
 make bump-version TAG=vX.Y.Z   # the only way to change version strings
-go test -tags testtools -race -count=1 -run '^TestName$' ./fuku/db/warns   # one test
+go test -tags testtools -race -count=1 -run '^TestName$' ./xenobot/db/warns   # one test
 CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2 + Docker
 ```
 
 ## Startup and shutdown
 
-- `fuku/config` `init()` → `fuku/db` `init()` connects to Postgres **before `main()`** and runs migrations when
-  `AUTO_MIGRATE=true`. Never add DB access to an `init()` that can run before `fuku/db`'s.
-- `--version`, `--health`, and `*.test` binaries (unless `FUKU_TEST_DATABASE=true`) skip DB init. Guard new pre-`main`
+- `xenobot/config` `init()` → `xenobot/db` `init()` connects to Postgres **before `main()`** and runs migrations when
+  `AUTO_MIGRATE=true`. Never add DB access to an `init()` that can run before `xenobot/db`'s.
+- `--version`, `--health`, and `*.test` binaries (unless `XENOBOT_TEST_DATABASE=true`) skip DB init. Guard new pre-`main`
   side effects with `isCliModeActive`.
 - Shutdown runs LIFO within 60 s. Register new drains *after* DB-close so they run before it. Each handler gets 10 s
   (`defaultHandlerTimeout`) unless registered with `RegisterHandlerWithTimeout`; a drain whose own wait is longer is
@@ -56,7 +56,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   polling mode the updater's extra 10 s moves the cut earlier. This worst case costs no correctness, because every hold
   resumes from the database and a job cut off leaves a pending hold that a reclaim retries after `memberreq.StaleClaim`
   (the member is punished once and their notice comes late at worst). The pause latch of the per-chat punishment cap
-  (`fuku:memberreq:{<chat>}:paused`) is a Redis key with its own expiry, so a shutdown cut short neither ends a pause nor
+  (`xenobot:memberreq:{<chat>}:paused`) is a Redis key with its own expiry, so a shutdown cut short neither ends a pause nor
   starts one. The lookups of
   the photo and channel rules derive from `memberReqContext()`, so `StopMemberReqJobs` ends them too (a job inside a lookup returns at once when the root is cancelled, leaving no hold, notice
   or write, because the claim follows every lookup, and the flight goroutine of the cancelled lookup ends with it), they read and write only
@@ -151,16 +151,16 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - Phase 27 adds no drain: manual command defaults (`manualDefaultsFor`), reason shortcut expansion (`expandManualReason`) and
   appeal link lookup (`manualAppealURLFor`) start no goroutine and run inside the calling handler under bounded 2 s contexts,
   so the worst case above and `stop_grace_period: 75s` are unchanged.
-- Phase 28 adds zero goroutines and zero shutdown drains: `advThresholdsFor` (`fuku/modules/advthresholds.go`) runs synchronously
+- Phase 28 adds zero goroutines and zero shutdown drains: `advThresholdsFor` (`xenobot/modules/advthresholds.go`) runs synchronously
   under a bounded 2 s context via the `skipLocal` Redis cache (`chat_advanced_thresholds:<chat>`), so the 70 s worst case and
   `stop_grace_period: 75s` are unchanged.
 - Phase 29 adds zero goroutines, zero handler groups, and zero shutdown drains: Plain tone (`msgs.Options.PlainTone` read inside the
   existing `eventMessagesLookup` under `event_messages:<chat>` in `skipLocal`) and Copy Settings (`applyCopySettings`, one-time Redis
-  confirmation tokens under `fuku:settings:copy:<token>`) run synchronously inside the calling handler under bounded contexts, so the
+  confirmation tokens under `xenobot:settings:copy:<token>`) run synchronously inside the calling handler under bounded contexts, so the
   70 s worst case and `stop_grace_period: 75s` are unchanged.
 - Phase 30 adds zero goroutines, zero handler groups, and zero shutdown drains: `BackupModuleMessages` (`"messages"`),
-  `eventmsg.ReplaceAllValidatedTx`, the shared backup apply helpers in `fuku/modules/backup.go`, cross-replica Redis backup tokens
-  (`fuku:settings:backup:import:<token>` and `fuku:settings:backup:reset:<token>`), and the private Backup settings page `ba` (reusing
+  `eventmsg.ReplaceAllValidatedTx`, the shared backup apply helpers in `xenobot/modules/backup.go`, cross-replica Redis backup tokens
+  (`xenobot:settings:backup:import:<token>` and `xenobot:settings:backup:reset:<token>`), and the private Backup settings page `ba` (reusing
   the existing typed-reply door at group `1`) run synchronously inside the calling handler under bounded contexts, so the 70 s worst
   case and `stop_grace_period: 75s` are unchanged.
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
@@ -206,7 +206,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `chat_status.CheckDisabledCmd` with that name; `Disableable` itself only adds the name to the list): `/disable`
   accepts every name in the list, so an unchecked name is a silent no-op (`TestDisableRefusesNamesThatHaveNoCheck`).
   `/blocklists` checks its own name and then `blacklists`, so disabling either silences the alias. Do not add replies for failed checks; the pipeline sends them. Every command handler,
-  wrapped or raw, is built by `helpers.NewBotCommand` (`fuku/utils/helpers/command_registry.go`), which records the
+  wrapped or raw, is built by `helpers.NewBotCommand` (`xenobot/utils/helpers/command_registry.go`), which records the
   lower-cased name and returns the library's own command handler (so routing is the library's) with one change to its
   response: an automatic forward (`helpers.IsAutomaticForward`: `is_automatic_forward`, or the Telegram service account
   777000 posting on behalf of a chat) returns `ext.ContinueGroups` at once, with no reply and no I/O, so a linked
@@ -214,7 +214,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   an administrator of every chat; `TestAutomaticForwardRunsNoCommand`, `TestIsAutomaticForward`). A watcher that judges a
   sender's authority checks `helpers.IsAutomaticForward` itself (`bindSetLogForward` does). Command
   deletion reads the registry through `helpers.IsBotCommand`, so only a command this bot registers is ever deleted.
-  `WrapCommand`'s `register` and `MultiCommand` go through it, and `TestNoRawNewCommand` (a `go/parser` walk of `fuku/`
+  `WrapCommand`'s `register` and `MultiCommand` go through it, and `TestNoRawNewCommand` (a `go/parser` walk of `xenobot/`
   and `main.go`, tests excluded) fails on any other construction of the library's command handler. Never call
   `handlers.NewCommand` or build a `handlers.Command` literal outside that file.
 - Anonymous admins bypass `WrapCommand`. Admin commands that must work for them also need
@@ -223,7 +223,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   re-entered command, the `RequiredChecks` that `anonPipelineHandler` re-runs, and `PermissionResponder` see the
   command's chat as if the admin had sent it, with the tapper as the sender. `verifyAnonymousAdmin` refuses the tap as
   an invalid request, deleting and running nothing, unless the callback's `c`, the proof button's chat and the cached
-  command's chat are the same chat. The cached command (`fuku:anonAdmin:<chat>:<message>`, 20 s) is the message as JSON
+  command's chat are the same chat. The cached command (`xenobot:anonAdmin:<chat>:<message>`, 20 s) is the message as JSON
   bytes, written by `chat_status.StoreAnonAdminCommand` and read by `chat_status.LoadAnonAdminCommand` (gotgbot's own
   unmarshalers, so a reply to a forwarded or pin service message survives; msgpack of the struct could not decode its
   interface fields). A value that does not decode, the old msgpack format included, and a decoder panic read as an
@@ -243,13 +243,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `ext.ContinueGroups` with no reply, write or Telegram call. They are a documented exception to the `WrapCommand`
   rule, because `BuildCommandContext` replies to sender-less updates, and they have no anonymous-admin re-entry.
 - Handler methods use value receivers on `moduleStruct`.
-- The bot's name in visible text is Xenobot-72, written in Latin letters in every language and never declined; identifiers
-  (module path, image, env names, cache keys, locale key names such as `help_button_add_fuku`) keep their old spelling. Help screens
+- The bot's name in visible text is Xenobot-72, written in Latin letters in every language and never declined. Identifiers
+  across the repository use Xenobot-72 naming consistently (`github.com/uasneppy/Xenobot-72`, `xenobot/`, `xenoerrors`,
+  `xenobot:` Redis/lock/callback prefixes, `xenobot_*` Prometheus metrics, `XENOBOT_TEST_*` env vars, `OTEL_SERVICE_NAME`
+  default `xenobot-72`, and locale key `help_button_add_xenobot`). Help screens
   carry no link to a third party (O-02): the `/about` keyboard is three rows (about, configuration, back), the `/start` keyboard keeps
   the add-to-chat URL button alone in its row, `/start` appends no news line, the thanks-for-adding message has no creators plug and
   `genFullLanguageKb` is only the language buttons. `/donate` stays registered and its text says the bot has no donation page.
   New exports write `bot_name` Xenobot-72 (`NewBackupFormat`); `BackupFormat.Validate` only requires a non-empty name and must never
-  compare it with a constant, so exports made under the earlier name keep importing (`TestBackupImportToleratesEarlierBotName`).
+  compare it with a constant, so exports made under an earlier bot name keep importing (`TestBackupImportToleratesEarlierBotName`).
 - The forward blocklist watcher (`staff_forwardblock_watch.go`, quick task 261113-tjj) is registered by `LoadStaff` at group
   `-9` (`staffForwardBlockGroup`, the only free group below 12) through `handlers.NewMessage(forwardBlockFilter, ...)` with no
   setter (new messages only: no edits, channel posts or bot senders), and is the only handler of that group, so never add a
@@ -343,7 +345,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   deleted (`/del`), cost one refused delete call that is dropped quietly with no row and no message ID in the log. A Staff
   Group is never touched, and a failing Staff Group read deletes nothing (`deletionAct`). The bare-name race with another
   bot that handles the same word is accepted and is a live check. `TestCommandRepliesStayInsideTheHandler` guards that no
-  goroutine in `fuku/modules` replies, so no handler can reply to a command after the wrapper deleted it. The guard resolves
+  goroutine in `xenobot/modules` replies, so no handler can reply to a command after the wrapper deleted it. The guard resolves
   calls by plain function name and by the caller's own receiver only (no type information), so a reply reached through
   another object's method is outside what it sees. Plan 17-11 reviewed that limit with a throwaway scan that followed every
   selector call by bare name: it found three candidates and none is a real reply after a delete. Two are the method name
@@ -416,9 +418,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   For a member with clean names in a group with a lookup rule on (the photo or the channel rule, action not Off; the AI
   rule's part is described after this one) the
   watcher reads the cached lookup verdicts first (`memberReqLookupCached`, Redis only and still no Telegram call): one
-  pipelined round of single-key `GET`s of the pass key, `fuku:memberreq:photo:<user>` (photo rule on) and
-  `fuku:memberreq:lc:<chat>` (channel rule on), then `fuku:memberreq:sub:<channel>:<user>` only when `lc` holds a channel
-  ID (`lc` reading `0`, a group with no linked channel, is nothing to verify), and `fuku:memberreq:cna:<channel>` after it
+  pipelined round of single-key `GET`s of the pass key, `xenobot:memberreq:photo:<user>` (photo rule on) and
+  `xenobot:memberreq:lc:<chat>` (channel rule on), then `xenobot:memberreq:sub:<channel>:<user>` only when `lc` holds a channel
+  ID (`lc` reading `0`, a group with no linked channel, is nothing to verify), and `xenobot:memberreq:cna:<channel>` after it
   only when the subscription key is missing (the channel-level not-administrator fact below: the rule is inert while it is
   set, so the channel part counts as satisfied). The member is clean only when every lookup
   rule that is on has its cached positive (or the channel is inert), and then the Phase 13 clean path runs with the pass answer already read; the
@@ -432,7 +434,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   bot and never about a member) and never classifies; a group with name rules only keeps its single `GET` exactly as before.
   While the AI spam-name rule is live (`memberReqAILive`: its action is not Off and the process is configured; an
   unconfigured stored value counts as Off there, or every message of every member would start a job for ever) the same
-  round also reads `fuku:memberreq:nv:<verdict key hash>`, `fuku:memberreq:nm:<chat>:<user>` and `fuku:memberreq:nu:<chat>:<user>`
+  round also reads `xenobot:memberreq:nv:<verdict key hash>`, `xenobot:memberreq:nm:<chat>:<user>` and `xenobot:memberreq:nu:<chat>:<user>`
   (`memberReqAIWatchQueue`: the canonical names and the verdict key come from pure Go, with `config.AppConfig.AnthropicModel`),
   and the AI part is satisfied only when the marker is absent and either the verdict parses and is below the bar or the
   baseline equals the current names hash (`memberReqAIWatchSatisfied`, pure: a miss, an unparsable value, NaN, an infinity
@@ -475,7 +477,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`raidFloodSenderCounts`: no `sender_chat`, automatic forward, service ID or the bot) and not a bot, so anonymous admins and
   channels cannot converse (a stated limit); addressed (`chatAddressed`): an `@<bot username>` mention entity compared without
   regard to case or a `text_mention` of the bot, in the text or the caption (pure), else a reply, read through
-  `extraction.ReplyTarget`, to a message the conversation feature sent (one Redis `ZSCORE` of `fuku:chat:{<chat>}:mine`, only for
+  `extraction.ReplyTarget`, to a message the conversation feature sent (one Redis `ZSCORE` of `xenobot:chat:{<chat>}:mine`, only for
   a reply to the bot, so a reply to a ban notice, a welcome or a captcha is no address); the server can converse at all
   (`chatAnyProviderConfigured`); the cached setting (`chatconv.Get`; an error answers nothing); enabled and its provider configured
   (`chatProviderConfigured`); Redis present; the audience (`chatAudienceAllows`: everyone, or an administrator by
@@ -490,13 +492,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   runtime never branches on the provider), the output filter (`chatFilterReply`: link-like tokens become `[link removed]`, a
   zero-width space follows every `@` that starts a username, a hard cap of 1,200 runes at the last sentence end; blank is never
   sent), the reply and the record of the exchange. The reply is plain text, link previews off, a reply to the addressed message
-  sent through the feature's own pacer (`chatPacer`, `fuku:chat:pace:*`), and never sent without its reply target
+  sent through the feature's own pacer (`chatPacer`, `xenobot:chat:pace:*`), and never sent without its reply target
   (`AllowSendingWithoutReply` false): aispam, antiflood, a lock or the blacklist can delete a message and still pass it on (the
   blacklist always does), so the watcher can see a message that is gone; Telegram then refuses the reply and the job stays silent
   (`chatReplyTargetGone`, counted as shed; `TestChatDeletedMessageGetsNoReply`). This is a deliberate change from the plan's
   `AllowSendingWithoutReply` true, which would have answered deleted messages. The group sees (plan 3.4): the canned
   `chat_reply_refused` for a refusal (remembered in the `mine` set, so a reply to it is an address); `chat_reply_malfunction` for a
-  provider error, a blank answer or a paused breaker, at most once per chat per 5 minutes (`fuku:chat:{<chat>}:said:malfunction`);
+  provider error, a blank answer or a paused breaker, at most once per chat per 5 minutes (`xenobot:chat:{<chat>}:said:malfunction`);
   `chat_reply_allowance` for a used-up allowance, at most once per chat per hour; nothing for a full queue, the cooldown, a counter
   fault, a deleted target or a shutdown. The breakers are two instances of `memberReqAIBreaker`, one per provider, each of its own
   state (`chatBreakers`): five provider failures in a group pause that group 5 minutes, a rejected key, a 429 with a retry delay
@@ -557,7 +559,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   fixed, each step refusing before the next: `settingsInputRead` (an error or no Redis is not the door's); no wait but a
   marker is one plain `settings_edit_wait_ended_note` naming the part (the marker taken with `GETDEL`, so two deliveries
   answer once; nothing is saved); with a live wait, a message whose `media_group_id` is 1 to 20 digits passes the album gate
-  (`fuku:settings:inputalbum:<user>:<media_group_id>`, `SET NX EX 30`, first wins) before the live checks and the claim, so an
+  (`xenobot:settings:inputalbum:<user>:<media_group_id>`, `SET NX EX 30`, first wins) before the live checks and the claim, so an
   album is checked and saved once, the items that lost the gate get no reply and no Telegram call, a refused album gets one
   refusal and a late one the one wait-ended reply, and a Redis error ends the update with no write; the live `getChatMember` of the sender, the owner gate (`settingsGate`), the right of
   the part (`settingsRightRefusalFor`, and `chat_status.IsBotAdmin` on Rules), a live `getChat` of the group, the
@@ -639,7 +641,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   plan 22-06, PMSG-04, D-20), registered from that file's `init`, so `help.go` and `deeplink_router.go` are not edited; deep
   links run in private chats only. The payload is attacker-controlled and authorizes nothing: `parsePMCopyDetails` accepts
   exactly `pmcopy_` and 22 characters of `A-Za-z0-9_-`, the record is read by the token alone (`pmCopyDetailsGet`, Data:
-  `fuku:pmcopy:det:<token>`) and the stored copy is sent, with `media.SendGreetingMessage` (no header, no reply target), to the
+  `xenobot:pmcopy:det:<token>`) and the stored copy is sent, with `media.SendGreetingMessage` (no header, no reply target), to the
   opener's private chat only when the record's `u` equals the opener's user ID. A malformed payload, an unknown or expired
   token, a record that does not parse, a Redis error and an opener the record does not name all get one neutral reply,
   `eventmsg_pm_details_none` in the opener's language (`msg.Reply` inside the handler), which names no group, event or person,
@@ -648,7 +650,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 
 ## Callbacks
 
-- Encode/decode only through `fuku/utils/callbackcodec` (`<ns>|v1|<url-encoded>`, 64-byte cap). Never `strings.Split`.
+- Encode/decode only through `xenobot/utils/callbackcodec` (`<ns>|v1|<url-encoded>`, 64-byte cap). Never `strings.Split`.
 - `encodeCallbackData` returns `""` on overflow, which ships a dead button. Put user text in Redis behind a short token.
 - The staff namespace's history list is `a=rc&o=<offset>` (the `/staff` panel's Recent actions, and its Prev and Next).
   Paging uses an offset cursor, not a page number, so a page shrunk to the 3800-unit cap hides no entry: Next starts
@@ -1076,7 +1078,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   service identity, opener, live `getChatMember`, owner gate, right), for a Yes the expiry check (an expired Yes redraws
   the rule screen with `settings_card_expired` and makes no link check), for `st` the fresh same-value database read (a
   press of the stored value writes nothing, draws no card and makes no link check), then one fresh `getChat` of the group
-  through the lookup pacer under `settingsMreqHereTimeout` (3 s), which refreshes `fuku:memberreq:lc:<chat>`. It runs
+  through the lookup pacer under `settingsMreqHereTimeout` (3 s), which refreshes `xenobot:memberreq:lc:<chat>`. It runs
   before any answer, because its alert is the press's one answer. A basic group (read from `p.group.Type`, no lookup) or a
   `getChat` that carries no linked channel answers the alert `settings_mreq_here_nolink` (the status line's own key, with
   `{rule}`, no icon), writes nothing, draws no card (a Yes replaces its card) and redraws the channel screen as the
@@ -1339,7 +1341,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   required in step 1, `Right: settingsRightChangeInfo`, routed through `applyEventPlainTone` -> `eventmsg.SetPlainTone`), expanding
   the Messages hub keyboard widths from `[2 2 1 1 2]` to `[2 2 1 1 1 2]` and showing `settings_state_msg_plain` on Main when Plain
   tone is on with 0 custom messages (`settings_state_msg_n` when `n > 0`). All 23 pure plain-tone group builders live in
-  `fuku/modules/event_message_plain.go` (outside `eventEngineEntries` so `TestEventEngineCallers` and `TestPMCopyCallers` require no
+  `xenobot/modules/event_message_plain.go` (outside `eventEngineEntries` so `TestEventEngineCallers` and `TestPMCopyCallers` require no
   allow-list changes), wired lazily via `eventReply.PlainDefault` in `postEventSent` (`event_message.go`) and `eventPMSpec.PlainKey` in
   `composeEventPM` / `eventPMDefaultText` (`event_message_pm.go`), plus group/PM preview builders on the Messages page. When
   `PlainTone` is `false` (default), `PlainDefault` is never called and output is byte-identical to MSG-11 goldens; when `true`, any
@@ -1356,7 +1358,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   non-creator admin dual rights `CanChangeInfo && CanRestrictMembers` per `P29-02`, and live `GetChatWithContext` `group`/`supergroup`),
   mapping every target-side refusal (bot not in chat 4xx, non-admin, owner-only gate, missing write right, non-group type, Staff Group)
   to the single uniform opaque alert `settings_pick_unavailable`. `ck` stores a pair-bound one-time confirmation record in Redis under
-  `fuku:settings:copy:<token>` (TTL 5m, `SET NX`, failing closed with `settings_copy_unavailable` when Redis is nil), and `cy` peeks
+  `xenobot:settings:copy:<token>` (TTL 5m, `SET NX`, failing closed with `settings_copy_unavailable` when Redis is nil), and `cy` peeks
   user/source binding before atomically consuming the token via a Lua `GET+DEL` script (`settings_card_expired` on expiry/replay) and
   calling `applyCopySettings` (full mirror across all 6 areas per `P29-01`, `P29-03`, `P29-04`, dropping all target cache keys and
   never linking the two groups). With `cp` registered at `Order` 82, Main had 29 registered pages total (`settingsMainOwnerRows = 16`,
@@ -1377,7 +1379,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settingsRightOwnerBotAdmin`, refuses `m=0` with `settings_bkp_pick_one`, stores one-time Redis reset token), and `bu` (Reset confirm
   Yes, `k`, `settingsRightOwnerBotAdmin`, peeks user/chat binding before atomic Lua `GET+DEL` + `AcquireReset` + `applyBackupReset` /
   `formatBackupResetSuccess`). Both `/export`, `/import`, `/reset` and the Backup page call the shared apply helpers in
-  `fuku/modules/backup.go` (`applyBackupExport`, `downloadAndParseBackupFile`, `applyBackupImport`, `formatBackupImportSuccess`,
+  `xenobot/modules/backup.go` (`applyBackupExport`, `downloadAndParseBackupFile`, `applyBackupImport`, `formatBackupImportSuccess`,
   `applyBackupReset`, `formatBackupResetSuccess`) and share `BackupRateLimiter`. With `ba` registered at `Order` 83, Main has 30
   registered pages total (`settingsMainOwnerRows = 17`, Staff Group Main hides `ba` too so `staffOwnerRows = settingsMainOwnerRows - 4`
   and Staff Group Main state lines = `len(settingsMainTitleKeys) - 7`).
@@ -2204,7 +2206,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 
 ## Permissions
 
-- `fuku/utils/chat_status` predicates return bools and never reply; use `PermissionResponder` to message.
+- `xenobot/utils/chat_status` predicates return bools and never reply; use `PermissionResponder` to message.
   `helpers.CheckFunc` replies and is valid only inside `WrapCommand`.
 - `IsUserAdmin` returns false for channel and non-positive IDs. Never pass a chat ID as a user ID.
 - `*ForUpdate` predicates are memoised per update. Watchers only, never after a state change in the same update.
@@ -2372,12 +2374,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 
 ## Data
 
-- Repositories live in `fuku/db/<domain>/`. Read via `cache.GetFromCacheOrLoad` with `cache.CacheKey` keys.
+- Repositories live in `xenobot/db/<domain>/`. Read via `cache.GetFromCacheOrLoad` with `cache.CacheKey` keys.
   **Every write must `cache.DeleteCache` the keys it affects.**
 - `GetFromCacheOrLoad` has an in-process layer (`CACHE_LOCAL_TTL`, default 10 s) in front of Redis. `DeleteCache`
-  evicts it on this replica only; list freshness-critical keys in `skipLocal` (`fuku/db/cache/local.go`). Tests that
+  evicts it on this replica only; list freshness-critical keys in `skipLocal` (`xenobot/db/cache/local.go`). Tests that
   write rows directly must call `cache.ResetLocalForTest()` or `DeleteCache` before reading through the cache.
-- Two packages are named `cache`; the loader and generation guards are in `fuku/db/cache`, not `fuku/utils/cache`.
+- Two packages are named `cache`; the loader and generation guards are in `xenobot/db/cache`, not `xenobot/utils/cache`.
 - Accepted limit (review item I9, owner decision): the generation guard is per process. A load on replica A that read
   the database before replica B's write and `DeleteCache` can still `SET` the old value into Redis after B's `DEL`,
   and every replica then serves it until the key's TTL ends or the next write drops it. A Redis-side generation with a
@@ -2385,26 +2387,26 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   it would bypass that layer, duplicate its encoding and add a round trip to every load and every delete. Keys whose
   staleness matters are read fresh (`*Fresh`, never cached) or kept short; a new cached setting that must change at once
   on every replica needs that too, not only `skipLocal`.
-- Operational Redis keys (`fuku:anonAdmin:*`, `fuku:staff:*`, `fuku:lockdown:*`, `fuku:raid:*`, `fuku:memberreq:*`, `fuku:fed:*`, `fuku:aispam:*`) sit outside the
-  `fuku:cache:` prefix; `CLEAR_CACHE_ON_STARTUP` does not clear them. `fuku:antiraid:*` is retired: nothing reads or
+- Operational Redis keys (`xenobot:anonAdmin:*`, `xenobot:staff:*`, `xenobot:lockdown:*`, `xenobot:raid:*`, `xenobot:memberreq:*`, `xenobot:fed:*`, `xenobot:aispam:*`) sit outside the
+  `xenobot:cache:` prefix; `CLEAR_CACHE_ON_STARTUP` does not clear them. `xenobot:antiraid:*` is retired: nothing reads or
   writes it, and `sweepRetiredAntiRaidKeys` removes what the old raid mode left, once per process at startup.
-- `fuku:settings:sweep:lock` (new family `fuku:settings:*`, also outside the `fuku:cache:` prefix, so
+- `xenobot:settings:sweep:lock` (new family `xenobot:settings:*`, also outside the `xenobot:cache:` prefix, so
   `CLEAR_CACHE_ON_STARTUP` keeps it) is the admin index sweep's per-cycle lock (`admin_index_sweeper.go`): `SET NX` with a
   per-process owner (`adminIndexSweepOwner`, a UUID) and a TTL of the interval minus one minute, so one replica runs each
   hourly cycle. Without Redis, or on a Redis error, a cycle runs unguarded and stays correct, because every roster write is
   a replace of the whole roster or a clear. Only a cycle cut off by a cancel gives it back, by compare-and-delete.
-- The message editor's wait for a typed reply (`settings_input.go`, all outside the `fuku:cache:` prefix in the
-  `fuku:settings:*` family, so `CLEAR_CACHE_ON_STARTUP` keeps them, and holding IDs and codes only, never message text or
-  a file ID, except the one bounded user-text field `w` below). `fuku:settings:input:<user>` is one hash per user with `c` (group chat ID), `p` (page key, which may also be the key of a registered message editor definition such as an event message's `hbng`), `t` (part), `m`
+- The message editor's wait for a typed reply (`settings_input.go`, all outside the `xenobot:cache:` prefix in the
+  `xenobot:settings:*` family, so `CLEAR_CACHE_ON_STARTUP` keeps them, and holding IDs and codes only, never message text or
+  a file ID, except the one bounded user-text field `w` below). `xenobot:settings:input:<user>` is one hash per user with `c` (group chat ID), `p` (page key, which may also be the key of a registered message editor definition such as an event message's `hbng`), `t` (part), `m`
   (prompt message ID), `n` (16 hex nonce from `crypto/rand`), `x` (expiry, unix ms), `r<message id>` for each refusal reply that carries a Cancel button (at most 40 fields in
   all, no text), while a claim is held `k`, and, on the second part of a two-step list add only (Filters `(i,y)`, Notes `(e,c)`), `w`
   (the step-1 keyword or name: valid UTF-8, not blank, at most 100 code points, never logged, never in callback data, deleted with the
   hash by every end) and `q` (the step-1 message's ID; a step-2 hash without a valid `w` and a positive `q` is no wait, and the two
   are ignored on a step-1 part); its own
   10-minute `PEXPIRE` is the wait's expiry, with no timer, no process map and no shutdown drain.
-  `fuku:settings:inputdone:<user>` is the marker `c|p|t`, 15 minutes, written by every Set; every deliberate end (finish,
+  `xenobot:settings:inputdone:<user>` is the marker `c|p|t`, 15 minutes, written by every Set; every deliberate end (finish,
   the Cancel button, `/cancel`, an ended access) deletes both keys in one script, so a marker with no wait means only
-  "the wait expired". `fuku:settings:inputalbum:<user>:<media_group_id>` is the album memory, `SET NX EX 30`, for a media
+  "the wait expired". `xenobot:settings:inputalbum:<user>:<media_group_id>` is the album memory, `SET NX EX 30`, for a media
   group ID of 1 to 20 digits (anything else is not an album and writes nothing). Atomicity is nine Lua scripts in
   `settings_input.go`: Set (writes both keys and returns the replaced wait's fields; it deletes the hash first, so the
   refusal fields below never survive a new Set), note-refusal (adds the field `r<message id>` for a refusal reply, only for the
@@ -2422,7 +2424,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   wait's ten minutes). Reads are one pipeline of `HGETALL` and `GET`; a hash
   that does not parse is no wait. Without Redis every store function returns `errSettingsInputUnavailable`, so Set
   answers `settings_edit_unavailable` and nothing else needs Redis.
-- `fuku:staff:act:<token>` is the staff action card hash. It lives 5 minutes plus 1 minute grace while pending and
+- `xenobot:staff:act:<token>` is the staff action card hash. It lives 5 minutes plus 1 minute grace while pending and
   1 hour once terminal, and moves state only through the Lua compare-and-set in `staff_action_card.go`.
   It expires through a timer on the creating replica plus a lazy check on any tap, and Confirm aborts when the
   signature of the sorted linked group IDs (`links_sig`) changed since the card was shown. The same hash also holds
@@ -2432,18 +2434,18 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   clears the groups' undo columns) when no group of the run reached its Telegram write (`staffGroupResult.Reached`, set
   once `executeStaffUndoCall` returned, whatever it returned, and for every group `sweepPending` swept after a panic,
   which may have reached its write before it was lost), and kept once any group did.
-- `fuku:staff:lock:target:<id>` is the per-target fan-out lock: `SET NX` with the card token as value and a 30-minute
+- `xenobot:staff:lock:target:<id>` is the per-target fan-out lock: `SET NX` with the card token as value and a 30-minute
   TTL, taken at Confirm, renewed every 10 minutes (`staffTargetLockRenewEvery`) by the run's coordinator through a
   compare-and-set on that token while the fan-out runs (a vanished key is re-taken, another card's lock is never
   touched), and released by compare-and-delete with that token when the run ends or the Confirm aborts. An undo's
   Confirm takes the same lock, so an undo and a staff action on one person never run at once; the loser is answered
   "target busy" and its card stays pending.
-- `fuku:staff:pace:next` and `fuku:staff:pace:block` are the fleet-wide Telegram pacing for staff fan-outs: a slot
+- `xenobot:staff:pace:next` and `xenobot:staff:pace:block` are the fleet-wide Telegram pacing for staff fan-outs: a slot
   reservation plus a shared `retry_after` block. The block keeps Telegram's full `retry_after`; a call whose slot is
   more than `MaxWait` (60 s) away fails at once as rate limited, with no Telegram request and without taking the slot.
   Every staff fan-out Telegram call goes through `staffPaced`, and per-replica limiters must not be used for shared
   budgets.
-- `fuku:lockdown:recent:<chat>` is the best-effort 10-minute join tracker (`lockdown_recent.go`): a sorted set scored by
+- `xenobot:lockdown:recent:<chat>` is the best-effort 10-minute join tracker (`lockdown_recent.go`): a sorted set scored by
   join time in unix milliseconds, written by both group `-7` join handlers (`lockdownOnJoinMember`,
   `lockdownOnJoinMessage`) for every supergroup join before they read the lockdown, whether or not one is active. Join
   requests and the bot's own join are not tracked. A member is compact JSON (`i` id, `n` name, `u` username, `b` bot,
@@ -2452,15 +2454,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   time wins, a non-empty link, name or username fills in). One pipelined round trip under 250 ms
   (`lockdownRecentTimeout`) adds, trims to 10 minutes, keeps the newest 500 (`lockdownRecentCap`) and sets a 700 s TTL.
   It is empty without Redis and is never a ban decision. The joins of the 10 minutes before the lock are saved with the
-  lockdown's alert (`chat_lockdown_burst`); a flood lockdown also saves its flooders there (`fuku:raid:{<chat>}:flooders`
+  lockdown's alert (`chat_lockdown_burst`); a flood lockdown also saves its flooders there (`xenobot:raid:{<chat>}:flooders`
   below). The raid join counter does not use it.
-- `fuku:raid:{<chat>}:joined` is the join counter of automatic raid detection (`raid_counters.go`): a sorted set whose
+- `xenobot:raid:{<chat>}:joined` is the join counter of automatic raid detection (`raid_counters.go`): a sorted set whose
   member is the user ID and whose score is that account's latest join in unix milliseconds, so the `chat_member` update
   and the service message of one join are one member and a re-join refreshes the account. One Lua script
   (`raidJoinScript`, the chat ID is a hash tag) adds the joins, trims what is older than 24 h, keeps the newest 5000
   (`raidJoinedCap`), sets a 25 h TTL and returns how many different accounts joined in the last 60 s. It is best effort
   and Redis only: without Redis automatic detection is inert on that replica (one info log per process) and `/lockdown`
-  still works. `fuku:raid:{<chat>}:fire` is a `SET NX EX 60` latch that only sheds load while a trigger starts a
+  still works. `xenobot:raid:{<chat>}:fire` is a `SET NX EX 60` latch that only sheds load while a trigger starts a
   lockdown; exactly one lockdown is still `uk_chat_lockdowns_active` plus `lockdown.Start`, and one alert still
   `lockdown.BeginAlert`, however many triggers and replicas fire at once. After the latch `raidFire` reads the chat's
   active lockdown fresh and stays silent, with no Telegram call, while one exists, and for 10 minutes (`raidLiftQuiet`)
@@ -2469,14 +2471,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   after a started, already-active or unknown-lock outcome, 10 s (`raidRetryLatch`) after a failed bot-rights check,
   unreadable permissions or failed state write, and 10 minutes (`raidCantLockLatch`) when the group is not a
   supergroup, the bot cannot restrict members or Telegram refused the lock. Do not reuse
-  `fuku:lockdown:recent:<chat>` for counting: its JSON members count one join twice.
-- `fuku:raid:{<chat>}:fi`, `:fn` and `:fa` are the message flood counter of automatic raid detection
+  `xenobot:lockdown:recent:<chat>` for counting: its JSON members count one join twice.
+- `xenobot:raid:{<chat>}:fi`, `:fn` and `:fa` are the message flood counter of automatic raid detection
   (`raid_flood.go`): three sorted sets scored in unix ms, the window's item keys (`m:<message id>`, or `g:<media group
   id>` so an album is one item), the item keys sent by new members and those members' user IDs. One Lua script
   (`raidFloodScript`) adds the item, trims all three to 30 s, caps the first two at 2000 (`raidFloodCap`), sets
   `PEXPIRE` 2 minutes on each and returns their sizes; a member is new when `:joined` scores them within 24 h
   (`ZSCORE`). It is Redis only, like the join counter.
-- `fuku:raid:{<chat>}:av` and `:aa` are the AI spam verdict counter of automatic raid detection (`raid_ai_count.go`):
+- `xenobot:raid:{<chat>}:av` and `:aa` are the AI spam verdict counter of automatic raid detection (`raid_ai_count.go`):
   two sorted sets scored in unix ms, the verdict items (`m:<message id>`, or `g:<media group id>` so an album is one
   item) and the accounts behind them (user ID, scored by that account's latest newly counted verdict). One Lua script
   (`raidAIVerdictScript`) adds the item with `ZADD NX`, so a second report of one message or album is a no-op, and
@@ -2485,7 +2487,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   for tests, never set below 500 except to prove the cap), sets `PEXPIRE` 5 minutes and returns the two sizes. It is
   Redis only, like the other raid counters: without Redis the trigger is inert on that replica. Message text is never
   stored.
-- `fuku:raid:{<chat>}:ar:<user>` is the repeat test of the raid AI candidate watcher (`raid_ai.go`): a list of hashes of
+- `xenobot:raid:{<chat>}:ar:<user>` is the repeat test of the raid AI candidate watcher (`raid_ai.go`): a list of hashes of
   a new member's recent texts, each the first 8 bytes of the SHA-256 of the normalised text (lower-cased, whitespace
   collapsed) as 16 hex characters, only for a text of at least 10 runes (`raidAIRepeatMinRunes`), newest 5
   (`raidAIRepeatHistory`), 1 h TTL (`raidAIRepeatTTL`). One Lua script (`raidAICandidateScript`) answers whether the
@@ -2493,23 +2495,23 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   hash for a new member only, so an established member leaves no key. Raw message text is never stored, here or by
   the raid path anywhere else. It is Redis only, like the other raid counters.
 - The image checks' cost guards (`raid_ai_image.go`, D-20) keep five Redis key families, all outside the cache prefix.
-  `fuku:raid:{<chat>}:ag:<media_group_id>` is the album gate, `SET NX EX 120` (`raidAIAlbumGateTTL`): the first photo of
+  `xenobot:raid:{<chat>}:ag:<media_group_id>` is the album gate, `SET NX EX 120` (`raidAIAlbumGateTTL`): the first photo of
   an album is judged and the others are dropped, except that a first photo refused for a reason of that moment before any
   provider call (a paused breaker, a budget refusal, a Redis error, the fire latch) gives the gate back with `DEL`
   (`raidAIAlbumRelease`), so the next photo of the album can still be judged; a photo that reached the provider keeps it.
-  `fuku:raid:{<chat>}:ab:<yyyymmddhh>` and `fuku:raid:aibudget:<yyyymmddhh>`
+  `xenobot:raid:{<chat>}:ab:<yyyymmddhh>` and `xenobot:raid:aibudget:<yyyymmddhh>`
   are the hourly budgets, 150 provider calls per group (`raidAIChatHourlyBudget`) and 500 in all
   (`raidAIGlobalHourlyBudget`), counted by `INCR` plus a 2 h expiry (`raidAIBudgetTTL`) in one transaction, the UTC hour
-  from `raidNow`. In front of both sits the per-account budget `fuku:raid:{<chat>}:abu:<user>:<yyyymmddhh>`, 20 calls
+  from `raidNow`. In front of both sits the per-account budget `xenobot:raid:{<chat>}:abu:<user>:<yyyymmddhh>`, 20 calls
   per account per group per hour (`raidAIUserHourlyBudget`), counted the same way and reserved first: an account that
   is over it is `Capped` and spends neither shared unit, so one fresh account posting distinct photos can neither empty
-  its group's 150 nor the fleet's 500 (WR-01). A cached verdict is answered before any budget and spends none. `fuku:raid:aiv:<file_unique_id>` is the verdict cache: the probability as a decimal string, `SET EX
+  its group's 150 nor the fleet's 500 (WR-01). A cached verdict is answered before any budget and spends none. `xenobot:raid:aiv:<file_unique_id>` is the verdict cache: the probability as a decimal string, `SET EX
   3600` (`raidAIVerdictCacheTTL`), written only after a verdict (never for a failure or a block). The budget is reserved
   before the download, so a failed call still spends its unit; a group over its own budget never spends the fleet's. The
   two budgets are package variables only so a test can make them small. A Redis error on any of these keys is no verdict:
   the image is not sent, never an unbounded call. The all-groups key has no `{chat}` hash tag, so it is only ever used in
   single-key commands, never in a multi-key script.
-- `fuku:raid:{<chat>}:flooders` is the flood alert's snapshot (`raid_flood.go`, D-17). When a flood trigger fires,
+- `xenobot:raid:{<chat>}:flooders` is the flood alert's snapshot (`raid_flood.go`, D-17). When a flood trigger fires,
   `raidFire` calls `raidSnapshotFlooders` after the latch, the active check and the quiet period and before
   `startLockdownRow`: one Lua script (`raidFloodersScript`) replaces the key with the newest accounts of `:fa` (at most
   `raidFloodersMax` = 500) whose `:joined` score is within 24 h, scored by that join time, with a 15-minute TTL
@@ -2522,7 +2524,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   sample and in "Ban N recent joiners" (through the unchanged Phase 5 ban run and its exclusions), and a Redis flush
   after the alert changes nothing. A flood alert's counts line is `lockdown_alert_counts_flood`
   (`lockdownRenderSample` takes the trigger kind); the join-surge and manual alerts keep `lockdown_alert_counts`.
-- `fuku:raid:{<chat>}:aispammers` is the AI burst alert's snapshot (`raid_ai_count.go`), the twin of `:flooders`. When an
+- `xenobot:raid:{<chat>}:aispammers` is the AI burst alert's snapshot (`raid_ai_count.go`), the twin of `:flooders`. When an
   AI trigger fires, `raidFire` calls `raidSnapshotAISpammers` at the same point (after the latch, the active check and
   the quiet period, before `startLockdownRow`): one Lua script (`raidAISpammersScript`) replaces the key with the newest
   accounts of `:aa` (at most `raidFloodersMax` = 500) whose `:joined` score is within 24 h, scored by that join time,
@@ -2559,7 +2561,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   log channel (`actionlog.Destination` under the admin category, the group's language, starting with the usual header),
   each only when it exists. The destinations are resolved before the gate is touched: with neither, nothing is
   attempted and the gate stays free, so a Staff Group linked later is still warned. One `SET NX EX 86400` on
-  `fuku:raid:{<chat>}:warn` then gates both copies, so a group is warned at most once a day across replicas, and a
+  `xenobot:raid:{<chat>}:warn` then gates both copies, so a group is warned at most once a day across replicas, and a
   Redis error or a lost `SetNX` sends nothing. The gate records a warning that reached somebody: when no copy was
   delivered it is given back with `DEL` (`raidReleaseWarnGate`, best effort), and when at least one was delivered it
   stays. The other outcomes
@@ -2594,19 +2596,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   in-memory numbers only (no text, file ID, chat, user or key): the raid AI pool's counters (`RaidAIStats`: checked,
   spam, kept, shed, failed, blocked, capped, cached) and `/aispam`'s (checked, deleted, kept, shed, failed). They belong
   to the process that answers, start at zero on every restart and are not fleet totals.
-- `fuku:lockdown:pace:next` and `fuku:lockdown:pace:block` are the fleet-wide Telegram pacing of lockdown bans,
+- `xenobot:lockdown:pace:next` and `xenobot:lockdown:pace:block` are the fleet-wide Telegram pacing of lockdown bans,
   unbans, declines and deletes (`lockdownPaced`, `lockdownPacer`): the same slot-plus-block design as the staff pacer,
   with its own keys so a raid and a staff fan-out each keep their own budget. A slot more than `MaxWait` away fails at
   once as rate limited and the joiner row goes back without counting an attempt.
-- `fuku:memberreq:pace:next` and `fuku:memberreq:pace:block` are the fleet-wide Telegram pacing of the member
+- `xenobot:memberreq:pace:next` and `xenobot:memberreq:pace:block` are the fleet-wide Telegram pacing of the member
   requirements executor (`memberReqPaced`, `memberReqPacer`: 100 ms, 3 retries, 60 s): the staff pacer's slot-plus-block
   design with its own keys, so screening, a staff fan-out and a lockdown each keep their own budget. Every Telegram call
   of `memberReqEnforce` (the live `getChatMember`, the punishment, the notice, the delete) goes through it, each bounded by 10 s,
   except the limit action the warn module takes when a warn reaches the limit (`applyWarn`'s kick or ban): that one call is
   neither paced here nor bounded by the job context, and is bounded instead by the HTTP client's 30 s timeout and the
   per-chat cap.
-- `fuku:memberreq:{<chat>}:cap:<unix minute>`, `fuku:memberreq:{<chat>}:capm:<unix minute>` and
-  `fuku:memberreq:{<chat>}:paused` are the member requirements' per-chat brake (`memberreq_limits.go`, the chat ID a hash
+- `xenobot:memberreq:{<chat>}:cap:<unix minute>`, `xenobot:memberreq:{<chat>}:capm:<unix minute>` and
+  `xenobot:memberreq:{<chat>}:paused` are the member requirements' per-chat brake (`memberreq_limits.go`, the chat ID a hash
   tag, outside the cache prefix so `CLEAR_CACHE_ON_STARTUP` keeps them). The counter is a fixed 60 s window
   (`raidNow().Unix()/60`, so a test can stop the clock) of the members whose punishment was attempted (Q2): one Lua script
   (`memberReqCapScript`, under 250 ms) `SADD`s the user ID to the minute's `capm` set, `INCR`s the `cap` counter only when
@@ -2622,7 +2624,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   counted before the claim and never after the punishment. A Redis error or no Redis allows the punishment and pauses
   nothing (accepted, like the raid counters): nothing the requirements need for correctness lives only in Redis. Both
   numbers are package variables only so a test can shrink them.
-- `fuku:captcha:ch:<token>` is the Turnstile captcha's challenge handle (`fuku/utils/captchaweb`, `challenge.go`): a hash
+- `xenobot:captcha:ch:<token>` is the Turnstile captcha's challenge handle (`xenobot/utils/captchaweb`, `challenge.go`): a hash
   of decimal strings `u` (user ID), `a` (attempt ID), `c` (chat ID) and `x` (the attempt's expiry in unix ms), living the
   attempt's time left plus 5 minutes (`ChallengeGrace`). The token is 16 random bytes in base64url (22 characters) and is
   public, because it is the `startapp` value of the group's URL button: the barrier is the signed `initData` `user.id`,
@@ -2638,12 +2640,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   750 ms deadline, so a client that disconnects never abandons it, and the release and the delete run on a context of
   their own. If Redis is unreachable for the release too, the claim stays until the challenge expires and the member
   times out as for any other Redis fault (accepted, WR-03). It is Redis
-  only and sits outside the `fuku:cache:` prefix beside the existing `fuku:captcha:refresh:cooldown:*`, so
+  only and sits outside the `xenobot:cache:` prefix beside the existing `xenobot:captcha:refresh:cooldown:*`, so
   `CLEAR_CACHE_ON_STARTUP` keeps it; a Redis flush loses the open challenges and those members time out as usual. A retry
   puts the same key back with `Store.Rearm` (one Lua script, bounded by `RedisTimeout`): the time it had left when it was
   consumed minus the time since, written only when the key is absent and time remains, so a re-arm never stretches a
   challenge past its attempt and never overwrites another one.
-- `fuku:captcha:rl:ip:<ip>`, `fuku:captcha:rl:u:<user>` and `fuku:captcha:rl:t:<token>:<user>` are the abuse windows of
+- `xenobot:captcha:rl:ip:<ip>`, `xenobot:captcha:rl:u:<user>` and `xenobot:captcha:rl:t:<token>:<user>` are the abuse windows of
   the Turnstile verify route (`captchaweb/limiter.go`, `Limiter.Allow`): fixed windows of 60 s counted by one Lua script
   (`INCR`, `PEXPIRE` on the first increment, a key that lost its expiry gets one again), with budgets of 60 per client
   address (an IPv6 client counts by its /64), 20 per verified user and 8 per token and verified user
@@ -2654,7 +2656,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   another member who hammers a target's public token spends only their own budgets and the target still passes (D-26).
   The address window is counted before the body is read, the other two right after `initData` is verified, all before the
   in-flight slot is taken.
-- `fuku:captcha:streak` is the Turnstile key mismatch breaker (`captchaweb/breaker.go`, `Store.RecordFailedSolve` and
+- `xenobot:captcha:streak` is the Turnstile key mismatch breaker (`captchaweb/breaker.go`, `Store.RecordFailedSolve` and
   `Store.ClearFailedSolves`, WR-04): one fleet-wide counter of failed solves (`OutcomeFailed`, any reason) since the last
   confirmed pass, incremented by one Lua script that also renews a 10 minute expiry (`StreakTTL`), so a streak that goes
   on stays tripped and a quiet one ends. Cloudflare answers `invalid-input-response` for a token minted by a widget that
@@ -2667,14 +2669,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   minute per replica, and counted as an error. Every verdict that confirms a pass runs `ClearFailedSolves` (`DEL`). It is
   Redis only and outside the cache prefix; a Redis error fails open (the failure is enforced as D-28 says, nobody is
   blocked, a pass still goes through). A single bad token is a streak of one and never trips it.
-- `fuku:captcha:done:<token>` is the Turnstile verify route's decided-answer marker (`challenge.go`, `Store.MarkDone` and
+- `xenobot:captcha:done:<token>` is the Turnstile verify route's decided-answer marker (`challenge.go`, `Store.MarkDone` and
   `Store.Done`): a string `<user>:<result>[:<action>]` (result `passed`, `failed`, `expired` or `invalid`, the neutral answer of
   a failure action that could not be applied; action `kick`, `ban` or `mute` and empty for passed and invalid), 10 minutes (`DoneTTL`), written with `SET NX` after every decided answer and before the
   response is written, so a response lost on the way can be asked for again. When the challenge key is gone, a verify from
   the same verified user with a marker gets the same answer with no backend call and no Cloudflare request, another
   verified user gets `not_for_you`, and no marker means `invalid`. A retry answer writes none (its token is re-armed
   instead), and a marker write error is logged by outcome name and never changes the answer. Parallel verifies of one
-  token act once because only the Lua consume of `fuku:captcha:ch:<token>` succeeds for one of them. It is Redis only and
+  token act once because only the Lua consume of `xenobot:captcha:ch:<token>` succeeds for one of them. It is Redis only and
   outside the cache prefix.
 - The developer `/stats` also gets the web captcha's counters: `getStats` appends `captchaWebStatsSection` after
   `raidAIStatsSection` (issued, passed, failed, expired, invalid, retry, limited, errors). They are in-memory numbers of the
@@ -2682,7 +2684,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   section holds no token, initData, ID or Cloudflare text. Each event is counted once: `writeAnswer` counts a decided
   answer by its result (`invalid` and `not_for_you` as invalid; an `expired` answer is not counted, because the expiry is
   counted where the attempt was claimed), `writeLimited` counts a 429 or an in-flight 503 as limited and not as retry, a
-  remembered answer replayed from `fuku:captcha:done:<token>` counts nothing, `captchaweb.CountIssued` runs in
+  remembered answer replayed from `xenobot:captcha:done:<token>` counts nothing, `captchaweb.CountIssued` runs in
   `SendCaptcha` once a Turnstile challenge message was sent and its ID stored, and `captchaweb.CountExpired` runs in
   `expireCaptchaAttempt` when `handleCaptchaTimeout` claimed an attempt whose answer is reserved (the timer, the cleanup
   tick and a late check all go through it). Errors are configuration faults (`Verdict.ConfigError`), backend and Redis
@@ -2810,7 +2812,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   NULL DEFAULT 0` under its inline named CHECK of 0 to 31622400 (366 days): `warns_settings.warn_mode_secs`
   (`chk_warns_settings_mode_secs`, the warn limit's action), `antiflood_settings.action_secs` (`chk_antiflood_action_secs`) and
   `blacklists.action_secs` (`chk_blacklists_action_secs`, one per word, like the action). The bounds are defined once in
-  `fuku/db/models/punish.go` (`models.PunishMinSecs` 60, `models.PunishMaxSecs`, `models.PunishDurationValid`). A plain action
+  `xenobot/db/models/punish.go` (`models.PunishMinSecs` 60, `models.PunishMaxSecs`, `models.PunishDurationValid`). A plain action
   (mute, kick, ban) stores 0, and a timed mode (`tmute`, `tban`) stored with 0, which every row written before the migration and every
   timed mode the code wrote before reads as, is inert: it applies nothing, exactly as before. The models (`WarnSettings.WarnModeSecs`,
   `AntifloodSettings.ActionSecs`, `BlacklistSettings.ActionSecs`) carry no `default:` tag (a Go 0 is always written) and JSON
@@ -2913,7 +2915,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `default:` tag on its booleans. The key `member_requirements:*` is listed in `skipLocal`, because the watcher reads it on
   every supergroup message and a rule switched off must stop punishing on every replica at the next message, not after
   `CACHE_LOCAL_TTL` (D-20). It is never part of backup, export, import or reset.
-- `fuku:memberreq:pass:<chat>:<user>` is the member requirements watcher's clean verdict (`memberreq_watch.go`): positive
+- `xenobot:memberreq:pass:<chat>:<user>` is the member requirements watcher's clean verdict (`memberreq_watch.go`): positive
   only, a 16 hex fingerprint (`memberReqPassValue`, a SHA-256 of the rule actions (every rule of `memberreq.Rules`, eight since migration 20261109120000, which changed every member's fingerprint once more: one more harmless pass-cache miss) and the three names, so no name is in
   the key or the value and a rename or any settings change is a miss), `SET EX` 30 minutes (`memberReqPassTTL`), written only
   after a clean verdict and a successful clean predicate (`ClearHoldOnClean`) for a message not older than 2 minutes
@@ -2924,15 +2926,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   hands the member to a job, so a pass can never hide a missing photo or subscription (R2); the same holds for the AI
   rule: the pass key never stands in for the AI positive (a verdict below the bar, or a baseline equal to the names with no
   marker). It sits in the
-  `fuku:memberreq:*` family, so `CLEAR_CACHE_ON_STARTUP` keeps it.
-- `fuku:memberreq:photo:<user>` is the positive-only profile photo verdict of the lookup layer (`memberreq_lookup.go`,
+  `xenobot:memberreq:*` family, so `CLEAR_CACHE_ON_STARTUP` keeps it.
+- `xenobot:memberreq:photo:<user>` is the positive-only profile photo verdict of the lookup layer (`memberreq_lookup.go`,
   `memberReqPhotoRule`): the value is `1`, `SET EX` 30 minutes (`memberReqPositiveTTL`), written inside the flight only when
   `getUserProfilePhotos` answered with a total above zero or a non-empty list. A missing photo and every unknown answer (an
   error, a 400, 403 or 429, a timeout, a shed, a cancelled context, a null body) are never cached. The key holds no chat,
   because a photo is the user's, and no name or file ID. `CLEAR_CACHE_ON_STARTUP` keeps it and no Redis is a miss. The
   cost is one paced lookup per message of a member who stays without a photo (D-24). A `Fresh` lookup ("I fixed it", the
   page) bypasses it and drops a stale one on a definite breach.
-- `fuku:memberreq:lc:<chat>` is the group's linked channel (`memberReqLinkedChannel`, `memberReqLinkedKey`): the decimal
+- `xenobot:memberreq:lc:<chat>` is the group's linked channel (`memberReqLinkedChannel`, `memberReqLinkedKey`): the decimal
   channel ID (a negative number) or `0` for a group with none. A positive channel is `SET EX` 60 seconds
   (`memberReqLinkedChannelTTL`) and a none 10 minutes (`memberReqLinkedTTL`): a stale none only makes the rule inert, but a
   stale channel ID is the dangerous direction (Phase 14 review WR-05: an owner who unlinks or relinks the group would
@@ -2941,20 +2943,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   flight `l:<chat>`, and never from callback data or an update, so nobody can point the rule at a channel of their own. An
   error, a shed, a timeout and a null answer are not known and write nothing, a `linked_chat_id` that is positive (no
   channel has one) reads as none and is not cached, and a cached value that is not zero or negative is a miss. A `Fresh`
-  read bypasses it and refreshes it on a definite answer. It sits outside the `fuku:cache:` prefix.
-- `fuku:memberreq:sub:<channel>:<user>` is the positive-only subscription verdict (`memberReqChannelRule`,
+  read bypasses it and refreshes it on a definite answer. It sits outside the `xenobot:cache:` prefix.
+- `xenobot:memberreq:sub:<channel>:<user>` is the positive-only subscription verdict (`memberReqChannelRule`,
   `memberReqSubKey`): the value is `1`, `SET EX` 30 minutes (`memberReqPositiveTTL`), written only when
   `getChatMember(channel, user)` answered creator, administrator, member, or restricted with `is_member`. A not-subscribed
   answer, an inert verdict and every unknown one are never cached, so each message of a member who stays unsubscribed costs
   one paced lookup (D-24). A `Fresh` lookup bypasses it and drops it on a definite breach.
-- `fuku:memberreq:ba:<channel>` is the bot's definite administrator status in a channel (`memberReqBotChannelStatus`,
+- `xenobot:memberreq:ba:<channel>` is the bot's definite administrator status in a channel (`memberReqBotChannelStatus`,
   `memberReqBotAdminKey`): the value is `1`, `SET EX` 2 minutes (`memberReqBotAdminTTL`), written only when the bot's own
   `getChatMember(channel, bot)` answered administrator or creator. The settings page's status line and an unanswerable
   member lookup read it (the breach gate below does not, see SEC-03); a not-administrator is cached only as the channel-level `cna` fact below and an unknown status is never
   cached, so `ba` bounds how long a demoted bot is still read as an administrator by the settings page's status line and
   by an unanswerable member lookup, but never by the breach gate: that reads the standing fresh (SEC-03, below). A `Fresh`
   read bypasses it and drops a stale one on a definite not-administrator.
-- `fuku:memberreq:cna:<channel>` is the channel-level "the bot is not an administrator of this channel" fact
+- `xenobot:memberreq:cna:<channel>` is the channel-level "the bot is not an administrator of this channel" fact
   (`memberReqChanNotAdminKey`, WR-01): the value is the fixed marker `1`, `SET EX` 60 seconds (`memberReqChanNotAdminTTL`),
   keyed by the channel ID alone, never by a user, and never a verdict about a member or a breach. The bot-status flight
   (`memberReqBotChannelStatus`) writes it whenever the bot's own `getChatMember(channel, bot)` establishes a definite
@@ -2969,18 +2971,18 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   bypasses it. This amends D-24 for this one channel-level fact only: D-24's rule that no verdict about a user is ever
   cached (a missing photo, a missing subscription, an unknown answer) stands. It bounds the cost of a group linked to a
   channel the bot cannot read (below): after the first message the group costs one `getChatMember` of the bot per channel
-  per minute, not a runner job and paced calls per message. It sits in the `fuku:memberreq:*` family, outside the cache
+  per minute, not a runner job and paced calls per message. It sits in the `xenobot:memberreq:*` family, outside the cache
   prefix.
-- `fuku:memberreq:nv:<verdict key hash>` is the AI spam-name rule's verdict cache (`memberreq_ai.go`, `memberReqAIVerdictKey`):
+- `xenobot:memberreq:nv:<verdict key hash>` is the AI spam-name rule's verdict cache (`memberreq_ai.go`, `memberReqAIVerdictKey`):
   the value is the spam probability as a decimal string (`memberReqAIParseProbability` is the one place it is parsed: a
   finite number from 0 to 1, else a miss, `math.IsNaN` and `math.IsInf` before the range test), `SET EX` 24 hours
   (`memberReqAIVerdictTTL`), written by the flight only after a definite answer, a pass and a breach alike and never an
   unknown, so a retuned bar applies to cached verdicts at once. The key is the first 16 bytes of the SHA-256 of the prompt
   version tag `mrv1`, the model and the names hash (`namecanon.VerdictKey`), so a model change or a changed instruction never
-  serves an old verdict; it holds a hash and a probability and never a name, and it sits outside the `fuku:cache:` prefix, so
+  serves an old verdict; it holds a hash and a probability and never a name, and it sits outside the `xenobot:cache:` prefix, so
   `CLEAR_CACHE_ON_STARTUP` keeps it. It amends Phase 14's "positive only" rule for this one string-level fact: a verdict about
   a member is still never cached, only one about a string of names.
-- `fuku:memberreq:nm:<chat>:<user>` is the AI spam-name rule's per-chat baseline (`memberreq_ai.go`, `memberReqAIBaselineKey`): the names hash
+- `xenobot:memberreq:nm:<chat>:<user>` is the AI spam-name rule's per-chat baseline (`memberreq_ai.go`, `memberReqAIBaselineKey`): the names hash
   (32 hex characters, never a name) of the names the bot last accepted for this member in this chat, `SET EX` 180 days
   (`memberReqAIBaselineTTL`; the marker below keeps `memberReqAIStateTTL`, 30 days). The TTL is absolute and nothing
   refreshes it (the watcher is read-only and an equal baseline is a no-write pass), so a member dormant for over 180 days
@@ -2989,8 +2991,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   which reopened that hole for every member every month). The key is scoped per chat so a pass accepted under a permissive chat's AI bar never exempts the account in a stricter chat (Phase 28 review WR-04). Only the rule writes it, never the watcher:
   `SET NX` for an established member's first sighting (which makes no call), and overwritten by every definite pass together
   with the deletion of the marker below, in one transaction. A baseline that differs from the current names hash is a rename
-  and is judged. It sits outside the `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it; Redis only.
-- `fuku:memberreq:nu:<chat>:<user>` is the AI spam-name rule's new-member marker (`memberReqAIMarkerKey`): the value is the
+  and is judged. It sits outside the `xenobot:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it; Redis only.
+- `xenobot:memberreq:nu:<chat>:<user>` is the AI spam-name rule's new-member marker (`memberReqAIMarkerKey`): the value is the
   digit `1`, `SET EX` 30 days. A membership belongs to a group, so the key has the chat. The join entry sets it before its
   Check-on-join branch while the rule is live (`memberReqAIMarkJoin`, whatever the raid settings and Check on join say), and
   the rule sets it on every breach, also one read from the verdict cache; every definite pass deletes it together with
@@ -2999,7 +3001,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   their first message and never judged, and a baseline that expired during a long hold would launder a member whose names were
   judged spam (a breach keeps the marker, so the member is judged again instead). Like `nm` it is Redis only, outside the
   cache prefix and kept by `CLEAR_CACHE_ON_STARTUP`. The pass key never stands in for the AI positive.
-- `fuku:memberreq:aib:u:<user>:<yyyymmddhh>`, `fuku:memberreq:aib:c:<chat>:<yyyymmddhh>` and `fuku:memberreq:aib:g:<yyyymmddhh>`
+- `xenobot:memberreq:aib:u:<user>:<yyyymmddhh>`, `xenobot:memberreq:aib:c:<chat>:<yyyymmddhh>` and `xenobot:memberreq:aib:g:<yyyymmddhh>`
   are the AI spam-name check's hourly budgets (`memberreq_ai_budget.go`): 5 provider calls per account (fleet-wide: a name
   belongs to the account, not to a group, and renaming is the attack), 100 per group and 400 in all
   (`memberReqAIUserHourlyBudget`, `memberReqAIChatHourlyBudget`, `memberReqAIGlobalHourlyBudget`, package variables only so a
@@ -3009,15 +3011,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   its own budget spends neither shared unit and a group over its own never spends the fleet's. The unit is reserved before the
   call, so a failed call still spends it. A verdict served from the cache is answered before any budget and spends none. A
   used-up allowance and a Redis error on a counter (and no Redis client) are both sticky unknowns (WR-03: states of the
-  system, not faults of one answer): either way no call is made, never an unbounded one. The family is the name check's own, separate from the raid image budgets (`fuku:raid:*`): a name burst never
+  system, not faults of one answer): either way no call is made, never an unbounded one. The family is the name check's own, separate from the raid image budgets (`xenobot:raid:*`): a name burst never
   spends the image allowance and the reverse, and only the stateless helpers are shared. Every key is used in single-key
-  commands, so there is no hash tag; they sit in the `fuku:memberreq:*` family, outside the cache prefix, so
+  commands, so there is no hash tag; they sit in the `xenobot:memberreq:*` family, outside the cache prefix, so
   `CLEAR_CACHE_ON_STARTUP` keeps them.
-- `fuku:memberreq:lkp:pace:next` and `fuku:memberreq:lkp:pace:block` are the fleet-wide pacing of photo and channel
+- `xenobot:memberreq:lkp:pace:next` and `xenobot:memberreq:lkp:pace:block` are the fleet-wide pacing of photo and channel
   lookups (`memberReqLookupPaced`, `memberReqLookupPacer`, built from `memberReqLookupPacerOptions`): the staff pacer's
   slot-plus-block design (`ratelimit.NewTelegramPacer`) with Interval 100 ms, MaxRetries 1 and MaxWait 5 s. A slot, or a
   shared block after a 429, more than 5 s away is shed as unknown with no Telegram request and no slot taken. The keys are
-  separate from `fuku:memberreq:pace:*`, so a burst of lookups never delays a mute notice, and only lookups use them: the
+  separate from `xenobot:memberreq:pace:*`, so a burst of lookups never delays a mute notice, and only lookups use them: the
   settings page and "I fixed it" go through the same lookup layer, while the live `getChatMember`, a punishment, a notice
   and a delete stay on the requirement pacer.
 - The lookup flights (`memberReqFlight` over the generic `memberReqFlightValue`, `memberReqLookupFlight`, a
@@ -3037,14 +3039,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   missing verdict, a recovered panic and a shed all do nothing; only `memberReqBreach` can lead to a punishment. The AI row
   adds the family `n:<verdict key hash>`, so every concurrent judgement of one string of names is one provider call, and,
   unlike the lookups above, it ignores `mode.Fresh` and `mode.Classify` (the AI row answers from the cache whatever the mode).
-- `fuku:memberreq:warned:<chat>:<user>` is the recorded-warn note of the member requirements executor
+- `xenobot:memberreq:warned:<chat>:<user>` is the recorded-warn note of the member requirements executor
   (`memberreq_warned.go`, WR-01): the value is the decimal ID of the hold whose warn was just stored, `SET EX` for
   `memberreq.StaleClaim` plus 7 days (`memberReqWarnedGrace`, because the reclaim comes at the member's next violating
   message, which can be days later, Q6), written inside the warn lock before the hold is marked
   punished and deleted once the mark landed, so it survives only when the mark failed three times (or the process stopped
   between the two). `memberReqAdoptRecordedWarn` reads it when a stale pending Warn hold is reclaimed for another Warn and
   compares the value with the hold's ID, so a note an earlier episode left never matches a later hold. Redis only and best
-  effort (no Redis or a Redis error is "no note", so the reclaim warns again, accepted); it sits in the `fuku:memberreq:*`
+  effort (no Redis or a Redis error is "no note", so the reclaim warns again, accepted); it sits in the `xenobot:memberreq:*`
   family, so `CLEAR_CACHE_ON_STARTUP` keeps it.
 - `chat_requirement_holds` (same migration) is one member's requirement episode in one chat, unique on `(chat_id, user_id)`
   (`uk_chat_requirement_holds_chat_user`): both the latch that makes a violation punished once across replicas and the
@@ -3060,7 +3062,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   way at the rejoin, never by deleting a mute hold at the leave.
 - `chat_delete_rules` (migration 20261110120000, with `scheduled_deletions` below) is one chat's delay for one kind of
   message, one row per `(chat_id, kind)`: `kind` is `service:<type>`, `bot:<kind>` or one of the three `member:*` kinds of
-  Phase 17 (`fuku/db/deletion/kinds.go`, 20 kinds, validated in Go by `deletion.ValidKind` and never by a CHECK, so a later
+  Phase 17 (`xenobot/db/deletion/kinds.go`, 20 kinds, validated in Go by `deletion.ValidKind` and never by a CHECK, so a later
   type needs no migration) and `delay_secs` is 0
   for "delete now" and 1..86400 for "delete after N seconds" under the named CHECK `chk_chat_delete_rules_delay` (0..86400).
   The delay a rule may store is checked by value per kind by `deletion.ValidateRuleDelay`, called by `SetRule` and by the
@@ -3130,31 +3132,31 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and a shutdown cost none) spaced by `deletionRetryBackoff` (60 s, WR-02): a counted failure moves the row's `delete_at` to
   the cycle clock (`deletionNow()`) plus the backoff, so the tries are not re-claimed on consecutive 1 s ticks and a few
   seconds of Telegram trouble no longer drops a row (the 47 hour drop still bounds a row's life).
-- `fuku:delete:pace:next` and `fuku:delete:pace:block` are the fleet-wide Telegram pacing of the deletion code
+- `xenobot:delete:pace:next` and `xenobot:delete:pace:block` are the fleet-wide Telegram pacing of the deletion code
   (`deletionPaced`, `deletionPacer`: 100 ms, 3 retries, 60 s): the staff pacer's slot-plus-block design with its own keys, so
   deletions, member requirements, lockdown and staff fan-outs each keep their own budget (`TestDeletionPacerIsIndependent`).
-- `fuku:fed:pace:next` and `fuku:fed:pace:block` are the fleet-wide Telegram pacing of the federation fan-out
+- `xenobot:fed:pace:next` and `xenobot:fed:pace:block` are the fleet-wide Telegram pacing of the federation fan-out
   (`fedPaced`, `fedPacer`: 100 ms, 3 retries, 60 s, each call bounded by `fedCallTimeout`, 10 s): every ban of
   `applyActiveFban` and every unban of `applyActiveUnfban` goes through it, with its own keys so an `/fban` across many
   groups spends no other budget. A failed group is logged at Warn by chat and user ID, and `runFedFanout` follows the
   federation notice (owner and log chat, as `notifyFedAction` sends it) with `<FBAN|UNFBAN> <id>: N of M groups failed`
   whenever any group failed. A database error removing an fban answers `common_settings_save_failed`, and only a missing
   ban answers `feds_unfban_not_banned`. The fan-out is a recover-protected goroutine with no shutdown drain (a restart cuts
-  it off, accepted). They sit outside the `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps them.
-- `fuku:pmcopy:pace:next` and `fuku:pmcopy:pace:block` are the fleet-wide Telegram pacing of the private copies of event
+  it off, accepted). They sit outside the `xenobot:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps them.
+- `xenobot:pmcopy:pace:next` and `xenobot:pmcopy:pace:block` are the fleet-wide Telegram pacing of the private copies of event
   messages (`pmCopyPaced`, `pmCopyPacer` built from `pmCopyPacerOptions`: 200 ms, 1 retry, 15 s, each call bounded by
   `pmCopyCallTimeout`, 10 s): every Telegram call of a private copy job goes through it and nothing else uses the keys, so
   copies take at most five sends a second and a burst never delays a punishment, a group reply or another pacer's work; a
-  slot more than 15 s away fails at once with no request. They sit outside the `fuku:cache:` prefix, so
+  slot more than 15 s away fails at once with no request. They sit outside the `xenobot:cache:` prefix, so
   `CLEAR_CACHE_ON_STARTUP` keeps them.
-- `fuku:pmcopy:{<chat>}:cap:<unix minute>` is the per-group cap of the private copies of automatic events and of replies an
+- `xenobot:pmcopy:{<chat>}:cap:<unix minute>` is the per-group cap of the private copies of automatic events and of replies an
   automatic rule raised (`eventPMOffer.ByRule`) (`pmCopyCapKey`,
   `pmCopyCapAllow`, D-17): a counter of one fixed minute (`pmCopyNow().Unix()/60`), the chat ID a hash tag, `INCR` and
   `EXPIRE 120` in one transaction under `raidRedisTimeout`, at most `pmCopyAutoCapPerMinute` (10) copies a group a minute.
   Only the job of an event whose spec is `Automatic`, or of a rule-raised reply (`ByRule`), reads it; manual events are never
   counted (the pool and the pacer bound them). It fails closed: with no Redis client or on any Redis error an automatic copy is not sent. It sits outside the
-  `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it.
-- `fuku:pmcopy:det:<token>` is the Details record of a private copy that was not delivered (`pmCopyDetailsKey`, plan 22-06,
+  `xenobot:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it.
+- `xenobot:pmcopy:det:<token>` is the Details record of a private copy that was not delivered (`pmCopyDetailsKey`, plan 22-06,
   D-19): the JSON of `pmCopyDetailsRecord` (`u` the punished user's ID, `c` the chat ID, `e` the event, `t` the text, `f` the
   file ID, `y` the media type, `b` the URL button rows: the copy exactly as the job tried to send it, never naming the Staff
   Group or another group), `SET NX` for `pmCopyDetailsTTL` (48 h, longer than the 24 h Bot messages cap, so it outlives every
@@ -3162,17 +3164,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   base64url (22 characters, `pmCopyNewToken`), never derived from an ID, and never logged. It is written only by a job that did
   not deliver its copy with the group's Details option on (`pmCopyAddDetails`) and read only by the `pmcopy_` deep link
   (`pmCopyDetailsGet`); a view deletes nothing. Redis only (no Redis, no record and no button); it sits outside the
-  `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it.
-- `fuku:settings:copy:<token>` is the one-time confirmation card token of the private Copy Settings page (`settings_copy.go`,
+  `xenobot:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it.
+- `xenobot:settings:copy:<token>` is the one-time confirmation card token of the private Copy Settings page (`settings_copy.go`,
   Phase 29 plan 29-05, TUNE-09): JSON of `settingsCopyCardRecord` (`u` user ID, `s` source chat ID, `t` target chat ID), written on
   `ck` via `SET NX` with TTL `settingsCardLifetime` (5 minutes) using a 12-byte `crypto/rand` unpadded base64url token (16 chars,
   96-bit entropy, never logged). On `cy`, the handler peeks the record with `GET` to verify `u == presser.Id && s == sourceChatID`
   (so a wrong-user or wrong-source callback answers `common_callback_invalid_request` without burning the real owner's card), re-runs
   live dual-group verification, and then atomically consumes the key via a 2-line Lua `GET` + `DEL` script (`settingsCopyConsumeScript`)
   before executing `applyCopySettings`. It fails closed (`settings_copy_unavailable` when Redis is nil, `settings_card_expired` on
-  missing/expired/replayed tokens) and sits outside the `fuku:cache:` prefix so `CLEAR_CACHE_ON_STARTUP` keeps it.
-- `fuku:settings:backup:import:<token>` and `fuku:settings:backup:reset:<token>` are the cross-replica one-time confirmation card
-  tokens of the private Backup settings page (`fuku/modules/backup.go`, `fuku/modules/settings_backup.go`, Phase 30 plans 30-03 &
+  missing/expired/replayed tokens) and sits outside the `xenobot:cache:` prefix so `CLEAR_CACHE_ON_STARTUP` keeps it.
+- `xenobot:settings:backup:import:<token>` and `xenobot:settings:backup:reset:<token>` are the cross-replica one-time confirmation card
+  tokens of the private Backup settings page (`xenobot/modules/backup.go`, `xenobot/modules/settings_backup.go`, Phase 30 plans 30-03 &
   30-04, BKP-02, BKP-03, `P30-01`): JSON of `settingsBackupImportRecord` (`u` user ID, `c` chat ID, `m` modules, `b` parsed
   `*backup.BackupFormat`, capped at 2 MiB `maxSettingsBackupRedisBytes` and decoded with `json.Decoder.UseNumber()` to preserve
   64-bit integer IDs) and `settingsBackupResetRecord` (`u`, `c`, `m`), written via `SET NX` with TTL `settingsCardLifetime` (5 minutes)
@@ -3181,8 +3183,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `common_callback_invalid_request` without burning the real owner's card), re-verifies fresh non-Staff-Group status, and then
   atomically consumes the key via `settingsCopyConsumeScript` (Lua `GET` + `DEL`) before checking `AcquireImport` / `AcquireReset` and
   applying the import or reset. Both fail closed (`settings_bkp_unavailable` when Redis is nil, `settings_card_expired` on
-  missing/expired/replayed tokens) and sit outside the `fuku:cache:` prefix so `CLEAR_CACHE_ON_STARTUP` keeps them.
-- `fuku:aispam:notice:{<chat>}:u:<user>` and `fuku:aispam:notice:{<chat>}:m:<unix minute>` are the caps of the AI spam notice
+  missing/expired/replayed tokens) and sit outside the `xenobot:cache:` prefix so `CLEAR_CACHE_ON_STARTUP` keeps them.
+- `xenobot:aispam:notice:{<chat>}:u:<user>` and `xenobot:aispam:notice:{<chat>}:m:<unix minute>` are the caps of the AI spam notice
   (`aispam_notice.go`, Phase 24, EVT-05, D-22): one Lua script (`aispamNoticeScript`, under `raidRedisTimeout`, the chat ID a
   hash tag) sets the member latch with `SET NX EX 300` (`aispamNoticeUserWindow`, 5 minutes) and answers no when it was already
   set, else `INCR`s the minute's counter with `EXPIRE 120` and answers yes while it is at most `aispamNoticePerMinute` (3; the
@@ -3190,13 +3192,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   for the window (the quiet direction). `aispamNoticeAllow` is the notice site's `Admit` and fails closed: no Redis client
   (`aispamNoticeRedisClient`, `raidRedis` by default), a Redis error or a refusal posts nothing and offers no private copy. The
   engine asks it only when the notice or its private copy is on, so a group that never turned the notice on spends no Redis
-  command on it. `fuku:aispam:notice:pace:next` and `fuku:aispam:notice:pace:block` are the notice's own fleet pacer
+  command on it. `xenobot:aispam:notice:pace:next` and `xenobot:aispam:notice:pace:block` are the notice's own fleet pacer
   (`aispamNoticePaced`, `aispamNoticePacer` built from `aispamNoticePacerOptions`: 200 ms, 1 retry, `MaxWait` 2 s, each pacer
   wait bounded by 10 s and derived from `aispamContext()`; the two sends take no context, so the request itself is bounded by
   the HTTP client's 30 s timeout, as for the private copy job), so a wave of notices spends no other pacer's slots and a blocked pacer
-  fails the notice at once. All of them sit outside the `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps them.
-- `fuku:delete:norights:<chat>` is the 10 minute negative latch of a chat the bot cannot act in (`deletionLatchKey`,
-  `deletionLatched`, `deletionSetLatch`, `deletionLatchTTL`), outside the `fuku:cache:` prefix so `CLEAR_CACHE_ON_STARTUP`
+  fails the notice at once. All of them sit outside the `xenobot:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps them.
+- `xenobot:delete:norights:<chat>` is the 10 minute negative latch of a chat the bot cannot act in (`deletionLatchKey`,
+  `deletionLatched`, `deletionSetLatch`, `deletionLatchTTL`), outside the `xenobot:cache:` prefix so `CLEAR_CACHE_ON_STARTUP`
   keeps it. Its value is the scope: `gone` (the bot is not in the chat, was kicked, or the chat is gone or was upgraded: stops
   every kind, set from the classifier, overwriting) or `service` (stops every kind that needs the right to delete other people's messages, the `service:*` and the `member:*`
   kinds, `deletion.NeedsDeleteRight`, and never a `bot:*` kind; Phase 17 widened its meaning from service kinds only, the stored
@@ -3205,10 +3207,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   plain-member bot can still delete its own messages; for a `service:*` or `member:*` kind it only leads to the live right
   check (below), and only that check's `cannot` answer sets the `service` scope. No Redis and
   a Redis error read as "not latched": the latch only saves calls.
-- `fuku:delete:chk:<chat>` is the guard of the inline latch decision (`deletionCheckKey`, `deletionTakeCheck`,
+- `xenobot:delete:chk:<chat>` is the guard of the inline latch decision (`deletionCheckKey`, `deletionTakeCheck`,
   `deletionCheckTTL`, SEC-02): `SET NX EX 600` with the value `1`, taken after an inline `service:*` or `member:*` delete was refused with a
   message-level answer, so the live right check (`deletionDecideServiceLatch`) of a chat runs at most once per chat per 10
-  minutes across replicas. It sits in the `fuku:delete:*` family, outside the `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP`
+  minutes across replicas. It sits in the `xenobot:delete:*` family, outside the `xenobot:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP`
   keeps it. No Redis, a Redis error and a lost `SET NX` all mean no guard and no check (the latch only saves calls, so this
   fails quiet and never loops); the key is taken whether the check then says can, cannot or unknown, so an unknown answer
   (a 429, a 5xx, a timeout) also waits out the 10 minutes before the next try. A bot kind never takes it.
@@ -3221,7 +3223,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`media_below`, `once`, `file_id`, `media_type`, `btns`); an export made before the migration has none of those keys and
   imports as zeros, the old behaviour (`TestOldGreetingsExportDecodesToZeros`). `RulesSettings.HasContent` (a non-blank
   text, a file ID or at least one button) is the one test of "Rules is set".
-- A backup never carries what belongs to the source group alone (`fuku/db/backup`, quick task 261117-w4n). The IDs of
+- A backup never carries what belongs to the source group alone (`xenobot/db/backup`, quick task 261117-w4n). The IDs of
   the last welcome and goodbye (`welcome_last_msg_id`, `goodbye_last_msg_id`) are left out of an export and stored as 0 by
   an import (`dropGreetingMessageIDs`), so "Delete last" in the target never deletes one of its own messages. An import
   never links a log channel: `importLogChannels` applies the six category flags to the target's own log channel when it
@@ -3260,14 +3262,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   cards use the Staff Group's; a lockdown alert copy uses its destination's (`lockdownSlotClock`: the Staff Group's for a
   Staff Group copy, the locked group's for the log channel copy), and the stored `body` keeps the time it was posted
   with. Log lines, file names, Redis hour stamps, stored values and the fban export's RFC 3339 dates stay UTC.
-- The conversation feature's Redis keys (`fuku:chat:*`, outside the `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps
-  them; the chat ID is a hash tag): `fuku:chat:{<chat>}:h` is the rolling transcript (`chat_history.go`), a list of compact JSON
+- The conversation feature's Redis keys (`xenobot:chat:*`, outside the `xenobot:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps
+  them; the chat ID is a hash tag): `xenobot:chat:{<chat>}:h` is the rolling transcript (`chat_history.go`), a list of compact JSON
   entries (`r` role, `n` first name, `t` text cut to 600 runes, `m` message ID, `at` unix time), the newest 12, 2 hours after the
-  last line, written in one transaction with the reply's ID only after a reply was sent; `fuku:chat:{<chat>}:mine` is a sorted set
+  last line, written in one transaction with the reply's ID only after a reply was sent; `xenobot:chat:{<chat>}:mine` is a sorted set
   of the message IDs the feature sent (answers and canned refusals), scored by the ID, the newest 200, 24 hours, and decides "a
-  reply to a conversation message"; `fuku:chat:{<chat>}:cd:<user>` the per-user cooldown (`SET NX EX 5`);
-  `fuku:chat:b:u:<chat>:<user>:<hour>`, `fuku:chat:b:c:<chat>:<hour>` and `fuku:chat:b:g:<hour>` the hourly budgets (single-key
-  commands, no hash tag needed); `fuku:chat:{<chat>}:said:<kind>` the gates of the canned lines; `fuku:chat:pace:next` and
+  reply to a conversation message"; `xenobot:chat:{<chat>}:cd:<user>` the per-user cooldown (`SET NX EX 5`);
+  `xenobot:chat:b:u:<chat>:<user>:<hour>`, `xenobot:chat:b:c:<chat>:<hour>` and `xenobot:chat:b:g:<hour>` the hourly budgets (single-key
+  commands, no hash tag needed); `xenobot:chat:{<chat>}:said:<kind>` the gates of the canned lines; `xenobot:chat:pace:next` and
   `:block` the send pacer. This is the first place the bot keeps message text in Redis outside `/aispam`'s sender history: only
   what was addressed to the bot and the bot's replies, bounded, short-lived and disclosed on the settings page. Turning
   conversations off deletes the transcript and the `mine` set. Without Redis conversations are inert on that replica (one info
@@ -3283,15 +3285,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   UPDATE` of their own column, `updated_by` and `updated_at`) that refuse a value outside the stored ones before any
   write and drop the key. It is never part of backup, export, import or reset, so a restored backup can never switch
   conversations on (`TestChatConversationsStayOutOfBackup`). The apply functions `applyChatEnabled`, `applyChatProvider`
-  and `applyChatAudience` (`fuku/modules/chat_settings.go`, write seam `chatConvWrites`, typed `chatApplyResult`) judge
-  no person's rights; turning conversations off also deletes the chat's transcript `fuku:chat:{<chat>}:h` and its set of
-  the feature's message IDs `fuku:chat:{<chat>}:mine` (best effort; a failed write deletes nothing).
+  and `applyChatAudience` (`xenobot/modules/chat_settings.go`, write seam `chatConvWrites`, typed `chatApplyResult`) judge
+  no person's rights; turning conversations off also deletes the chat's transcript `xenobot:chat:{<chat>}:h` and its set of
+  the feature's message IDs `xenobot:chat:{<chat>}:mine` (best effort; a failed write deletes nothing).
 - `chat_event_messages` (migration 20261120110000) holds a group's custom event messages, one row per `(chat_id, event,
   dest)` under the inline primary key `pk_chat_event_messages`: `text`, `file_id` and `media_type` (one media item, 0 for
   none, the `db.*` media constants the greetings and rules rows use), `buttons` (jsonb, `'[]'` for none,
   `models.ButtonArray`), `silent`, `updated_by` and `updated_at`, every column `NOT NULL` with a zero default and no foreign
   key. `models.ChatEventMessage` maps it with no `default:` tag. The event and the destination are validated in Go by
-  `eventmsg.ValidEvent` and `eventmsg.ValidDest` (`fuku/db/eventmsg/events.go`: today the seven manual events `ban`,
+  `eventmsg.ValidEvent` and `eventmsg.ValidDest` (`xenobot/db/eventmsg/events.go`: today the seven manual events `ban`,
   `tban`, `kick`, `mute`, `tmute`, `unban`, `unmute`, then the five automatic events of Phase 23, `warn`
   (`EventWarn`), `warnlimit` (`EventWarnLimit`), `flood` (`EventFlood`), `blacklist` (`EventBlacklist`) and `fwdblock`
   (`EventForwardBlock`), in that order in `Events`, then Phase 24's six screening notices, `captcha` (`EventCaptcha`, the
@@ -3333,20 +3335,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   default options, and a value an earlier build cached without `PlainTone` decodes it as `false` (the safe direction).
   `eventmsg.SetPMDetails`, `eventmsg.SetPMLog`, and `eventmsg.SetPlainTone` (`ctx, chatID, on, by`) are column-targeted `INSERT ... ON CONFLICT (chat_id)
   DO UPDATE` of their own option plus `updated_by` and `updated_at`, so a Go false is written and the three never clobber each
-  other, and each drops the key after the write. `eventmsg.ReplaceAllValidated` (`fuku/db/eventmsg/validate_write.go`, Phase 29 plan
+  other, and each drops the key after the write. `eventmsg.ReplaceAllValidated` (`xenobot/db/eventmsg/validate_write.go`, Phase 29 plan
   29-04, shared with Phase 30 `MSG-10`) validates candidate `Message` rows against the exact editor rules (`ValidateMessage`: valid
   event/dest, no `DestPM` for lockdown events, media kind in `STICKER..ANIMATION`, `NoMedia` for `mreq*` group notices, button URLs via
   `content.ValidButtonURL`, non-empty button labels, total buttons + `{rules}` tokens + `ReservedButtonsFor(event, dest)` <= 100, widest
   row via `keyboard.BuildKeyboard` <= 8, raw rune and visible UTF-16 length <= `4096`/`1024` minus `ReservedTextFor(event, dest)` `600`
   for `mreq*` and `400` for `lock*`, and `NoSilent` normalization for `EventReqMute`), then atomically replaces `chat_event_messages`
   and upserts/deletes `chat_event_message_options` in one DB transaction and drops `event_messages:<chat>`. For antiflood action
-  mirroring in Copy Settings, `antiflood.SetFloodActionPreserveOffContext` (`fuku/db/antiflood/repository.go`) explicitly writes
+  mirroring in Copy Settings, `antiflood.SetFloodActionPreserveOffContext` (`xenobot/db/antiflood/repository.go`) explicitly writes
   `flood_limit = 0` on insert (using `.Select("chat_id", "flood_limit", "action", "action_secs")` + `OnConflict`) so GORM never applies
   `models.AntifloodSettings`'s `default:5` tag to turn antiflood on in a target group that had no row (`P29-04`). In Phase 30 (MSG-10,
   plan 30-02), `eventmsg.ReplaceAllValidatedTx(tx *gorm.DB, chatID int64, rows []Message, opts Options, by int64) (WriteReport, error)`
-  was extracted in `fuku/db/eventmsg/validate_write.go` so `eventmsg.ReplaceAllValidated` and `backup.importMessages` share one
+  was extracted in `xenobot/db/eventmsg/validate_write.go` so `eventmsg.ReplaceAllValidated` and `backup.importMessages` share one
   transaction-participating validated writer without opening nested transactions inside `withBackupTx`: `BackupModuleMessages = "messages"`
-  (`MessagesBackup{Messages []models.ChatEventMessage, Options *models.ChatEventMessageOptions}` in `fuku/db/backup/types.go`, bringing
+  (`MessagesBackup{Messages []models.ChatEventMessage, Options *models.ChatEventMessageOptions}` in `xenobot/db/backup/types.go`, bringing
   `AllExportableModules()` to 20 modules) exports `chat_event_messages` (ordered by `event ASC, dest ASC`) and
   `chat_event_message_options`, imports them through `ReplaceAllValidatedTx` (counting rejected rows and unknown future event keys in
   `ImportReport.Skipped` and invalidating `event_messages:<chat>` only after transaction commit), and clears both tables plus
@@ -3385,7 +3387,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   import or reset. No worker or sweep prunes them: a count is forgotten by comparison inside the upsert, and the rows of members
   who never offend again stay, bounded by the members ever punished while the ladder was on (accepted, D-27).
 - `chat_manual_defaults` and `chat_reason_shortcuts` (migration `20261122150000_add_manual_command_tuning.sql`, Phase 27 plan 27-02,
-  TUNE-04..TUNE-06, models in `fuku/db/models/modtuning.go`, repository in `fuku/db/modtuning/repository.go`) store per-group manual
+  TUNE-04..TUNE-06, models in `xenobot/db/models/modtuning.go`, repository in `xenobot/db/modtuning/repository.go`) store per-group manual
   command tuning with no foreign keys and stay outside backup, export, import, and reset (`TestModTuningExcludedFromBackup`; Phase 30
   decides). `chat_manual_defaults` holds one row per chat (`pk_chat_manual_defaults`): `default_ban_secs` and `default_mute_secs`
   (`0` or `BETWEEN 60 AND 31622400`), `reason_required` (`BOOLEAN NOT NULL DEFAULT FALSE`, no GORM `default:` tag), `appeal_url`
@@ -3396,17 +3398,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `<= 32` runes with `uk_chat_reason_shortcuts_word (chat_id, word)`, `reason TEXT` `1..500` runes, `created_by`, `created_at`);
   `AddShortcut` uses `ON CONFLICT (chat_id, word) DO NOTHING` (never overwriting existing words) and `RemoveShortcutByID` scopes
   `WHERE id = ? AND chat_id = ? RETURNING word`. Both cache prefixes `chat_manual_defaults:` and `chat_reason_shortcuts:` are
-  listed in `skipLocal` (`fuku/db/cache/local.go`) so changes take effect on the very next command on every replica
+  listed in `skipLocal` (`xenobot/db/cache/local.go`) so changes take effect on the very next command on every replica
   (`TestSkipLocalManualDefaultsKey`, `TestSkipLocalReasonShortcutsKey`).
 - `chat_advanced_thresholds` (migration `20261123120000_add_advanced_thresholds.sql`, Phase 28 plan 28-02, TUNE-07, model in
-  `fuku/db/models/advthresholds.go`, repository in `fuku/db/advthresholds/repository.go`) stores per-group advanced detection and
+  `xenobot/db/models/advthresholds.go`, repository in `xenobot/db/advthresholds/repository.go`) stores per-group advanced detection and
   screening thresholds (`pk_chat_advanced_thresholds` on `chat_id`, no foreign key on `chats`, excluded from backup/export/import/reset,
   `TestAdvThresholdsExcludedFromBackup`). All 12 integer threshold columns default to `0` (`0` = unset / compiled constant) with 12
   inline named `CHECK` constraints (`col = 0 OR col BETWEEN min AND max`) mirrored in Go `SpecFor` bounds and GORM tags. Reads
   (`Get`/`GetFresh`) create no rows; writes (`SetField`, `ResetField`, `ResetArea`) validate bounds before any DB write, use
   column-targeted `ON CONFLICT (chat_id) DO UPDATE` so concurrent edits to different fields never clobber each other, and drop the
   cache key (`ResetAll` deletes the row and drops the key). The prefix `chat_advanced_thresholds:` is listed in `skipLocal`
-  (`fuku/db/cache/local.go`, `TestSkipLocalAdvancedThresholdsKey`) so changes act on the next relevant event on every replica with
+  (`xenobot/db/cache/local.go`, `TestSkipLocalAdvancedThresholdsKey`) so changes act on the next relevant event on every replica with
   0 DB round trips on warm hot paths.
 - `UpdateRecord` skips zero values. Use `UpdateRecordWithZeroValues` to write `false`/`0`/`""`. Both return
   `gorm.ErrRecordNotFound` when no row matched.
@@ -3417,19 +3419,23 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 
 - `migrations/*.sql` is the schema source of truth. Never edit an applied file; the SHA-256 checksum aborts startup.
   Both appliers check every applied file's checksum on every run, also when nothing is pending, and warn about a
-  recorded version that has no file (it changes nothing).
+  recorded version that has no file (it changes nothing). In particular, historical migrations
+  `migrations/20261004130000_add_staff_role_exclusivity_trigger.sql` and
+  `migrations/20261120110000_add_chat_event_messages.sql` remain byte-for-byte immutable for this reason;
+  `migrations/20261124120000_rename_staff_role_lock_prefix.sql` is the append-only forward migration that replaces
+  `staff_role_exclusivity_guard()` in place so both fresh installs and upgraded databases use `'xenobot:staff_role:'`.
 - Name new files with a timestamp greater than every existing one; order is plain filename sort.
 - Each file runs in one transaction: no top-level `BEGIN`/`COMMIT`/`ROLLBACK`, no `CREATE INDEX CONCURRENTLY`.
-- Change `fuku/db/migrations/runner.go` and `scripts/migrate_psql.sh` together; both appliers must agree.
+- Change `xenobot/db/migrations/runner.go` and `scripts/migrate_psql.sh` together; both appliers must agree.
 
 ## Adding a module
 
 1. Add a migration in `migrations/` (rules above).
-2. Add the model in `fuku/db/models/` with `TableName()` returning the migration's table name.
-3. Add the repository in `fuku/db/<domain>/`: reads through `cache.GetFromCacheOrLoad`, `cache.DeleteCache` on writes.
+2. Add the model in `xenobot/db/models/` with `TableName()` returning the migration's table name.
+3. Add the repository in `xenobot/db/<domain>/`: reads through `cache.GetFromCacheOrLoad`, `cache.DeleteCache` on writes.
 4. Add the model to the `AutoMigrate` list in the affected `testmain_test.go` or `internal/testdb.Run` call. Do the same
    whenever you change an existing model.
-5. Add `fuku/modules/<name>.go` with `LoadXxx`, registered in `init()` via `RegisterLegacyModule`.
+5. Add `xenobot/modules/<name>.go` with `LoadXxx`, registered in `init()` via `RegisterLegacyModule`.
 6. Register commands with `helpers.WrapCommand`; add `RegisterAnonymousAdminHandler` for admin commands.
 7. Add locale keys to all 8 files in `locales/` (en, es, fr, hi, id, pt, ru, uk).
 8. Run `make generate-docs`, `make check-translations`, `make test`, `make lint`.
@@ -3451,7 +3457,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `/setfloodmode tmute 30m` and the page's timed preset alike) or `/delflood` stores `flood_limit` 5, the model's `default:5`, because the repository's `FirstOrCreate` insert leaves
   the limit at its Go zero value; an admin who only picks an action or turns message deleting on therefore also turns
   antiflood on at 5 messages. `TestSetFloodModeOnFreshChatStoredLimit` and `TestSetFloodMsgDelOnFreshChatStoredLimit`
-  (`fuku/db/antiflood`) pin it, and a Mute press on an unconfigured chat writes no row at all (the cached default is
+  (`xenobot/db/antiflood`) pin it, and a Mute press on an unconfigured chat writes no row at all (the cached default is
   already mute). The menu's action and delete presses call the same `applyFlood*` functions, so it keeps this on
   purpose and draws the stored row from their database read-back, never a guess. Because a tap in a menu is easier to
   hit by accident than a typed command, the menu's action, timed preset (`ft`, plan 26-04) and delete presses also show the notice
@@ -3459,7 +3465,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   read-back is not (`settingsFloodTurnedOn`, D-34); a limit press never shows it, and the commands' replies are unchanged. A repository fix (insert with limit 0
   on the first write) would change `/setfloodmode` and `/delflood` too, so it is a separate follow-up and must update
   those two tests and this bullet.
-- Antiflood counters are in-process (per replica). The raid detection counters (`fuku:raid:*`) are Redis-only: without
+- Antiflood counters are in-process (per replica). The raid detection counters (`xenobot:raid:*`) are Redis-only: without
   Redis the automatic triggers do nothing, and `/lockdown` still works.
 - The warn commands and the warn limit count only the warns that count (warn expiry, Phase 26 plan 26-06, D-35, D-36):
   `applyWarn` records through `warns.WarnUserAt(ctx, user, chat, reason, punishNow())` and compares the counted number it returns
@@ -3729,7 +3735,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   punished hold are not separated in the normal case, and the warn module's own reply and Remove warn button are never sent.
   Marking a hold punished (`memberReqMarkPunished`) is tried 3 times (`memberReqMarkAttempts`, `memberReqMarkRetryWait`
   apart, one detached 5 s record context, the write behind the `memberReqMarkHold` seam). A warn whose mark still fails
-  must never be punished twice (WR-01): `afterRecord` first writes `fuku:memberreq:warned:<chat>:<user>` (value the hold's ID,
+  must never be punished twice (WR-01): `afterRecord` first writes `xenobot:memberreq:warned:<chat>:<user>` (value the hold's ID,
   `StaleClaim` plus 7 days, best effort and Redis only: no Redis or a Redis error writes and finds nothing and the
   reclaim then warns again, accepted) and drops it once the mark landed; the reclaim of a stale pending hold that was a Warn
   with a Warn action now (`memberReqAdoptRecordedWarn`, after the claim was won) finds the note naming that hold, marks the
@@ -3827,7 +3833,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   entry and the guard, a test seam): a punished requirement mute, which is the D-08 race of a member who posted before
   their captcha attempt existed, records `welcome_held` through `memberreq.SetHoldWelcomeHeld` and sends no welcome,
   whatever Check on join says. Next, while the AI rule is live (`memberReqAILive`), the entry sets the member's new-member
-  marker `fuku:memberreq:nu:<chat>:<user>` (`memberReqAIMarkJoin`: one `SET` under `raidRedisTimeout`, no-op without Redis, an
+  marker `xenobot:memberreq:nu:<chat>:<user>` (`memberReqAIMarkJoin`: one `SET` under `raidRedisTimeout`, no-op without Redis, an
   error only logged at debug by IDs) before its Check-on-join branch, so the marker is the join record whether or not Check
   on join is on: a joiner whose call was unanswered keeps it and is judged at their first message, and a member who joined
   with Check on join off is judged at that first message with no call at join (a member whose hold read failed returned to
@@ -3955,7 +3961,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   cut off by a cancelled root (shutdown) writes nothing and is lost; a `gone` answer sets the
   `gone` latch, a refused one is dropped with no log line (a refused `service:*` or `member:*` one first decides the service latch through
   the live right check of `deletionDecideServiceLatch`, in the same goroutine and on a context derived from the deletion root,
-  at most once per chat per 10 minutes behind the `fuku:delete:chk:<chat>` guard (SEC-02); a bot kind never asks, and only a
+  at most once per chat per 10 minutes behind the `xenobot:delete:chk:<chat>` guard (SEC-02); a bot kind never asks, and only a
   live `cannot` answer writes the latch) and any other failure loses that one message. `deletionClassify` is a
   table of predicates (retryFree, gone, refused, else retry) that matches on lower-cased fragments and codes, never one string.
   Logs carry the chat ID only, never a message ID, text or member.
@@ -4064,7 +4070,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   latch (so it can still delete a self-destruct row after Off, and keeps trying in a chat where the bot cannot delete); the
   window ends when the old replica is replaced and costs at most the rows queued meanwhile. A busy group keeps pace: the burst is offered with no write, the worker claims
   `deletionBatch` (1000) rows a cycle and makes at most one `deleteMessages` call per 100 rows of a chat, so 3000 messages are 30
-  paced calls on the `fuku:delete:pace:*` keys that no reply ever touches (`TestSelfDestructBusyGroup`: the burst, a command
+  paced calls on the `xenobot:delete:pace:*` keys that no reply ever touches (`TestSelfDestructBusyGroup`: the burst, a command
   answered under a blocked pacer, a 429 that leaves rows pending with no attempt counted, and the ceiling).
   `TestMemberSelfDestructQueuesMessages`, `TestMemberSelfDestructKeeps`, `TestMemberSelfDestructPinnedStays`,
   `TestMemberSelfDestructOffCancels`, `TestMemberSelfDestructNeverEndsUpdate`, `TestMemberContentMessageExcludesServiceFields`
@@ -4081,7 +4087,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `replyEvent` with the event key, the target (`eventTargetOf` of its `getChat` answer) and the `eventValues` (reason,
   duration, until). A custom message is built by `composeEventMessage`: with a stored text, `renderEventText` turns every
   event placeholder (`eventTokenNames`: `reason admin duration until action count limit window`) into a sentinel
-  (`eventTokenSentinel`, `<<fuku-event-NAME>>`, which cannot come from a stored HTML text), lets
+  (`eventTokenSentinel`, `<<xenobot-event-NAME>>`, which cannot come from a stored HTML text), lets
   `formatting.FormattingReplacer` fill the Welcome placeholders for the target and the group and add the `{rules}`
   button, then puts each escaped value (`eventPlaceholderValues`) in one pass, so a reason holding `{first}` and a name
   holding `{reason}` stay as typed and an unknown `{word}` stays; a placeholder with no value is empty (D-09), `{until}`
@@ -4418,8 +4424,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `eventEngineRootStops` names, per root, the functions the walk does not enter because what lies behind them is a different,
   sanctioned event: today only `SendCaptcha`'s `handleCaptchaTimeout` (the challenge schedules the attempt's timeout, whose failure
   posts the captcha event, not the challenge). Its limit: a call through a function value held in a variable or field, an interface or
-  another type's method is not followed; a log post through `fuku/utils/actionlog` cannot reach the engine at all, because that
-  package cannot import `fuku/modules`. `TestEventEngineCallersGuardFails` proves on a synthetic file set that a root reaching
+  another type's method is not followed; a log post through `xenobot/utils/actionlog` cannot reach the engine at all, because that
+  package cannot import `xenobot/modules`. `TestEventEngineCallersGuardFails` proves on a synthetic file set that a root reaching
   `postEvent` through a helper, a function literal, an adapter or its own receiver's method is reported. A later phase that gives a
   send site a custom message adds its caller there with a reason, never from an alert, reminder, raid-scale, staff or captcha
   challenge path.
@@ -4463,7 +4469,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the failed captcha, the AI spam notice and the requirement warn, kick, ban and mute), and for a reply an automatic rule raised whatever its spec (`eventPMOffer.ByRule`, set by `offerReplyPM` from
   `eventSite.Automatic`: the blacklist's and the forward blocklist's warns and the warn limit they reach, D-28; `offerEventPM`
   sets the job's unexported `automatic` flag to `spec.Automatic || o.ByRule` and nothing else sets it), the job's first step is the per-group cap
-  `pmCopyCapAllow` (Data: `fuku:pmcopy:{<chat>}:cap:<unix minute>`, at most `pmCopyAutoCapPerMinute` 10 a group a minute,
+  `pmCopyCapAllow` (Data: `xenobot:pmcopy:{<chat>}:cap:<unix minute>`, at most `pmCopyAutoCapPerMinute` 10 a group a minute,
   the minute from `pmCopyNow`, the client from `pmCopyRedisClient`), so the handler never makes a Redis call for a copy;
   over the cap, with no Redis or on a Redis error the copy is not sent (fail closed, D-17: the copy is optional and a raid
   must not become a stream of private messages), and a manual copy (`/warn`, `/dwarn` and `/swarn` included) never reads the
@@ -4495,7 +4501,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   there is no Redis (no record can exist), the bot has no username (`pmCopyBotUsername`, the cached `getBotUsername`), one more
   button would pass Telegram's 100 (`pmCopyMaxButtons`) or the record cannot be stored; otherwise it stores the copy exactly
   as the job tried to send it (`tried`: the composed copy, or the default text after a refused custom copy) under a fresh
-  token (Data: `fuku:pmcopy:det:<token>`) and makes one `editMessageReplyMarkup` of the group message through `pmCopyPaced`
+  token (Data: `xenobot:pmcopy:det:<token>`) and makes one `editMessageReplyMarkup` of the group message through `pmCopyPaced`
   with a fresh copy of its rows in their order (the bot's Unban or Unmute row first, then the custom and `{rules}` buttons)
   and one more row with one URL button, `https://t.me/<bot username>?start=pmcopy_<token>`. The edit is no reply and carries
   no reply parameters. A failed edit (the message already deleted by its Bot messages timer, a 429, a 5xx) is one Warn line
@@ -4523,7 +4529,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   of either wording with one request and the golden group reply, the refused custom copy and its default, the refused
   default, busy, unknown and the impossible targets), `TestEventPMLimits` (the full pool, the automatic cap per chat and
   per minute, fail closed without Redis and on a Redis error while a manual copy is sent, manual copies uncapped),
-  `TestEventPMPacerIndependent` (a block on `fuku:pmcopy:pace:block` leaves the ban and the golden reply immediate and
+  `TestEventPMPacerIndependent` (a block on `xenobot:pmcopy:pace:block` leaves the ban and the golden reply immediate and
   ends the copy busy with no request; blocks on the staff, deletion, member requirement, lockdown and federation pacers
   leave the copy alone) and `TestEventPMLogsCarryIDsOnly` (a debug-level hook over every outcome, the shed and the
   capped paths, with a stored text, caption, file ID, button, link, reason, member name, description and transport text
@@ -4540,7 +4546,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `memberreq_notice.go` (`memberReqPostEventNotice`, the requirement notice after the punishment, plan 24-05), each allow-list entry with its reason and a stale entry failing, and no file whose name starts with
   `staff`, `lockdown` or `raid` names `offerEventPM`, `registerEventPM`, `offerReplyPM`, `replyEvent`, `postEvent` or any
   `pmCopy` identifier, so a lockdown's joiner bans, "Ban N recent joiners" and Staff
-  Group actions can never send a copy, PMSG-05; a later phase adds its caller to the list with a reason) and `TestEventMsgLocaleKeys` (`fuku/i18n/eventmsg_locale_test.go`, whose
+  Group actions can never send a copy, PMSG-05; a later phase adds its caller to the list with a reason) and `TestEventMsgLocaleKeys` (`xenobot/i18n/eventmsg_locale_test.go`, whose
   `eventMsgLocaleLimits` must cover exactly the `eventmsg_` keys of the locale files, so a new key adds its row) hold it (toolkit `event_message_pm_env_test.go`: `newEventPMSite`, which is
   `newModerationGoldenSite` with miniredis, `withFastPMCopyPacer` and `eventPMTestClient`, whose `eventPMScript` refuses the
   next sends to the member (`eventPMRefuse`), holds them (`eventPMHold`, released in `t.Cleanup` before the jobs are
@@ -4559,7 +4565,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `warnSourceAuto` for the blacklist's warn action) picks `bot:punish_manual` or `bot:punish_auto`. Nothing hooks
   `helpers.SendMessageWithErrorHandling`, `media.Send`, `media.SendGreeting` or the bot client, so a captcha challenge, a
   staff, lockdown, log or raid message, a preview and the private rules message are never reached (D-18, DEL-07; a
-  grep over `fuku/utils` for the helper finds nothing). The helper returns at once for a nil message and for a chat that is
+  grep over `xenobot/utils` for the helper finds nothing). The helper returns at once for a nil message and for a chat that is
   not a `group` or `supergroup` (the type comes from the sent message Telegram answered, so a `/rules` from a private chat
   connected to a group, and the deep link's private message, are refused), reads the chat's cached rules through
   `deletionRulesLookup` (an unreadable read, a nil answer and a kind with no row schedule nothing), computes `sent_at` from
@@ -4636,7 +4642,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (join, leave, pin and the other deletion-table kinds, `memberContentMessage` false) are never held: group `-10` returns
   `ext.ContinueGroups` for them first, so the lockdown guard, fed-ban, the service deletion watcher and `cleanService` still
   see the joiner's own join message (`TestCaptchaPendingLetsJoinServiceMessageThrough`).
-- `fuku:cache:captcha_pending:<chat>` is a per-chat pending flag; any new code that inserts into `captcha_attempts`
+- `xenobot:cache:captcha_pending:<chat>` is a per-chat pending flag; any new code that inserts into `captcha_attempts`
   must `DeleteCache` it after commit.
 - Turnstile captcha: a Turnstile attempt is an ordinary `captcha_attempts` row whose answer is the reserved `ts1:` plus
   32 hex characters (`captchaweb.NewReservedAnswer`); there is no second table or kind column, so the one attempt per
@@ -4648,8 +4654,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `context.WithoutCancel` with its own 20 s deadline, so a client that disconnects never abandons an unmute. The page
   decides nothing: a pass needs signed `initData` whose `user.id` is the challenge's user and a `siteverify` success
   that echoes the expected hostname, `captcha_join` and the `cdata` (`hex(sha256("cd1:" + token))`). The package
-  `fuku/utils/captchaweb` imports the standard library, go-redis and logrus only; its `Backend` implementation is
-  `fuku/modules/captcha_web.go` (`captchaWebBackend`), and `ConfigureCaptchaWeb` installs the runtime. Callback data is
+  `xenobot/utils/captchaweb` imports the standard library, go-redis and logrus only; its `Backend` implementation is
+  `xenobot/modules/captcha_web.go` (`captchaWebBackend`), and `ConfigureCaptchaWeb` installs the runtime. Callback data is
   not authenticated by Telegram, so both `captcha_verify` and `captcha_refresh` refuse an attempt whose answer starts with
   `ts1:` with `captcha_attempt_not_valid` and change nothing (no count, no image, no row change): a hand-built callback
   can never pass or convert a Turnstile attempt. Rolling-deploy caveat (accepted, like the others here): a replica on
@@ -4765,10 +4771,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   stays pure; an unconfirmed lockdown, a lift in progress and a lifted one show nothing, a failed query shows the panel
   unmarked, and the row never carries the reason or who started it (they stay in the group's own `/lockdownstatus`).
 - The staff sweeper (`StartStaffSweeper`/`StopStaffSweeper`) rechecks every Staff Group link hourly (first run 1-5 min
-  after start) behind `SETNX fuku:staff:sweep:lock`; without Redis it runs unguarded because every staff write is
+  after start) behind `SETNX xenobot:staff:sweep:lock`; without Redis it runs unguarded because every staff write is
   conditional. Staff tables are never part of backup/export/import/reset.
 - The settings roster (`chat_admin_index`, keep it current without anyone acting). The feed: `cache.SetAdminListObserver`
-  is a hook in the admin cache loader (`fuku/utils/cache` imports nothing from `fuku/db`), installed by the `AdminIndex`
+  is a hook in the admin cache loader (`xenobot/utils/cache` imports nothing from `xenobot/db`), installed by the `AdminIndex`
   module (priority 31, `LoadAdminIndex`, no handler and no database access at load). It reports one event per definitive
   fact, each guarded by the load's generation, so a load overtaken by an invalidation reports nothing: a successful
   non-empty list replaces the chat's rows with its creator and human administrators (a bot is never stored, and a creator
@@ -4798,7 +4804,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - The lockdown join guard (handler group `-7`, `lockdownOnJoinMember`) reads the lockdown fresh from PostgreSQL, records
   the joiner row first and only then ends the update with `ext.EndGroups`, so no welcome, captcha challenge or captcha
   attempt follows. It acts only on a confirmed lockdown (`locked_at` set); an unconfirmed row is not a lockdown yet and
-  every join path lets the joiner through. Its write to the `fuku:lockdown:recent:<chat>` tracker comes first, is best
+  every join path lets the joiner through. Its write to the `xenobot:lockdown:recent:<chat>` tracker comes first, is best
   effort and its result is ignored. It never gates a ban on Redis, never uses the cached admin predicates (a
   performer is judged by a live `getChatMember`, and `decideLockdownJoin` bans everything but a user a live human creator
   or administrator, or an anonymous admin, added), and never makes a Telegram write: the worker (`StartLockdownWorker`, a
@@ -4867,7 +4873,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   bullet above); a crash half way leaves an unconfirmed row the worker settles. The counter shares its one live `getChatMember` of the performer with the guard (it returns the
   status it read and whether it asked), so a join or a join message still makes at most one performer lookup. Settings come from
   `raidSettingsLookup`, a test seam; an unreadable read counts nothing. Joins are recorded while any of the three triggers is
-  on (`raidJoinSettings`), because the flood and AI paths read `fuku:raid:{<chat>}:joined` to tell a new member, and only the
+  on (`raidJoinSettings`), because the flood and AI paths read `xenobot:raid:{<chat>}:joined` to tell a new member, and only the
   surge switch lets a count start a lockdown.
 - The flood trigger is counted by two watchers that share one function, `raidFloodCountUpdate`: the group `-4` watcher
   (`raidFloodWatcher`, registered in `LoadLockdown`) and the group `12` watcher (`raidFloodLateWatcher`,
@@ -4965,7 +4971,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and no `temperature`, `top_p` or `top_k` is sent, because the default model answers 400 to them.
   Nothing on this path deletes, restricts, bans or posts, and every call derives from `raidAIContext()`.
 - Before any provider call an image job passes, cheapest and most decisive first (`raidAIProcessImage`): the album gate, the
-  fire-latch skip (`EXISTS fuku:raid:{<chat>}:fire`: a lockdown was just attempted, so more checks are wasted), the verdict
+  fire-latch skip (`EXISTS xenobot:raid:{<chat>}:fire`: a lockdown was just attempted, so more checks are wasted), the verdict
   cache by `file_unique_id`, then the hourly budgets, then the download and the call. Each refusal is no verdict and is
   counted: `RaidAIStats.Capped` for a budget refusal, `RaidAIStats.Cached` for a verdict served from the cache, a photo
   dropped by the album gate or a check skipped for the latch (a Redis error counts as `Shed`). A cached verdict costs no
@@ -5010,12 +5016,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `joins` in front, alone it shows the triggers, and it has exactly `/autolockdown`'s checks
   (`requireAutoLockdownAuthority`, a live `getChatMember`) and anonymous-admin re-entry, so it is stricter than the old
   command, which any cached admin could use. There is no join handler at group `-5` (the group now hosts the service message deletion watcher, which is not a join handler) and no expiry poller: nobody is
-  temp-banned by the raid mode, whatever an old `fuku:antiraid:*` key says. The keys are removed by
+  temp-banned by the raid mode, whatever an old `xenobot:antiraid:*` key says. The keys are removed by
   `sweepRetiredAntiRaidKeys` (`SCAN` with `COUNT 100` and `UNLINK`, started once per process from `LoadAntiRaid` in a
   recover-protected goroutine, bounded to 30 s, a no-op without Redis). During a rolling deploy an old replica can still
   temp-ban until it stops and can leave new keys, which the next start's sweep clears. The `antiraid_settings` table and
   its model stay (migrations are append-only, and the legacy backup module reads and resets the table directly); the
-  `fuku/db/antiraid` repository is gone, since nothing but tests called it, and no command reads the timing columns
+  `xenobot/db/antiraid` repository is gone, since nothing but tests called it, and no command reads the timing columns
   any more.
 - The lockdown lift runs in the same worker after `/unlockdown` restored the permissions. It unbans (`only_if_banned=true`)
   only a joiner whose live `getChatMember`, read in the same paced unit as the unban (so a slot wait or a 429 retry reads
@@ -5627,7 +5633,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the bot then does, and the pages show exactly that (`TestSettingsEditDefaultsMatchRuntime`).
 - Message editor (Phase 11), the pieces in one place; each has its own bullet: the pages, Set, Cancel and Remove are
   under Callbacks (`settings|v1`, codes `w g r`, parts `x m b`, controls `e d o u`: `o` Greet once on Welcome, `u` Media under text on all three pages), the wait and its keys under Data
-  (`fuku:settings:input:*`), the typed-reply door at handler group 1 and `/cancel` under Handlers, the check
+  (`xenobot:settings:input:*`), the typed-reply door at handler group 1 and `/cancel` under Handlers, the check
   (`settingsEditCheck`, pure; the text and the buttons part hold one keyboard limit between them, at most 100 buttons and 8
   in a row, with the `{rules}` button that a stored text adds counted against the stored buttons whichever part is being
   set) and the right of each part under Permissions. A part is written only by the apply function
@@ -5702,7 +5708,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`renderSettingsInputRefusalWith`). The Messages page registers two definitions per event (Phase 22): the group message (`h<code>g`, `Fields`
   `{"k"}`) and the private copy (`h<code>p`, `Fields` `{"k", "d": "p"}`), one set of action codes resolved by `k` and `d`.
 - The log channel link (`/setlog`, `logchannels.go`) is a two-step proof. Step 1: `/setlog` posted in the channel stores a
-  one-hour marker `fuku:setlog:<channel>:<message>` (outside the `fuku:cache:` prefix, `storePendingMarker`) and asks for
+  one-hour marker `xenobot:setlog:<channel>:<message>` (outside the `xenobot:cache:` prefix, `storePendingMarker`) and asks for
   the forward; the post needs no sender, because only a channel administrator can post there. Step 2: that post forwarded
   to a group by a live administrator of the group binds the channel as the group's log channel (`bindSetLogForward`: group
   or supergroup, not an automatic forward (`helpers.IsAutomaticForward`: a linked channel's own post binds nothing), a
@@ -5719,8 +5725,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   an administrator of another group who forwards a public channel's marked post within the hour binds that channel to
   their own group (the marker is single use). `TestSetLogFlowThroughDispatcher` (memory store and miniredis) holds it.
 - The federation log chat (`/setfedlog`, `federations.go`) uses the same two-step proof for a channel. Step 1: `/setfedlog
-  <fed id>` posted in the channel stores a one-hour marker `fuku:setfedlog:<channel>:<message>` whose value is the fed ID
-  (outside the `fuku:cache:` prefix, single use) and answers `feds_setfedlog_forward_to_owner`; the post needs no sender
+  <fed id>` posted in the channel stores a one-hour marker `xenobot:setfedlog:<channel>:<message>` whose value is the fed ID
+  (outside the `xenobot:cache:` prefix, single use) and answers `feds_setfedlog_forward_to_owner`; the post needs no sender
   and neither checks nor reveals the federation (a missing or malformed ID answers `feds_setfedlog_need_id` and stores
   nothing). Step 2 is part of the `setfedlog` command (a raw `helpers.NewBotCommand` with `SetAllowChannel(true)`; no
   watcher, because every marked post is a command message and its forward keeps the text): a forward whose origin is a
@@ -5741,7 +5747,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - A `singleflight` `DoChan` leader that panics crashes the process (the library re-raises the panic in a goroutine nothing can
   recover), so the function handed to `DoChan` recovers internally (`memberReqFlightValue` starts with
   `defer error_handling.RecoverFromPanic`) and returns no value, which `memberReqFlight` reads as the zero verdict.
-- SQL log lines carry no parameters: the GORM logger in `fuku/db/conn.go` sets `ParameterizedQueries: true`, so a failed or
+- SQL log lines carry no parameters: the GORM logger in `xenobot/db/conn.go` sets `ParameterizedQueries: true`, so a failed or
   slow (over 1 s) statement is logged with its placeholders and never the welcome, goodbye or rules text, button links or
   other values it wrote. Do not add a logger that prints bound values.
 - A file the bot downloads itself never puts its URL in an error or a log: the Telegram file URL holds the bot token and
@@ -5751,10 +5757,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - Outbound lookups through `fetchJSON` (`/wiki`, `/github`, `/ud`) send the User-Agent `fetchUserAgent()` gives,
   `Xenobot-72/<BotVersion> (Telegram bot)`, because Wikimedia answers 403 to a request without a descriptive one
   (`TestFetchJSONSendsUserAgent`).
-- `fuku/utils/claude` imports the standard library only, so `scripts/claude-spike` can use it (and the leaf
-  `fuku/utils/namecanon`, see below) without the pre-main database connection of `fuku/config` and `fuku/db`. The Anthropic key travels only in the `x-api-key` header, never
+- `xenobot/utils/claude` imports the standard library only (asserted by `TestClaudePackageIsLeaf`), keeping it free of the
+  pre-main database connection of `xenobot/config` and `xenobot/db`. The Anthropic key travels only in the `x-api-key` header, never
   in a URL, and no error that package returns contains it. No sampling parameter (`temperature`, `top_p`, `top_k`) is
-  ever sent, because the default model rejects them with a 400. `claude.Options` and `GetModel` exist for the spike tool
+  ever sent, because the default model rejects them with a 400. `claude.Options` and `GetModel` exist for evaluation and testing
   only; its zero value is the production request, and the bot never sets it. The package also holds the names request
   (`Client.ClassifyNames`, Phase 15): one strict forced tool call (`ToolName`, `thinking` disabled, `max_tokens` 128),
   the code-owned `NamesInstruction` as the system text, the three canonical strings as one JSON object in one user block
@@ -5763,18 +5769,18 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   wraps `ErrNoVerdict`, only a finite 0..1 number from a tool call that stopped with `tool_use` is a verdict). Both
   requests are assembled by one `newRequest`, which alone applies `Options`. The model must accept a forced tool call,
   so a Haiku-class model: Opus 5.5, Sonnet 5.5 and the Fable 5.1 family answer 400 to it, which the breaker reads as a
-  provider failure. The package never imports the canonical form (`fuku/utils/namecanon`): `ClassifyNames` takes names
+  provider failure. The package never imports the canonical form (`xenobot/utils/namecanon`): `ClassifyNames` takes names
   that are already canonical and logs nothing.
-- `fuku/utils/namecanon` (standard library plus `golang.org/x/text/unicode/norm`, no `fuku/config` or `fuku/db` import,
+- `xenobot/utils/namecanon` (standard library plus `golang.org/x/text/unicode/norm`, no `xenobot/config` or `xenobot/db` import,
   asserted by `TestCanonPackageIsLeaf`) is the one definition of a member's canonical names (`Of`: per field it drops
   control, format and default-ignorable runes and U+2800, applies NFKC, collapses whitespace, cuts by runes to 64, 64
   and 32, strips one leading `@` from the lower-cased username, and keeps the case of the first and last name in the
   text that is sent), of the names hash (tag `mrn1`, length-prefixed, first and last lower-cased inside the hash only)
-  and of the verdict key (`VerdictKey`, tag `mrv1`, includes the model). The bot and `scripts/claude-spike` share it.
+  and of the verdict key (`VerdictKey`, tag `mrv1`, includes the model).
   A change to the canonical form bumps `mrn1` and `mrv1`, and a change to `claude.NamesInstruction` bumps `mrv1`, in the
   same commit, so no old baseline or cached verdict is read under a new meaning; `TestCanonHash` and
   `TestCanonVerdictKey` pin one vector each for that reason.
-- The conversation feature's provider clients (Phase 20). `claude.Client.Converse` (`fuku/utils/claude/converse.go`) sends
+- The conversation feature's provider clients (Phase 20). `claude.Client.Converse` (`xenobot/utils/claude/converse.go`) sends
   `system` as two text blocks, the static persona and archive first with `cache_control` ephemeral and the dynamic block
   after it unmarked, one user message, `output_config.effort` `low`, and no `thinking`, sampling, `tools` or prefill; it
   uses its own transport (`ConverseTimeout` 40 s, no redirect) and the package's one retry (a retryable error whose wait
@@ -5782,7 +5788,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   model `claude.ServerFallback` accepts (`claude-opus-5`, `claude-sonnet-5-5`, `claude-fable-5` prefixes), never for a
   Haiku model. The stop reason is read before the content: `end_turn` joins the text blocks (thinking and fallback blocks
   skipped), `max_tokens` keeps non-blank text (`OutcomeTruncated`), `refusal` is `OutcomeRefused` with no error, and
-  anything else or a blank answer wraps `claude.ErrNoReply`. `fuku/utils/gemini` (standard library only,
+  anything else or a blank answer wraps `claude.ErrNoReply`. `xenobot/utils/gemini` (standard library only,
   `TestGeminiPackageIsLeaf`) is built the same way: `POST /v1beta/models/{model}:generateContent`, the key in the
   `x-goog-api-key` header only and never `?key=`, no redirect, the body read capped at 1 MiB, camelCase
   `systemInstruction` (static then dynamic, two parts), one user content, `generationConfig` with `maxOutputTokens` and
@@ -5794,27 +5800,26 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `retry-after` header) when present and never relies on it, and reports a rejected key for 401, 402, 403 and an
   `API_KEY_INVALID` 400. Neither package logs; no error carries the key or the URL. Both are tested only against
   `httptest` servers.
-- `fuku/utils/chatprompt` (Phase 20, the standard library and `xenopersona` only, `TestChatpromptPackageIsLeaf`) is the one
+- `xenobot/utils/chatprompt` (Phase 20, the standard library and `xenopersona` only, `TestChatpromptPackageIsLeaf`) is the one
   builder of a conversation request's three strings: `Static` (the persona and archive), `Dynamic` (the group's title cut
   to 64 runes, its language name, the date and the bot's username, each cleaned of control and format characters) and
   `User` (the recent conversation oldest first, the quoted message when the speaker replies to someone else, the message
   to answer cut to 1,500 runes, and a closing line that says all of it is members' conversation). Every turn is rendered
   as one `name: text` line with its newlines collapsed, so no member can forge a section label, and a member whose name
-  contains Xenobot-72 is shown as `(member)`. It carries no user ID, username or chat ID. The bot and `scripts/chat-spike`
-  both call it, so the spike measures exactly what the bot sends.
-- `fuku/utils/xenopersona` (Phase 20, standard library only, `TestXenopersonaPackageIsLeaf`) embeds `persona.md` and
+  contains Xenobot-72 is shown as `(member)`. It carries no user ID, username or chat ID.
+- `xenobot/utils/xenopersona` (Phase 20, standard library only, `TestXenopersonaPackageIsLeaf`) embeds `persona.md` and
   `archive.md` and returns the static system text of the conversation feature (`StaticSystemText`: the persona, a fixed
   separator, the archive without its leading source comment), the same bytes for every chat and user so a provider can
   cache it. Nothing that varies (a date, a chat title, a name, a username) may go into either file; that belongs in the
-  dynamic system text. `archive.md` is distilled from `.planning/research/xenobot-chat/LORE.md`, the source of record
-  for every name, date and number: change a fact there first. The archive writes no web address (it names the places to
-  read and watch), and the content tests hold the text to 6,000 to 12,000 tokens by a runes/4 count, keep the exact
-  canon numbers, the Contradictions and Not on record sections, and no earlier project name.
+  dynamic system text. `archive.md` holds the verified series canon facts (names, dates and numbers). The archive writes
+  no web address (it names the places to read and watch), and the content tests hold the text to 6,000 to 12,000 tokens
+  by a runes/4 count, keep the exact canon numbers, the Contradictions and Not on record sections, and assert the
+  Xenobot-72 identity is present with no legacy project names.
 - A missing i18n key returns `""` with an error callers ignore; a typo'd key in Go ships an empty message. Copy key
   names from `locales/en.yml`. `locales/config.yml` is the help alt-name pseudo-locale, not a language.
 - Ukrainian and English texts follow the style guide and glossary in `docs/src/content/docs/contributing/locale-style.md`
   (HTML only, a bold title line on every help page, `•` bullets, ` — ` after a command, one fixed set of section
-  headings). `TestLocaleStyle` (`fuku/i18n/locale_style_test.go`) checks what a program can check for `uk` and `en`; its
+  headings). `TestLocaleStyle` (`xenobot/i18n/locale_style_test.go`) checks what a program can check for `uk` and `en`; its
   allow-list (`locale_style_allowlist_test.go`) is empty since every Ukrainian and English text was converted on 2026-11-18
   (the owner approved the guide that day), and stays empty: a new text follows the guide from its first commit. Besides
   markup it fails the old two-line reply (a short opener of at most four words, then the fact alone on line 2), and its
@@ -5835,7 +5840,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - A string filled with `i18n.TranslationParams` uses `{name}` placeholders equal to the param names. A `%s` or `%d`
   verb is filled only from the keys `0` to `9` or the fixed common names of `extractOrderedValues`, and prints raw
   for any other name (`modules`, `list`, `chat`, `time`, `types`, `attempts` did). `TestRawPlaceholderKeysRender`
-  (`fuku/i18n`) renders the backup and captcha keys that once printed raw verbs through the real locale files. Both kinds
+  (`xenobot/i18n`) renders the backup and captcha keys that once printed raw verbs through the real locale files. Both kinds
   are filled in one pass over the raw template, the verbs counted on the template alone, so a value a user typed that
   holds a verb or a `{name}` is printed as typed (`TestInterpolateParamsIgnoresVerbsInValues`).
 - The `/help` keyboard is built per reader language on request (`initHelpButtonsFrom(registry, lang)`; there is no
@@ -5857,13 +5862,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - Production builds use `CGO_ENABLED=0`; tests need `CGO_ENABLED=1` (go-sqlite3). Do not unify them.
 - Go 1.26.0 with no `toolchain` directive. Keep dependencies on the latest upstream versions that pass required
   checks. Any intentional pin must document its compatibility reason and recheck trigger.
-- Version strings are shape-locked (`BotVersion:` with two spaces in `fuku/config/config.go`, `version =` in
+- Version strings are shape-locked (`BotVersion:` with two spaces in `xenobot/config/config.go`, `version =` in
   `main.go`). Run `make bump-version` on a PR branch, merge, then tag. Tags match `^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$`.
 - `.env` in cwd auto-loads without overriding real env. Run `--version` smoke checks from `/tmp`.
 - Defaults that surprise: `ENABLE_CHAT=false` (group conversations are off on the whole server until it is set, and then
   each group's owner still turns them on; `CHAT_ANTHROPIC_MODEL` and `CHAT_GEMINI_MODEL` are separate from
   `ANTHROPIC_MODEL` and fall back to `claude-haiku-5-5` and `gemini-4-hydrogen` with a warning); `DEFAULT_TIMEZONE=Europe/Kyiv` (the zone every group without a choice shows times in; an invalid
-  name stops startup; the zone database is embedded through `time/tzdata`, imported in `fuku/config` so it is ready before
+  name stops startup; the zone database is embedded through `time/tzdata`, imported in `xenobot/config` so it is ready before
   the config reads the variable); `REDIS_DB=1`; `ENABLE_AISPAM=true` (the global AI kill switch, text, images and the AI spam-name rule; the text checks are inert without `TYPESAFE_API_KEY`); `ANTHROPIC_API_KEY` empty
   means no raid image check, no AI name check and no image or name leaves the server, and `ANTHROPIC_MODEL` must be a model that
   accepts a forced tool call (a Haiku-class model: the names request and the image request both force the call) and falls back to `claude.DefaultModel`
@@ -5876,31 +5881,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 ## Testing
 
 - Always pass `-tags testtools`; without it, test files and the helpers in production packages that carry that build tag drop out silently.
-- Postgres tests need both `DATABASE_URL` and `FUKU_TEST_DATABASE=true`; otherwise they run on SQLite.
+- Postgres tests need both `DATABASE_URL` and `XENOBOT_TEST_DATABASE=true`; otherwise they run on SQLite.
 - Use real fixtures: `internal/testdb.Run` (SQLite), miniredis, hand-written `gotgbot.BotClient` fakes. No mock libraries.
 - A test never calls `t.Skip` to dodge a case: restructure so the case is not registered (a field on the case table and a
   `continue` in the loop). CI's skip gate (`scripts/check_test_results`) fails any unexpected skip; the only allowed ones are the
   PostgreSQL-only migration tests when no database is configured.
-- No test calls a real AI provider (TypeSafe or Anthropic): the Claude client, the raid AI image path and the
-  `scripts/claude-spike` tool are tested against `httptest` servers or a fake transport, with no `t.Skip`, so they run
-  in `make test`. The live Claude spike (`go run ./scripts/claude-spike`, needs `ANTHROPIC_API_KEY`) is a manual owner
-  step, never part of CI. It refuses an `-endpoint` that is not https (plain http is accepted only for `localhost`,
-  `127.0.0.1` and `::1`), because the key goes there in a header, and it exits 1 when every request failed.
-  The tool has a names mode for the AI spam-name rule: `-names <csv>` (header `label,first_name,last_name,username`, an
-  optional `note`, `label` spam or ham, at most 5000 rows; exclusive with `-dir`, `-probe` and `-models-get`) and `-repeat N`
-  (1 to 10, only with `-names`; judges every name N times and reports the spread of the probability and how many names
-  straddle the bar). The bar is 0.9 in that mode unless `-bar` is given. Each row goes through `namecanon.Of` and
-  `claude.Client.ClassifyNames`, the two calls the bot makes, so the spike measures what the bot sends; the summary, sweep,
-  latency and cost are the image mode's functions. Names appear only in the owner's CSV (stdout or `-csv`), never on
-  stderr, and the key never appears anywhere. A name cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is
-  written with a single quote in front (`csvSafe`, `TestNamesCSVNeutralisesFormulas`, review IN-03), because the names are
-  attacker-controlled and would run as a formula when the file is opened in a spreadsheet; the input file's parsing is
-  unchanged. It is tested against `httptest` with no real provider
-  (`TestRunNamesMode`, `TestNamesFileParse`, `TestNamesSummaryAtBar`, `TestNamesRepeatStability`,
-  `TestNamesModeKeyNeverPrinted`, `TestNamesModeExclusiveFlags`). The tool imports only the `claude` and `namecanon`
-  packages of the repository. `.planning/milestones/v1.1-phases/15-ai-spam-name-check/15-SPIKE.md` is the owner's non-blocking checklist
-  for the live Haiku spike and the test-group walk-through.
-- The conversation runtime's tests (Phase 20, `fuku/modules`) run on the toolkit `chat_env_test.go`: `newChatEnv` (a group with
+- No test calls a real AI provider (TypeSafe, Anthropic or Google): the Claude and Gemini clients and the raid AI,
+  member-requirement AI and conversation paths are tested against `httptest` servers or a fake transport, with no `t.Skip`,
+  so they run in `make test`.
+- The conversation runtime's tests (Phase 20, `xenobot/modules`) run on the toolkit `chat_env_test.go`: `newChatEnv` (a group with
   conversations on, the real dispatcher with `LoadChat`, a recorder after the watcher at group 13, miniredis through
   `withChatRedis`, both providers configured through `withChatProviders`, a scripted `chatFakeProvider` installed through the
   `chatProviderOf` seam, and `chatTelegramFake`, the module fake plus the Bot API's refusal of a reply whose target was deleted),
@@ -5912,27 +5901,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   against one `httptest` stand-in, `chat_provider_test.go`), `TestChatLogsCarryIDsOnly` (`chat_logs_test.go`) and `TestChatEndToEnd`
   (`chat_e2e_test.go`: the owner turns conversations on from the private page, a member mentions the bot, the real Anthropic
   adapter answers through the stand-in, a second member replies and the next request carries the first exchange;
-  `newChatEnvFor` builds the environment over the page's group). `20-SPIKE.md` is the owner's non-blocking checklist.
-- `scripts/chat-spike` (Phase 20) is the owner's persona check: it sends each line of a questions file
-  (`scripts/chat-spike/persona-check.txt`, kept in step with `.planning/phases/20-conversations/20-PERSONA-CHECK.md` by
-  `TestPersonaCheckFilesAgree`) through `chatprompt` and `claude.Client.Converse` or `gemini.Client.Generate`, and prints
-  the question, the reply, the outcome, the tokens and the latency. It reads `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` from
-  the environment only, never prints it, refuses an `-endpoint` that is not https (http only for localhost), sends nothing
-  before every flag is checked, and exits 1 when every question failed. It imports only leaf packages and is tested
-  against `httptest`; a live run is the owner's manual step, never CI.
+  `newChatEnvFor` builds the environment over the page's group).
 - Assert observable behavior (reply sent, row persisted, cache invalidated, gate enforced). Never assert literals,
   source substrings, or test-double internals.
 - The Turnstile page's script test is `node --test scripts/captcha-page/*.test.mjs` (the directory form does not work on
   Node 22). CI runs it in the `test` job (`actions/setup-node` with Node 22, before `make test`); it is not part of
   `make test`, so run it yourself when the page changes. `TestPageLanguagesMatchScript` compares the page's `LANGS` array
   with `captchaweb.PageLanguages`, so the two language lists cannot drift. The page
-  (`fuku/utils/captchaweb/page/captcha.html`) is served with a per-response nonce CSP (`captchaweb.CSPFor`) and must
+  (`xenobot/utils/captchaweb/page/captcha.html`) is served with a per-response nonce CSP (`captchaweb.CSPFor`) and must
   keep no inline `style` attribute and no inline event handler, because the CSP would block them. `make
   check-translations` cannot see the `captcha_web_` keys the page reads from `captchaweb.PageKeys`;
-  `TestCaptchaWebLocaleKeys` (`fuku/i18n`) guards them in all 8 locales (present, not empty, length and no markup), and
+  `TestCaptchaWebLocaleKeys` (`xenobot/i18n`) guards them in all 8 locales (present, not empty, length and no markup), and
   `TestStringTable` guards the table `main` builds from them.
 - The settings hub tables (`ChatSettingsAccess`, `ChatAdminIndex`) are in the AutoMigrate list of
-  `fuku/modules/test_harness_test.go` and in the testmains of `fuku/db/menuaccess` and `fuku/db/adminindex`, and
+  `xenobot/modules/test_harness_test.go` and in the testmains of `xenobot/db/menuaccess` and `xenobot/db/adminindex`, and
   `settingsCleanup` deletes their rows of its chats. The default settings environment (`newSettingsEnvWith` and
   `settingsEnv.addChat`) seeds `admins_allowed` true for its chats through the real `menuaccess` repository, because it
   is an administrator the owner let in; the seed keeps every Phase 9 press test valid once the owner gate exists
@@ -5942,20 +5924,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `getChatAdministrators` only when a test opts in), `setDeletedCreator` (the creator entry reads "Deleted Account" with no
   last name and no username), `clearCreator` (no creator entry and no live creator) and `otherReplica` (a second dispatcher
   and bot fake over the same database and miniredis, with update IDs from 50000 so they never meet the base environment's).
-- The harness `AutoMigrate` lists (`fuku/modules/test_harness_test.go`, `fuku/db/staff/testmain_test.go`,
-  `fuku/db/testmain_test.go`) include the staff audit models and the two forward blocklist models (`StaffForwardBlock`, `StaffForwardBlockSettings`), and
+- The harness `AutoMigrate` lists (`xenobot/modules/test_harness_test.go`, `xenobot/db/staff/testmain_test.go`,
+  `xenobot/db/testmain_test.go`) include the staff audit models and the two forward blocklist models (`StaffForwardBlock`, `StaffForwardBlockSettings`), and
   `staffCleanup` deletes audit rows and the forward blocklist rows and keys of its chats. The lockdown
-  models are in `fuku/modules/test_harness_test.go`, `fuku/db/testmain_test.go` and
-  `fuku/db/lockdown/testmain_test.go` (not in the staff package's list), and `lockdownCleanup` deletes lockdown rows.
+  models are in `xenobot/modules/test_harness_test.go`, `xenobot/db/testmain_test.go` and
+  `xenobot/db/lockdown/testmain_test.go` (not in the staff package's list), and `lockdownCleanup` deletes lockdown rows.
   The Phase 5 models (`ChatLockdownAlert`, `ChatLockdownBurst`, `ChatLockdownBanRun`) are in
-  `fuku/modules/test_harness_test.go` and `fuku/db/lockdown/testmain_test.go` only; the `fuku/db` package's own
-  tests never touch them. The Phase 6 model `ChatRaidDetection` is in `fuku/modules/test_harness_test.go`,
-  `fuku/db/raiddetection/testmain_test.go` and `fuku/db/devs/testmain_test.go` (the developer `/stats` reads it), and
+  `xenobot/modules/test_harness_test.go` and `xenobot/db/lockdown/testmain_test.go` only; the `xenobot/db` package's own
+  tests never touch them. The Phase 6 model `ChatRaidDetection` is in `xenobot/modules/test_harness_test.go`,
+  `xenobot/db/raiddetection/testmain_test.go` and `xenobot/db/devs/testmain_test.go` (the developer `/stats` reads it), and
   `raidCleanup` in the modules tests deletes its rows and their cached copies. A fixture that creates
   `ChatRaidDetection` rows directly must set `AIThreshold` (3..500): the `CHECK` applies on SQLite too, because GORM
   builds it from the model tag (`seedRaidSettings` fills the AI defaults when it is left at 0). The Phase 12 model
-  `GreetedMember` is in the AutoMigrate lists of `fuku/modules/test_harness_test.go`, `fuku/db/greetings/testmain_test.go`
-  and `fuku/db/backup/testmain_test.go`. The Phase 12 characterization tests record what the code did before the phase and
+  `GreetedMember` is in the AutoMigrate lists of `xenobot/modules/test_harness_test.go`, `xenobot/db/greetings/testmain_test.go`
+  and `xenobot/db/backup/testmain_test.go`. The Phase 12 characterization tests record what the code did before the phase and
   must never be re-recorded to make a change pass: `TestRulesLegacyRowSendsTodaysRequest` (a Rules row with no media sends
   today's request) and `TestLegacyGreetingsRequestsUnchanged` (an old greetings row sends today's request), both in
   `rules_legacy_request_test.go`. One case of the latter changed once on purpose: `welcome_display_photo` gained
@@ -5976,7 +5958,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestSettingsEditRules*` (`settings_edit_switch_test.go`, `settings_edit_rules_test.go`, `settings_input_rules_test.go`),
   `TestSettingsRulesCaptionParity` and `TestSettingsControlValidate` (`settings_control_validate_test.go`). A test that
   drives a press, a door or a join with a user ID must delete its `users` rows and cache entries, and its greetings, rules
-  and `greeted_members` rows, in `t.Cleanup` and use a fresh chat ID, because CI runs all of `fuku/modules` in one
+  and `greeted_members` rows, in `t.Cleanup` and use a fresh chat ID, because CI runs all of `xenobot/modules` in one
   PostgreSQL database in source order.
 - `make test-postgres-integrity` is the PostgreSQL run in CI. Its `-run` list holds the guarantees SQLite cannot
   prove: `TestStartLockdownOneActivePerChat`, `TestBeginAlert` (the alert is decided exactly once) and
@@ -5986,112 +5968,112 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`FinishBanRun`'s `NOT EXISTS` guard and its single finish), `TestAlertSync` and
   `TestAlertSyncKeepsAMarkSetDuringTheEdit` (`RecordAlertSynced`'s parameterised `CASE`), `TestAlertClose`
   (`ClaimAlertClose`'s `CASE` over the old row) and `TestBanRunReport` (one report claim wins, steps settled
-  separately). The Phase 6 guarantees are `TestRaidDetectionSettings` (`./fuku/db/raiddetection`: the `CHECK` 3..500, the AI
+  separately). The Phase 6 guarantees are `TestRaidDetectionSettings` (`./xenobot/db/raiddetection`: the `CHECK` 3..500, the AI
   column's `chk_chat_raid_detection_ai` included, and the column-targeted upserts that never clobber each other) and `TestRaidDetectionCarryOver`
-  (`./fuku/db/migrations`: the clamped carry-over of `antiraid_settings.auto_antiraid_threshold`, which executes
+  (`./xenobot/db/migrations`: the clamped carry-over of `antiraid_settings.auto_antiraid_threshold`, which executes
   migration 20261018130000 against the schema the migration-chain step already built, so it must run after that step).
-  The Phase 8 guarantee is `TestCaptchaModeTurnstileConstraint` (`./fuku/db/migrations`: the widened check accepts
+  The Phase 8 guarantee is `TestCaptchaModeTurnstileConstraint` (`./xenobot/db/migrations`: the widened check accepts
   `turnstile`, `math` and `text` and refuses the rest with `check_violation`, exactly one `captcha_mode` check is left
   on `captcha_settings`, and the migration's statements run twice without error; `TestCaptchaModeMigrationStatements`
   is its database-free half and runs in `make test`).
-  The Phase 10 guarantees are `TestAdminIndexReplaceConcurrent` (`./fuku/db/adminindex`: concurrent replaces of one chat
-  leave one roster, with the role CHECK and the unique key intact) and `TestMenuAccessUpsert` (`./fuku/db/menuaccess`: a
+  The Phase 10 guarantees are `TestAdminIndexReplaceConcurrent` (`./xenobot/db/adminindex`: concurrent replaces of one chat
+  leave one roster, with the role CHECK and the unique key intact) and `TestMenuAccessUpsert` (`./xenobot/db/menuaccess`: a
   Go `false` is written, one row per chat).
-  The Phase 12 guarantees are `TestGreetedMemberClaimConcurrent` (`./fuku/db/greetings`: of many concurrent claims of one
+  The Phase 12 guarantees are `TestGreetedMemberClaimConcurrent` (`./xenobot/db/greetings`: of many concurrent claims of one
   `(chat_id, user_id)` exactly one wins, the primary key; it also runs on SQLite in `make test`) and
-  `TestRulesMediaMigrationDefaults` (`./fuku/db/migrations`: the Phase 12 columns take their zero defaults, the migration's
+  `TestRulesMediaMigrationDefaults` (`./xenobot/db/migrations`: the Phase 12 columns take their zero defaults, the migration's
   statements run twice without error and `greeted_members` holds one row per member; PostgreSQL only, it skips locally) and
-  `TestImportGreetingsOmittedBlocks` (`./fuku/db/backup`: a greetings import whose payload omits `welcome_settings` or
+  `TestImportGreetingsOmittedBlocks` (`./xenobot/db/backup`: a greetings import whose payload omits `welcome_settings` or
   `goodbye_settings` imports and writes the three NOT NULL switch columns as false, because `importGreetings` fills a missing
   block with an empty one; without it the nil embedded block inserts NULL and PostgreSQL answers SQLSTATE 23502).
-  The Phase 13 guarantees are `TestChatRequirementsSettings` (`./fuku/db/memberreq`: the action CHECKs refuse 5 and -1
+  The Phase 13 guarantees are `TestChatRequirementsSettings` (`./xenobot/db/memberreq`: the action CHECKs refuse 5 and -1
   with SQLSTATE 23514, column-targeted upserts of two rules at once never clobber each other, a Go 0 and `false` are
   written), `TestRequirementHoldClaimConcurrent` (of 16 concurrent claims of one `(chat_id, user_id)` exactly one wins, and of
   16 concurrent reclaims of one stale pending hold exactly one wins) and `TestRequirementHolds` (the take, restore, clean and
-  clear semantics); all three also run on SQLite in `make test`, and `fuku/db/memberreq/testmain_test.go` migrates both models.
+  clear semantics); all three also run on SQLite in `make test`, and `xenobot/db/memberreq/testmain_test.go` migrates both models.
   `TestChatRequirementsSettings` covers every rule column (the photo and channel since Phase 14, the AI rule since Phase 15:
   eight in all, CHECKs refusing 5 and -1 on every rule's column, writes of different rules never clobbering each other, an
   old row or previous-build cached value reading the new rules off). The Phase 14 guarantee is `TestMemberRequirementLookupMigrationDefaults`
-  (`./fuku/db/migrations`: the migration's statements run twice without error, a row with only `chat_id` reads both new
+  (`./xenobot/db/migrations`: the migration's statements run twice without error, a row with only `chat_id` reads both new
   columns 0, both named constraints exist in `pg_constraint`, a direct update to 5 fails with SQLSTATE 23514 naming the
   constraint; PostgreSQL only, it skips locally; `TestMemberRequirementLookupMigrationStatements` is its database-free half
   and runs in `make test`).
-  The Phase 15 guarantee is `TestMemberRequirementAIMigrationDefaults` (`./fuku/db/migrations`: the statement runs twice
+  The Phase 15 guarantee is `TestMemberRequirementAIMigrationDefaults` (`./xenobot/db/migrations`: the statement runs twice
   without error, a row with only `chat_id` reads the new column 0, the named constraint `chk_chat_requirements_ai` exists, a
   direct update to 5 fails with SQLSTATE 23514 naming it; PostgreSQL only, it skips locally;
   `TestMemberRequirementAIMigrationStatements` is its database-free half and runs in `make test`), and
   `TestChatRequirementsSettings` now covers eight columns (the AI rule included).
-  The Phase 16 guarantees are `TestScheduleKeepsEarliest` (`./fuku/db/deletion`: scheduling one `(chat, message)` again keeps
+  The Phase 16 guarantees are `TestScheduleKeepsEarliest` (`./xenobot/db/deletion`: scheduling one `(chat, message)` again keeps
   the earliest `delete_at` with the table-qualified `LEAST`, also under concurrent callers) and `TestClaimBatchOneWinner`
-  (`./fuku/db/deletion`: eight concurrent `ClaimDue` callers each win a disjoint set of rows and drain the queue exactly
+  (`./xenobot/db/deletion`: eight concurrent `ClaimDue` callers each win a disjoint set of rows and drain the queue exactly
   once), both of which also run on SQLite in `make test`, and `TestScheduledDeletionMigrationDefaults`
-  (`./fuku/db/migrations`: the statements run twice without error, a row with only its required columns reads pending, an
+  (`./xenobot/db/migrations`: the statements run twice without error, a row with only its required columns reads pending, an
   empty token, 0 attempts and no claim time, the named constraints refuse a delay of 86401, a duplicate `(chat, message)`, a
   state of `x` and negative attempts, and the due index keeps its pending predicate; PostgreSQL only, it skips locally;
   `TestScheduledDeletionMigrationStatements` is its database-free half and runs in `make test`).
-  The review fixes added three more names to the list, all in `./fuku/db/deletion` and all also run on SQLite in `make test`:
+  The review fixes added three more names to the list, all in `./xenobot/db/deletion` and all also run on SQLite in `make test`:
   `TestReleaseStaleClaims` (a counted release sets `delete_at` to the caller's retry time and drops the row at its third
   counted failure, an uncounted one leaves `delete_at` alone), `TestDeleteRules` (`RemoveRule` drops that exact kind's pending
   rows in the same transaction) and `TestApplyJoinLeftRule` (Keep and `/cleanservice off` drop the pending joined and left rows,
   by exact kind and never an acting row, another kind or another chat).
-  Phase 17 adds four names, all in `./fuku/db/deletion` and all also run on SQLite in `make test`:
+  Phase 17 adds four names, all in `./xenobot/db/deletion` and all also run on SQLite in `make test`:
   `TestScheduleBatchKeepsEarliest` (a batch keeps the earliest time under concurrent callers, and never rewrites kind or
   sent time), `TestScheduleBatchDuplicateKey` (one call naming one key several times writes one row, the Go dedupe PostgreSQL
   needs), `TestCountPending` (the bounded exact count) and `TestDropPendingMessage` (one pending row by chat, message and kind).
-  The Phase 19 guarantee is `TestBlacklistActionValuesOnPostgres` (`./fuku/db/migrations`: on a chain-built database
+  The Phase 19 guarantee is `TestBlacklistActionValuesOnPostgres` (`./xenobot/db/migrations`: on a chain-built database
   `UPDATE blacklists SET action = v` succeeds for warn, mute, kick, ban and none and fails with SQLSTATE 23514 for any other
   value, and exactly one CHECK references the column (by `pg_constraint.conkey`, so the check of `action_secs` is not counted), `chk_blacklist_action`; PostgreSQL only, it skips locally;
   `TestBlacklistActionMigrationStatements` is its database-free half and runs in `make test`).
-  The warn mode guarantee (quick task 261116-wh3) is `TestWarnModeCheckOnPostgres` (`./fuku/db/migrations`: on a chain-built
+  The warn mode guarantee (quick task 261116-wh3) is `TestWarnModeCheckOnPostgres` (`./xenobot/db/migrations`: on a chain-built
   database `warns_settings.warn_mode` accepts NULL, the empty mode and the five modes and refuses any other value with SQLSTATE
   23514, and exactly one CHECK references the column (by `conkey`, so the check of `warn_mode_secs` is not counted), `chk_warn_mode`; PostgreSQL only, it skips locally;
   `TestWarnModeCheckMigrationStatements` is its database-free half and runs in `make test`).
-  The Phase 20 guarantees are `TestChatConversationSettings` (`./fuku/db/chatconv`: column-targeted upserts that never
+  The Phase 20 guarantees are `TestChatConversationSettings` (`./xenobot/db/chatconv`: column-targeted upserts that never
   clobber each other, a Go false written, the two checks refusing values outside the stored ones; it also runs on SQLite
-  in `make test`) and `TestChatConversationMigrationDefaults` (`./fuku/db/migrations`: the statement runs twice, a row with
+  in `make test`) and `TestChatConversationMigrationDefaults` (`./xenobot/db/migrations`: the statement runs twice, a row with
   only `chat_id` reads off, anthropic, 0, and both named checks refuse with SQLSTATE 23514; PostgreSQL only, it skips
   locally; `TestChatConversationMigrationStatements` is its database-free half).
-  The forward blocklist guarantees (quick task 261113-tjj) are `TestStaffForwardBlockConstraints` (`./fuku/db/staff`: the
+  The forward blocklist guarantees (quick task 261113-tjj) are `TestStaffForwardBlockConstraints` (`./xenobot/db/staff`: the
   unique key, `chk_staff_forward_blocks_source` and `chk_staff_forward_block_action` refuse a duplicate, a non-negative
   source and an action outside the five; it also runs on SQLite in `make test`) and `TestStaffForwardBlockMigrationDefaults`
-  (`./fuku/db/migrations`: the statements run twice without error, a row with only its required columns reads the defaults,
+  (`./xenobot/db/migrations`: the statements run twice without error, a row with only its required columns reads the defaults,
   the three named constraints refuse with SQLSTATE 23505 and 23514; PostgreSQL only, it skips locally;
   `TestStaffForwardBlockMigrationStatements` is its database-free half and runs in `make test`).
-  The event messages guarantees (Phase 21) are `TestEventMessagesUpsert` (`./fuku/db/eventmsg`: writers of different
+  The event messages guarantees (Phase 21) are `TestEventMessagesUpsert` (`./xenobot/db/eventmsg`: writers of different
   columns of one key leave both values, one row per `(chat_id, event, dest)`, chats and events stay apart; it also runs on
-  SQLite in `make test`) and `TestChatEventMessagesMigrationDefaults` (`./fuku/db/migrations`: the statement runs twice
+  SQLite in `make test`) and `TestChatEventMessagesMigrationDefaults` (`./xenobot/db/migrations`: the statement runs twice
   without error, a row with only its key reads every zero default, a second row of the key fails with SQLSTATE 23505;
   PostgreSQL only, it skips locally; `TestChatEventMessagesMigrationStatements` is its database-free half and runs in
   `make test`).
   The private copies guarantees (Phase 22) are two subtests of `TestEventMessagesUpsert` (`pm default under concurrent
   writers`: concurrent text, media and buttons writes of one fresh `pm` key leave one row with every part and `silent`
   true; `options writers never clobber`: concurrent `SetPMDetails` and `SetPMLog` leave one options row with both on) and
-  `TestEventMessageOptionsMigrationDefaults` (`./fuku/db/migrations`: the statement runs twice without error, a row with
+  `TestEventMessageOptionsMigrationDefaults` (`./xenobot/db/migrations`: the statement runs twice without error, a row with
   only its chat reads both options false, `updated_by` 0 and a time, a second row of the chat fails with SQLSTATE 23505
   naming `pk_chat_event_message_options`; PostgreSQL only, it skips locally;
   `TestEventMessageOptionsMigrationStatements` is its database-free half and runs in `make test`). `TestEventMessagesPM`
-  (`./fuku/db/eventmsg`, SQLite in `make test`) holds the rest of the storage: `pm` is a destination, `Resolve` with no row
+  (`./xenobot/db/eventmsg`, SQLite in `make test`) holds the rest of the storage: `pm` is a destination, `Resolve` with no row
   reads a private copy off and a group message not silent, a part written alone never switches a copy on, the options are
   read with the messages under one key that both option writers drop, and a failed options read is an error.
-  The timed punishment guarantees (Phase 26) are `TestTimedPunishmentMigrationDefaults` (`./fuku/db/migrations`: the three
+  The timed punishment guarantees (Phase 26) are `TestTimedPunishmentMigrationDefaults` (`./xenobot/db/migrations`: the three
   statements run twice without error, a row with only its required columns reads each duration 0, the three named checks exist, and
   31622401 is refused with SQLSTATE 23514 naming the check while 31622400 is accepted; PostgreSQL only, it skips locally;
   `TestTimedPunishmentMigrationStatements` is its database-free half and runs in `make test`) and `TestSetWarnModeDuration`
-  (`./fuku/db/warns`: the mode and its seconds stored in one upsert with the limit kept, the two-argument wrapper storing 0, a limit
+  (`./xenobot/db/warns`: the mode and its seconds stored in one upsert with the limit kept, the two-argument wrapper storing 0, a limit
   write and a mode write never clobbering each other, and each write dropping `warn_settings:<chat>`; it also runs on SQLite in
-  `make test`). The warn expiry guarantees (plan 26-06) are `TestWarnExpiryMigrationDefaults` (`./fuku/db/migrations`: the two
+  `make test`). The warn expiry guarantees (plan 26-06) are `TestWarnExpiryMigrationDefaults` (`./xenobot/db/migrations`: the two
   statements run twice without error, rows with only their required columns read 0 and `[]`, exactly one check, found by `conkey`, is on
   `warn_expiry_days` and it is `chk_warns_settings_expiry`, and 366 is refused with SQLSTATE 23514 naming it while 365 is accepted;
   PostgreSQL only, it skips locally; `TestWarnExpiryMigrationStatements` is its database-free half and runs in `make test`) and
-  `TestWarnExpiryWrites` (`./fuku/db/warns`: one time per warn, an old warn dropped at the next write with expiry on and never with it
+  `TestWarnExpiryWrites` (`./xenobot/db/warns`: one time per warn, an old warn dropped at the next write with expiry on and never with it
   off, the newest counted warn removed, the reset's answer, eight concurrent warns of one member keeping one count each, the expiry
   upsert writing only its column and dropping the key, and the counted read after a moved clock; it also runs on SQLite in `make test`).
-  The escalation ladder guarantees (plan 26-08) are `TestEscalationMigrationDefaults` (`./fuku/db/migrations`: the two statements
+  The escalation ladder guarantees (plan 26-08) are `TestEscalationMigrationDefaults` (`./xenobot/db/migrations`: the two statements
   run twice without error, a ladder row with only `chat_id` reads off, no steps and 30 days, an offence row with only its key reads 0
   and 0, the named checks refuse a step action of `warn`, step seconds of 31622401 and -1, a forget period of 0 and 366 and a count of
   -1 with SQLSTATE 23514 naming the check, and a second row of either key fails with 23505; PostgreSQL only, it skips locally;
   `TestEscalationMigrationStatements` is its database-free half and runs in `make test`), `TestEscalationSettings`
-  (`./fuku/db/escalation`: a read of a chat with no row creates nothing, writers of different steps never clobber each other, five
+  (`./xenobot/db/escalation`: a read of a chat with no row creates nothing, writers of different steps never clobber each other, five
   concurrent step writers on PostgreSQL, the step and forget checks in Go and in the table, every write dropping the key and
   `GetFresh` bypassing the cache), `TestOffenceCountRules` (the same-offence window, the forget period, members and chats counted
   apart, `ClearOffences` and the refused calls) and `TestOffenceCountConcurrent` (sixteen offences of one member at one instant
@@ -6100,18 +6082,18 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   The pattern is anchored with `$`, so list the real top-level test function names and add the test's package to the
   target. Add a test there when a new guarantee rests on a partial unique index, a `CHECK` or a conditional update.
 - In CI, keep the migration-chain step before `make test-rest`; its `schema_migrations` rows back the checksum test.
-- CI does not run `make test` as one job. `test-rest` runs every package but `fuku/modules` (with the migration chain,
+- CI does not run `make test` as one job. `test-rest` runs every package but `xenobot/modules` (with the migration chain,
   the PostgreSQL integrity tests, the captcha page script tests and `make test-shard-check`), four `test-shard` jobs
-  run `fuku/modules` split by `scripts/test_shard.sh` (its top-level tests sorted by name and dealt out round-robin, so
+  run `xenobot/modules` split by `scripts/test_shard.sh` (its top-level tests sorted by name and dealt out round-robin, so
   each test runs in exactly one shard), and `test` merges their coverage (`make coverage-merge`) and applies the 78%
   threshold. A shard runs in its own process, so a test that only passed because an earlier test in the package left
   state behind fails there: fix the test, never the split. `make test-shard-check` fails when the script's list differs
   from `go test -list`. To change the number of shards, edit the matrix in `ci.yml` and the `SHARDS=` it passes.
   The release workflow does not run tests; it requires a successful CI run of the tagged commit.
-- The settings menu tests share one toolkit, `fuku/modules/settings_env_test.go` (`newSettingsEnv`, `newSettingsEnvWith`
+- The settings menu tests share one toolkit, `xenobot/modules/settings_env_test.go` (`newSettingsEnv`, `newSettingsEnvWith`
   with `RealLocale`, `openMenu`, `press`, `pressRaw`, `pressPrivate`, `pressNoMessage`, `sendIn`, `sendPrivate`, `edits`,
   `lastEdit`, `answerCount`, `settingsButtonByMarker`, `settingsButtonFields`): page tests call it by name and do not edit
-  it. The message editor adds `fuku/modules/settings_edit_env_test.go` on top of it (`newSettingsEditEnv`, `editCleanup`,
+  it. The message editor adds `xenobot/modules/settings_edit_env_test.go` on top of it (`newSettingsEditEnv`, `editCleanup`,
   `settingsEditAdminJSON`, `listEditAdmin`, `settingsEditStored`, `settingsEditRulesStored`, `openEditPage`,
   `openEditPagePrivate`) and its families `TestSettingsEdit*`, `TestSettingsParityGreeting*`, `TestSettingsDriftGreetings`
   and `TestSettingsAuthorityParityGreetings` (`settings_edit_test.go`), plus `TestSettingsEditSet*`,
@@ -6136,11 +6118,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   pair is the worst case; `TestSettingsStaffPrivacy` draws its own editor sweep the same way. `RealLocale` installs the real locale files through `i18n.OverrideManagerLanguagesForTest`, because the test binary
   has no locale manager of its own. `OverrideManagerForTest` and `OverrideManagerLanguagesForTest` keep one manager per distinct
   set of YAML texts (a SHA-256 of the codes and texts) and install it again on a repeat, and `withStaffLocale` builds its
-  marker locale once per binary, because parsing the locale files costs about a second under `-race` and `fuku/modules`
+  marker locale once per binary, because parsing the locale files costs about a second under `-race` and `xenobot/modules`
   does it in hundreds of tests; a manager is never changed after its parse, so reusing it proves the same.
-  `fuku/i18n/settings_locale_test.go` keeps a limits table that must cover exactly the
+  `xenobot/i18n/settings_locale_test.go` keeps a limits table that must cover exactly the
   `settings_` keys of the locale files, so a plan that adds a key adds its row.
-- Run the settings tests with `go test -tags testtools -race -count=1 -run '^(TestSettings|TestLoadSettings)' ./fuku/modules ./fuku/i18n`.
+- Run the settings tests with `go test -tags testtools -race -count=1 -run '^(TestSettings|TestLoadSettings)' ./xenobot/modules ./xenobot/i18n`.
   Page tests add page-prefixed helpers in their own files (`settings_<page>_test.go`). Every setting the menu changes
   has a parity test (`TestSettingsParity*`: the menu press and the command leave the same stored row and the same
   cache), a drift test (`TestSettingsDrift*`: the page reads what the command reads) and an authority-parity test
@@ -6154,7 +6136,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestSettingsHub*` (list, paging, pick, Groups), `TestSettingsAccess*`, `TestSettingsGate*`, `TestSettingsOwnerState*`,
   `TestSettingsMain*` (`TestSettingsMainGrid`, `TestSettingsMainPageFitsEveryLocale`: 3800 UTF-16 units and the button
   limits with a 64-rune title in every language) and `TestAdminIndex*`; `TestSettingsLabelLengths`
-  (`fuku/i18n/settings_locale_test.go`) holds the two-column limits (a grid button at most 20 code points, the Groups
+  (`xenobot/i18n/settings_locale_test.go`) holds the two-column limits (a grid button at most 20 code points, the Groups
   button 18) in code points. The Access controls have no command, so they carry `TestSettingsDriftAccess` and
   `TestSettingsOwnerAuthorityAccess` instead of a parity test, and `TestSettingsAccessAcrossReplicas` proves the fresh
   read across two replicas (a flip on one is seen by the very next press on the other, a memoised owner never hides a
@@ -6184,7 +6166,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`memberreq_watch_test.go`, `shutdown_drains_test.go`). `newMemberReqEnv` turns the enforcement switch on through
   `withMemberReqLive`, which restores the previous value in `t.Cleanup`; a test that uses it never calls `t.Parallel`. A test
   that calls `StopMemberReqJobs` restores the runner with `restoreMemberReqRunner` (the drain sets the draining flag and
-  cancels the root context for good), and `memberReqCleanup` deletes the `fuku:memberreq:*` keys of its chats, the pass keys
+  cancels the root context for good), and `memberReqCleanup` deletes the `xenobot:memberreq:*` keys of its chats, the pass keys
   included. `mreqReplica` builds a second bot process over the same database and Redis, `mreqSend` and `mreqSendAt` run a
   message through the dispatcher (the settings environment's `send` stamps 1970), and the test environment waits for
   `memberReqJobs` before its cleanups run. The delete and cap families are `TestMemberReqDeleteMessages`,
@@ -6200,27 +6182,27 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   from an old snapshot, then the stored row changed, or `memberReqSettingsLookup` swapped), `TestMemberReqWarnRecovery`
   (WR-01: `memberReqMarkHold` and `memberReqMarkRetryWait` swapped, the Redis note, `memberReqApplyWarn` wrapped to return
   the reset's error) and `TestMemberReqRejoinResetsPendingMuteHold` (WR-03, `mreqPendingMuteHold`).
-  The Phase 13 families in one place. Every `TestMemberReq*` test of `fuku/modules` lives in a `memberreq_*_test.go` file
+  The Phase 13 families in one place. Every `TestMemberReq*` test of `xenobot/modules` lives in a `memberreq_*_test.go` file
   (rules and corpus, the executor, the watcher, the join and the captcha guard, the rejoin reset, the notices, the limits,
   the deletes, the failures and the "I fixed it" button: `TestMemberReqFixedUnmutes`, `TestMemberReqFixedRefusals`,
   `TestMemberReqFixedNeverLifts`, `TestMemberReqFixedDuringLockdown`, `TestMemberReqFixedHeldWelcome`,
-  `TestMemberReqEnforcementLive`); `TestMemberReqLocaleKeys` is in `fuku/i18n`; `TestApplyWarn` (`warns_apply_test.go`) is the
+  `TestMemberReqEnforcementLive`); `TestMemberReqLocaleKeys` is in `xenobot/i18n`; `TestApplyWarn` (`warns_apply_test.go`) is the
   warn extraction's own test; `TestChatRequirementsSettings`, `TestRequirementHoldClaimConcurrent` and `TestRequirementHolds`
-  are in `fuku/db/memberreq`. The toolkit is `fuku/modules/memberreq_env_test.go`, the `memberReqEnv` type on top of the settings environment:
+  are in `xenobot/db/memberreq`. The toolkit is `xenobot/modules/memberreq_env_test.go`, the `memberReqEnv` type on top of the settings environment:
   `newMemberReqEnv` (and `newMemberReqEnvWith`), `withMemberReqLive`, `mreqMember` (a member with the names a test asks for),
   `mreqSend`, `mreqReplica`, `mreqPressFixed` and `memberReqCleanup`. Its hygiene rule, which CI needs because all of
-  `fuku/modules` runs in one PostgreSQL database in source order: every member comes from `uniqueLinkOwnerID()` and every
+  `xenobot/modules` runs in one PostgreSQL database in source order: every member comes from `uniqueLinkOwnerID()` and every
   chat from `uniqueModuleChatID()`, and `t.Cleanup` deletes the members' `users` rows and `user` cache keys, the rows of
-  both Phase 13 tables, their warns, the `member_requirements` settings key, the approvals keys and the `fuku:memberreq:*`
+  both Phase 13 tables, their warns, the `member_requirements` settings key, the approvals keys and the `xenobot:memberreq:*`
   keys, then calls `ResetLocalForTest`. The size and privacy sweep is `TestMemberReqScreensFitEveryLocale` (every notice,
   every "I fixed it" answer at 200 code points and the two notices that button edits in, in all 8 languages, none naming the
   chat, the Staff Group or the admin who set the rule) and the Phase 13 part of `TestSettingsStaffPrivacy` (page `m`, eight rule
   screens and twenty-four cards in every language, and a private run by an administrator who is not the creator through the page,
-  a rule screen, a Mute card and its Yes and both switches). `TestMemberRequirementsStayOutOfBackup` (`fuku/db/backup`,
+  a rule screen, a Mute card and its Yes and both switches). `TestMemberRequirementsStayOutOfBackup` (`xenobot/db/backup`,
   SQLite, so not in the PostgreSQL list) proves that neither `chat_requirements` nor `chat_requirement_holds` is exported,
   imported or reset, and since Phase 14 that the export file names no requirement column or table and a reset leaves the
   photo and channel columns as they were.
-- Phase 14 (the photo and channel rules) test families, all in `fuku/modules` unless a package is named, each in a file of its
+- Phase 14 (the photo and channel rules) test families, all in `xenobot/modules` unless a package is named, each in a file of its
   own prefix: `TestMemberReqPhotoRule`, `TestMemberReqLinkedChannel`, `TestMemberReqChannelRule`,
   `TestMemberReqChannelBreachNeedsBotAdmin`, `TestMemberReqBotStatusClassifier` and the `TestMemberReqLookup*` family
   (`memberreq_lookup_test.go`, `memberreq_lookup_enforce_test.go`: the flights, the pacer, the cache keys, punishments,
@@ -6248,13 +6230,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   nolink, unknown) and in a basic group, Main with every rule on and both alerts, and runs a private and a group-menu Phase 14
   run of an administrator who is not the creator over a linked channel whose title and ID the fake knows and a held member
   whose name it knows; none may name the Staff Group, the channel, the member or a count. The lookup toolkit is
-  `fuku/modules/memberreq_lookup_fake_test.go`: `mreqLookupFake` wraps the shared lockdown fake and answers
+  `xenobot/modules/memberreq_lookup_fake_test.go`: `mreqLookupFake` wraps the shared lockdown fake and answers
   `getUserProfilePhotos`, the group's `getChat` (its linked channel) and `getChatMember` of a channel from an
   `mreqLookupState` (scripted errors, holds, null bodies, a photo file ID, a channel title), `mreqInstallLookupFake` installs
   it, `mreqChannel` links a fresh channel and registers its ID (`settingsMreqLinkChannel` does it for a plain settings
   environment), `withFastLookupPacer` swaps in a 1 ms lookup pacer and `mreqLookupCleanup` deletes what a lookup
   test wrote. Its hygiene: fresh IDs from `uniqueLinkOwnerID()` and `uniqueModuleChatID()`; a channel is registered as a chat
-  ID with `memberReqCleanup` (`mreqChannel` does it) so its `sub:`, `lc:` and `ba:` keys go, and `fuku:memberreq:photo:<user>`
+  ID with `memberReqCleanup` (`mreqChannel` does it) so its `sub:`, `lc:` and `ba:` keys go, and `xenobot:memberreq:photo:<user>`
   is deleted by `mreqLookupCleanup`; the singleflight group and the lookup pacer are package globals, so a test that swaps
   one restores it in `t.Cleanup` (`withFastLookupPacer`, `mreqSwap`); a flight a test holds open with `hold` or `holdKey` is
   released in `t.Cleanup`; a test that calls `StopMemberReqJobs` also calls `restoreMemberReqRunner`; a test that runs many
@@ -6262,7 +6244,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   a date takes the date before the message and at least 2 s apart; and a test never `t.Skip`s (CI's
   `scripts/check_test_results` fails on an unexpected skip, so a case that cannot run in a menu kind is not registered
   there). The locale files now hold 464 `settings_` keys and 31 `mreq_` keys, each `settings_` key one row of the limits table
-  of `fuku/i18n/settings_locale_test.go` (Phase 19 plan 19-02 added two, `settings_state_private_only` and `settings_entries_group_note`, and plan 19-03 seven for the Blacklist page in task 1, three for its delete card in task 2 and seven for its action screen in task 3, and plan 19-04 nine for the typed add in task 1 and seven (the wait-ended note, the five part words and the no-addable-word refusal) in task 2; the typed add's tests are `TestSettingsListDoor*` (`settings_list_door_test.go`: one step, refusals, authority with the live bot classification, replaced waits, expiry, Cancel, albums, no Redis), `TestSettingsParityBlacklistAdd` and the typed column of `TestSettingsAuthorityParityBlacklist` (`settings_blacklist_test.go`); the list toolkit is `settings_list_env_test.go`: `newSettingsListEnv`, `settingsListSeedBlacklist`, `settingsListCleanup`, `settingsListOpenPrivate`, `settingsListSentinel`; plan 19-06 adds four keys, rows 11 to 14 of the UI-SPEC (the step line, the closed step-1 prompt, the blank-entry refusal and the content limits), and `withTestSettingsList(t, def)`, which installs a test-only list page over the registries by saving the entries of its key, its list table and its action codes and replacing them, restoring every one in `t.Cleanup` (never `registerSettingsPage`, which panics on a duplicate key, so a test page may reuse key `i` or `e` before or after the real page exists); the two-step engine is proved on such a page, `settingsListTestTwoStepDef` with key `i` and codes `zg zx zy za zc`, by `TestSettingsListTwoStepFlow` and `TestSettingsListTwoStepBranches` (`settings_list_twostep_test.go`: every step-1 refusal including U+3000 alone, a `Check` error, the Add gate, the `q` guard, a poll, a `Check` that now refuses, a taken and a failed `Apply`, an album, Add at step 2, expiry and `/cancel`); plan 19-07 adds the Filters page's 14 keys, rows 40 to 53 of the UI-SPEC (the page name, the list page, the Add button, both prompts, the key line, the two refusals, the delete card and the two notices; the keys are read through table fields and `settingsListExtraKeys`, so `TestSettingsListKeysExist` and the limits rows are their guard) and the tests `TestSettingsFiltersOpens`, `TestSettingsFiltersDelete` (`settings_filters_test.go`), `TestSettingsListDoorTwoStep`, `TestSettingsListDoorTwoStepRefusals` and `TestSettingsListDoorTwoStepCap` (`settings_list_door_test.go`) on the toolkit `newSettingsFiltersFlow`, `settingsFiltersOwner` (a live creator, so `can_change_info` holds) and `settingsListSeedFilters`; plan 19-09 adds the Notes page's 14 keys, rows 54 to 67 of the UI-SPEC, 11 in task 1 and the refusal, delete card and removed notice in task 2, read through table fields and `settingsListExtraKeys`, and the tests `TestSettingsNotesOpens`, `TestSettingsListDoorTwoStepNotes`, `TestSettingsNotesDelete` and `TestSettingsListDoorNotesRefusals` in `settings_notes_test.go` on `newSettingsNotesFlow`, which wraps the Filters flow, and `settingsListSeedNotes`) and each `mreq_` key one row of `memberReqLocaleLimits`. Phase 18 added 55 `settings_`
+  of `xenobot/i18n/settings_locale_test.go` (Phase 19 plan 19-02 added two, `settings_state_private_only` and `settings_entries_group_note`, and plan 19-03 seven for the Blacklist page in task 1, three for its delete card in task 2 and seven for its action screen in task 3, and plan 19-04 nine for the typed add in task 1 and seven (the wait-ended note, the five part words and the no-addable-word refusal) in task 2; the typed add's tests are `TestSettingsListDoor*` (`settings_list_door_test.go`: one step, refusals, authority with the live bot classification, replaced waits, expiry, Cancel, albums, no Redis), `TestSettingsParityBlacklistAdd` and the typed column of `TestSettingsAuthorityParityBlacklist` (`settings_blacklist_test.go`); the list toolkit is `settings_list_env_test.go`: `newSettingsListEnv`, `settingsListSeedBlacklist`, `settingsListCleanup`, `settingsListOpenPrivate`, `settingsListSentinel`; plan 19-06 adds four keys, rows 11 to 14 of the UI-SPEC (the step line, the closed step-1 prompt, the blank-entry refusal and the content limits), and `withTestSettingsList(t, def)`, which installs a test-only list page over the registries by saving the entries of its key, its list table and its action codes and replacing them, restoring every one in `t.Cleanup` (never `registerSettingsPage`, which panics on a duplicate key, so a test page may reuse key `i` or `e` before or after the real page exists); the two-step engine is proved on such a page, `settingsListTestTwoStepDef` with key `i` and codes `zg zx zy za zc`, by `TestSettingsListTwoStepFlow` and `TestSettingsListTwoStepBranches` (`settings_list_twostep_test.go`: every step-1 refusal including U+3000 alone, a `Check` error, the Add gate, the `q` guard, a poll, a `Check` that now refuses, a taken and a failed `Apply`, an album, Add at step 2, expiry and `/cancel`); plan 19-07 adds the Filters page's 14 keys, rows 40 to 53 of the UI-SPEC (the page name, the list page, the Add button, both prompts, the key line, the two refusals, the delete card and the two notices; the keys are read through table fields and `settingsListExtraKeys`, so `TestSettingsListKeysExist` and the limits rows are their guard) and the tests `TestSettingsFiltersOpens`, `TestSettingsFiltersDelete` (`settings_filters_test.go`), `TestSettingsListDoorTwoStep`, `TestSettingsListDoorTwoStepRefusals` and `TestSettingsListDoorTwoStepCap` (`settings_list_door_test.go`) on the toolkit `newSettingsFiltersFlow`, `settingsFiltersOwner` (a live creator, so `can_change_info` holds) and `settingsListSeedFilters`; plan 19-09 adds the Notes page's 14 keys, rows 54 to 67 of the UI-SPEC, 11 in task 1 and the refusal, delete card and removed notice in task 2, read through table fields and `settingsListExtraKeys`, and the tests `TestSettingsNotesOpens`, `TestSettingsListDoorTwoStepNotes`, `TestSettingsNotesDelete` and `TestSettingsListDoorNotesRefusals` in `settings_notes_test.go` on `newSettingsNotesFlow`, which wraps the Filters flow, and `settingsListSeedNotes`) and each `mreq_` key one row of `memberReqLocaleLimits`. Phase 18 added 55 `settings_`
   keys (four of them, the Warnings page's, in plan 18-01 and 51 in plan 18-02: the six page names, three Main state words,
   the Warnings, Switches, Language, Log channel and Anonymous admins lines, and the Locks intro, two state words and 22 lock
   names), each one row of `settingsLocaleLimits` (`settings_sw_ai_unavailable` also in `settingsAlertKeys`, being the alert of
@@ -6277,7 +6259,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and the choice labels Keep, Delete now and the six delays, and `settings_del_hint_punish_auto` in `memberReqQuotingKeys`
   (it quotes the words of `mreq_btn_fixed`). The names, covers and hints of the rows of `deletionServiceRows` and
   `deletionBotRows` are read through the table fields `NameKey`, `DescKey` and `HintKey`, which `make check-translations`
-  cannot see: `TestDeletionKindKeysExist` (`fuku/modules`, `deletion_kinds_locale_test.go`) proves every one of them, the two
+  cannot see: `TestDeletionKindKeysExist` (`xenobot/modules`, `deletion_kinds_locale_test.go`) proves every one of them, the two
   section names and the delay words translate in all 8 languages. Phase 17 added 18 `settings_` keys (the Member messages
   section: its name and list intro, three row names, three descriptions, four hints, two state words, three delay labels
   and the card `settings_del_confirm_self`) and changed the text of `settings_del_intro`, each new key with a row of
@@ -6290,9 +6272,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `make check-translations` cannot see, so the two limits tables and `TestMemberReqLocaleKeys` are their only guard. The 520 code point cap of the notices is a rendered
   check over the real translations (eight phrases, 66 code point name, the photo tail, the AI tail and both), not a sum
   of the ceilings, which at 636 no longer proves it. The two PostgreSQL facts of Phase 14 are `TestMemberRequirementLookupMigrationDefaults`
-  (in the list above) and that the `fuku/modules` harness does not run on PostgreSQL (its AutoMigrate fails on
+  (in the list above) and that the `xenobot/modules` harness does not run on PostgreSQL (its AutoMigrate fails on
   `uni_users_user_id` against the migration-built schema), so Phase 14's module tests run on SQLite.
-- Phase 15 (the AI spam-name rule) test families, all in `fuku/modules` unless a package is named. The toolkit is
+- Phase 15 (the AI spam-name rule) test families, all in `xenobot/modules` unless a package is named. The toolkit is
   `memberreq_ai_fake_test.go` on top of the Phase 13 and 14 ones: `mreqInstallAIFake` starts the Anthropic stand-in (an
   `httptest` server driven by an `mreqAIState`: scripted steps `mreqAIProbability`, `mreqAIStatus`, `mreqAIHang`,
   `mreqAIGated`, `mreqAIDelayed`, `mreqAIDrop`, the recorded request bodies and the count) and points `memberReqAIEndpoint`
@@ -6321,7 +6303,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestMemberReqAIRequestIsMinimal` (the body is exactly the fixed shape, the three canonical names and
   `claude.NamesInstruction`: no title, message, chat or user ID, no field beyond the shape, the key in its header alone),
   `TestMemberReqAIPacersAreIndependent` (a block on the lookup pacer's keys leaves the AI call alone, a burst of name checks
-  writes no key of `fuku:memberreq:pace:*` or `fuku:memberreq:lkp:pace:*`, a saturated gate delays no name-rule punishment
+  writes no key of `xenobot:memberreq:pace:*` or `xenobot:memberreq:lkp:pace:*`, a saturated gate delays no name-rule punishment
   or notice), and the extended `TestMemberReqLookupLogsCarryIDsOnly` (every provider and guard failure shape on the job,
   join, held release and button paths, a transport error and a recovered flight panic: no name, names hash, verdict key,
   probability, instruction fragment or key in any line, and each expected status or error type must appear) and
@@ -6336,11 +6318,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   every punishing press and a forged Yes and welcomes joiners with no request, and a rejected key punishes nobody, pauses
   every group's checks until the clock passes the pause and a 500 at join leaves the marker so the first message is judged.
   The global log redactor (`logredact`,
-  installed by `fuku/config`'s `init`, so before a test hook) already replaces an Anthropic key in a line before the sweep
+  installed by `xenobot/config`'s `init`, so before a test hook) already replaces an Anthropic key in a line before the sweep
   sees it, which means the sweep cannot catch a key leak on its own (checked by mutation): the key is held by that
   redactor and `memberReqAILogFailure`'s own scrub, while the names and hashes have no such net and are held by the
   sweep alone.
-- Phase 16 plan 09 (the closing plan) adds `fuku/modules/deletion_e2e_test.go`: `TestDeletionEndToEnd` (the vertical slice
+- Phase 16 plan 09 (the closing plan) adds `xenobot/modules/deletion_e2e_test.go`: `TestDeletionEndToEnd` (the vertical slice
   through the real dispatcher with only Telegram faked: the owner's page presses, a title notice deleted now, a pin notice
   queued at its date plus N and deleted by `runDeletionCycle` only when `deletionNow` reaches it, the welcome, a manual `/ban`
   reply, a requirement Mute notice at the 24 hour cap moved to the tap plus the timer by the button, and a Warn notice, the
@@ -6362,7 +6344,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   own ID and type and the fixed clock's date, because the helper reads the chat from the answer). The shared staff fake gains
   `staffActionFake.sendDate` (nil means 1, so every earlier test is unchanged); the deletion environment sets it from
   `deletionNow()`, so no queued row lands in 1970.
-- Phase 17 plan 10 (the Member messages page safeguards) adds `fuku/modules/settings_deletion_member_safety_test.go`. The
+- Phase 17 plan 10 (the Member messages page safeguards) adds `xenobot/modules/settings_deletion_member_safety_test.go`. The
   three rules have no command, so each carries an authority test and a drift test in place of a parity test:
   `TestSettingsAuthorityDeletionMember` (an administrator without `can_change_info` opens the section but every choice of
   `mc`, `me`, `ms` and the card's Yes is the `settings_no_change_info` alert with nothing written, the right is judged again at
@@ -6384,7 +6366,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `commandDeletionEnv` (the e2e environment with the Processor wrapper), `drainMemberDeleteQueue` and
   `restoreMemberDeleteBatcher` for the batcher, `settingsDelDriftEnv`, `settingsDelDriftEdit` and `settingsDelDriftFlush` for
   the drift test.
-- Phase 17 plan 11 (the closing plan) adds `fuku/modules/member_deletion_e2e_test.go`: `TestMemberDeletionEndToEnd` (the whole
+- Phase 17 plan 11 (the closing plan) adds `xenobot/modules/member_deletion_e2e_test.go`: `TestMemberDeletionEndToEnd` (the whole
   phase through the real dispatcher with only Telegram and the clock faked, one environment per subtest: the owner sets
   Commands, Edited messages and Self-destruct from the page and each rule acts, an admin's and a member's command, an
   anonymous admin's command after the proof tap and with AnonAdmin on (D-34, it stays), the edit grace and every exemption,
@@ -6405,7 +6387,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   member rule uses the `memberDeletionEnv` toolkit (`member_deletion_env_test.go`: `newMemberDeletionEnv`, `newSelfDestructEnv`), mints fresh member and chat IDs, drains
   the batcher with `drainMemberDeleteQueue` and restores it with `restoreMemberDeleteBatcher`, and never writes a member
   rule's stored value by hand except to prove that a value a rule does not accept is Off.
-- Phase 18 AI spam switch tests (`aispam_legacy_request_test.go`, `aispam_settings_apply_test.go`, `fuku/db/aispam/load_enabled_test.go`):
+- Phase 18 AI spam switch tests (`aispam_legacy_request_test.go`, `aispam_settings_apply_test.go`, `xenobot/db/aispam/load_enabled_test.go`):
   `TestLegacyAISpamRequests` (the golden, chats from `-1009918001400`, recorded before the extraction and never
   re-recorded), `TestApplyAISpamEnabled`, `TestAISpamConfiguredMatchesCommand` and `TestLoadEnabledContext`. The Switches
   page tests configure the filter through `withAISpamConfigured(t)` and `withAISpamNotConfigured(t, how)` (the provider
@@ -6442,7 +6424,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   of its own, the five pages without a right line cost the pipeline's calls only, Locks one more `getChatMember` of the bot,
   a press refused in step 1 only its answer, and the same with Redis down). A sweep over languages, titles, states and
   notices keeps the longest few of a notice or a right line and the full product only for what changes the keyboard,
-  because a notice only adds its own length: the `fuku/modules` binary is close to its time limit and every plan adds to it.
+  because a notice only adds its own length: the `xenobot/modules` binary is close to its time limit and every plan adds to it.
   A test that reads `config.AppConfig` (the enabled languages, the AI provider) sets what it needs and restores it in
   `t.Cleanup` (`settingsLangWithCodes`, `withAISpamNotConfigured`), and must pass both bare and with a full configuration.
   `TestSettingsPhase18EndToEnd` (`settings_phase18_e2e_test.go`, plan 18-14) is the phase's end-to-end proof that each page
@@ -6505,14 +6487,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   Staff Group's own private menu, name no Staff Group, and a word added there is acted on), `no redis` (Add is the alert while the
   list, the action and the delete Yes work and the watcher follows) and `two replicas` (a wait made on one replica is completed by a
   typed message on another, and after the local cache layer has expired the word is acted on there).
-- The forward blocklist watcher's tests (quick task 261113-tjj, `fuku/modules/staff_forwardblock_watch_test.go`) run the real
+- The forward blocklist watcher's tests (quick task 261113-tjj, `xenobot/modules/staff_forwardblock_watch_test.go`) run the real
   dispatcher with `LoadStaff` through `newFwdWatchEnv` (the staff action environment with one linked group, the source listed
   and the action set; fresh IDs from `uniqueModuleChatID` and `uniqueLinkOwnerID`, `memberReqCleanup` and `staffCleanup` for
   the rows, `resetForwardBlockState` for the memo, latch and log gates, and `deletionNow` swapped for an `fwdClock`). Seams
   (`forwardBlockLinkLookup`, `forwardBlockFreshLink`, `forwardBlockRulesLookup`, `forwardBlockRecheck`) are swapped through
   `mreqSwap`; a subtest that fails must use its own `t` for the check helpers (`wantUntouched(t, ...)`), because the
   environment's `t` is the parent's. The families are `TestForwardBlockWatcher*`, `TestForwardBlockSourceOf`; keep a new case
-  light, because `fuku/modules` is near its CI time limit.
+  light, because `xenobot/modules` is near its CI time limit.
 - The Blocked sources page's tests (quick task 261113-tjj, plan 3) run on `newSettingsFwdEnv` (`settings_fwdblock_test.go`): the list settings
   environment whose chat is a Staff Group made by a live creator (`env.owner`, `env.admin` a plain administrator the owner gate admits), the
   Staff commands loaded on its dispatcher so parity and drift tests run `/addfwdblock` and the others, the live resolver scripted through
@@ -6534,7 +6516,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestSettingsMessagesReadsCreateNothing`, `TestSettingsMessagesCost`, `TestSettingsMessagesLogsCarryIDsOnly`), and, because nothing on it
   has a command, `TestSettingsDriftMessages*` and `TestSettingsAuthorityMessages*` stand in for parity tests (toolkit
   `settings_messages_env_test.go`); `TestSettingsStaffPrivacy` renders every Messages screen in 8 languages through
-  `settingsPrivacyPhase21Screens`. The repository has `TestEventMessages` and `TestEventMessagesUpsert` (`fuku/db/eventmsg`), the migration
+  `settingsPrivacyPhase21Screens`. The repository has `TestEventMessages` and `TestEventMessagesUpsert` (`xenobot/db/eventmsg`), the migration
   `TestChatEventMessagesMigrationStatements` and `TestChatEventMessagesMigrationDefaults`, and backup `TestEventMessagesStayOutOfBackup`.
   `TestMessagesEndToEnd` (`messages_e2e_test.go`, plan 21-11, about 7 s) is the phase's end-to-end proof through the real dispatcher with
   only Telegram faked, one environment per subtest on the toolkit `messagesE2E` (`newMessagesE2E(t, real)`: the settings environment with
@@ -6575,7 +6557,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   copy and the failed reason for a 5xx, nothing for the option off, a delivered copy, the admin category off, no log channel or a
   capped copy, one edit and one line with both options on, no copy text, reason or token in the line and the member's name only
   inside the mention; toolkit `eventPMLogLink`, `eventPMLogOn`, `eventPMLogPosts`, `eventPMLogWant`), the guard `TestPMCopyCallers` (`pm_copy_callers_test.go`)
-  and `TestEventMsgLocaleKeys` (`fuku/i18n`), and the page's `TestSettingsMessagesPMScreen`, `TestSettingsMessagesPMSwitch`,
+  and `TestEventMsgLocaleKeys` (`xenobot/i18n`), and the page's `TestSettingsMessagesPMScreen`, `TestSettingsMessagesPMSwitch`,
   `TestSettingsMessagesPMTyped`, `TestSettingsDriftMessagesPM` and `TestSettingsAuthorityMessagesPM` (`settings_messages_pm_test.go`) and
   `TestSettingsMessagesPMPreview` and `TestSettingsMessagesPMStates` (`settings_messages_pm_preview_test.go`, with `settingsMsgSeedPM`, `settingsMsgPMPreviewSeen` and
   `settingsMsgPMPreviewContent`) and the hub's option toggle `TestSettingsMessagesPMOptions`, `TestSettingsDriftMessagesPMOptions` and
@@ -6585,7 +6567,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `withFastPMCopyPacer` and waits with `waitEventPM`), on the toolkit `event_message_pm_env_test.go` (the PM copies bullet under Subsystem traps
   lists it). Hygiene: `newEventPMSite` registers `pmCopyJobs.wait` as its last cleanup, so a test that swaps a variable a job reads
   (`pmCopyNow`, `pmCopyAutoCapPerMinute`, `pmCopyRedisClient`) after it registers one more `t.Cleanup(pmCopyJobs.wait)` after the swap,
-  because cleanups run last in, first out; a held job is released in `t.Cleanup` before that wait; the `fuku:pmcopy:*` keys are removed by
+  because cleanups run last in, first out; a held job is released in `t.Cleanup` before that wait; the `xenobot:pmcopy:*` keys are removed by
   `eventPMCleanup`; and a test reads the recorded requests under the fake's lock (`eventPMAllCalls`, `eventPMCalls`), never through
   `callsFor("")`, which matches no method. The safeguards of plan 22-08 (`event_message_pm_safety_test.go`): `TestEventPMTextsFitEveryLocale`
   (every event's default private text with a 64-rune markup-heavy title, a 200-character reason, since Phase 23 a count and a limit of 100
@@ -6743,7 +6725,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestAISpamNotice` (`aispam_notice_test.go`, plan 24-06, about 1.5 s, toolkit `aispamNoticeEnv`: one aispam dispatcher per subtest
   over `newScreenGoldenSite` with the TypeSafe stand-in answering 0.95, miniredis, `withFastAISpamNoticePacer`, the fast private copy
   pacer, the private chat client and the AI burst trigger swapped off through `raidSettingsLookup`) holds the AI spam site: `off by
-  default` (deleted, nothing posted or queued, no `fuku:aispam:notice:*` key), `default on` (the default text in the deleted message's
+  default` (deleted, nothing posted or queued, no `xenobot:aispam:notice:*` key), `default on` (the default text in the deleted message's
   topic, no reply, a 600 s `bot:punish_auto` row), `custom`, `caps` (one member's second spam quiet; five more members, two more
   notices), `quiet failures` (no Redis client, the pacer blocked a minute ahead, a delete refused with a 403: no notice), `shutdown`
   (the pool cancelled right after the delete through `aispamNoticeCancelClient`: deleted, no notice, no cap spent; the pool restored
@@ -6810,7 +6792,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   button then "I fixed it" and a 24 hour `bot:punish_auto` row; the member adds a last name and taps the kept button 20 minutes later:
   unmuted, the notice edited to the fix text with no keyboard and its row moved to the tap plus the timer), `requirement warn` (a custom
   text with `{reason}` followed by the requirements line, a 900 s row), `ai notice` (nothing stored: deleted, nothing posted, no
-  `fuku:aispam:notice:*` key; the drawn Notice switch turns it on; the member's next spam is deleted and noticed, the third inside five
+  `xenobot:aispam:notice:*` key; the drawn Notice switch turns it on; the member's next spam is deleted and noticed, the third inside five
   minutes deleted quietly, three other members' spam all deleted with two more notices, three in the stopped minute), `nothing stored`
   (real locales: a captcha kick, a requirement kick and a requirement mute equal `goldenScreenCaptchaKick`, `goldenScreenReqKick` and
   `goldenScreenReqMute` with the case's IDs put in, each with its queue state), `refused` (real locales: a custom captcha photo refused
@@ -6952,13 +6934,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   pins the exact request and the named stored fields of `/setfloodmode`, `/flood`, `/setwarnmode tmute` alone, `/warnings`,
   `/blacklistaction` (`tmute` and `tban` alone, the current mode with a stored `tmute`), `/warns`, `/rmwarn`, the Remove warn button and
   `/resetwarns`, and what the warn limit, the flood, the blacklist and a member requirement warn do at a timed setting stored with no
-  duration (inert); `TestLegacyPunishmentExport` (`fuku/db/backup/punish_export_legacy_test.go`, the constants `goldenExportWarns`,
+  duration (inert); `TestLegacyPunishmentExport` (`xenobot/db/backup/punish_export_legacy_test.go`, the constants `goldenExportWarns`,
   `goldenExportAntiflood`, `goldenExportBlacklists`) pins the backup export JSON of the warns, antiflood and blacklists modules for
   today's rows, which is why every new column is `omitempty`. Every plan of the phase checks
-  `git diff --exit-code 92f29f1 -- fuku/modules/timed_punishment_legacy_request_test.go fuku/db/backup/punish_export_legacy_test.go`.
-  The repository and migration families of plan 26-02 are `TestSetWarnModeDuration` (`fuku/db/warns/timed_mode_test.go`),
+  `git diff --exit-code 92f29f1 -- xenobot/modules/timed_punishment_legacy_request_test.go xenobot/db/backup/punish_export_legacy_test.go`.
+  The repository and migration families of plan 26-02 are `TestSetWarnModeDuration` (`xenobot/db/warns/timed_mode_test.go`),
   `TestTimedPunishmentMigrationStatements` and `TestTimedPunishmentMigrationDefaults`
-  (`fuku/db/migrations/timed_punishment_migration_test.go`). Its `fuku/modules` families: `TestPunishTimedCore`
+  (`xenobot/db/migrations/timed_punishment_migration_test.go`). Its `xenobot/modules` families: `TestPunishTimedCore`
   (`punish_timed_test.go`, pure: the duration grammar and bounds, the short and translated wording in uk and en, the end date
   and its 35 s refusal, `autoActionEffective`), `TestApplyWarnModeTimed` and `TestSetWarnModeTimedCommand` (`warns_timed_test.go`:
   the apply function's outcomes and writes; `/setwarnmode tmute 2h`, `TBAN 1d`, three bad durations and `ban 1d`, and `/warnings`
@@ -6983,7 +6965,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `{until}` one hour after a fixed `punishNow`; the warn limit's default preview and the flood's default private copy preview stay
   untimed), and `TestSettingsEditLocaleTokens` holds `<code>{duration}</code>` and `<code>{until}</code>` in `settings_msg_wait_text_auto`. The earlier Warnings tests
   took the timed row as a width edit only (`[5 3 2]` to `[5 3 2 2]`, the navigation row's index 2 to 3). Plan 26-04's families are
-  `TestSetFloodActionDuration` (`fuku/db/antiflood/timed_action_test.go`, SQLite: both columns stored and read, the first write's
+  `TestSetFloodActionDuration` (`xenobot/db/antiflood/timed_action_test.go`, SQLite: both columns stored and read, the first write's
   limit 5, `SetFloodMode` clearing the seconds, no write for unchanged values, the key dropped by every write),
   `TestApplyFloodModeTimed` and `TestSetFloodModeTimedCommand` (`antiflood_timed_test.go`: the apply outcomes; `/setfloodmode tmute
   30m` answering `tmute 30m`, `TBAN 1d`, three bad durations writing nothing, `ban x` storing ban and 0, `/flood` reading `muted for
@@ -6994,7 +6976,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `floodTimedFlood`, `floodTimedNotice`) and the Antiflood page's five families above. The earlier Antiflood page tests took the
   timed row as a width edit only (4 rows to 5, the toggle's index 2 to 3 and the navigation row's 3 to 4), and
   `TestSettingsAntifloodCallbackBytes` and `TestSettingsAntifloodPageFitsEveryLocale` gained timed states, the duration screen and the
-  bad-duration notice. Plan 26-05's families are `TestSetBlacklistActionDuration` (`fuku/db/blacklists/timed_action_test.go`,
+  bad-duration notice. Plan 26-05's families are `TestSetBlacklistActionDuration` (`xenobot/db/blacklists/timed_action_test.go`,
   SQLite: both columns on every word, the rows matched, the key dropped, `SetBlacklistAction` clearing the seconds,
   `AddBlacklistTimedContext`, `ListBlacklistEntriesFresh` reading the seconds, another chat untouched),
   `TestApplyBlacklistActionTimed` and `TestBlacklistActionTimedCommand` (`blacklists_timed_test.go`: the apply outcomes;
@@ -7009,21 +6991,21 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestSettingsListBlacklistPageFitsEveryLocale`'s mixed screen `[3 2 2]` to `[3 2 2 2]`, `TestSettingsPhase19Codes` listing `bd` and
   `bz`), and `TestSettingsListBlacklistCallbackBytes` and `TestSettingsListBlacklistPageFitsEveryLocale` gained the timed states and
   the duration screen; the seam stubs of `blacklistWrites.Add` and `.SetAction` follow the seconds with no assertion changed.
-  Plan 26-06's families (warn expiry and the backup) are `TestWarnsCounted` (`fuku/db/models/warns_counted_test.go`, pure: every warn
+  Plan 26-06's families (warn expiry and the backup) are `TestWarnsCounted` (`xenobot/db/models/warns_counted_test.go`, pure: every warn
   with expiry off, the newer suffix with it on, an old row dated at its update time, the padding at the earlier of the update time and
   the first time, a previous build's cached value counting every warn, extra times cut, decreasing times raised, warns without
-  reasons, fewer reasons than counted warns), `TestWarnExpiryWrites` (`fuku/db/warns/expiry_test.go`, SQLite and PostgreSQL),
-  `TestWarnExpiryMigrationStatements` and `TestWarnExpiryMigrationDefaults` (`fuku/db/migrations/warn_expiry_migration_test.go`),
-  `TestWarnExpiry` (`fuku/modules/warns_expiry_test.go`, on `warnTimedSite` with a moveable `punishNow` (`warnExpirySite`), warns
+  reasons, fewer reasons than counted warns), `TestWarnExpiryWrites` (`xenobot/db/warns/expiry_test.go`, SQLite and PostgreSQL),
+  `TestWarnExpiryMigrationStatements` and `TestWarnExpiryMigrationDefaults` (`xenobot/db/migrations/warn_expiry_migration_test.go`),
+  `TestWarnExpiry` (`xenobot/modules/warns_expiry_test.go`, on `warnTimedSite` with a moveable `punishNow` (`warnExpirySite`), warns
   stored through the real `/warn` handler: `display` (1/3, the new reason only and `warns_expiry_note`), `limit` (two expired warns
   and two counted under a limit of 3 punish nobody, the third counted warn restricts and resets), `rmwarn`, `button` and `resetwarns`
   (with every warn expired `warns_no_warns_to_remove`, then the newest counted warn removed), `warnings` (`warns_settings_expiry`),
   `aispam_count` and `off` (every warn counts and no line is added)), and `TestWarnsExportCountsWhatCounts` and
-  `TestImportSanitizesPunishmentSettings` (`fuku/db/backup/punish_import_test.go`). `TestAllModulesRoundTripEveryMeaningfulField` gained
+  `TestImportSanitizesPunishmentSettings` (`xenobot/db/backup/punish_import_test.go`). `TestAllModulesRoundTripEveryMeaningfulField` gained
   the antiflood `tmute` 1800, the blacklist word's `tban` 86400, the warn settings' `tmute` 7200 and expiry 30 and a member's warn
   times in its seeds and checks.
   Plan 26-07's families (the expiry on the Warnings page) are `TestSettingsWarnsExpiry`, `TestSettingsDriftWarnExpiry`,
-  `TestSettingsAuthorityWarnExpiry` and `TestSettingsWarnsExpiryForged` (`fuku/modules/settings_warns_expiry_test.go`, on the settings
+  `TestSettingsAuthorityWarnExpiry` and `TestSettingsWarnsExpiryForged` (`xenobot/modules/settings_warns_expiry_test.go`, on the settings
   environment with `punishNow` moved through `mreqSwap` and warns dated through `warns.WarnUserAt`: the page reads Off, the button opens
   the expiry screen with Off marked, 7 days is stored and read as 1 week, `/warns` (its own handler, in reply to the member) then lists
   only the warn of the last 7 days and Off brings the older one back; a repository write of 30 and of 5 (no preset) is drawn, a page
@@ -7035,7 +7017,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (rows `[2 2 2 1 2]`, 38 bytes private and 34 group at its largest) and the fullest page (an effective timed mute of 366 days and
   expiry 90 days under the longest notice) in 8 languages, half-width cells at most 20 code points and the full-width expiry button at
   most 40.
-  Plan 26-09's family (the escalation ladder at its three sites) is `TestEscalation` (`fuku/modules/escalation_test.go`, on
+  Plan 26-09's family (the escalation ladder at its three sites) is `TestEscalation` (`xenobot/modules/escalation_test.go`, on
   `newNoticeGoldenSite` and `newFwdWatchEnv` with `punishNow` moved through `escalationClock`; the ladder stored through
   `escalation.SetEnabledWithSteps`): `steps_in_order` (blacklist, timed mute 1 h, timed mute 1 day, then bans, each notice naming its
   action), `flood_steps`, `same_offence`, `forget`, `off`, `unreadable_ladder` and `count_failed` (one gated Warn with IDs only),
@@ -7078,13 +7060,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   punishment has no end date and no offence row exists). `make test-shard-check` fails on a checkout path that holds a space (the script
   does not quote it); run it from a path without one.
 - Phase 27 test families (manual command defaults, reason shortcuts, and ban appeal button; TUNE-04..TUNE-06, MSG-11, EVT-10). The
-  immutable MSG-11 golden `TestLegacyPhase27ModerationRequests` (`fuku/modules/moderation_phase27_legacy_request_test.go`, plan 27-01,
+  immutable MSG-11 golden `TestLegacyPhase27ModerationRequests` (`xenobot/modules/moderation_phase27_legacy_request_test.go`, plan 27-01,
   15 exact `goldenP27*` request JSON constants across `/ban`, `/dban`, `/sban`, `/tban`, `/kick`, `/mute`, `/dmute`, `/smute`, `/tmute`,
   `/warn`, `/dwarn`, `/swarn`) was recorded alone before any production change and is never re-recorded (alongside
   `TestLegacyModerationRequests`, `TestLegacyPunishmentNoticeRequests`, and `TestLegacyScreeningNoticeRequests`). Repository, cache,
-  migration, backup, and locale suites: `fuku/db/modtuning`, `TestSkipLocalManualDefaultsKey` & `TestSkipLocalReasonShortcutsKey`
-  (`fuku/db/cache`), `TestManualCommandTuningMigration*` (`fuku/db/migrations`), `TestModTuningExcludedFromBackup` (`fuku/db/backup`),
-  and `fuku/i18n/settings_locale_test.go` + `TestSettingsListKeysExist`. Behavior, UI, safeguard, and E2E suites in `fuku/modules`:
+  migration, backup, and locale suites: `xenobot/db/modtuning`, `TestSkipLocalManualDefaultsKey` & `TestSkipLocalReasonShortcutsKey`
+  (`xenobot/db/cache`), `TestManualCommandTuningMigration*` (`xenobot/db/migrations`), `TestModTuningExcludedFromBackup` (`xenobot/db/backup`),
+  and `xenobot/i18n/settings_locale_test.go` + `TestSettingsListKeysExist`. Behavior, UI, safeguard, and E2E suites in `xenobot/modules`:
   `TestManualCommandDefaults` (`modtuning_commands_test.go`), `TestReasonShortcutValidationAndApply` & `TestReasonShortcutExpansion`
   (`modtuning_reasons_test.go`), `TestAppealURLValidationAndApply` & `TestAppealButtonOnBanMessages` (`modtuning_appeal_test.go`),
   `TestSettingsModDefaults` (`settings_moddefaults_test.go`), `TestSettingsReasons` (`settings_reasons_test.go`), `TestPhase27Codes`,
@@ -7116,15 +7098,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
     `settingsRightRestrict` on all writes and `settingsRightAdmin` on read/view/duration/pager/Cancel actions, and both tables stay
     outside backup/export/import/reset (Phase 30 decides).
 - Phase 28 test families (advanced thresholds; TUNE-07, MSG-11, EVT-10). The immutable MSG-11 golden
-  `TestLegacyPhase28DefaultThresholds` (`fuku/modules/advthresholds_phase28_legacy_request_test.go`, plan 28-01, pinning unchanged
+  `TestLegacyPhase28DefaultThresholds` (`xenobot/modules/advthresholds_phase28_legacy_request_test.go`, plan 28-01, pinning unchanged
   default raid join/flood/AI windows, new-member share/floor/24 h age, `raidAIImageBar` 0.85, `memberReqAIBar` 0.90, member-req
   10/min cap & 10-min pause, 1-hour `lockdownReminderEvery`, and default captcha timeout) was recorded alone before any production
-  change and is never re-recorded. The drift guard `TestAdvancedThresholdDefaultsMatchConstants` (`fuku/modules/advthresholds_raid_test.go`)
+  change and is never re-recorded. The drift guard `TestAdvancedThresholdDefaultsMatchConstants` (`xenobot/modules/advthresholds_raid_test.go`)
   compares every `models.Default*` constant and zero-`Thresholds` resolver against the live compiled module constants so any constant
-  drift fails immediately. Repository, cache, migration, backup, and locale suites: `fuku/db/advthresholds`,
-  `TestSkipLocalAdvancedThresholdsKey` (`fuku/db/cache`), `TestAdvancedThresholdsMigration*` (`fuku/db/migrations`),
-  `TestAdvThresholdsExcludedFromBackup` (`fuku/db/backup`), and `fuku/i18n/settings_locale_test.go`. Runtime wiring, UI, safeguard,
-  and E2E suites in `fuku/modules`: `TestAdvancedThresholdsRaidWiring` (`advthresholds_raid_test.go`),
+  drift fails immediately. Repository, cache, migration, backup, and locale suites: `xenobot/db/advthresholds`,
+  `TestSkipLocalAdvancedThresholdsKey` (`xenobot/db/cache`), `TestAdvancedThresholdsMigration*` (`xenobot/db/migrations`),
+  `TestAdvThresholdsExcludedFromBackup` (`xenobot/db/backup`), and `xenobot/i18n/settings_locale_test.go`. Runtime wiring, UI, safeguard,
+  and E2E suites in `xenobot/modules`: `TestAdvancedThresholdsRaidWiring` (`advthresholds_raid_test.go`),
   `TestAdvancedThresholdsAIAndMemberReq` (`advthresholds_ai_mreq_test.go`), `TestAdvancedThresholdsLockdownAndCaptcha`
   (`advthresholds_lockdown_captcha_test.go`), `TestSettingsAdvancedThresholds` (`settings_advthresholds_test.go`),
   `TestPhase28Codes`, `TestPhase28ReadsCreateNothing`, and `TestPhase28StaffPrivacyAndLogs` (`settings_phase28_test.go`), and
@@ -7151,14 +7133,14 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
     text) and fall back to zero `advthresholds.Thresholds{}` (compiled defaults) so a transient DB fault never disables raid
     detection, screening, reminders, or captcha.
 - Phase 29 test families (Plain tone switch across all 23 events & 18 PM copies and private Copy Settings page; TUNE-08, TUNE-09,
-  MSG-11, EVT-10). The immutable MSG-11 golden `TestLegacyPhase29Baseline` (`fuku/modules/phase29_legacy_request_test.go`, plan 29-01,
+  MSG-11, EVT-10). The immutable MSG-11 golden `TestLegacyPhase29Baseline` (`xenobot/modules/phase29_legacy_request_test.go`, plan 29-01,
   pinning all 23 group defaults, all 18 PM defaults, and pre-copy target isolation across all 6 tuning areas and excluded tables) was
   recorded alone on `ca060519` before any production change and is never re-recorded. Repository, migration, backup, and locale suites:
-  `TestPlainToneOption` & `TestEventMsgValidateAndReplaceAll` (`fuku/db/eventmsg`), `TestEventMessagePlainToneMigration*`
-  (`fuku/db/migrations`), `TestSetFloodActionPreserveOffAndGetFresh` (`fuku/db/antiflood`), `TestReplaceLadder` (`fuku/db/escalation`),
-  `TestReplaceDefaultsAndShortcuts` (`fuku/db/modtuning`), `TestReplaceAll` (`fuku/db/advthresholds`),
-  `TestEventMessagesStayOutOfBackup` (`fuku/db/backup`), and `fuku/i18n/settings_locale_test.go` + `TestEventMsgLocaleKeys`. Runtime,
-  UI, safeguard, and E2E suites in `fuku/modules`: `TestPlainToneEveryEventEveryLocale` & `TestPlainToneRuntime`
+  `TestPlainToneOption` & `TestEventMsgValidateAndReplaceAll` (`xenobot/db/eventmsg`), `TestEventMessagePlainToneMigration*`
+  (`xenobot/db/migrations`), `TestSetFloodActionPreserveOffAndGetFresh` (`xenobot/db/antiflood`), `TestReplaceLadder` (`xenobot/db/escalation`),
+  `TestReplaceDefaultsAndShortcuts` (`xenobot/db/modtuning`), `TestReplaceAll` (`xenobot/db/advthresholds`),
+  `TestEventMessagesStayOutOfBackup` (`xenobot/db/backup`), and `xenobot/i18n/settings_locale_test.go` + `TestEventMsgLocaleKeys`. Runtime,
+  UI, safeguard, and E2E suites in `xenobot/modules`: `TestPlainToneEveryEventEveryLocale` & `TestPlainToneRuntime`
   (`event_message_plain_test.go`), `TestEventMsgValidateWriteMatchesSettingsPage` & `TestCopySettingsMirrorAndExclusions`
   (`copy_settings_test.go`), `TestSettingsCopyPage` (`settings_copy_test.go`), `TestPhase29Codes`, `TestPhase29ReadsCreateNothing`,
   and `TestPhase29StaffPrivacyAndLogs` (`settings_phase29_test.go`), and `TestPhase29EndToEnd` (`phase29_e2e_test.go`).
@@ -7181,19 +7163,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
     tuning (`action`, `action_secs` via `antiflood.SetFloodActionPreserveOffContext` — preserving the target's `flood_limit` and
     `delete_antiflood_message`, and inserting `flood_limit = 0` when the target has no row so antiflood is never accidentally enabled).
 - Phase 30 test families (Custom messages in backups and private Backup settings page `ba`; MSG-10, BKP-01, BKP-02, BKP-03, MSG-11,
-  EVT-10). The immutable MSG-11 golden `TestLegacyPhase30Baseline` (`fuku/modules/phase30_legacy_request_test.go`, plan 30-01, pinning
+  EVT-10). The immutable MSG-11 golden `TestLegacyPhase30Baseline` (`xenobot/modules/phase30_legacy_request_test.go`, plan 30-01, pinning
   `/export`, `/import`, `/reset`, old-export preservation, and unconfigured default ban replies) was recorded alone on `f73400f4` before
-  any production edit and is never re-recorded. Repository, backup, and locale suites: `TestReplaceAllValidatedTx` (`fuku/db/eventmsg`),
+  any production edit and is never re-recorded. Repository, backup, and locale suites: `TestReplaceAllValidatedTx` (`xenobot/db/eventmsg`),
   `TestEventMessagesInBackup`, `TestEventMessagesImportValidationAndSkipped`, `TestOldExportWithoutMessagesAndOmittedFields`, and
-  `TestAllModulesRoundTripEveryMeaningfulField` (`fuku/db/backup`), and `fuku/i18n/settings_locale_test.go` (covering all 18 Backup
+  `TestAllModulesRoundTripEveryMeaningfulField` (`xenobot/db/backup`), and `xenobot/i18n/settings_locale_test.go` (covering all 18 Backup
   page keys, 2 alerts, and all 20 `backup_module_*` labels `<= 20` runes with checkbox prefix across all 8 languages). Runtime, UI,
-  safeguard, and E2E suites in `fuku/modules`: `TestSharedBackupApplyHelpers` and `TestSettingsBackupRedisTokens` (`backup_test.go`),
+  safeguard, and E2E suites in `xenobot/modules`: `TestSharedBackupApplyHelpers` and `TestSettingsBackupRedisTokens` (`backup_test.go`),
   `TestSettingsBackupPage` (`settings_backup_test.go`), `TestPhase30Codes`, `TestPhase30ReadsCreateNothing`, and
   `TestPhase30StaffPrivacyAndLogs` (`settings_phase30_test.go`), and `TestPhase30EndToEnd` (`phase30_e2e_test.go`).
   Provisional owner decisions recorded for Phase 30:
   - **P30-01 (Cross-Replica Pending Backup State):** Pending Backup page Import and Reset confirmations are stored in Redis under
-    `fuku:settings:backup:import:<token>` (serialized parsed `BackupFormat` capped at 2 MiB `maxSettingsBackupRedisBytes`) and
-    `fuku:settings:backup:reset:<token>` (TTL `settingsCardLifetime` 5m, `SET NX`, peek-and-bind check before atomic Lua `GET+DEL`),
+    `xenobot:settings:backup:import:<token>` (serialized parsed `BackupFormat` capped at 2 MiB `maxSettingsBackupRedisBytes`) and
+    `xenobot:settings:backup:reset:<token>` (TTL `settingsCardLifetime` 5m, `SET NX`, peek-and-bind check before atomic Lua `GET+DEL`),
     failing closed when Redis is unavailable rather than re-downloading Telegram files at Yes or relying on single-replica in-memory
     maps.
   - **P30-02 (Reset Clears Custom Messages and Options):** Because `"messages"` (`BackupModuleMessages`) is an exportable backup

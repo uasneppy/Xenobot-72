@@ -29,18 +29,18 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -trimpath \
     -ldflags="-s -w -X main.version=pr-${PR_NUMBER} -X main.commit=${COMMIT_SHA}" \
-    -o fuku_robot .
+    -o xenobot-72 .
 
 # Stage 2: Minimal runtime image
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
-COPY --from=builder /app/fuku_robot .
+COPY --from=builder /app/xenobot-72 .
 COPY migrations /app/migrations
 EXPOSE 8080
 USER nonroot
-ENTRYPOINT ["./fuku_robot"]
+ENTRYPOINT ["./xenobot-72"]
 
 # Metadata
-LABEL org.opencontainers.image.source="https://github.com/uasneppy/fuku_robot"
+LABEL org.opencontainers.image.source="https://github.com/uasneppy/Xenobot-72"
 LABEL org.opencontainers.image.title="Xenobot-72 - PR Build"
 LABEL org.opencontainers.image.description="Pull Request build of Xenobot-72"

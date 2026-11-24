@@ -9,15 +9,15 @@ Pre-built binaries are available for all major platforms, making it easy to depl
 
 | Platform | Architecture | Archive Name |
 |----------|-------------|-------------|
-| Linux | amd64 | `fuku_robot_linux_amd64.tar.gz` |
-| Linux | arm64 | `fuku_robot_linux_arm64.tar.gz` |
-| macOS | amd64 (Intel) | `fuku_robot_macOS_amd64.tar.gz` |
-| macOS | arm64 (Apple Silicon) | `fuku_robot_macOS_arm64.tar.gz` |
-| Windows | amd64 | `fuku_robot_windows_amd64.zip` |
-| Windows | arm64 | `fuku_robot_windows_arm64.zip` |
+| Linux | amd64 | `xenobot-72_linux_amd64.tar.gz` |
+| Linux | arm64 | `xenobot-72_linux_arm64.tar.gz` |
+| macOS | amd64 (Intel) | `xenobot-72_macOS_amd64.tar.gz` |
+| macOS | arm64 (Apple Silicon) | `xenobot-72_macOS_arm64.tar.gz` |
+| Windows | amd64 | `xenobot-72_windows_amd64.zip` |
+| Windows | arm64 | `xenobot-72_windows_arm64.zip` |
 
 :::note[Binary Name]
-The binary inside every archive is named `fuku_robot` (or `fuku_robot.exe` on Windows). This is consistent across all platforms.
+The binary inside every archive is named `xenobot-72` (or `xenobot-72.exe` on Windows). This is consistent across all platforms.
 :::
 
 :::caution[Platform Selection]
@@ -30,19 +30,19 @@ Download the latest release from GitHub:
 
 ```bash
 # Get the latest release version
-VERSION=$(curl -s https://api.github.com/repos/uasneppy/fuku_robot/releases/latest | grep tag_name | cut -d '"' -f 4)
+VERSION=$(curl -s https://api.github.com/repos/uasneppy/Xenobot-72/releases/latest | grep tag_name | cut -d '"' -f 4)
 
 # Download for Linux amd64
-curl -LO "https://github.com/uasneppy/fuku_robot/releases/download/${VERSION}/fuku_robot_${VERSION}_linux_amd64.tar.gz"
+curl -LO "https://github.com/uasneppy/Xenobot-72/releases/download/${VERSION}/xenobot-72_${VERSION}_linux_amd64.tar.gz"
 
 # Extract
-tar -xzf fuku_robot_${VERSION}_linux_amd64.tar.gz
+tar -xzf xenobot-72_${VERSION}_linux_amd64.tar.gz
 
 # Make executable
-chmod +x fuku_robot
+chmod +x xenobot-72
 ```
 
-Or visit the [GitHub Releases](https://github.com/uasneppy/fuku_robot/releases) page to download manually.
+Or visit the [GitHub Releases](https://github.com/uasneppy/Xenobot-72/releases) page to download manually.
 
 ## Verify Checksums
 
@@ -50,7 +50,7 @@ Each release includes a `checksums.txt` file with SHA256 hashes:
 
 ```bash
 # Download checksums
-curl -LO "https://github.com/uasneppy/fuku_robot/releases/download/${VERSION}/checksums.txt"
+curl -LO "https://github.com/uasneppy/Xenobot-72/releases/download/${VERSION}/checksums.txt"
 
 # Verify
 sha256sum -c checksums.txt --ignore-missing
@@ -73,7 +73,7 @@ Always verify checksums after downloading to ensure the binary has not been tamp
     BOT_TOKEN=your_bot_token
     OWNER_ID=your_telegram_id
     MESSAGE_DUMP=-100xxxxxxxxxx
-    DATABASE_URL=postgresql://fuku:change-me@localhost:5432/fuku
+    DATABASE_URL=postgresql://xenobot:change-me@localhost:5432/xenobot
     REDIS_ADDRESS=localhost:6379
     EOF
     ```
@@ -81,7 +81,7 @@ Always verify checksums after downloading to ensure the binary has not been tamp
 
   <Step title="Run the bot">
     ```bash
-    ./fuku_robot
+    ./xenobot-72
     ```
   </Step>
 </Steps>
@@ -93,7 +93,7 @@ For production deployments on Linux, run Xenobot-72 as a systemd service.
 ### Create Service File
 
 ```bash
-sudo nano /etc/systemd/system/fuku-robot.service
+sudo nano /etc/systemd/system/xenobot-72.service
 ```
 
 Add the following content:
@@ -106,17 +106,17 @@ Wants=postgresql.service redis.service
 
 [Service]
 Type=simple
-User=fuku
-Group=fuku
-WorkingDirectory=/opt/fuku-robot
-ExecStart=/opt/fuku-robot/fuku_robot
+User=xenobot
+Group=xenobot
+WorkingDirectory=/opt/xenobot-72
+ExecStart=/opt/xenobot-72/xenobot-72
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
 # Environment file
-EnvironmentFile=/opt/fuku-robot/.env
+EnvironmentFile=/opt/xenobot-72/.env
 
 # Resource limits
 LimitNOFILE=65535
@@ -144,31 +144,31 @@ WantedBy=multi-user.target
 <Steps>
   <Step title="Create user and directory">
     ```bash
-    sudo useradd -r -s /bin/false fuku
-    sudo mkdir -p /opt/fuku-robot
-    sudo chown fuku:fuku /opt/fuku-robot
+    sudo useradd -r -s /bin/false xenobot
+    sudo mkdir -p /opt/xenobot-72
+    sudo chown xenobot:xenobot /opt/xenobot-72
     ```
   </Step>
 
   <Step title="Copy binary and config">
     ```bash
-    sudo cp fuku_robot /opt/fuku-robot/
-    sudo cp .env /opt/fuku-robot/
-    sudo chmod 600 /opt/fuku-robot/.env
-    sudo chown fuku:fuku /opt/fuku-robot/*
+    sudo cp xenobot-72 /opt/xenobot-72/
+    sudo cp .env /opt/xenobot-72/
+    sudo chmod 600 /opt/xenobot-72/.env
+    sudo chown xenobot:xenobot /opt/xenobot-72/*
     ```
   </Step>
 
   <Step title="Copy migrations if using auto-migrate">
     ```bash
-    sudo cp -r migrations /opt/fuku-robot/
+    sudo cp -r migrations /opt/xenobot-72/
     ```
   </Step>
 
   <Step title="Reload systemd and enable service">
     ```bash
     sudo systemctl daemon-reload
-    sudo systemctl enable fuku-robot
+    sudo systemctl enable xenobot-72
     ```
   </Step>
 </Steps>
@@ -177,19 +177,19 @@ WantedBy=multi-user.target
 
 ```bash
 # Start the service
-sudo systemctl start fuku-robot
+sudo systemctl start xenobot-72
 
 # Check status
-sudo systemctl status fuku-robot
+sudo systemctl status xenobot-72
 
 # View logs
-sudo journalctl -u fuku-robot -f
+sudo journalctl -u xenobot-72 -f
 
 # Stop the service
-sudo systemctl stop fuku-robot
+sudo systemctl stop xenobot-72
 
 # Restart the service
-sudo systemctl restart fuku-robot
+sudo systemctl restart xenobot-72
 ```
 
 ## Log Rotation
@@ -197,7 +197,7 @@ sudo systemctl restart fuku-robot
 Configure log rotation for journald logs:
 
 ```bash
-sudo nano /etc/systemd/journald.conf.d/fuku-robot.conf
+sudo nano /etc/systemd/journald.conf.d/xenobot-72.conf
 ```
 
 ```ini
@@ -210,34 +210,34 @@ MaxRetentionSec=1month
 Or use a dedicated log file with logrotate:
 
 ```bash
-sudo nano /etc/logrotate.d/fuku-robot
+sudo nano /etc/logrotate.d/xenobot-72
 ```
 
 ```
-/var/log/fuku-robot/*.log {
+/var/log/xenobot-72/*.log {
     daily
     rotate 7
     compress
     delaycompress
     missingok
     notifempty
-    create 640 fuku fuku
+    create 640 xenobot xenobot
     postrotate
-        systemctl reload fuku-robot > /dev/null 2>&1 || true
+        systemctl reload xenobot-72 > /dev/null 2>&1 || true
     endscript
 }
 ```
 
 ## Environment File
 
-Create `/opt/fuku-robot/.env`:
+Create `/opt/xenobot-72/.env`:
 
 ```bash
 # Required
 BOT_TOKEN=your_bot_token
 OWNER_ID=your_telegram_id
 MESSAGE_DUMP=-100xxxxxxxxxx
-DATABASE_URL=postgresql://fuku:change-me@localhost:5432/fuku
+DATABASE_URL=postgresql://xenobot:change-me@localhost:5432/xenobot
 
 # Redis endpoint (optional when Redis is at localhost:6379)
 # REDIS_ADDRESS=redis-host:6379
@@ -268,25 +268,25 @@ Always set restrictive permissions on the `.env` file since it contains sensitiv
   <Tab title="Apple Silicon">
     ```bash
     # Get the latest release version
-    VERSION=$(curl -s https://api.github.com/repos/uasneppy/fuku_robot/releases/latest | grep tag_name | cut -d '"' -f 4)
+    VERSION=$(curl -s https://api.github.com/repos/uasneppy/Xenobot-72/releases/latest | grep tag_name | cut -d '"' -f 4)
 
     # Download and extract
-    curl -LO "https://github.com/uasneppy/fuku_robot/releases/download/${VERSION}/fuku_robot_${VERSION}_macOS_arm64.tar.gz"
-    tar -xzf fuku_robot_${VERSION}_macOS_arm64.tar.gz
-    chmod +x fuku_robot
-    ./fuku_robot
+    curl -LO "https://github.com/uasneppy/Xenobot-72/releases/download/${VERSION}/xenobot-72_${VERSION}_macOS_arm64.tar.gz"
+    tar -xzf xenobot-72_${VERSION}_macOS_arm64.tar.gz
+    chmod +x xenobot-72
+    ./xenobot-72
     ```
   </Tab>
   <Tab title="Intel">
     ```bash
     # Get the latest release version
-    VERSION=$(curl -s https://api.github.com/repos/uasneppy/fuku_robot/releases/latest | grep tag_name | cut -d '"' -f 4)
+    VERSION=$(curl -s https://api.github.com/repos/uasneppy/Xenobot-72/releases/latest | grep tag_name | cut -d '"' -f 4)
 
     # Download and extract
-    curl -LO "https://github.com/uasneppy/fuku_robot/releases/download/${VERSION}/fuku_robot_${VERSION}_macOS_amd64.tar.gz"
-    tar -xzf fuku_robot_${VERSION}_macOS_amd64.tar.gz
-    chmod +x fuku_robot
-    ./fuku_robot
+    curl -LO "https://github.com/uasneppy/Xenobot-72/releases/download/${VERSION}/xenobot-72_${VERSION}_macOS_amd64.tar.gz"
+    tar -xzf xenobot-72_${VERSION}_macOS_amd64.tar.gz
+    chmod +x xenobot-72
+    ./xenobot-72
     ```
   </Tab>
 </Tabs>
@@ -297,7 +297,7 @@ For automatic startup on macOS:
 
 ```bash
 mkdir -p ~/Library/LaunchAgents
-nano ~/Library/LaunchAgents/com.fuku-robot.plist
+nano ~/Library/LaunchAgents/com.xenobot-72.plist
 ```
 
 ```xml
@@ -306,21 +306,21 @@ nano ~/Library/LaunchAgents/com.fuku-robot.plist
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.fuku-robot</string>
+    <string>com.xenobot-72</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/fuku_robot</string>
+        <string>/usr/local/bin/xenobot-72</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/usr/local/etc/fuku-robot</string>
+    <string>/usr/local/etc/xenobot-72</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/usr/local/var/log/fuku-robot.log</string>
+    <string>/usr/local/var/log/xenobot-72.log</string>
     <key>StandardErrorPath</key>
-    <string>/usr/local/var/log/fuku-robot.log</string>
+    <string>/usr/local/var/log/xenobot-72.log</string>
 </dict>
 </plist>
 ```
@@ -328,15 +328,15 @@ nano ~/Library/LaunchAgents/com.fuku-robot.plist
 Load the agent:
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.fuku-robot.plist
+launchctl load ~/Library/LaunchAgents/com.xenobot-72.plist
 ```
 
 ## Windows Installation
 
 ### Download and Extract
 
-1. Download the Windows binary from [GitHub Releases](https://github.com/uasneppy/fuku_robot/releases)
-2. Extract the ZIP file to a directory (e.g., `C:\fuku-robot`)
+1. Download the Windows binary from [GitHub Releases](https://github.com/uasneppy/Xenobot-72/releases)
+2. Extract the ZIP file to a directory (e.g., `C:\xenobot-72`)
 3. Create a `.env` file in the same directory
 
 ### Run as a Service
@@ -348,13 +348,13 @@ Use [NSSM](https://nssm.cc/) (Non-Sucking Service Manager) to run as a Windows s
 choco install nssm
 
 # Install service
-nssm install FukuRobot C:\fuku-robot\fuku_robot.exe
-nssm set FukuRobot AppDirectory C:\fuku-robot
-nssm set FukuRobot AppEnvironmentExtra BOT_TOKEN=your_token
-nssm set FukuRobot Start SERVICE_AUTO_START
+nssm install Xenobot72 C:\xenobot-72\xenobot-72.exe
+nssm set Xenobot72 AppDirectory C:\xenobot-72
+nssm set Xenobot72 AppEnvironmentExtra BOT_TOKEN=your_token
+nssm set Xenobot72 Start SERVICE_AUTO_START
 
 # Start service
-nssm start FukuRobot
+nssm start Xenobot72
 ```
 
 ## Updating
@@ -362,27 +362,27 @@ nssm start FukuRobot
 <Steps>
   <Step title="Stop the service">
     ```bash
-    sudo systemctl stop fuku-robot
+    sudo systemctl stop xenobot-72
     ```
   </Step>
 
   <Step title="Download the new binary">
     ```bash
-    VERSION=$(curl -s https://api.github.com/repos/uasneppy/fuku_robot/releases/latest | grep tag_name | cut -d '"' -f 4)
-    curl -LO "https://github.com/uasneppy/fuku_robot/releases/download/${VERSION}/fuku_robot_${VERSION}_linux_amd64.tar.gz"
-    tar -xzf fuku_robot_${VERSION}_linux_amd64.tar.gz
+    VERSION=$(curl -s https://api.github.com/repos/uasneppy/Xenobot-72/releases/latest | grep tag_name | cut -d '"' -f 4)
+    curl -LO "https://github.com/uasneppy/Xenobot-72/releases/download/${VERSION}/xenobot-72_${VERSION}_linux_amd64.tar.gz"
+    tar -xzf xenobot-72_${VERSION}_linux_amd64.tar.gz
     ```
   </Step>
 
   <Step title="Replace the existing binary">
     ```bash
-    sudo cp fuku_robot /opt/fuku-robot/
+    sudo cp xenobot-72 /opt/xenobot-72/
     ```
   </Step>
 
   <Step title="Start the service">
     ```bash
-    sudo systemctl start fuku-robot
+    sudo systemctl start xenobot-72
     ```
   </Step>
 </Steps>
@@ -392,7 +392,7 @@ nssm start FukuRobot
 ### Permission denied
 
 ```bash
-chmod +x fuku_robot
+chmod +x xenobot-72
 ```
 
 ### Library not found
@@ -406,7 +406,7 @@ The binary is statically compiled, so no external libraries are needed. If you s
 Verify PostgreSQL is running and accessible:
 
 ```bash
-psql -h localhost -U postgres -d fuku -c "SELECT 1"
+psql -h localhost -U postgres -d xenobot -c "SELECT 1"
 ```
 
 ### Service won't start
@@ -414,7 +414,7 @@ psql -h localhost -U postgres -d fuku -c "SELECT 1"
 Check the logs:
 
 ```bash
-sudo journalctl -u fuku-robot -n 50
+sudo journalctl -u xenobot-72 -n 50
 ```
 
 Common issues:

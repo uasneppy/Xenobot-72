@@ -7,13 +7,13 @@ Xenobot-72 uses Redis as its caching layer to reduce database load and improve r
 
 ## Cache Configuration
 
-`fuku/utils/cache/cache.go` initializes Redis with connection retries and exposes a nil-safe marshaler. `fuku/db/cache/` provides keys, TTLs, shared database loads, and invalidation.
+`xenobot/utils/cache/cache.go` initializes Redis with connection retries and exposes a nil-safe marshaler. `xenobot/db/cache/` provides keys, TTLs, shared database loads, and invalidation.
 
 `REDIS_URL` supports credentials in the URL; `REDIS_PASSWORD` overrides the password. `REDIS_ADDRESS` selects a direct address. `REDIS_DB` defaults to 1 and accepts an explicit 0. See the [environment reference](/api-reference/environment/) for configuration.
 
 ## TTL Values
 
-Cache Time-To-Live (TTL) values are defined in `fuku/db/cache/ttl.go`:
+Cache Time-To-Live (TTL) values are defined in `xenobot/db/cache/ttl.go`:
 
 | Constant | Duration | Used For |
 |----------|----------|----------|
@@ -40,43 +40,43 @@ Choose TTL based on how frequently data changes:
 
 ## Key Patterns
 
-Disposable snapshots use `fuku:cache:`. Operational state uses its existing `fuku:` domain keys:
+Disposable snapshots use `xenobot:cache:`. Operational state uses its existing `xenobot:` domain keys:
 
 | Key Pattern | Description |
 |-------------|-------------|
-| `fuku:cache:chat_settings:{chatId}` | Legacy invalidation target only — settings are read via `fuku:cache:chat:{chatId}` |
-| `fuku:cache:user_lang:{userId}` | User language preference |
-| `fuku:cache:chat_lang:{chatId}` | Chat language preference |
-| `fuku:cache:filter_list:{chatId}` | List of filters for chat |
-| `fuku:cache:blacklist:{chatId}` | Blacklist settings |
-| `fuku:cache:warn_settings:{chatId}` | Warning settings |
-| `fuku:cache:disabled_cmds:{chatId}` | Disabled commands |
-| `fuku:anonAdmin:{chatId}:{msgId}` | Anonymous admin verification (20s TTL) |
-| `fuku:cache:adminCache:{chatId}` | Cached admin list for a chat (30min TTL) |
-| `fuku:cache:captcha_settings:{chatId}` | Captcha settings (30 min TTL) |
-| `fuku:cache:approvals:{chatId}` | Approved users list (30 min TTL) |
-| `fuku:cache:raid_detection:{chatId}` | Automatic raid detection settings (30 min TTL, never served from the local layer) |
-| `fuku:raid:{chatId}:joined` | Join surge counter: a sorted set of the last 24 hours of joins, scored by join time (25 h TTL, newest 5000 kept); the chat ID is a hash tag |
-| `fuku:raid:{chatId}:fi`, `:fn`, `:fa` | Flood counter: the window's items, the items from new members, and those members (30 s window, 2 min TTL) |
-| `fuku:raid:{chatId}:fire` | Short latch that sheds load while a trigger starts a lockdown (60 s, shorter or longer after some outcomes) |
-| `fuku:raid:{chatId}:flooders` | Snapshot of the flooding accounts saved for the lockdown alert (15 min TTL) |
-| `fuku:raid:{chatId}:av`, `:aa` | AI burst counter: the spam verdict items (one per message or album) and the accounts behind them (120 s window, 5 min TTL, newest 1000 of each kept). Message text is never stored |
-| `fuku:raid:{chatId}:aispammers` | Snapshot of the recent joiners (joined within 24 h) behind the counted AI verdicts, saved for the lockdown alert (15 min TTL) |
-| `fuku:raid:{chatId}:ar:{userId}` | Repeat test of the raid AI candidate watcher: short hashes of a new member's last 5 texts, never the text itself (1 h TTL) |
-| `fuku:raid:{chatId}:ag:{mediaGroupId}` | Album gate: only the first photo of an album is judged (120 s) |
-| `fuku:raid:{chatId}:abu:{userId}:{hour}`, `fuku:raid:{chatId}:ab:{hour}` and `fuku:raid:aibudget:{hour}` | Hourly image-check budgets, 20 calls per account in a group, 150 per group and 500 in all, counted per UTC hour (2 h TTL) |
-| `fuku:raid:aiv:{fileUniqueId}` | Cached image verdict for one image, so the same file is not sent twice (1 h TTL) |
-| `fuku:raid:{chatId}:warn` | Once-a-day gate for the "raid detected but I can't lock this group" warning (24 h) |
-| `fuku:cache:locks_map:{chatId}` | Lock status (1 hour TTL, from optimized queries) |
-| `fuku:cache:user:{userId}` | User basic info (1 hour TTL, from optimized queries) |
-| `fuku:cache:chat:{chatId}` | Chat basic info (30 min TTL, from optimized queries) |
-| `fuku:cache:antiflood:{chatId}` | Antiflood settings (30 min TTL, from optimized queries) |
-| `fuku:cache:channel:{chatId}` | Channel settings (30 min TTL, from optimized queries) |
+| `xenobot:cache:chat_settings:{chatId}` | Legacy invalidation target only — settings are read via `xenobot:cache:chat:{chatId}` |
+| `xenobot:cache:user_lang:{userId}` | User language preference |
+| `xenobot:cache:chat_lang:{chatId}` | Chat language preference |
+| `xenobot:cache:filter_list:{chatId}` | List of filters for chat |
+| `xenobot:cache:blacklist:{chatId}` | Blacklist settings |
+| `xenobot:cache:warn_settings:{chatId}` | Warning settings |
+| `xenobot:cache:disabled_cmds:{chatId}` | Disabled commands |
+| `xenobot:anonAdmin:{chatId}:{msgId}` | Anonymous admin verification (20s TTL) |
+| `xenobot:cache:adminCache:{chatId}` | Cached admin list for a chat (30min TTL) |
+| `xenobot:cache:captcha_settings:{chatId}` | Captcha settings (30 min TTL) |
+| `xenobot:cache:approvals:{chatId}` | Approved users list (30 min TTL) |
+| `xenobot:cache:raid_detection:{chatId}` | Automatic raid detection settings (30 min TTL, never served from the local layer) |
+| `xenobot:raid:{chatId}:joined` | Join surge counter: a sorted set of the last 24 hours of joins, scored by join time (25 h TTL, newest 5000 kept); the chat ID is a hash tag |
+| `xenobot:raid:{chatId}:fi`, `:fn`, `:fa` | Flood counter: the window's items, the items from new members, and those members (30 s window, 2 min TTL) |
+| `xenobot:raid:{chatId}:fire` | Short latch that sheds load while a trigger starts a lockdown (60 s, shorter or longer after some outcomes) |
+| `xenobot:raid:{chatId}:flooders` | Snapshot of the flooding accounts saved for the lockdown alert (15 min TTL) |
+| `xenobot:raid:{chatId}:av`, `:aa` | AI burst counter: the spam verdict items (one per message or album) and the accounts behind them (120 s window, 5 min TTL, newest 1000 of each kept). Message text is never stored |
+| `xenobot:raid:{chatId}:aispammers` | Snapshot of the recent joiners (joined within 24 h) behind the counted AI verdicts, saved for the lockdown alert (15 min TTL) |
+| `xenobot:raid:{chatId}:ar:{userId}` | Repeat test of the raid AI candidate watcher: short hashes of a new member's last 5 texts, never the text itself (1 h TTL) |
+| `xenobot:raid:{chatId}:ag:{mediaGroupId}` | Album gate: only the first photo of an album is judged (120 s) |
+| `xenobot:raid:{chatId}:abu:{userId}:{hour}`, `xenobot:raid:{chatId}:ab:{hour}` and `xenobot:raid:aibudget:{hour}` | Hourly image-check budgets, 20 calls per account in a group, 150 per group and 500 in all, counted per UTC hour (2 h TTL) |
+| `xenobot:raid:aiv:{fileUniqueId}` | Cached image verdict for one image, so the same file is not sent twice (1 h TTL) |
+| `xenobot:raid:{chatId}:warn` | Once-a-day gate for the "raid detected but I can't lock this group" warning (24 h) |
+| `xenobot:cache:locks_map:{chatId}` | Lock status (1 hour TTL, from optimized queries) |
+| `xenobot:cache:user:{userId}` | User basic info (1 hour TTL, from optimized queries) |
+| `xenobot:cache:chat:{chatId}` | Chat basic info (30 min TTL, from optimized queries) |
+| `xenobot:cache:antiflood:{chatId}` | Antiflood settings (30 min TTL, from optimized queries) |
+| `xenobot:cache:channel:{chatId}` | Channel settings (30 min TTL, from optimized queries) |
 
 ### Anonymous Admin Verification Flow
 
 When an anonymous admin uses a command, the bot:
-1. Stores the original message in cache with key `fuku:anonAdmin:{chatId}:{msgId}`
+1. Stores the original message in cache with key `xenobot:anonAdmin:{chatId}:{msgId}`
 2. Sends a verification button to the chat
 3. When clicked, the callback handler retrieves the original message from cache via `cache.GetMarshal().Get`
 4. The bot verifies the user is an admin and executes the original command
@@ -85,7 +85,7 @@ When an anonymous admin uses a command, the bot:
 // Store original message for anonymous admin
 cache.GetMarshal().Set(
     cache.Context,
-    fmt.Sprintf("fuku:anonAdmin:%d:%d", chatId, msgId),
+    fmt.Sprintf("xenobot:anonAdmin:%d:%d", chatId, msgId),
     originalMessage,
     store.WithExpiration(20*time.Second),  // Short TTL - button expires quickly
 )
@@ -94,7 +94,7 @@ cache.GetMarshal().Set(
 var originalMsg gotgbot.Message
 _, err := cache.GetMarshal().Get(
     cache.Context,
-    fmt.Sprintf("fuku:anonAdmin:%d:%d", chatId, msgId),
+    fmt.Sprintf("xenobot:anonAdmin:%d:%d", chatId, msgId),
     &originalMsg,
 )
 ```
@@ -103,11 +103,11 @@ _, err := cache.GetMarshal().Get(
 The anonymous admin verification window is intentionally short. If the admin does not click the verification button within 20 seconds, the cached message expires and the command is silently dropped. This prevents stale command executions and reduces cache memory usage.
 :::
 
-Generate database cache keys with `cache.CacheKey("domain", id, ...)` from `fuku/db/cache`. The domain must match the corresponding writer's invalidation key; package names and cache domains sometimes differ.
+Generate database cache keys with `cache.CacheKey("domain", id, ...)` from `xenobot/db/cache`. The domain must match the corresponding writer's invalidation key; package names and cache domains sometimes differ.
 
 ## Stampede Protection
 
-`fuku/db/cache.GetFromCacheOrLoad(ctx, key, ttl, loader)` shares one database load among concurrent callers for the same key. Each caller keeps its own cancellation and deadline. The shared query has a 30-second deadline and is canceled when its last waiting caller leaves.
+`xenobot/db/cache.GetFromCacheOrLoad(ctx, key, ttl, loader)` shares one database load among concurrent callers for the same key. Each caller keeps its own cancellation and deadline. The shared query has a 30-second deadline and is canceled when its last waiting caller leaves.
 
 The loader receives a `context.Context`; pass it to `DB.WithContext(ctx)` or the context-aware database wrappers. A cache read failure falls through to the loader once. Loader failures propagate to the caller, without a second database query. Failed or canceled loads are not cached. Invalidation prevents an older load from repopulating a stale value.
 
@@ -126,9 +126,9 @@ return cache.GetFromCacheOrLoad(ctx, cache.CacheKey("settings", chatID), time.Mi
 `GetFromCacheOrLoad` checks a short-TTL, size-bounded in-process LRU before Redis. A hit decodes stored msgpack bytes, so every caller gets its own copy and may mutate it safely. Entries are added after a Redis hit and after a successful load, and only if no `DeleteCache` for the key ran since the read started.
 
 - **TTL:** `CACHE_LOCAL_TTL` seconds (default `10`, `0` disables the layer). `CACHE_LOCAL_MAX_ENTRIES` (default `50000`) bounds its size. `DISABLE_CACHE=true` also disables it.
-- **Scope:** only `GetFromCacheOrLoad` keys. The admin cache, operational keys (`fuku:raid:*`, `fuku:lockdown:*`, `fuku:staff:*`, `fuku:anonAdmin:*`, ...) and keys listed in `skipLocal` (`fuku/db/cache/local.go`), such as the captcha pending flag and the raid detection settings, always go to Redis.
+- **Scope:** only `GetFromCacheOrLoad` keys. The admin cache, operational keys (`xenobot:raid:*`, `xenobot:lockdown:*`, `xenobot:staff:*`, `xenobot:anonAdmin:*`, ...) and keys listed in `skipLocal` (`xenobot/db/cache/local.go`), such as the captcha pending flag and the raid detection settings, always go to Redis.
 - **Multiple replicas:** `DeleteCache` evicts the local copy on the replica that performs the write, so that replica sees the change immediately. Other replicas can serve the old value for up to `CACHE_LOCAL_TTL` seconds. There is no cross-replica invalidation.
-- **Metrics:** `fuku_cache_local_hits_total` and `fuku_cache_local_misses_total`.
+- **Metrics:** `xenobot_cache_local_hits_total` and `xenobot_cache_local_misses_total`.
 
 If a key must be fresh across replicas, add its prefix to `skipLocal`.
 
@@ -138,25 +138,25 @@ If a key must be fresh across replicas, add its prefix to `skipLocal`.
 Every database write function that modifies cached data MUST call the corresponding cache invalidation function. Missing invalidation is the most common caching bug and causes users to see stale data for up to the TTL duration (30 minutes to 1 hour).
 :::
 
-After a successful write, call `cache.DeleteCache(cache.CacheKey("domain", id))` from `fuku/db/cache`. This detaches older pending loads and prevents them from storing stale data. Direct marshaler deletion bypasses that protection.
+After a successful write, call `cache.DeleteCache(cache.CacheKey("domain", id))` from `xenobot/db/cache`. This detaches older pending loads and prevents them from storing stale data. Direct marshaler deletion bypasses that protection.
 
 Invalidate every affected representation. For example, filter writes invalidate both `filter_list` and `filters_optimized`; language writes invalidate the language key and the associated chat or user snapshot.
 
 ## Admin Cache
 
-`fuku/utils/cache/adminCache.go` verifies the bot's status before fetching administrators with `ReturnBots: true`. Concurrent lookups share one Telegram request. Results are stored synchronously and include a user-ID map for permission checks.
+`xenobot/utils/cache/adminCache.go` verifies the bot's status before fetching administrators with `ReturnBots: true`. Concurrent lookups share one Telegram request. Results are stored synchronously and include a user-ID map for permission checks.
 
 `BotUpdates` invalidates permissions for both `ChatMember` and `MyChatMember` events involving an administrator or creator, including permission edits that keep the same status. Invalidation detaches pending requests and prevents a delayed response from restoring old permissions. Promotion, demotion, and manual clearing use the same invalidation path.
 
-Use `InvalidateAdminCache(chatID)` from `fuku/utils/cache` for event handling, or `ClearAdminCache(chatID)` when the caller needs to report a deletion error.
+Use `InvalidateAdminCache(chatID)` from `xenobot/utils/cache` for event handling, or `ClearAdminCache(chatID)` when the caller needs to report a deletion error.
 
 ## CLEAR_CACHE_ON_STARTUP
 
 `CLEAR_CACHE_ON_STARTUP` defaults to `false`. Normal restarts preserve cached data to avoid a burst of database queries.
 
-When explicitly enabled, `ClearAllCaches` uses Redis `SCAN` and `UNLINK` to remove only `fuku:cache:*` entries. Operational keys (raid detection counters under `fuku:raid:*`, lockdown and staff state), pending confirmations, and unrelated application keys remain intact. Use this option when cached data needs to be rebuilt after a format change.
+When explicitly enabled, `ClearAllCaches` uses Redis `SCAN` and `UNLINK` to remove only `xenobot:cache:*` entries. Operational keys (raid detection counters under `xenobot:raid:*`, lockdown and staff state), pending confirmations, and unrelated application keys remain intact. Use this option when cached data needs to be rebuilt after a format change.
 
-Old cache keys from versions predating the `fuku:cache:` namespace expire through their existing TTLs. Deployments should finish replacing the old version before relying on invalidation across instances, because older instances still use the old cache keys.
+Old cache keys from versions predating the `xenobot:cache:` namespace expire through their existing TTLs. Deployments should finish replacing the old version before relying on invalidation across instances, because older instances still use the old cache keys.
 
 ## Database Errors and Deadlines
 
@@ -179,17 +179,17 @@ Monitor cache performance via:
 redis-cli DBSIZE
 
 # View all Xenobot-72 keys
-redis-cli --scan --pattern "fuku:*"
+redis-cli --scan --pattern "xenobot:*"
 
 # Check specific key TTL
-redis-cli TTL "fuku:cache:chat:123456789"
+redis-cli TTL "xenobot:cache:chat:123456789"
 
 # Memory usage
-redis-cli MEMORY USAGE "fuku:cache:chat:123456789"
+redis-cli MEMORY USAGE "xenobot:cache:chat:123456789"
 ```
 
 :::tip[Cache operations]
-Use `GetFromCacheOrLoad()` and `DeleteCache()` from `fuku/db/cache` for database snapshots. Use `cache.GetMarshal()` from `fuku/utils/cache` for operational state, and check for nil before access.
+Use `GetFromCacheOrLoad()` and `DeleteCache()` from `xenobot/db/cache` for database snapshots. Use `cache.GetMarshal()` from `xenobot/utils/cache` for operational state, and check for nil before access.
 :::
 
 ## Next Steps

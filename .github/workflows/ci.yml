@@ -229,20 +229,20 @@ jobs:
 
       - name: Build Go binary
         run: |
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /tmp/fuku_robot .
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /tmp/xenobot-72 .
           # Version check from /tmp to avoid loading .env file (no services needed)
-          cd /tmp && ./fuku_robot --version
+          cd /tmp && ./xenobot-72 --version
 
       - name: Upload build artifact
         if: matrix.go-version == 'stable'
         uses: actions/upload-artifact@v7
         with:
           name: build-artifact-${{ github.sha }}
-          path: /tmp/fuku_robot
+          path: /tmp/xenobot-72
           retention-days: 7
 
   # Automated regression tests. `make test` runs as parallel jobs: test-rest runs every
-  # package but fuku/modules, test-shard runs fuku/modules in SHARDS slices, and test merges
+  # package but xenobot/modules, test-shard runs xenobot/modules in SHARDS slices, and test merges
   # their coverage and applies the threshold. Together they run exactly what `make test` runs.
   test-rest:
     name: Tests (other packages)
@@ -254,11 +254,11 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: fuku_test
+          POSTGRES_DB: xenobot_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d fuku_test"
+          --health-cmd "pg_isready -U postgres -d xenobot_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
@@ -276,7 +276,7 @@ jobs:
       OWNER_ID: "1"
       MESSAGE_DUMP: "1"
       REDIS_ADDRESS: "localhost:6379"
-      DATABASE_URL: "postgres://postgres:postgres@localhost:5432/fuku_test?sslmode=disable"
+      DATABASE_URL: "postgres://postgres:postgres@localhost:5432/xenobot_test?sslmode=disable"
       AUTO_MIGRATE: "false"
       USE_WEBHOOKS: "false"
       DEBUG: "false"
@@ -328,12 +328,12 @@ jobs:
 
       - name: Verify repository migration chain
         env:
-          FUKU_TEST_MIGRATION_CHAIN: "true"
-        run: go test -tags testtools -v -count=1 -run '^TestRepositoryMigrationChain$' ./fuku/db/migrations
+          XENOBOT_TEST_MIGRATION_CHAIN: "true"
+        run: go test -tags testtools -v -count=1 -run '^TestRepositoryMigrationChain$' ./xenobot/db/migrations
 
       - name: Run PostgreSQL integrity tests
         env:
-          FUKU_TEST_DATABASE: "true"
+          XENOBOT_TEST_DATABASE: "true"
         run: make test-postgres-integrity
 
       - name: Set up Node.js
@@ -345,10 +345,10 @@ jobs:
         # Node's built-in runner, nothing to install. The glob form is required on Node 22.
         run: node --test scripts/captcha-page/*.test.mjs
 
-      - name: Check that the shards cover every fuku/modules test
+      - name: Check that the shards cover every xenobot/modules test
         run: make test-shard-check
 
-      - name: Run tests of every package but fuku/modules
+      - name: Run tests of every package but xenobot/modules
         run: make test-rest
 
       - name: Upload coverage part
@@ -360,7 +360,7 @@ jobs:
           if-no-files-found: error
 
   test-shard:
-    name: Tests (fuku/modules ${{ matrix.shard }}/4)
+    name: Tests (xenobot/modules ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -393,13 +393,13 @@ jobs:
             go-race-${{ runner.os }}-${{ hashFiles('go.sum') }}-
             go-race-${{ runner.os }}-
 
-      - name: Run fuku/modules shard ${{ matrix.shard }} of 4
+      - name: Run xenobot/modules shard ${{ matrix.shard }} of 4
         run: |
           start_time=$(date +%s)
           make test-shard SHARD=${{ matrix.shard }} SHARDS=4 || test_exit=$?
           duration=$(( $(date +%s) - start_time ))
           echo "Shard ${{ matrix.shard }} duration: ${duration}s"
-          echo "**fuku/modules shard ${{ matrix.shard }}/4:** ${duration} seconds" >> $GITHUB_STEP_SUMMARY
+          echo "**xenobot/modules shard ${{ matrix.shard }}/4:** ${duration} seconds" >> $GITHUB_STEP_SUMMARY
           exit ${test_exit:-0}
 
       - name: Upload coverage part

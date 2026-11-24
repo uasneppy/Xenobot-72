@@ -120,8 +120,8 @@ jobs:
         run: |
           set -euo pipefail
           ver="${TAG#v}"
-          if ! grep -qF "BotVersion:  \"${ver}\"" fuku/config/config.go; then
-            echo "::error::BotVersion in fuku/config/config.go != ${ver} — prepare a version-bump PR with 'make bump-version TAG=${TAG}', merge it, then tag the merged commit" >&2
+          if ! grep -qF "BotVersion:  \"${ver}\"" xenobot/config/config.go; then
+            echo "::error::BotVersion in xenobot/config/config.go != ${ver} — prepare a version-bump PR with 'make bump-version TAG=${TAG}', merge it, then tag the merged commit" >&2
             exit 1
           fi
           if ! grep -qF "version = \"${TAG}\"" main.go; then
@@ -202,7 +202,7 @@ jobs:
       - name: Scan Docker image with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ghcr.io/uasneppy/fuku_robot:latest
+          image-ref: ghcr.io/uasneppy/xenobot-72:latest
           format: table
           exit-code: 0
           severity: CRITICAL,HIGH
@@ -211,4 +211,4 @@ jobs:
         run: |
           echo "Release completed successfully!"
           echo "Artifacts published to GitHub Releases"
-          echo "Docker images available at ghcr.io/uasneppy/fuku_robot"
+          echo "Docker images available at ghcr.io/uasneppy/xenobot-72"

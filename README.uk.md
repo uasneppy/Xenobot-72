@@ -688,8 +688,8 @@ flowchart TD
     end
 
     D --> Groups
-    Groups --> M["fuku/modules<br/>modules register in init(), help loads last"]
-    M --> R["fuku/db repositories"]
+    Groups --> M["xenobot/modules<br/>modules register in init(), help loads last"]
+    M --> R["xenobot/db repositories"]
     R -->|"reads"| L["In-process LRU<br/>CACHE_LOCAL_TTL"]
     L -->|"miss"| RD[("Redis<br/>cache, raid counters,<br/>captcha challenges, pacing")]
     RD -->|"miss"| PG[("PostgreSQL<br/>schema from migrations/*.sql")]
@@ -698,9 +698,9 @@ flowchart TD
     M -->|"replies and actions"| TG
 ```
 
-- **Запуск.** `fuku/config` завантажує `.env` і перевіряє його. `fuku/db` підключається до PostgreSQL (5 спроб) до запуску `main()` і застосовує SQL-міграції, коли `AUTO_MIGRATE=true`. Далі `main.go` налаштовує Redis, вбудовані локалі, трасування, клієнт бота, диспетчер, монітори й HTTP-сервер. Він завантажує 41 модуль, які реєструються самі в `init()` (довідка завантажується останньою), і публікує в `MESSAGE_DUMP` повідомлення «Started Bot!».
+- **Запуск.** `xenobot/config` завантажує `.env` і перевіряє його. `xenobot/db` підключається до PostgreSQL (5 спроб) до запуску `main()` і застосовує SQL-міграції, коли `AUTO_MIGRATE=true`. Далі `main.go` налаштовує Redis, вбудовані локалі, трасування, клієнт бота, диспетчер, монітори й HTTP-сервер. Він завантажує 41 модуль, які реєструються самі в `init()` (довідка завантажується останньою), і публікує в `MESSAGE_DUMP` повідомлення «Started Bot!».
 - **Групи обробників.** Обробники виконуються за номером. Спостерігачі передають оновлення далі. Команди його завершують. Нові команди йдуть через `helpers.WrapCommand` — конвеєр, що виконує перевірки прав і вимкнення, а кожен обробник команди створюється через `helpers.NewBotCommand`, який записує його ім'я. Видалення команд обгортає процесор диспетчера й діє після того, як відпрацюють усі групи. Див. [групи обробників](docs/src/content/docs/architecture/handler-groups.md) і [AGENTS.md](AGENTS.md).
-- **Дані.** Кожна предметна область має пакет-репозиторій у `fuku/db/<domain>/`. Читання йдуть через завантажувач кешу (пам'ять процесу, потім Redis, потім PostgreSQL), а кожен запис скидає кеш-ключі, яких торкається. Оперативний стан у Redis, як-от лічильники рейдів і завдання капчі, лежить поза префіксом кешу й переживає `CLEAR_CACHE_ON_STARTUP`.
+- **Дані.** Кожна предметна область має пакет-репозиторій у `xenobot/db/<domain>/`. Читання йдуть через завантажувач кешу (пам'ять процесу, потім Redis, потім PostgreSQL), а кожен запис скидає кеш-ключі, яких торкається. Оперативний стан у Redis, як-от лічильники рейдів і завдання капчі, лежить поза префіксом кешу й переживає `CLEAR_CACHE_ON_STARTUP`.
 - **Фонова робота.** Воркер локдауну й воркер запланованого видалення відновлюються з бази після перезапуску. Свіпери щогодини перевіряють прив'язки Staff-груп і реєстр адмінів для меню налаштувань.
 - **Вимкнення.** Обробники зупиняються у зворотному порядку в межах бюджету 60 секунд, по 10 секунд кожен, якщо обробник не реєструє власний тайм-аут. Файл Compose задає `stop_grace_period: 75s`, щоб Docker не зупинив процес раніше, ніж закінчиться вимкнення.
 
@@ -762,8 +762,8 @@ flowchart TD
 ### 2. Налаштуйте
 
 ```bash
-git clone https://github.com/uasneppy/Fuku_Robot.git
-cd Fuku_Robot
+git clone https://github.com/uasneppy/Xenobot-72.git
+cd Xenobot-72
 cp sample.env .env
 # Fill in at least BOT_TOKEN, OWNER_ID, MESSAGE_DUMP and DATABASE_URL.
 ```
@@ -772,12 +772,12 @@ cp sample.env .env
 
 ### 3a. Запуск через Docker Compose (робочий стек, режим вебхука)
 
-[`docker-compose.yml`](docker-compose.yml) запускає бота разом із PostgreSQL 17 і Redis 7. Образ бота — `ghcr.io/uasneppy/fuku_robot:latest`. Файл задає `AUTO_MIGRATE=true`, `USE_WEBHOOKS=true` і `DROP_PENDING_UPDATES=true`, публікує порт 8080, перевіряє контейнер командою `fuku_robot --health` і задає `stop_grace_period: 75s`, щоб вимкнення мало повний бюджет 60 секунд. Потрібен публічний HTTPS-домен, що проксіює на порт 8080.
+[`docker-compose.yml`](docker-compose.yml) запускає бота разом із PostgreSQL 17 і Redis 7. Образ бота — `ghcr.io/uasneppy/xenobot-72:latest`. Файл задає `AUTO_MIGRATE=true`, `USE_WEBHOOKS=true` і `DROP_PENDING_UPDATES=true`, публікує порт 8080, перевіряє контейнер командою `/app/xenobot-72 --health` і задає `stop_grace_period: 75s`, щоб вимкнення мало повний бюджет 60 секунд. Потрібен публічний HTTPS-домен, що проксіює на порт 8080.
 
 ```bash
 # .env must define BOT_TOKEN, OWNER_ID, MESSAGE_DUMP, WEBHOOK_DOMAIN and WEBHOOK_SECRET
 docker compose up -d
-docker compose logs -f fuku
+docker compose logs -f xenobot
 ```
 
 Два факти про цей стек.
@@ -787,34 +787,16 @@ docker compose logs -f fuku
   ```yaml
   # local.docker-compose.yml
   services:
-    fuku:
+    xenobot:
       environment:
         METRICS_AUTH_TOKEN: ${METRICS_AUTH_TOKEN}
         TYPESAFE_API_KEY: ${TYPESAFE_API_KEY}
   ```
 
   Запустіть його командою `docker compose -f docker-compose.yml -f local.docker-compose.yml up -d`.
-- Стек постачається з фіксованими демо-обліковими даними: `fuku` і `fuku` для PostgreSQL та `redis` для Redis. PostgreSQL і Redis портів не публікують. Змініть облікові дані, перш ніж використовувати стек для чогось справжнього.
+- Стек постачається з фіксованими демо-обліковими даними: `xenobot` і `xenobot` для PostgreSQL та `redis` для Redis. PostgreSQL і Redis портів не публікують. Змініть облікові дані, перш ніж використовувати стек для чогось справжнього.
 
-### 3b. Локальний стек для налагодження (режим polling)
-
-[`debug.docker-compose.yml`](debug.docker-compose.yml) збирає [`docker/alpine.debug`](docker/alpine.debug) (Alpine з оболонкою), передає боту весь ваш `.env` і публікує PostgreSQL на `5432`, а Redis на `6379`. Спершу додайте до `.env`:
-
-```ini
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=<choose-a-password>
-POSTGRES_DB=fuku_robot
-REDIS_PASSWORD=<choose-a-password>
-AUTO_MIGRATE=true
-```
-
-```bash
-docker compose -f debug.docker-compose.yml up --build
-```
-
-Стек також описує необов'язковий локальний сервер Bot API (`aiogram/telegram-bot-api`). Щоб його використати, задайте `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` і `API_SERVER=http://telegram-bot-api:8081`.
-
-### 3c. Запуск із вихідного коду
+### 3b. Запуск із вихідного коду
 
 ```bash
 # PostgreSQL and Redis must be reachable with the values in .env.
@@ -822,9 +804,9 @@ docker compose -f debug.docker-compose.yml up --build
 make run                       # = go run main.go; long polling unless USE_WEBHOOKS=true
 
 # or build a static binary
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o fuku_robot .
-./fuku_robot                  # keep migrations/ next to it when AUTO_MIGRATE=true
-./fuku_robot --version        # prints the version and exits
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o xenobot-72 .
+./xenobot-72                  # keep migrations/ next to it when AUTO_MIGRATE=true
+./xenobot-72 --version        # prints the version and exits
 ```
 
 Локалі вбудовано в бінарний файл. Міграції читаються з `MIGRATIONS_PATH` (типово `migrations`).
@@ -842,10 +824,6 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o fuku_robot .
 
 Повний покроковий посібник із прикладами проксі та усуненням несправностей — у [посібнику з вебкапчі](docs/src/content/docs/self-hosting/captcha-web.md).
 
-### Інші цілі розгортання
-
-Репозиторій також містить маніфести для [`render.yaml`](render.yaml) (шаблон Render: образ Docker, керовані PostgreSQL і Redis, `HTTP_PORT=10000`), [`railway.toml`](railway.toml) (перевірка стану на `/health`), [`app.json`](app.json) разом із [`Procfile`](Procfile) (Heroku з додатками PostgreSQL і Redis) та [`nixpacks.toml`](nixpacks.toml).
-
 ### Вебхук чи polling
 
 | | Polling (типово) | Вебхук |
@@ -858,7 +836,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o fuku_robot .
 
 ## Конфігурація
 
-Усі змінні нижче я читаю з [`fuku/config/config.go`](fuku/config/config.go), окрім змінних `OTEL_*`, які читає [`fuku/utils/tracing/tracing.go`](fuku/utils/tracing/tracing.go). [`sample.env`](sample.env) — анотований шаблон. Булеві значення приймають `true`, `yes` або `1`. Ціле число, яке не вдалося розібрати, замінюється типовим значенням. Compose передає в контейнер бота лише п'ять із цих змінних, як описано в розділі «Початок роботи».
+Усі змінні нижче я читаю з [`xenobot/config/config.go`](xenobot/config/config.go), окрім змінних `OTEL_*`, які читає [`xenobot/utils/tracing/tracing.go`](xenobot/utils/tracing/tracing.go). [`sample.env`](sample.env) — анотований шаблон. Булеві значення приймають `true`, `yes` або `1`. Ціле число, яке не вдалося розібрати, замінюється типовим значенням. Compose передає в контейнер бота лише п'ять із цих змінних, як описано в розділі «Початок роботи».
 
 <details open>
 <summary><b>Обов'язкові</b></summary>
@@ -990,7 +968,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o fuku_robot .
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Ендпоінт OTLP gRPC. Коли він порожній і консольний експортер вимкнено, трасування вимкнене |
 | `OTEL_EXPORTER_OTLP_INSECURE` | `false` | Звичайний gRPC без TLS, коли `true` |
 | `OTEL_EXPORTER_CONSOLE` | `false` | Спани в stderr, коли `true` |
-| `OTEL_SERVICE_NAME` | `fuku_robot` | Назва сервісу на спанах |
+| `OTEL_SERVICE_NAME` | `xenobot-72` | Назва сервісу на спанах |
 | `OTEL_TRACES_SAMPLE_RATE` | `1.0` | Частка вибірки, обмежена від 0.0 до 1.0 |
 
 </details>
@@ -1000,10 +978,8 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o fuku_robot .
 
 | Змінна | Де використовується |
 | --- | --- |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | `debug.docker-compose.yml` (контейнер PostgreSQL і `DATABASE_URL` бота) |
-| `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` | `debug.docker-compose.yml` (локальний сервер Bot API) |
 | `PSQL_DB_HOST`, `PSQL_DB_PORT`, `PSQL_DB_NAME`, `PSQL_DB_USER`, `PSQL_DB_PASSWORD`, `PSQL_DB_SSLMODE` | `make psql-migrate`, `make psql-status`, `make psql-reset` |
-| `FUKU_TEST_DATABASE`, `FUKU_TEST_MIGRATION_CHAIN` | Тести: вмикають тести на PostgreSQL і тест ланцюжка міграцій, обидва через `DATABASE_URL` |
+| `XENOBOT_TEST_DATABASE`, `XENOBOT_TEST_MIGRATION_CHAIN` | Тести: вмикають тести на PostgreSQL і тест ланцюжка міграцій, обидва через `DATABASE_URL` |
 
 </details>
 
@@ -1020,16 +996,16 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o fuku_robot .
 | `/debug/pprof/` | Профілювання Go. Лише коли `ENABLE_PPROF=true` |
 | `/captcha`, `/captcha/verify`, `/captcha/health` | Сторінка вебкапчі, її маршрут перевірки й перевірка стану. Лише коли вебкапчу налаштовано |
 
-`fuku_robot --health` викликає `/health` на налаштованому порту й завершується з кодом `0` при HTTP 200 і `1` в іншому разі, що підходить для образу distroless без curl. `fuku_robot --version` друкує версію й завершується.
+`xenobot-72 --health` викликає `/health` на налаштованому порту й завершується з кодом `0` при HTTP 200 і `1` в іншому разі, що підходить для образу distroless без curl. `xenobot-72 --version` друкує версію й завершується.
 
 Усі ці маршрути ділять один порт. Якщо `METRICS_AUTH_TOKEN` порожній, `/metrics` і `/db_metrics` відкриті, а сервер пише попередження. Публічний проксі має пересилати лише `/captcha` і `/captcha/*`. Журнали — JSON, відомі секрети в них приховано. Докладніше — у [моніторингу](docs/src/content/docs/self-hosting/monitoring.md) і [профілюванні](docs/src/content/docs/self-hosting/profiling.md).
 
 ## Структура проєкту
 
 ```text
-Fuku_Robot/
+Xenobot-72/
 ├── main.go                    # entry point: cache, locales, tracing, bot, HTTP server, webhook or polling
-├── fuku/
+├── xenobot/
 │   ├── main.go                # LoadModules, ListModules, InitialChecks
 │   ├── config/                # every env var: parsing, defaults, validation
 │   ├── db/                    # GORM connection, migration runner, one repository package per domain
@@ -1040,7 +1016,7 @@ Fuku_Robot/
 │   ├── modules/               # one file per bot module: bans.go, notes.go, captcha.go, lockdown.go, staff.go, settings.go, …
 │   └── utils/                 # command pipeline, permission checks, callback codec, cache, HTTP server, web captcha, tracing, monitoring, …
 ├── locales/                   # uk, en, es, fr, hi, id, pt, ru + config.yml (help aliases)
-├── migrations/                # 76 timestamped .sql files: the schema's source of truth
+├── migrations/                # timestamped .sql files: the schema's source of truth
 ├── docker/                    # alpine (production), alpine.debug, goreleaser, pr-build Dockerfiles
 ├── docs/                      # Blume docs site: generated command pages, guides, architecture notes
 ├── scripts/                   # docs generator, translation checker, psql migrate and backup, test-result gate, captcha page tests
@@ -1048,7 +1024,6 @@ Fuku_Robot/
 ├── formal/antiflood/          # TLA+ and Lean models of the antiflood counter reset
 ├── .github/workflows/         # CI, release, docs, Dependabot auto-merge, Pullfrog
 ├── docker-compose.yml         # production stack (bot + PostgreSQL 17 + Redis 7, webhook mode)
-├── debug.docker-compose.yml   # local build + PostgreSQL + Redis + optional local Bot API server
 ├── sample.env                 # annotated configuration template
 ├── AGENTS.md                  # contributor rulebook: handlers, cache, migrations, tests
 └── Makefile
@@ -1060,7 +1035,7 @@ Fuku_Robot/
 | --- | --- |
 | `make run` | `go run main.go` |
 | `make test` | Повний набір тестів: `-tags testtools -race`, покриття, перевірка результатів |
-| `make test-postgres-integrity` | Тести цілісності лише для PostgreSQL (потрібні `DATABASE_URL` і `FUKU_TEST_DATABASE=true`) |
+| `make test-postgres-integrity` | Тести цілісності лише для PostgreSQL (потрібні `DATABASE_URL` і `XENOBOT_TEST_DATABASE=true`) |
 | `make lint` · `make check-duplicates` | golangci-lint v2; перевірка дублювання коду |
 | `make check-translations` | Показати ключі локалей, яких бракує в будь-якій мові |
 | `make generate-docs` · `make check-docs` | Згенерувати сторінки документації заново або впасти при розходженні |
@@ -1072,13 +1047,13 @@ Fuku_Robot/
 | `make tidy` · `make vendor` | `go mod tidy` і `go mod vendor` |
 
 ```bash
-make test                                                            # always use the Makefile target
-go test -tags testtools -race -count=1 -run '^TestName$' ./fuku/db/warns   # a single test
-CGO_ENABLED=0 go build ./...                                         # quick compile check
+make test                                                               # always use the Makefile target
+go test -tags testtools -race -count=1 -run '^TestName$' ./xenobot/db/warns   # a single test
+CGO_ENABLED=0 go build ./...                                            # quick compile check
 ```
 
 - Тести потребують `CGO_ENABLED=1` (SQLite). Робочі збірки використовують `CGO_ENABLED=0`. Без `-tags testtools` файли тестів мовчки виключаються.
-- Типово тести йдуть на SQLite і miniredis. Задайте `DATABASE_URL` і `FUKU_TEST_DATABASE=true`, щоб використати справжній PostgreSQL.
+- Типово тести йдуть на SQLite і miniredis. Задайте `DATABASE_URL` і `XENOBOT_TEST_DATABASE=true`, щоб використати справжній PostgreSQL.
 - Перш ніж додавати модуль, міграцію чи команду, прочитайте [AGENTS.md](AGENTS.md). Він описує іменування міграцій і контрольні суми, скидання кешу, групи обробників, правило локалей (кожен новий ключ іде в усі 8 файлів) і Conventional Commits.
 - [`.github/workflows/ci.yml`](.github/workflows/ci.yml) запускає gosec і govulncheck, лінтер, збірку, тести з порогом покриття 78 відсотків, перевірки розходжень документації та перекладів і збірку Docker. При пушах у `main` він також публікує образ `dev`.
 
@@ -1090,7 +1065,6 @@ CGO_ENABLED=0 go build ./...                                         # quick com
 ## Авторство й подяки
 
 - **Персонаж і світ.** Ім'я, персонаж і голос Xenobot-72 взято з *Mau Makan Apa?*, вебкоміксу й анімаційного серіалу Labirhin ([X](https://x.com/LabiLabirhin), [сайт](https://maumakanapa.art/)). Дякуємо Labirhin за такого чудового персонажа.
-- **Оригінальний бот.** Цей проєкт — форк [Alita_Robot](https://github.com/Divkix/Alita_Robot) від [Divkix](https://github.com/Divkix). Його повідомлення про авторські права за ліцензією MIT збережено в [`LICENSE`](LICENSE).
 
 Цей проєкт — фанатська робота. Він не пов'язаний із Labirhin і не має схвалення Labirhin. Права на Xenobot-72 і Jaya Abadi належать Labirhin.
 

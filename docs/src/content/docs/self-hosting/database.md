@@ -25,13 +25,13 @@ Configure the database URL in your environment:
 DATABASE_URL=postgres://username:password@host:port/database?sslmode=disable
 
 # Example (local development)
-DATABASE_URL=postgres://postgres:password@localhost:5432/fuku_robot?sslmode=disable
+DATABASE_URL=postgres://postgres:password@localhost:5432/xenobot_72?sslmode=disable
 
 # Example (Docker Compose)
-DATABASE_URL=postgresql://fuku:fuku@postgres:5432/fuku
+DATABASE_URL=postgresql://xenobot:xenobot@postgres:5432/xenobot
 
 # Example (production with SSL)
-DATABASE_URL=postgres://user:pass@db.example.com:5432/fuku?sslmode=require
+DATABASE_URL=postgres://user:pass@db.example.com:5432/xenobot?sslmode=require
 ```
 
 ### SSL Modes
@@ -105,7 +105,7 @@ If you prefer manual control, the repository's migration script uses the same `m
 ```bash
 # Set required environment variables
 export PSQL_DB_HOST=localhost
-export PSQL_DB_NAME=fuku
+export PSQL_DB_NAME=xenobot
 export PSQL_DB_USER=postgres
 export PSQL_DB_PASSWORD=password
 export PSQL_DB_PORT=5432  # Optional, defaults to 5432
@@ -282,26 +282,26 @@ Always test your backup restoration process before relying on it in production. 
 
 ```bash
 # Using pg_dump
-pg_dump -h localhost -U postgres -d fuku > backup.sql
+pg_dump -h localhost -U postgres -d xenobot > backup.sql
 
 # Compressed backup
-pg_dump -h localhost -U postgres -d fuku | gzip > backup.sql.gz
+pg_dump -h localhost -U postgres -d xenobot | gzip > backup.sql.gz
 
 # Docker
-docker compose exec -T postgres pg_dump -U fuku -d fuku > backup.sql
+docker compose exec -T postgres pg_dump -U xenobot -d xenobot > backup.sql
 ```
 
 ### Restore
 
 ```bash
 # From SQL file
-psql -h localhost -U postgres -d fuku < backup.sql
+psql -h localhost -U postgres -d xenobot < backup.sql
 
 # From compressed file
-gunzip -c backup.sql.gz | psql -h localhost -U postgres -d fuku
+gunzip -c backup.sql.gz | psql -h localhost -U postgres -d xenobot
 
 # Docker
-docker compose exec -T postgres psql -U fuku -d fuku < backup.sql
+docker compose exec -T postgres psql -U xenobot -d xenobot < backup.sql
 ```
 
 ## Troubleshooting

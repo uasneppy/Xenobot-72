@@ -68,7 +68,7 @@ Both checks must pass for `healthy` status.
 curl http://localhost:8080/health
 
 # Docker health check (built-in)
-/app/fuku_robot --health
+/app/xenobot-72 --health
 
 # Kubernetes liveness probe
 livenessProbe:
@@ -95,16 +95,16 @@ Besides the Go runtime metrics, the bot exports:
 
 | Metric | Type | Labels | Meaning |
 |--------|------|--------|---------|
-| `fuku_updates_processed_total` | counter | none | Telegram updates processed |
-| `fuku_update_duration_seconds` | histogram | none | Time to process one update |
-| `fuku_redis_commands_total` | counter | `command` | Redis commands sent (`get`, `set`, `del`, ...) |
-| `fuku_db_queries_total` | counter | `operation` | Database statements (`query`, `create`, `update`, `delete`, `row`, `raw`) |
+| `xenobot_updates_processed_total` | counter | none | Telegram updates processed |
+| `xenobot_update_duration_seconds` | histogram | none | Time to process one update |
+| `xenobot_redis_commands_total` | counter | `command` | Redis commands sent (`get`, `set`, `del`, ...) |
+| `xenobot_db_queries_total` | counter | `operation` | Database statements (`query`, `create`, `update`, `delete`, `row`, `raw`) |
 
 Per-update cost:
 
 ```promql
-sum(rate(fuku_redis_commands_total[5m])) / rate(fuku_updates_processed_total[5m])
-sum(rate(fuku_db_queries_total[5m])) / rate(fuku_updates_processed_total[5m])
+sum(rate(xenobot_redis_commands_total[5m])) / rate(xenobot_updates_processed_total[5m])
+sum(rate(xenobot_db_queries_total[5m])) / rate(xenobot_updates_processed_total[5m])
 ```
 
 ### Prometheus Scrape Configuration
@@ -113,9 +113,9 @@ Add to your `prometheus.yml`:
 
 ```yaml
 scrape_configs:
-  - job_name: 'fuku-robot'
+  - job_name: 'xenobot-72'
     static_configs:
-      - targets: ['fuku:8080']
+      - targets: ['xenobot:8080']
     scrape_interval: 15s
     scrape_timeout: 10s
     metrics_path: /metrics
@@ -133,7 +133,7 @@ services:
     ports:
       - "9090:9090"
     depends_on:
-      - fuku
+      - xenobot
 
 volumes:
   prometheus_data:
@@ -333,7 +333,7 @@ Structured log entries include:
   "msg": "Handler error occurred: user blocked bot",
   "update_id": 123456789,
   "error_type": "*gotgbot.TelegramError",
-  "file": "fuku/modules/admin.go",
+  "file": "xenobot/modules/admin.go",
   "line": 45,
   "function": "handleAdminCommand",
   "time": "2024-03-15T10:30:00Z"
@@ -353,7 +353,7 @@ Structured log entries include:
 ## Alerting
 
 :::tip
-At minimum, set up alerts for `FukuUnhealthy` and monitor the `/health` endpoint with an external HTTP check (e.g., blackbox exporter) to catch critical outages early.
+At minimum, set up alerts for `XenobotUnhealthy` and monitor the `/health` endpoint with an external HTTP check (e.g., blackbox exporter) to catch critical outages early.
 :::
 
 ### Prometheus Alerting Rules
@@ -362,10 +362,10 @@ Create `alerts.yml`:
 
 ```yaml
 groups:
-  - name: fuku-alerts
+  - name: xenobot-alerts
     rules:
-      - alert: FukuUnhealthy
-        expr: up{job="fuku-robot"} == 0
+      - alert: XenobotUnhealthy
+        expr: up{job="xenobot-72"} == 0
         for: 1m
         labels:
           severity: critical

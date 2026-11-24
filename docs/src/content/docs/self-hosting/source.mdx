@@ -59,8 +59,8 @@ All tools below must be accessible from your `PATH`. After installing Go or gola
 ## Clone the Repository
 
 ```bash
-git clone https://github.com/uasneppy/fuku_robot.git
-cd Fuku_Robot
+git clone https://github.com/uasneppy/Xenobot-72.git
+cd Xenobot-72
 ```
 
 ## Build Commands
@@ -100,13 +100,13 @@ go run main.go
 Build for your current platform:
 
 ```bash
-go build -o fuku_robot .
+go build -o xenobot-72 .
 ```
 
 :::tip[Smaller Binaries]
 Build with optimizations to strip debug symbols and reduce binary size:
 ```bash
-go build -ldflags="-s -w" -o fuku_robot .
+go build -ldflags="-s -w" -o xenobot-72 .
 ```
 :::
 
@@ -114,13 +114,13 @@ Cross-compile for other platforms:
 
 ```bash
 # Linux amd64
-GOOS=linux GOARCH=amd64 go build -o fuku_robot_linux_amd64 .
+GOOS=linux GOARCH=amd64 go build -o xenobot-72_linux_amd64 .
 
 # macOS arm64
-GOOS=darwin GOARCH=arm64 go build -o fuku_robot_darwin_arm64 .
+GOOS=darwin GOARCH=arm64 go build -o xenobot-72_darwin_arm64 .
 
 # Windows amd64
-GOOS=windows GOARCH=amd64 go build -o fuku_robot_windows_amd64.exe .
+GOOS=windows GOARCH=amd64 go build -o xenobot-72_windows_amd64.exe .
 ```
 
 ## Makefile Targets
@@ -169,7 +169,7 @@ This:
 ## Project Structure
 
 ```
-Fuku_Robot/
+Xenobot-72/
 ├── main.go              # Entry point
 ├── go.mod               # Go module definition
 ├── go.sum               # Dependency checksums
@@ -177,9 +177,8 @@ Fuku_Robot/
 ├── .goreleaser.yaml     # GoReleaser configuration
 ├── sample.env           # Example environment file
 ├── docker-compose.yml   # Docker Compose configuration
-├── .dockerignore          # Docker ignore rules
-├── debug.docker-compose.yml # Debug compose configuration
-├── fuku/               # Main application code
+├── .dockerignore        # Docker ignore rules
+├── xenobot/             # Main application code
 │   ├── config/          # Configuration loading
 │   ├── db/              # Database models and operations
 │   ├── modules/         # Bot command handlers
@@ -214,10 +213,10 @@ The `.goreleaser.yaml` defines the build process:
 
 ```yaml
 version: 2
-project_name: fuku_robot
+project_name: xenobot-72
 
 builds:
-  - binary: fuku_robot
+  - binary: xenobot-72
     env:
       - CGO_ENABLED=0
     goos:
@@ -240,16 +239,16 @@ After running `make build`, binaries are created in:
 
 ```
 dist/
-├── fuku_robot_linux_amd64/
-│   └── fuku_robot
-├── fuku_robot_linux_arm64/
-│   └── fuku_robot
-├── fuku_robot_darwin_amd64/
-│   └── fuku_robot
-├── fuku_robot_darwin_arm64/
-│   └── fuku_robot
-├── fuku_robot_windows_amd64/
-│   └── fuku_robot.exe
+├── xenobot-72_linux_amd64/
+│   └── xenobot-72
+├── xenobot-72_linux_arm64/
+│   └── xenobot-72
+├── xenobot-72_darwin_amd64/
+│   └── xenobot-72
+├── xenobot-72_darwin_arm64/
+│   └── xenobot-72
+├── xenobot-72_windows_amd64/
+│   └── xenobot-72.exe
 └── checksums.txt
 ```
 
@@ -302,8 +301,8 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-cmd = "go build -o ./tmp/fuku_robot ."
-bin = "tmp/fuku_robot"
+cmd = "go build -o ./tmp/xenobot-72 ."
+bin = "tmp/xenobot-72"
 include_ext = ["go"]
 exclude_dir = ["tmp", "vendor", "docs"]
 ```
@@ -355,5 +354,5 @@ The bot is built with `CGO_ENABLED=0` for static binaries. If you explicitly nee
 :::
 
 ```bash
-CGO_ENABLED=1 go build -o fuku_robot .
+CGO_ENABLED=1 go build -o xenobot-72 .
 ```

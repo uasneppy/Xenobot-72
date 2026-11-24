@@ -100,7 +100,7 @@ cloudflared tunnel login
 ### Step 3: Create a Tunnel
 
 ```bash
-cloudflared tunnel create fuku-bot
+cloudflared tunnel create xenobot-72
 ```
 
 This creates a tunnel and outputs a tunnel ID.
@@ -108,7 +108,7 @@ This creates a tunnel and outputs a tunnel ID.
 ### Step 4: Configure DNS
 
 ```bash
-cloudflared tunnel route dns fuku-bot bot.yourdomain.com
+cloudflared tunnel route dns xenobot-72 bot.yourdomain.com
 ```
 
 ### Step 5: Create config.yml
@@ -127,7 +127,7 @@ ingress:
 
 ```bash
 # Run in foreground
-cloudflared tunnel run fuku-bot
+cloudflared tunnel run xenobot-72
 
 # Or install as a service
 sudo cloudflared service install
@@ -159,7 +159,7 @@ services:
     restart: always
     command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
-      - fuku
+      - xenobot
 ```
 
 ## Security Best Practices

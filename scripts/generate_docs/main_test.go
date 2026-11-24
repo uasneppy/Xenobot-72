@@ -8,8 +8,8 @@ import (
 func TestResolveOutputPath(t *testing.T) {
 	t.Parallel()
 
-	projectRoot := filepath.Join(string(filepath.Separator), "repo", "fuku")
-	absoluteOutput := filepath.Join(string(filepath.Separator), "tmp", "fuku-docs")
+	projectRoot := filepath.Join(string(filepath.Separator), "repo", "xenobot")
+	absoluteOutput := filepath.Join(string(filepath.Separator), "tmp", "xenobot-docs")
 
 	tests := []struct {
 		name       string

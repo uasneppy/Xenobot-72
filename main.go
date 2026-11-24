@@ -16,24 +16,24 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/uasneppy/fuku_robot/fuku/utils/constants"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/constants"
 
-	"github.com/uasneppy/fuku_robot/fuku"
-	"github.com/uasneppy/fuku_robot/fuku/config"
-	"github.com/uasneppy/fuku_robot/fuku/db"
-	dbmonitoring "github.com/uasneppy/fuku_robot/fuku/db/monitoring"
-	"github.com/uasneppy/fuku_robot/fuku/i18n"
-	"github.com/uasneppy/fuku_robot/fuku/modules"
-	"github.com/uasneppy/fuku_robot/fuku/utils/cache"
-	"github.com/uasneppy/fuku_robot/fuku/utils/captchaweb"
-	"github.com/uasneppy/fuku_robot/fuku/utils/error_handling"
-	fukuerrors "github.com/uasneppy/fuku_robot/fuku/utils/errors"
-	"github.com/uasneppy/fuku_robot/fuku/utils/formatting"
-	"github.com/uasneppy/fuku_robot/fuku/utils/helpers"
-	"github.com/uasneppy/fuku_robot/fuku/utils/httpserver"
-	"github.com/uasneppy/fuku_robot/fuku/utils/monitoring"
-	"github.com/uasneppy/fuku_robot/fuku/utils/shutdown"
-	"github.com/uasneppy/fuku_robot/fuku/utils/tracing"
+	"github.com/uasneppy/Xenobot-72/xenobot"
+	"github.com/uasneppy/Xenobot-72/xenobot/config"
+	"github.com/uasneppy/Xenobot-72/xenobot/db"
+	dbmonitoring "github.com/uasneppy/Xenobot-72/xenobot/db/monitoring"
+	"github.com/uasneppy/Xenobot-72/xenobot/i18n"
+	"github.com/uasneppy/Xenobot-72/xenobot/modules"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/cache"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/captchaweb"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/error_handling"
+	xenoerrors "github.com/uasneppy/Xenobot-72/xenobot/utils/errors"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/formatting"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/helpers"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/httpserver"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/monitoring"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/shutdown"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/tracing"
 )
 
 //go:embed locales
@@ -123,7 +123,7 @@ func main() {
 
 	botUsername := resolveBotUsername(b)
 
-	if err := fuku.InitialChecks(b); err != nil {
+	if err := xenobot.InitialChecks(b); err != nil {
 		log.Fatalf("Initial checks failed: %v", err)
 	}
 
@@ -455,7 +455,7 @@ func dispatcherErrorHandler(_ *gotgbot.Bot, ctx *ext.Context, err error) ext.Dis
 		"error_type": fmt.Sprintf("%T", err),
 	}
 
-	if wrappedErr, ok := err.(*fukuerrors.WrappedError); ok {
+	if wrappedErr, ok := err.(*xenoerrors.WrappedError); ok {
 		logFields["file"] = wrappedErr.File
 		logFields["line"] = wrappedErr.Line
 		logFields["function"] = wrappedErr.Function
@@ -514,7 +514,7 @@ func registerCaptchaWeb(b *gotgbot.Bot, httpServer *httpserver.Server, localeMan
 }
 
 func postInit(b *gotgbot.Bot, d *ext.Dispatcher, username string, mode string) {
-	fuku.LoadModules(d)
+	xenobot.LoadModules(d)
 	if err := modules.StartCaptchaLifecycle(b); err != nil {
 		log.Fatalf("[Captcha] Failed to start lifecycle: %v", err)
 	}
@@ -522,7 +522,7 @@ func postInit(b *gotgbot.Bot, d *ext.Dispatcher, username string, mode string) {
 	modules.StartAdminIndexSweeper(b)
 	modules.StartLockdownWorker(b)
 	modules.StartDeletionWorker(b)
-	log.Infof("[Modules] Loaded modules: %s", fuku.ListModules())
+	log.Infof("[Modules] Loaded modules: %s", xenobot.ListModules())
 
 	config.AppConfig.WorkingMode = mode
 
@@ -544,7 +544,7 @@ func postInit(b *gotgbot.Bot, d *ext.Dispatcher, username string, mode string) {
 	log.Info("Custom bot commands set for private chats")
 
 	_, err = b.SendMessage(config.AppConfig.MessageDump,
-		fmt.Sprintf("<b>Started Bot!</b>\n<b>Mode:</b> %s\n<b>Loaded Modules:</b>\n%s", mode, fuku.ListModules()),
+		fmt.Sprintf("<b>Started Bot!</b>\n<b>Mode:</b> %s\n<b>Loaded Modules:</b>\n%s", mode, xenobot.ListModules()),
 		&gotgbot.SendMessageOpts{
 			ParseMode: formatting.HTML,
 		},

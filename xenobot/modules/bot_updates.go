@@ -1,0 +1,323 @@
+package modules
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/PaulSonOfLars/gotgbot/v2"
+	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers"
+	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/callbackquery"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/uasneppy/Xenobot-72/xenobot/db/adminindex"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/lang"
+	"github.com/uasneppy/Xenobot-72/xenobot/i18n"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/cache"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/chat_status"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/error_handling"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/formatting"
+)
+
+// function used to get status of bot when it joined a group and send a message to the group
+// also send a message to MESSAGE_DUMP telling that it joined a group
+// botJoinedGroup handles bot addition to new groups.
+// Sends welcome message and ensures the group is a supergroup before staying.
+func botJoinedGroup(b *gotgbot.Bot, ctx *ext.Context) error {
+	chat := ctx.EffectiveChat
+
+	// don't log if it's a private chat
+	if chat.Type == "private" {
+		return ext.EndGroups
+	}
+
+	// check if group is supergroup or not
+	// if not a supergroup, send a message and leave it
+	if chat.Type == "group" || chat.Type == "channel" {
+		if chat.Type == "group" {
+			tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
+			text, _ := tr.GetString("bot_updates_need_supergroup")
+			convertInstr, _ := tr.GetString("bot_updates_convert_instruction")
+			convertHowto, _ := tr.GetString("bot_updates_convert_howto")
+			_, err := b.SendMessage(
+				chat.Id,
+				strings.Join([]string{
+					strings.TrimRight(text, "\n"),
+					strings.TrimRight(convertInstr, "\n"),
+					strings.TrimRight(convertHowto, "\n"),
+					"https://telegra.ph/Convert-group-to-Supergroup-07-29",
+				}, "\n"),
+				formatting.Shtml(),
+			)
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+		}
+
+		_, err := b.LeaveChat(chat.Id, nil)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+
+		return ext.EndGroups
+	}
+
+	// send a message to group itself
+	tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
+
+	// ask for admin rights only when the bot was added without them
+	msgAdmin := ""
+	if !chat_status.IsBotAdmin(b, ctx, chat) {
+		if makeAdminText, _ := tr.GetString("bot_updates_make_me_admin"); makeAdminText != "" {
+			msgAdmin = "\n\n" + makeAdminText
+		}
+	}
+	thanksText, _ := tr.GetString("bot_updates_thanks_for_adding")
+	_, err := b.SendMessage(
+		chat.Id,
+		fmt.Sprint(thanksText, msgAdmin),
+		nil,
+	)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+
+	return ext.ContinueGroups
+}
+
+// adminCacheAutoUpdate automatically refreshes admin cache when admin status changes.
+// Reloads admin permissions cache if it's not already available.
+func adminCacheAutoUpdate(b *gotgbot.Bot, ctx *ext.Context) error {
+	chat := ctx.EffectiveChat
+	if chat == nil {
+		return ext.ContinueGroups
+	}
+
+	// The bot leaving or being kicked is a definitive fact: the group stops being listed in the
+	// private settings list (D-06). The reload below still runs and cannot bring the rows back,
+	// because it sees the bot as not an administrator or not in the chat.
+	if mcm := ctx.MyChatMember; mcm != nil && mcm.NewChatMember != nil {
+		switch mcm.NewChatMember.MergeChatMember().Status {
+		case gotgbot.ChatMemberStatusLeft, gotgbot.ChatMemberStatusKicked:
+			clearCtx, cancel := context.WithTimeout(context.Background(), adminIndexWriteTimeout)
+			if err := adminindex.ClearChat(clearCtx, chat.Id); err != nil {
+				log.Warnf("[BotUpdates] clear admin roster of chat %d: %v", chat.Id, err)
+			}
+			cancel()
+		}
+	}
+
+	// Always invalidate and reload on admin status updates to avoid stale
+	// permission decisions from outdated cache entries.
+	cache.InvalidateAdminCache(chat.Id)
+	cache.LoadAdminCache(b, chat.Id)
+	log.Info(fmt.Sprintf("Reloaded admin cache for %d (%s)", chat.Id, chat.Title))
+
+	return ext.ContinueGroups
+}
+
+// verifyAnonymousAdmin handles callback verification for anonymous admins.
+// When an anonymous admin presses the verify button, this function:
+// 1. Verifies they are actually an admin in the chat
+// 2. Retrieves the original command from cache
+// 3. Refuses the tap as an invalid request unless the callback's chat, the proof
+// button's chat and the cached command's chat are the same chat, so the chat the tapper
+// was verified admin in is the only chat any later check or action can use
+// 4. Executes the appropriate command handler with the context rebuilt as the message
+// update the admin would have sent: the cached command is the update's message and
+// EffectiveChat is that command's chat, with the tapper as the sender
+func verifyAnonymousAdmin(b *gotgbot.Bot, ctx *ext.Context) error {
+	defer error_handling.RecoverFromPanic("bot_updates", "verifyAnonymousAdmin")
+
+	query, ok := callbackQueryFromContext(ctx)
+	if !ok {
+		return ext.EndGroups
+	}
+	tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
+	// Every path answers the tap exactly once: answer is the only way this handler answers, and
+	// the deferred call gives a path with no text of its own (an expired button, a failed delete)
+	// its empty answer. The query is captured here because the update is replaced below.
+	answered := false
+	answer := func(opts *gotgbot.AnswerCallbackQueryOpts) error {
+		if answered {
+			return nil
+		}
+		answered = true
+		_, err := query.Answer(b, opts)
+		return err
+	}
+	defer func() {
+		if err := answer(nil); err != nil {
+			log.Debugf("[BotUpdates] anon_admin empty answer failed: %v", err)
+		}
+	}()
+	invalid := func() error {
+		text, _ := tr.GetString("common_callback_invalid_request")
+		_ = answer(&gotgbot.AnswerCallbackQueryOpts{Text: text})
+		return ext.EndGroups
+	}
+	qmsg := query.Message
+	if qmsg == nil {
+		return invalid()
+	}
+
+	chatIDRaw := ""
+	msgIDRaw := ""
+	if decoded, ok := decodeCallbackData(query.Data, "anon_admin"); ok {
+		chatIDRaw, _ = decoded.Field("c")
+		msgIDRaw, _ = decoded.Field("m")
+	}
+	if chatIDRaw == "" || msgIDRaw == "" {
+		log.Warnf("[BotUpdates] Invalid callback data format: %s", query.Data)
+		return invalid()
+	}
+	chatId, err := strconv.ParseInt(chatIDRaw, 10, 64)
+	if err != nil {
+		log.Warnf("[BotUpdates] Invalid callback chat ID: %s (%s)", query.Data, chatIDRaw)
+		return invalid()
+	}
+	msgId, err := strconv.ParseInt(msgIDRaw, 10, 64)
+	if err != nil {
+		log.Warnf("[BotUpdates] Invalid callback message ID: %s (%s)", query.Data, msgIDRaw)
+		return invalid()
+	}
+
+	// if non-admins try to press it
+	// using this func because it's the only one that can be called by taking chatId from callback query
+	if !chat_status.IsUserAdmin(b, chatId, query.From.Id) {
+		text, _ := tr.GetString("bot_updates_need_admin")
+		err := answer(&gotgbot.AnswerCallbackQueryOpts{Text: text})
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+		return ext.EndGroups
+	}
+
+	msg, errCache := getAnonAdminCache(chatId, msgId)
+
+	if errCache != nil {
+		tr := i18n.MustNewTranslator(lang.GetLanguage(ctx))
+		expiredText, _ := tr.GetString("bot_updates_button_expired")
+		_, _, err := qmsg.EditText(b, &gotgbot.EditMessageTextOpts{Text: expiredText})
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+		return ext.EndGroups
+	}
+
+	if msg == nil {
+		log.WithFields(log.Fields{
+			"chatId": chatId,
+			"msgId":  msgId,
+		}).Error("getAnonAdminCache: nil message from cache")
+		return ext.EndGroups
+	}
+
+	// Callback data is client-controlled: a proof button only ever lives in the chat of
+	// the command it proves, so any other combination is forged. Fail closed before
+	// anything is deleted or run.
+	if msg.Chat.Id != chatId || qmsg.GetChat().Id != chatId {
+		log.WithFields(log.Fields{
+			"chatId":       chatId,
+			"msgId":        msgId,
+			"cachedChatId": msg.Chat.Id,
+			"buttonChatId": qmsg.GetChat().Id,
+		}).Warn("[BotUpdates] anon_admin proof tap names different chats")
+		return invalid()
+	}
+
+	_, err = qmsg.Delete(b, nil)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+
+	// The re-entered command must look exactly like the message the admin sent, so every
+	// chat-derived check, refusal and action uses the command's own chat. The update is
+	// rebuilt (not mutated) as a message update: with the callback query dropped and no
+	// message left, chat_status could not find the chat and the command stopped silently.
+	// SenderChat is cleared so chat_status.isAnonAdmin does not take the tapper for
+	// GroupAnonymousBot.
+	updateID := ctx.UpdateId
+	msg.SenderChat = nil
+	ctx.Update = &gotgbot.Update{UpdateId: updateID, Message: msg}
+	ctx.EffectiveMessage = msg
+	chatCopy := msg.Chat
+	ctx.EffectiveChat = &chatCopy
+	fromCopy := query.From
+	ctx.EffectiveUser = &fromCopy
+	ctx.EffectiveSender = &gotgbot.Sender{User: &fromCopy, ChatId: chatId}
+	// The name is read as gotgbot's matcher reads it (first field up to any whitespace, lower
+	// case, this bot's @suffix, text or caption), so /Ban and "/ban\nreason" find the registry.
+	command, ok := botCommandName(b, msg)
+	if !ok {
+		return invalid()
+	}
+	if !hasAnonymousAdminHandler(command) {
+		// The command prompted for the proof but has no re-entry: say so once and run nothing.
+		text, _ := tr.GetString("bot_updates_anon_unsupported_command")
+		if err := answer(&gotgbot.AnswerCallbackQueryOpts{Text: text, ShowAlert: true}); err != nil {
+			log.Error(err)
+		}
+		return ext.EndGroups
+	}
+	// The spinner stops before the command runs.
+	if err := answer(nil); err != nil {
+		log.Debugf("[BotUpdates] anon_admin answer failed: %v", err)
+	}
+	// The re-entered command's sender is the tapper, but the admin chose to act anonymously, so
+	// the event message's {admin} reads "an admin" (D-12). The mark lives in this update's data
+	// alone and is set only here, after the live admin check of the tap.
+	markAnonymousActor(ctx)
+	if err := HandleAnonymousAdmin(b, ctx, command); err != nil {
+		return ext.EndGroups
+	}
+	return ext.EndGroups
+}
+
+// getAnonAdminCache retrieves cached message data for anonymous admin verification.
+// Returns the original message context stored during anonymous admin command execution.
+func getAnonAdminCache(chatId, msgId int64) (*gotgbot.Message, error) {
+	if cache.GetMarshal() == nil {
+		return nil, fmt.Errorf("cache not initialized")
+	}
+	return chat_status.LoadAnonAdminCommand(chatId, msgId)
+}
+
+// LoadBotUpdates registers bot event handlers for group management.
+// Sets up handlers for bot joins, admin updates, and anonymous admin verification.
+func LoadBotUpdates(dispatcher *ext.Dispatcher) {
+	dispatcher.AddHandlerToGroup(handlers.NewMyChatMember(
+		chat_status.ExtractAdminUpdateStatusChange, adminCacheAutoUpdate,
+	), -2)
+	dispatcher.AddHandlerToGroup(
+		handlers.NewMyChatMember(
+			func(u *gotgbot.ChatMemberUpdated) bool {
+				wasMember, isMember := chat_status.ExtractJoinLeftStatusChange(u)
+				return !wasMember && isMember
+			},
+			botJoinedGroup,
+		),
+		-1, // process before all other handlers
+	)
+
+	dispatcher.AddHandler(
+		handlers.NewChatMember(
+			chat_status.ExtractAdminUpdateStatusChange,
+			adminCacheAutoUpdate,
+		),
+	)
+
+	dispatcher.AddHandler(handlers.NewCallback(callbackquery.Prefix("anon_admin"), verifyAnonymousAdmin))
+}
+
+func init() {
+	RegisterLegacyModule("BotUpdates", -10, LoadBotUpdates)
+}

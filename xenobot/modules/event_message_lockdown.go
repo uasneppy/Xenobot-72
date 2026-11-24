@@ -1,0 +1,444 @@
+package modules
+
+import (
+	"context"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/PaulSonOfLars/gotgbot/v2"
+	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/uasneppy/Xenobot-72/xenobot/db/eventmsg"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
+	"github.com/uasneppy/Xenobot-72/xenobot/i18n"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/formatting"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/media"
+)
+
+// The lockdown's public messages (Phase 25) reach the event message engine only through this file.
+// TestPMCopyCallers forbids every engine entry in files named lockdown*, raid* and staff*, so the
+// lockdown files stay free of the engine and call the postLockdown*Event adapters below instead, the
+// way forwardblock_notice.go serves the forward blocklist watcher (D-26). Each adapter is called after
+// the lockdown or the lift it announces took effect, from the place today's default is sent, so a
+// message never delays, undoes or skips the lock, the snapshot, the worker, the alert or the lift (D-03).
+// A lockdown message is never queued for deletion, custom or default (D-08): a lockdown site's Schedule
+// does nothing. The lockdown events have no private copy spec, so the engine never offers a copy (D-04).
+// The alert, its reminders, the raid-scale removals and their reports, the lift tally, the cannot-lock
+// warning and every Staff Group surface never come here (TestEventEngineCallers).
+
+// lockdownFacts are what a lockdown message's default says beside its person, read from the action that
+// took effect. For a start: the bot's missing rights (NoDelete, NoInvite), read from the live membership
+// startLockdownRow returned. For a lift: whether the permissions were changed by hand during the lockdown
+// (ManualChange), whether the lift finished (Finished) and how many removed joiners are being unbanned
+// (Unbanning), the lift's own result.
+type lockdownFacts struct {
+	NoDelete     bool
+	NoInvite     bool
+	ManualChange bool
+	Finished     bool
+	Unbanning    int64
+}
+
+// lockdownNoteReserve is the room, in UTF-16 units, the message editor holds back from the text of a
+// lockdown event for the notes the bot appends after a custom text (D-17): the worst start notes and the
+// worst lift notes, each after its line break, fit it in every language (TestLockdownNoteFitsReserve), and
+// a translation that exceeds it is shortened, never the reserve raised.
+const lockdownNoteReserve = 400
+
+// lockdownStartFacts reads a start's facts from the bot's live membership that startLockdownRow
+// returned: a missing delete or invite right never blocks the lock, it only adds a note.
+func lockdownStartFacts(bot gotgbot.MergedChatMember) lockdownFacts {
+	return lockdownFacts{NoDelete: !bot.CanDeleteMessages, NoInvite: !bot.CanInviteUsers}
+}
+
+// lockdownStartNoteLines are the technical notes of a start, in today's order: approved users are muted
+// too, then the no-delete note and the no-invite note when the bot lacks that right. The default replies
+// and the notes appended after a custom text are built from these lines, so the two never drift.
+func lockdownStartNoteLines(tr *i18n.Translator, f lockdownFacts) []string {
+	lines := []string{lockdownText(tr, "lockdown_note_approved_muted")}
+	if f.NoDelete {
+		lines = append(lines, lockdownText(tr, "lockdown_note_no_delete"))
+	}
+	if f.NoInvite {
+		lines = append(lines, lockdownText(tr, "lockdown_note_no_invite"))
+	}
+	return lines
+}
+
+// lockdownStartNotes are the technical notes the bot appends after a custom start text (D-07, D-16),
+// joined by line breaks.
+func lockdownStartNotes(tr *i18n.Translator, f lockdownFacts) string {
+	return lockdownJoinLines(lockdownStartNoteLines(tr, f))
+}
+
+// lockdownStartAppended is what a start event's site appends after a custom text, as the Messages page's
+// Full preview shows it (settingsMsgEvent.Appended): the technical notes of in.Lockdown. A preview's facts
+// are zero (the sample bot holds both rights), so it shows the approved-muted note alone (D-32).
+func lockdownStartAppended(tr *i18n.Translator, in eventDefaultInput) string {
+	return lockdownStartNotes(tr, in.Lockdown)
+}
+
+// lockdownNoticeOpts are the options of a lockdown notice that is a new message (the automatic notice,
+// raidSend's): HTML with link previews off, no reply and no keyboard.
+func lockdownNoticeOpts() *gotgbot.SendMessageOpts {
+	return &gotgbot.SendMessageOpts{
+		ParseMode:          formatting.HTML,
+		LinkPreviewOptions: &gotgbot.LinkPreviewOptions{IsDisabled: true},
+	}
+}
+
+// lockdownAutoIntroKeys are the intro keys of the automatic notice, by trigger kind.
+var lockdownAutoIntroKeys = map[string]string{
+	models.LockdownTriggerJoinSurge: "lockdown_auto_started_join_surge",
+	models.LockdownTriggerFlood:     "lockdown_auto_started_flood",
+	models.LockdownTriggerAIBurst:   "lockdown_auto_started_ai_burst",
+}
+
+// lockdownAutoDefaultReply is the default public notice of a lockdown the trigger kind started
+// automatically, byte for byte raidPostNotice's text before Phase 25: the trigger's intro with in.Count and
+// in.Window (and in.Percent for a flood), each passed as a string by name, then the start notes of
+// in.Lockdown, joined by lockdownJoinLines, in HTML with link previews off. Any other kind has no notice and
+// builds "".
+func lockdownAutoDefaultReply(kind string) eventDefaultReply {
+	return func(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+		key, ok := lockdownAutoIntroKeys[kind]
+		if !ok {
+			return "", nil
+		}
+		params := i18n.TranslationParams{"count": strconv.Itoa(in.Count), "window": strconv.Itoa(in.Window)}
+		if kind == models.LockdownTriggerFlood {
+			params["percent"] = strconv.Itoa(in.Percent)
+		}
+		lines := append([]string{lockdownText(tr, key, params)}, lockdownStartNoteLines(tr, in.Lockdown)...)
+		return lockdownJoinLines(lines), lockdownNoticeOpts()
+	}
+}
+
+// lockdownLiftNoteLines are the facts of a lift that follow its first line, in today's order: the manual
+// change note when the permissions were changed by hand, then how many removed joiners are being unbanned
+// while the lift has not finished and there are any.
+func lockdownLiftNoteLines(tr *i18n.Translator, f lockdownFacts) []string {
+	var lines []string
+	if f.ManualChange {
+		lines = append(lines, lockdownText(tr, "lockdown_lifted_manual_change"))
+	}
+	if !f.Finished && f.Unbanning > 0 {
+		lines = append(lines, lockdownText(tr, "lockdown_lifted_unbanning", i18n.TranslationParams{"count": f.Unbanning}))
+	}
+	return lines
+}
+
+// lockdownLiftNotes are the lift's facts the bot appends after a custom lift text (D-16), joined by line
+// breaks; empty when the lift has none.
+func lockdownLiftNotes(tr *i18n.Translator, f lockdownFacts) string {
+	return lockdownJoinLines(lockdownLiftNoteLines(tr, f))
+}
+
+// lockdownLiftAppended is what the lift's site appends after a custom text, as the Messages page's Full
+// preview shows it (settingsMsgEvent.Appended): the lift's facts of in.Lockdown. A preview's lift has no
+// facts, so it shows no note (D-32).
+func lockdownLiftAppended(tr *i18n.Translator, in eventDefaultInput) string {
+	return lockdownLiftNotes(tr, in.Lockdown)
+}
+
+// lockdownLiftDefaultReply is the default public notice of a recorded lift, byte for byte the notice before
+// Phase 25: lockdownLiftedText for the lifter in.Target (the name capped at lockdownNameMaxRunes) and the
+// lift's facts of in.Lockdown, with formatting.Shtml(). The options are the reply's (/unlockdown's); a
+// button lift's site sends the same text with its own paced options, today's.
+func lockdownLiftDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	name := lockdownCapRunes(staffFullName(&in.Target), lockdownNameMaxRunes)
+	text := lockdownLiftedText(tr, in.Target.Id, name, lockdownLiftResult{
+		ManualChange: in.Lockdown.ManualChange,
+		Finished:     in.Lockdown.Finished,
+		Unbanning:    in.Lockdown.Unbanning,
+	})
+	return text, formatting.Shtml()
+}
+
+// lockdownStartDefaultReply is the default reply of a /lockdown that started a lockdown, byte for byte
+// the reply sent before Phase 25: the started line, the approved-muted note, "Locked by" with the
+// mention of in.Target (the starter as recorded: the tapper after an anonymous admin's proof), the
+// reason line when in.Reason is set, then the no-delete and no-invite notes of in.Lockdown, with
+// formatting.Shtml().
+func lockdownStartDefaultReply(tr *i18n.Translator, in eventDefaultInput) (string, *gotgbot.SendMessageOpts) {
+	notes := lockdownStartNoteLines(tr, in.Lockdown)
+	parts := []string{
+		lockdownText(tr, "lockdown_started"),
+		notes[0],
+		lockdownSplice(
+			lockdownText(tr, "lockdown_started_by", i18n.TranslationParams{"name": lockdownNameToken}),
+			lockdownNameToken, lockdownMention(in.Target.Id, in.Target.FirstName),
+		),
+	}
+	if line := lockdownReasonLine(tr, in.Reason); line != "" {
+		parts = append(parts, line)
+	}
+	parts = append(parts, notes[1:]...)
+	return strings.TrimSpace(strings.Join(parts, "\n")), formatting.Shtml()
+}
+
+// lockdownEventPerson is the person a lockdown message's person placeholders name (D-13): the starter
+// or lifter as the lockdown row records them (the capped name, no last name, no username), or the bot
+// itself when the action is not to be named by a person (an automatic lockdown, an anonymous admin),
+// never the anonymous admin's proof tapper.
+func lockdownEventPerson(b *gotgbot.Bot, userID int64, name string, named bool) gotgbot.User {
+	if named {
+		return gotgbot.User{Id: userID, FirstName: name}
+	}
+	return b.User
+}
+
+// lockdownEventSite is the eventSite of a lockdown message: the group, its translator, the acting admin,
+// the message replied to and the topic (0 for none), whether a trigger raised it, and the site's default
+// send, today's exact call. Its Schedule does nothing, because a lockdown message is never queued for
+// deletion, custom or default (D-08).
+func lockdownEventSite(
+	b *gotgbot.Bot, chat *gotgbot.Chat, tr *i18n.Translator, actor eventActor, replyTo, threadID int64, automatic bool,
+	sendDefault func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error),
+) eventSite {
+	return eventSite{
+		Bot:         b,
+		Chat:        chat,
+		Tr:          tr,
+		Actor:       actor,
+		ReplyTo:     replyTo,
+		ThreadID:    threadID,
+		Automatic:   automatic,
+		SendDefault: sendDefault,
+		Schedule:    func(*gotgbot.Message) {},
+	}
+}
+
+// postLockdownStartEvent posts the reply of a /lockdown whose startLockdownRow answered
+// lockdownStartStarted (EVT-06): the group's stored lockdown message, or the default
+// (lockdownStartDefaultReply) when none is stored. It goes where today's reply goes, as a reply to the
+// command in its topic. {admin} is the starter's recorded name, or "an admin" for an anonymous admin
+// (the proof tap's mark); the person placeholders name the starter, or the bot for an anonymous admin
+// (D-13); {chatname} is the group's title and {reason} the stored reason. A custom text is followed,
+// after one line break, by the technical notes (lockdownStartNotes). Silent posts nothing; the lockdown
+// stands either way.
+//
+// The default is today's msg.Reply with formatting.Shtml(), not paced, as before. A custom message is
+// sent with media.SendGreetingMessage, which takes no context, so its request is bounded only by the
+// bot's HTTP client timeout. A send error is logged with today's line and changes nothing else.
+func postLockdownStartEvent(
+	b *gotgbot.Bot, ctx *ext.Context, msg *gotgbot.Message, tr *i18n.Translator, actor *gotgbot.User, name string,
+	row *models.ChatLockdown, bot gotgbot.MergedChatMember,
+) {
+	chat := ctx.EffectiveChat
+	if chat == nil {
+		chat = &msg.Chat
+	}
+	anonymous := actorIsAnonymous(ctx)
+	facts := lockdownStartFacts(bot)
+	starter := gotgbot.User{Id: actor.Id, FirstName: name}
+	startIn := eventDefaultInput{Target: starter, Reason: row.Reason, Lockdown: facts}
+	text, opts := lockdownStartDefaultReply(tr, startIn)
+	var threadID int64
+	if msg.IsTopicMessage {
+		threadID = msg.MessageThreadId
+	}
+	site := lockdownEventSite(b, chat, tr, eventActor{User: &starter, Anonymous: anonymous}, msg.MessageId, threadID, false,
+		func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			if text == "" {
+				return nil, nil
+			}
+			return msg.Reply(b, text, opts)
+		})
+	err := postEvent(site, eventReply{
+		Event:        eventmsg.EventLockdown,
+		Target:       lockdownEventPerson(b, actor.Id, name, !anonymous),
+		Values:       eventValues{Reason: row.Reason},
+		Default:      text,
+		PlainDefault: func() string { return lockdownStartPlainDefaultReply(tr, startIn) },
+		Opts:         opts,
+		Note:         lockdownStartNotes(tr, facts),
+	})
+	if err != nil {
+		log.Errorf("[Lockdown] reply: %v", err)
+	}
+}
+
+// lockdownAutoEvents are the event keys of the automatic notice, by trigger kind.
+var lockdownAutoEvents = map[string]string{
+	models.LockdownTriggerJoinSurge: eventmsg.EventLockJoinSurge,
+	models.LockdownTriggerFlood:     eventmsg.EventLockFlood,
+	models.LockdownTriggerAIBurst:   eventmsg.EventLockAIBurst,
+}
+
+// postLockdownAutoEvent posts the public notice of a lockdown a trigger started automatically (EVT-07),
+// for raidPostNotice, which raidFire runs inside raidPostAsync only after startLockdownRow answered
+// lockdownStartStarted, so the post is counted in raidPosts and drained by StopRaidPosts (D-09). The
+// message is the group's stored message of the trigger's event (lockjoin, lockflood or lockai), or the
+// default (lockdownAutoDefaultReply) when none is stored; any other kind posts nothing. It is a new
+// message in the group's language with no reply and no topic, never queued for deletion (D-08). {admin}
+// reads "an admin" (no actor, MSG-03) and the person placeholders name the bot (D-13); {count}, {window},
+// the flood's {percent} and {reason}, the trigger sentence, are filled and escaped; a custom text is
+// followed, after one line break, by the technical notes of the bot's rights (lockdownStartNotes of
+// res.BotMember). Silent posts nothing; the lockdown stands either way.
+//
+// The bound (D-19): the default is raidSend, today's call, whose pacer wait derives from its own
+// raidPostTimeout context and whose request keeps lockdownCallTimeout (10 s). A custom message is sent in
+// one lockdownPaced unit whose wait derives from its own raidPostTimeout context; the request goes through
+// media.SendGreetingMessage, which takes no context, so once in flight it is bounded only by the bot's
+// HTTP client timeout (30 s). StopRaidPosts gives up on any post after raidPostStopWait whatever it is
+// doing. A send error is logged with today's line and changes nothing else.
+func postLockdownAutoEvent(b *gotgbot.Bot, chat *gotgbot.Chat, trig raidTrigger, res lockdownStartResult) {
+	event, ok := lockdownAutoEvents[trig.Kind]
+	if !ok {
+		return
+	}
+	tr := staffChatTranslator(chat.Id)
+	facts := lockdownStartFacts(res.BotMember)
+	autoIn := eventDefaultInput{
+		Count:    trig.Count,
+		Window:   trig.Window,
+		Percent:  trig.Percent,
+		Lockdown: facts,
+	}
+	text, opts := lockdownAutoDefaultReply(trig.Kind)(tr, autoIn)
+	site := lockdownEventSite(b, chat, tr, eventActor{}, 0, 0, true,
+		func(text string, _ *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			return nil, raidSend(b, chat.Id, text)
+		})
+	site.SendCustom = func(msg media.GreetingMessage) (*gotgbot.Message, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), raidPostTimeout)
+		defer cancel()
+		var sent *gotgbot.Message
+		err := lockdownPaced(ctx, func(context.Context) error {
+			var sendErr error
+			sent, sendErr = media.SendGreetingMessage(b, chat.Id, msg)
+			return sendErr
+		})
+		return sent, err
+	}
+	err := postEvent(site, eventReply{
+		Event:  event,
+		Target: lockdownEventPerson(b, b.Id, "", false),
+		Values: eventValues{
+			Reason:  lockdownTriggerSentence(tr, trig.Kind, trig.Count, trig.Window, trig.Percent),
+			Count:   trig.Count,
+			Window:  strconv.Itoa(trig.Window),
+			Percent: trig.Percent,
+		},
+		Default:      text,
+		PlainDefault: func() string { return lockdownAutoPlainDefaultReply(trig.Kind)(tr, autoIn) },
+		Opts:         opts,
+		Note:         lockdownStartNotes(tr, facts),
+	})
+	if err != nil {
+		log.Warnf("[RaidDetection] the notice of the automatic lockdown in chat %d was not delivered: %v", chat.Id, err)
+	}
+}
+
+// lockdownLiftCustomWait bounds the pacer wait of a button lift's custom notice: 30 s, as raidPostTimeout
+// bounds the automatic notice's. It does not bound the request (see postLockdownLiftEvent).
+const lockdownLiftCustomWait = 30 * time.Second
+
+// lockdownLiftReply is the reply of a recorded lift for the lifter (actorID, the name recorded on the row)
+// and the lift's result: the locklift event, the person placeholders naming the lifter (or the bot when the
+// lifter is not to be named, an anonymous admin), no event values (the lift has no reason, count or window,
+// D-12), the default (lockdownLiftDefaultReply, today's notice) and, after a custom text, the lift's facts
+// (lockdownLiftNotes, D-16), so the page's preview and the group message are one construction.
+func lockdownLiftReply(b *gotgbot.Bot, tr *i18n.Translator, actorID int64, actorName string, res lockdownLiftResult, named bool) eventReply {
+	facts := lockdownFacts{ManualChange: res.ManualChange, Finished: res.Finished, Unbanning: res.Unbanning}
+	liftIn := eventDefaultInput{
+		Target:   gotgbot.User{Id: actorID, FirstName: actorName},
+		Lockdown: facts,
+	}
+	text, opts := lockdownLiftDefaultReply(tr, liftIn)
+	return eventReply{
+		Event:        eventmsg.EventLockLift,
+		Target:       lockdownEventPerson(b, actorID, actorName, named),
+		Default:      text,
+		PlainDefault: func() string { return lockdownLiftPlainDefaultReply(tr, liftIn) },
+		Opts:         opts,
+		Note:         lockdownLiftNotes(tr, facts),
+	}
+}
+
+// postLockdownLiftReplyEvent posts the reply of an /unlockdown that recorded the lift (applyLockdownLift
+// answered liftApplyDone, EVT-08): the group's stored locklift message, or the default (today's reply,
+// lockdownLiftDefaultReply) when none is stored. It goes where today's reply goes, as a reply to the command
+// in its topic (D-18). {admin} is the lifter's recorded name, or "an admin" for an anonymous admin (the proof
+// tap's mark); the person placeholders name the lifter, or the bot for an anonymous admin (D-13); {chatname}
+// is the group's title. A custom text is followed, after one line break, by the lift's facts. Silent posts
+// nothing; the lift, the worker and the inline tally happen either way (D-20). Never queued for deletion.
+//
+// The default is today's msg.Reply with formatting.Shtml(), not paced, as before. A custom message is sent
+// with media.SendGreetingMessage, which takes no context, so its request is bounded only by the bot's HTTP
+// client timeout. A send error is logged with today's line and changes nothing else.
+func postLockdownLiftReplyEvent(
+	b *gotgbot.Bot, ctx *ext.Context, msg *gotgbot.Message, tr *i18n.Translator, actor *gotgbot.User, res lockdownLiftApply,
+) {
+	chat := ctx.EffectiveChat
+	if chat == nil {
+		chat = &msg.Chat
+	}
+	anonymous := actorIsAnonymous(ctx)
+	var threadID int64
+	if msg.IsTopicMessage {
+		threadID = msg.MessageThreadId
+	}
+	lifter := gotgbot.User{Id: actor.Id, FirstName: res.ActorName}
+	site := lockdownEventSite(b, chat, tr, eventActor{User: &lifter, Anonymous: anonymous}, msg.MessageId, threadID, false,
+		func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			if text == "" {
+				return nil, nil
+			}
+			return msg.Reply(b, text, opts)
+		})
+	if err := postEvent(site, lockdownLiftReply(b, tr, actor.Id, res.ActorName, res.Lift, !anonymous)); err != nil {
+		log.Errorf("[Lockdown] reply: %v", err)
+	}
+}
+
+// postLockdownLiftEvent posts the public notice of a lift a button recorded (EVT-08): the alert's Lift
+// Confirm and a private settings menu's Lift Yes through lockdownAnnounceLift (withDefault true), and a
+// settings menu opened in the group (withDefault false, D-22). The message is the group's stored locklift
+// message, or the default when none is stored. It is a new message in the locked group (the chat, its ID and
+// stored title, comes from the lockdown row, never from the chat the button sat in, so it never names the
+// Staff Group), in the group's language, with no reply and no topic (D-18), never queued for deletion (D-08).
+// {admin} and the person placeholders name the lifter; a custom text is followed, after one line break, by
+// the lift's facts. Silent posts nothing; the lift, the worker and the tally happen either way (D-20).
+//
+// With withDefault the default is today's paced notice (lockdownPostLiftNotice). Without it the default sends
+// nothing, by design: a menu opened in the group already says the lift in its redraw, in that same chat, so
+// only a stored custom message is posted there, and nothing stored, Silent, a read error or a refused custom
+// message post nothing (the engine's generic log line still says the default was sent; that default is empty).
+//
+// The bound (D-19): the default is today's call, whose pacer wait derives from context.Background() (so the
+// pacer's MaxWait bounds it) and whose request keeps lockdownCallTimeout (10 s). A custom message is sent in
+// one lockdownPaced unit whose wait derives from its own lockdownLiftCustomWait context; the request goes
+// through media.SendGreetingMessage, which takes no context, so once in flight it is bounded only by the bot's
+// HTTP client timeout (30 s). A send error is logged with today's line and changes nothing else.
+func postLockdownLiftEvent(
+	b *gotgbot.Bot, ld *models.ChatLockdown, actorID int64, actorName string, res lockdownLiftResult, withDefault bool,
+) {
+	chat := &gotgbot.Chat{Id: ld.ChatID, Type: gotgbot.ChatTypeSupergroup, Title: ld.ChatTitle}
+	tr := staffChatTranslator(ld.ChatID)
+	lifter := gotgbot.User{Id: actorID, FirstName: actorName}
+	site := lockdownEventSite(b, chat, tr, eventActor{User: &lifter}, 0, 0, false,
+		func(text string, _ *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
+			if !withDefault {
+				return nil, nil
+			}
+			return lockdownPostLiftNotice(b, ld, text)
+		})
+	site.SendCustom = func(msg media.GreetingMessage) (*gotgbot.Message, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), lockdownLiftCustomWait)
+		defer cancel()
+		var sent *gotgbot.Message
+		err := lockdownPaced(ctx, func(context.Context) error {
+			var sendErr error
+			sent, sendErr = media.SendGreetingMessage(b, ld.ChatID, msg)
+			return sendErr
+		})
+		return sent, err
+	}
+	if err := postEvent(site, lockdownLiftReply(b, tr, actorID, actorName, res, true)); err != nil {
+		log.Warnf("[Lockdown] lift notice for chat %d could not be posted: %v", ld.ChatID, err)
+	}
+}

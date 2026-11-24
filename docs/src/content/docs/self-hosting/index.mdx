@@ -29,8 +29,8 @@ Docker Compose is the fastest way to get started. It bundles PostgreSQL and Redi
     <Badge variant="success">Recommended</Badge> The easiest way to deploy Xenobot-72. Includes PostgreSQL and Redis out of the box.
 
     ```bash
-    git clone https://github.com/uasneppy/fuku_robot.git
-    cd Fuku_Robot
+    git clone https://github.com/uasneppy/Xenobot-72.git
+    cd Xenobot-72
     cp sample.env .env
     # Edit .env with your configuration
     docker compose up -d
@@ -47,9 +47,9 @@ Docker Compose is the fastest way to get started. It bundles PostgreSQL and Redi
     Compile the bot yourself for development or customization:
 
     ```bash
-    git clone https://github.com/uasneppy/fuku_robot.git
-    cd Fuku_Robot
-    go build -o fuku_robot .
+    git clone https://github.com/uasneppy/Xenobot-72.git
+    cd Xenobot-72
+    go build -o xenobot-72 .
     ```
   </Card>
 </CardGroup>
@@ -62,7 +62,7 @@ At minimum, you need these environment variables:
 BOT_TOKEN=your_bot_token_from_botfather
 OWNER_ID=your_telegram_user_id
 MESSAGE_DUMP=-100xxxxxxxxxx  # Log channel ID
-DATABASE_URL=postgresql://fuku:change-me@localhost:5432/fuku
+DATABASE_URL=postgresql://xenobot:change-me@localhost:5432/xenobot
 ```
 
 Redis itself is also required at runtime. No Redis endpoint variable is needed

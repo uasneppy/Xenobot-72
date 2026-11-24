@@ -54,7 +54,7 @@ BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 2. **Verify connection string:**
    ```bash
    # Test connection directly
-   psql "postgres://user:pass@localhost:5432/fuku?sslmode=disable"
+   psql "postgres://user:pass@localhost:5432/xenobot?sslmode=disable"
    ```
 
 3. **Check network access:**
@@ -218,7 +218,7 @@ incomplete schema.
 
 **Error:**
 ```
-pq: too many connections for role "fuku"
+pq: too many connections for role "xenobot"
 ```
 
 **Solutions:**
@@ -237,7 +237,7 @@ pq: too many connections for role "fuku"
 
 3. **Use connection pooling (PgBouncer):**
    ```bash
-   DATABASE_URL=postgres://user:pass@pgbouncer:6432/fuku
+   DATABASE_URL=postgres://user:pass@pgbouncer:6432/xenobot
    ```
 
 ### Query Timeout
@@ -404,13 +404,13 @@ DEBUG=true
 
 ```bash
 # Docker
-docker compose logs fuku 2>&1 | grep -i error
+docker compose logs xenobot 2>&1 | grep -i error
 
 # Systemd
-journalctl -u fuku-robot | grep -i error
+journalctl -u xenobot-72 | grep -i error
 
 # Last 100 errors
-docker compose logs --tail=1000 fuku 2>&1 | grep -i error | tail -100
+docker compose logs --tail=1000 xenobot 2>&1 | grep -i error | tail -100
 ```
 
 ### Log Levels
@@ -432,17 +432,17 @@ docker compose logs --tail=1000 fuku 2>&1 | grep -i error | tail -100
 docker compose ps
 
 # View logs
-docker compose logs fuku
+docker compose logs xenobot
 
 # Check for OOM kill
-docker inspect fuku-robot | grep -i oom
+docker inspect xenobot-72 | grep -i oom
 ```
 
 ### Health Check Failing
 
 ```bash
 # Test health endpoint manually
-docker compose exec fuku /app/fuku_robot --health
+docker compose exec xenobot /app/xenobot-72 --health
 
 # Or from host
 curl http://localhost:8080/health
@@ -456,10 +456,10 @@ Inside Docker Compose, services communicate by service name, not `localhost`. Us
 
 ```bash
 # Check network
-docker network inspect fuku_robot_default
+docker network inspect xenobot-72_default
 
 # Verify service names match in DATABASE_URL and REDIS_ADDRESS
-DATABASE_URL=postgresql://fuku:fuku@postgres:5432/fuku  # Use service name, not localhost
+DATABASE_URL=postgresql://xenobot:xenobot@postgres:5432/xenobot  # Use service name, not localhost
 ```
 
 ## Internationalization (i18n) Issues
@@ -510,7 +510,7 @@ DATABASE_URL=postgresql://fuku:fuku@postgres:5432/fuku  # Use service name, not 
 
 If you cannot resolve an issue:
 
-1. **Check existing issues:** [GitHub Issues](https://github.com/uasneppy/fuku_robot/issues)
+1. **Check existing issues:** [GitHub Issues](https://github.com/uasneppy/Xenobot-72/issues)
 2. **Enable debug logging** and collect relevant logs
 3. **Open a new issue** with:
    - Full error message

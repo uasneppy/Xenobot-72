@@ -22,12 +22,12 @@ import (
     "github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/callbackquery"
     log "github.com/sirupsen/logrus"
 
-    "github.com/uasneppy/fuku_robot/fuku/db"
-    "github.com/uasneppy/fuku_robot/fuku/i18n"
-    "github.com/uasneppy/fuku_robot/fuku/utils/chat_status"
-    "github.com/uasneppy/fuku_robot/fuku/utils/extraction"
-    "github.com/uasneppy/fuku_robot/fuku/utils/formatting"
-    "github.com/uasneppy/fuku_robot/fuku/utils/helpers"
+    "github.com/uasneppy/Xenobot-72/xenobot/db"
+    "github.com/uasneppy/Xenobot-72/xenobot/i18n"
+    "github.com/uasneppy/Xenobot-72/xenobot/utils/chat_status"
+    "github.com/uasneppy/Xenobot-72/xenobot/utils/extraction"
+    "github.com/uasneppy/Xenobot-72/xenobot/utils/formatting"
+    "github.com/uasneppy/Xenobot-72/xenobot/utils/helpers"
 )
 
 // Module struct with name for help system
@@ -124,7 +124,7 @@ func init() {
 
 ### Step 1: Create Database Model (If Needed)
 
-Create a new file `fuku/db/example/repository.go` (following the domain-package pattern):
+Create a new file `xenobot/db/example/repository.go` (following the domain-package pattern):
 
 ```go
 package db
@@ -203,7 +203,7 @@ Always use auto-increment `id` as the primary key. External IDs (`chat_id`, `use
 
 ### Step 3: Implement Database Operations
 
-Add cache helpers to `fuku/db/cache/ttl.go` and `fuku/db/cache/keys.go` using the CacheKey helper:
+Add cache helpers to `xenobot/db/cache/ttl.go` and `xenobot/db/cache/keys.go` using the CacheKey helper:
 
 ```go
 const (
@@ -240,7 +240,7 @@ func GetExampleSettings(chatID int64) *ExampleSettings {
 ```
 
 :::tip[CacheKey helper]
-The `CacheKey()` function in `fuku/db/cache/keys.go` provides consistent key formatting as `fuku:{module}:{id}`. Always use it instead of manual string formatting.
+The `CacheKey()` function in `xenobot/db/cache/keys.go` provides consistent key formatting as `xenobot:{module}:{id}`. Always use it instead of manual string formatting.
 :::
 
 :::tip[Cache invalidation is mandatory]
@@ -275,7 +275,7 @@ You must add keys to ALL locale files, not just `en.yml`. Missing keys cause run
 
 ### Step 5: Register Module
 
-Modules self-register via `init()` using the registry system. The `LoadAllModules` function in `fuku/main.go` loads all registered modules in priority order:
+Modules self-register via `init()` using the registry system. The `LoadAllModules` function in `xenobot/main.go` loads all registered modules in priority order:
 
 ```go
 func LoadModules(dispatcher *ext.Dispatcher) {
@@ -445,11 +445,11 @@ import (
     "github.com/PaulSonOfLars/gotgbot/v2/ext"
     log "github.com/sirupsen/logrus"
 
-    "github.com/uasneppy/fuku_robot/fuku/db"
-    "github.com/uasneppy/fuku_robot/fuku/i18n"
-    "github.com/uasneppy/fuku_robot/fuku/utils/chat_status"
-    "github.com/uasneppy/fuku_robot/fuku/utils/formatting"
-    "github.com/uasneppy/fuku_robot/fuku/utils/helpers"
+    "github.com/uasneppy/Xenobot-72/xenobot/db"
+    "github.com/uasneppy/Xenobot-72/xenobot/i18n"
+    "github.com/uasneppy/Xenobot-72/xenobot/utils/chat_status"
+    "github.com/uasneppy/Xenobot-72/xenobot/utils/formatting"
+    "github.com/uasneppy/Xenobot-72/xenobot/utils/helpers"
 )
 
 var welcomeModule = moduleStruct{moduleName: "Welcome"}
@@ -544,7 +544,7 @@ func init() {
 When displaying user-controlled data in HTML-formatted messages, always escape it:
 
 ```go
-import "github.com/uasneppy/fuku_robot/fuku/utils/formatting"
+import "github.com/uasneppy/Xenobot-72/xenobot/utils/formatting"
 
 // Escape chat titles, usernames, and user-supplied text
 text := fmt.Sprintf("Settings for %s", formatting.HtmlEscape(chat.Title))
