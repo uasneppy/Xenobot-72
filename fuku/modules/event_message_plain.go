@@ -3,6 +3,7 @@ package modules
 import (
 	"fmt"
 	"html"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -23,6 +24,8 @@ func eventPlainRender(tr *i18n.Translator, key string, params i18n.TranslationPa
 	if mentionKey != "" {
 		if params == nil {
 			params = i18n.TranslationParams{}
+		} else {
+			params = maps.Clone(params)
 		}
 		params[mentionKey] = lockdownNameToken
 	}
