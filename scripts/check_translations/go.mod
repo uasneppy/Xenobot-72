@@ -1,4 +1,4 @@
-module github.com/uasneppy/fuku_robot/scripts/check_translations
+module github.com/uasneppy/Xenobot-72/scripts/check_translations
 
 go 1.21
 

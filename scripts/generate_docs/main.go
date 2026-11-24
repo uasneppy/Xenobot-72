@@ -62,7 +62,7 @@ var config Config
 func main() {
 	// Parse flags
 	flag.StringVar(&config.LocalesPath, "locales", "locales", "Path to locales directory")
-	flag.StringVar(&config.ModulesPath, "modules", "fuku/modules", "Path to modules directory")
+	flag.StringVar(&config.ModulesPath, "modules", "xenobot/modules", "Path to modules directory")
 	flag.StringVar(&config.DocsOutputPath, "output", "docs/src/content/docs", "Output path for generated docs")
 	var inventoryMode bool
 	flag.BoolVar(&config.Verbose, "verbose", false, "Enable verbose logging")
@@ -266,7 +266,7 @@ func generateInventory(projectRoot string) error {
 	for moduleName, sourceFile := range moduleSet {
 		invMod := InventoryModule{
 			Module:     moduleName,
-			SourceFile: filepath.Join("fuku", "modules", sourceFile),
+			SourceFile: filepath.Join("xenobot", "modules", sourceFile),
 		}
 
 		// Mark bot_updates as internal

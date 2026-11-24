@@ -1,4 +1,4 @@
-module github.com/uasneppy/fuku_robot
+module github.com/uasneppy/Xenobot-72
 
 go 1.26.0
 

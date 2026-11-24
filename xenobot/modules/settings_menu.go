@@ -1,0 +1,713 @@
+package modules
+
+import (
+	"context"
+	"slices"
+	"strconv"
+	"time"
+
+	"github.com/PaulSonOfLars/gotgbot/v2"
+	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/uasneppy/Xenobot-72/xenobot/i18n"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/chat_status"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/error_handling"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/formatting"
+)
+
+// The settings| callbacks carry no authority. Every press runs one pipeline, each step
+// refusing before the next runs (settingsPress.verify): decode and structure with no I/O, a
+// Telegram service identity, the opener of a group menu, one live getChatMember of the
+// presser in the group being configured, the owner gate (settingsGate, step 4b), and then
+// the right of the control. The menu keeps no state of its own: no Redis key, so a press
+// works on any replica with Redis down.
+
+// The core action codes. A page declares its own codes through registerSettingsPage.
+const (
+	// settingsActOpenHere turns the choice message into the Main page.
+	settingsActOpenHere = "oh"
+	// settingsActOpen opens page p (also Refresh, and a stepper's value button).
+	settingsActOpen = "op"
+	// settingsActBack redraws the Main page.
+	settingsActBack = "bk"
+	// settingsActClose deletes the menu message.
+	settingsActClose = "cl"
+	// settingsActToggle sets switch t of page p to the absolute value v.
+	settingsActToggle = "tg"
+	// settingsActSet sets control t of page p to the absolute value v.
+	settingsActSet = "st"
+	// settingsActCancel cancels a confirm card and redraws page p.
+	settingsActCancel = "no"
+	// settingsActPick is a tap on a row of the private group list: it turns the list message
+	// into that group's Main page (fields a and c only, private only).
+	settingsActPick = "pk"
+)
+
+// settingsReadTimeout bounds one database read of a page.
+const settingsReadTimeout = 5 * time.Second
+
+// settingsRight is the right a control needs beyond being a live creator or administrator
+// of the group, which every press already proved at step 4. Each value mirrors what the
+// matching command checks, so the menu refuses exactly what the command refuses.
+type settingsRight int
+
+const (
+	// settingsRightAdmin needs nothing more (captcha mode, time and action).
+	settingsRightAdmin settingsRight = iota
+	// settingsRightAdminBotAdmin also needs the bot to be an administrator, as /captcha does.
+	settingsRightAdminBotAdmin
+	// settingsRightAdminFloodBot also needs the bot to be an administrator by the check
+	// /setflood, /setfloodmode and /delflood make.
+	settingsRightAdminFloodBot
+	// settingsRightRestrict needs the creator or an administrator with can_restrict_members.
+	settingsRightRestrict
+	// settingsRightOwner needs the live creator of the group (the Access page). It is judged on
+	// the member record step 4 fetched, with no extra call.
+	settingsRightOwner
+	// settingsRightChangeInfo needs the creator or an administrator with can_change_info. It is
+	// judged on the member record step 4 fetched, with no extra call, and mirrors what
+	// /setwelcome, /resetwelcome, /setgoodbye, /resetgoodbye, /cleanwelcome and /cleangoodbye
+	// check through CanUserChangeInfo. It is appended after settingsRightOwner so the zero
+	// value stays settingsRightAdmin.
+	settingsRightChangeInfo
+	// settingsRightChangeInfoBotAdmin needs the bot to be an administrator by the check /autoapprove makes
+	// (IsUserConnected with botAdmin: chat_status.IsUserAdmin on the bot), judged first, and then the creator or an
+	// administrator with can_change_info, as settingsRightChangeInfo. Both halves are needed because the command
+	// refuses on either, in that order. It is appended after settingsRightChangeInfo so the zero value stays
+	// settingsRightAdmin.
+	settingsRightChangeInfoBotAdmin
+	// settingsRightOwnerBotAdmin needs the bot to be an administrator by the check /anonadmin's pipeline makes
+	// (RequireBotAdmin: chat_status.IsBotAdmin), judged first, and then the live creator of the group. A press is a
+	// callback, so the non-owner refusal is the alert chat_status_owner_button_error, the key the command's own
+	// permission responder picks for a button.
+	settingsRightOwnerBotAdmin
+	// settingsRightRestrictBotRestrict is the right of the blacklist writes (Phase 19, M42), judged in
+	// /addblacklist's, /rmblacklist's and /blacklistaction's order: the bot an administrator by
+	// chat_status.IsUserAdmin (IsUserConnected's bot check, notice connections_is_user_connected_bot_not_admin) and by
+	// chat_status.IsBotAdmin (notice chat_status_bot_not_admin, which the commands leave silent), then the creator or
+	// an administrator with can_restrict_members from the presser's own member record (alert settings_no_restrict),
+	// then the bot's own restrict right by chat_status.CanBotRestrict (notice chat_status_bot_restrict_error for a
+	// press, chat_status_bot_restrict_group_error for a typed reply). It is appended after settingsRightOwnerBotAdmin
+	// so the zero value stays settingsRightAdmin.
+	settingsRightRestrictBotRestrict
+	// settingsRightStaffOwner is the right of the Blocked sources page's writes (the forward blocklist of a Staff Group):
+	// the live creator of the Staff Group, from the press's own member record, with no bot half. Any other administrator
+	// can view and page the list but never change it, exactly as /addfwdblock, /rmfwdblock and /fwdblockaction refuse
+	// them; the refusal is the alert staff_fwdblock_owner_only, the command's own text. It is appended after
+	// settingsRightRestrictBotRestrict so the zero value stays settingsRightAdmin.
+	settingsRightStaffOwner
+)
+
+// settingsRightRefusalFor judges the member-record part of a right: the one pure decision a
+// button press and a typed reply share, so they cannot judge a right differently. It returns
+// the locale key of the refusal and whether it is an alert, or "" when the member holds the
+// right. The two bot rights have no member part (the live admin check of step 4 is theirs), so
+// they answer no refusal here and settingsRightRefusal keeps their bot checks. An unknown
+// right fails closed.
+func settingsRightRefusalFor(member gotgbot.MergedChatMember, right settingsRight) (key string, alert bool) {
+	switch right {
+	case settingsRightAdmin, settingsRightAdminBotAdmin, settingsRightAdminFloodBot:
+		return "", false
+	case settingsRightRestrict, settingsRightRestrictBotRestrict:
+		switch staffIssuerSkipReason(member) {
+		case "":
+			return "", false
+		case staffReasonSkipIssuerNoRight:
+			return "settings_no_restrict", true
+		}
+		return "settings_not_admin", true
+	case settingsRightOwner:
+		if member.Status == gotgbot.ChatMemberStatusCreator {
+			return "", false
+		}
+		return "settings_access_owner_only", true
+	case settingsRightOwnerBotAdmin:
+		if member.Status == gotgbot.ChatMemberStatusCreator {
+			return "", false
+		}
+		return "chat_status_owner_button_error", true
+	case settingsRightStaffOwner:
+		if member.Status == gotgbot.ChatMemberStatusCreator {
+			return "", false
+		}
+		return "staff_fwdblock_owner_only", true
+	case settingsRightChangeInfo, settingsRightChangeInfoBotAdmin:
+		switch member.Status {
+		case gotgbot.ChatMemberStatusCreator:
+			return "", false
+		case gotgbot.ChatMemberStatusAdministrator:
+			if member.CanChangeInfo {
+				return "", false
+			}
+			return "settings_no_change_info", true
+		}
+		return "settings_not_admin", true
+	}
+	// An unknown right fails closed.
+	return "settings_not_admin", true
+}
+
+// settingsRightRefusal returns the locale key of the refusal when the press lacks the
+// right, and whether it is an alert (the page is not edited) or a notice line on the
+// redrawn page. It returns "" when the right is held. The order is the bot's first half
+// (settingsRightBotFirst), the member's part (settingsRightRefusalFor), then the bot's second half
+// (settingsRightBotAfter): the order of the command each right mirrors. The bot checks use the
+// commands' own cached predicates, never a live bot lookup, so the menu refuses exactly what the
+// command refuses.
+func settingsRightRefusal(p *settingsPress, right settingsRight) (key string, alert bool) {
+	if key := settingsRightBotFirst(p.b, p.group, right); key != "" {
+		return key, false
+	}
+	if key, alert := settingsRightRefusalFor(p.member, right); key != "" {
+		return key, alert
+	}
+	return settingsRightBotAfter(p.b, p.group, right, false), false
+}
+
+// settingsRightBotFirst is the bot part of a right that the command it mirrors checks before the user's right
+// (/autoapprove's IsUserConnected and /anonadmin's RequireBotAdmin, and /addblacklist's IsUserConnected and
+// silent IsBotAdmin). It returns the locale key of a notice, or "" when the right has no bot-first part or the bot
+// passes. The cached predicates can answer false for a bot that is an administrator, so the typed-reply door of
+// plan 19-04 classifies such a false with one live lookup before it refuses.
+func settingsRightBotFirst(b *gotgbot.Bot, group *gotgbot.Chat, right settingsRight) string {
+	switch right {
+	case settingsRightChangeInfoBotAdmin:
+		if !chat_status.IsUserAdmin(b, group.Id, b.Id) {
+			return "connections_is_user_connected_bot_not_admin"
+		}
+	case settingsRightOwnerBotAdmin:
+		if !chat_status.IsBotAdmin(b, nil, group) {
+			return "chat_status_bot_not_admin"
+		}
+	case settingsRightRestrictBotRestrict:
+		if !chat_status.IsUserAdmin(b, group.Id, b.Id) {
+			return "connections_is_user_connected_bot_not_admin"
+		}
+		if !chat_status.IsBotAdmin(b, nil, group) {
+			return "chat_status_bot_not_admin"
+		}
+	}
+	return ""
+}
+
+// settingsRightBotAfter is the bot part of a right that the command checks after the user's right: /captcha's
+// IsBotAdmin, /setflood's IsUserAdmin of the bot and the blacklist commands' CanBotRestrict. It returns the locale
+// key of a notice, or "" when the right has no such part or the bot passes. typed picks the key by update kind as
+// the command's permission responder does (U-9): a press (a callback) gets chat_status_bot_restrict_error, a typed
+// reply (a message) gets chat_status_bot_restrict_group_error. The same classification note as
+// settingsRightBotFirst applies to the door.
+func settingsRightBotAfter(b *gotgbot.Bot, group *gotgbot.Chat, right settingsRight, typed bool) string {
+	switch right {
+	case settingsRightAdminBotAdmin:
+		if !chat_status.IsBotAdmin(b, nil, group) {
+			return "chat_status_bot_not_admin"
+		}
+	case settingsRightAdminFloodBot:
+		if !chat_status.IsUserAdmin(b, group.Id, b.Id) {
+			return "connections_is_user_connected_bot_not_admin"
+		}
+	case settingsRightRestrictBotRestrict:
+		if !chat_status.CanBotRestrict(b, nil, group) {
+			if typed {
+				return "chat_status_bot_restrict_group_error"
+			}
+			return "chat_status_bot_restrict_error"
+		}
+	}
+	return ""
+}
+
+// settingsPress is one verified press of a settings button.
+type settingsPress struct {
+	b      *gotgbot.Bot
+	ctx    *ext.Context
+	query  *gotgbot.CallbackQuery
+	fields map[string]string
+	action string
+	// private is true for a menu opened in the presser's private chat.
+	private bool
+	// group is the group being configured: the message's chat for a group menu, the chat
+	// named by c for a private one.
+	group *gotgbot.Chat
+	// opener is the user ID u of a group menu (0 for a private one).
+	opener int64
+	// member is the presser's live getChatMember answer in the group.
+	member gotgbot.MergedChatMember
+	tr     *i18n.Translator
+	// answered is set once the callback query was answered.
+	answered bool
+}
+
+// answer answers the callback query, once. A second call is ignored, so a press is
+// answered exactly once whatever path it takes.
+func (p *settingsPress) answer(text string, alert bool) {
+	if p.answered {
+		return
+	}
+	p.answered = true
+	answerStaffCallback(p.b, p.query, text, alert)
+}
+
+// edit replaces the text and keyboard of the menu message. Telegram's "message is not
+// modified" is success; any other failure is logged once and never retried or undone.
+func (p *settingsPress) edit(s settingsScreen) {
+	opts := &gotgbot.EditMessageTextOpts{
+		Text:               s.Text,
+		ParseMode:          formatting.HTML,
+		LinkPreviewOptions: &gotgbot.LinkPreviewOptions{IsDisabled: true},
+	}
+	if len(s.Keyboard.InlineKeyboard) > 0 {
+		opts.ReplyMarkup = s.Keyboard
+	}
+	if _, _, err := p.query.Message.EditText(p.b, opts); err != nil && !isMessageNotModified(err) {
+		chat := p.query.Message.GetChat()
+		log.Warnf("[Settings] edit of message %d in chat %d failed: %v", p.query.Message.GetMessageId(), chat.Id, err)
+	}
+}
+
+// cannotOpen answers the alert and edits the menu to the cannot-open note with no
+// keyboard, so a menu that cannot render never leaves a dead button.
+func (p *settingsPress) cannotOpen() {
+	p.answer(settingsText(p.tr, "settings_cannot_open_alert"), true)
+	p.edit(settingsScreen{Text: settingsText(p.tr, "settings_cannot_open")})
+}
+
+// ownerKV is the owner field of this menu's buttons and its value.
+func (p *settingsPress) ownerKV() (key, value string) {
+	if p.private {
+		return "c", strconv.FormatInt(p.group.Id, 10)
+	}
+	return "u", strconv.FormatInt(p.opener, 10)
+}
+
+// owner is the owner field of this menu's buttons as a field map.
+func (p *settingsPress) owner() map[string]string {
+	key, value := p.ownerKV()
+	return map[string]string{key: value}
+}
+
+// view is the settingsView of the menu this press belongs to.
+func (p *settingsPress) view() settingsView {
+	key, value := p.ownerKV()
+	return settingsView{
+		Tr:         p.tr,
+		Private:    p.private,
+		OwnerKey:   key,
+		OwnerValue: value,
+		GroupID:    p.group.Id,
+		GroupTitle: p.group.Title,
+		OpenerName: staffFullName(&p.query.From),
+		Now:        time.Now(),
+		Creator:    p.isGroupCreator(),
+		Owner:      p.member.Status == gotgbot.ChatMemberStatusCreator,
+	}
+}
+
+// isGroupCreator reports whether this is a private menu whose presser is, by the live member
+// record every press already fetched, the creator of the group being configured. It makes no
+// call of its own.
+func (p *settingsPress) isGroupCreator() bool {
+	return p.private && p.member.Status == gotgbot.ChatMemberStatusCreator
+}
+
+// settingsMainScreen draws the Main page for a press.
+func settingsMainScreen(p *settingsPress, notice string) settingsScreen {
+	return renderSettingsMain(p.view(), settingsMainEntries(p.b, p.tr, p.group, p.member.Status == gotgbot.ChatMemberStatusCreator, p.private), notice)
+}
+
+// settingsCheckFields reports whether the fields of a callback are exactly those the action
+// takes: the action code, exactly one of c and u, and the action's own fields. Anything
+// else, an unknown key included, is refused before any I/O.
+func settingsCheckFields(action string, fields map[string]string) bool {
+	_, hasC := fields["c"]
+	_, hasU := fields["u"]
+	if hasC == hasU {
+		return false
+	}
+	owner := "u"
+	if hasC {
+		owner = "c"
+	}
+	allowed := map[string]bool{"a": true, owner: true}
+	required := []string{"a", owner}
+	switch action {
+	case settingsActOpenHere:
+		if owner != "u" {
+			return false
+		}
+	case settingsActOpen, settingsActCancel:
+		allowed["p"] = true
+		required = append(required, "p")
+	case settingsActBack, settingsActClose:
+	case settingsActPick:
+		if owner != "c" {
+			return false
+		}
+	case settingsActToggle, settingsActSet:
+		for _, key := range []string{"p", "t", "v"} {
+			allowed[key] = true
+			required = append(required, key)
+		}
+		if !settingsControlFieldsValid(action, fields) {
+			return false
+		}
+	default:
+		entry, ok := settingsActions[action]
+		if !ok {
+			return false
+		}
+		for _, key := range entry.action.Fields {
+			allowed[key] = true
+		}
+		// The action's own strict check runs on the whole field set once the allow-list is
+		// known, still before any I/O.
+		if entry.action.Validate != nil && !entry.action.Validate(fields) {
+			return false
+		}
+	}
+	for key := range fields {
+		if !allowed[key] {
+			return false
+		}
+	}
+	for _, key := range required {
+		if fields[key] == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// settingsControlFieldsValid reports whether a tg or st press names a control that exists: the
+// page p is registered, it has the control t, the control accepts the action (its Actions
+// allow-list, when it declares one, holds it), and the control's own Validate, when it declares
+// one, accepts the value v. It runs in step 1, before any I/O, so a forged control, action or
+// value costs no Telegram call.
+func settingsControlFieldsValid(action string, fields map[string]string) bool {
+	pg, ok := settingsPageByKey(fields["p"])
+	if !ok {
+		return false
+	}
+	control, ok := pg.Controls[fields["t"]]
+	if !ok {
+		return false
+	}
+	if len(control.Actions) > 0 && !slices.Contains(control.Actions, action) {
+		return false
+	}
+	return control.Validate == nil || control.Validate(fields["v"])
+}
+
+// newSettingsPress is the press of a callback before any of its checks ran.
+func newSettingsPress(b *gotgbot.Bot, ctx *ext.Context, query *gotgbot.CallbackQuery) *settingsPress {
+	return &settingsPress{b: b, ctx: ctx, query: query, tr: ctxTr(ctx)}
+}
+
+// verify runs steps 1 to 4b of the press pipeline in that order and returns p, or nil after
+// answering the refusal. A refusal of steps 1 to 3 makes no Telegram call; step 4 is the live
+// getChatMember of the presser in the group being configured and step 4b the owner gate on
+// that record (settings_gate_owner_only, or settings_check_failed when it cannot be decided).
+// Nothing is read or written for a press that does not pass.
+//
+// A pick (settingsActPick) overrides two mappings of the other actions, because its c is
+// attacker-controlled and must not tell anyone whether the bot is in a chat: every non-admin
+// status and every Telegram client error (a 4xx other than 429, by class and never by wording)
+// at the member lookup or at getChat, and a chat that is not a group or supergroup, answer
+// settings_pick_unavailable and leave the list as drawn; a 429, a 5xx, a transport error or a
+// timeout answers settings_check_failed. A pick is never the cannot-open edit.
+func (p *settingsPress) verify() *settingsPress {
+	b, query := p.b, p.query
+	refuse := func(key string) *settingsPress {
+		p.answer(settingsText(p.tr, key), true)
+		return nil
+	}
+
+	// 1. Decode and structure, no I/O.
+	decoded, ok := decodeCallbackData(query.Data, settingsCallbackNamespace)
+	if !ok {
+		return refuse("common_callback_invalid_request")
+	}
+	if query.Message == nil || query.Message.GetDate() == 0 {
+		return refuse("common_callback_message_unavailable")
+	}
+	p.fields = decoded.Fields
+	p.action = p.fields["a"]
+	if !settingsCheckFields(p.action, p.fields) {
+		return refuse("common_callback_invalid_request")
+	}
+	messageChat := query.Message.GetChat()
+	var privateGroupID int64
+	if raw, isPrivate := p.fields["c"]; isPrivate {
+		id, valid := parseStaffChatIDArg(raw)
+		if !valid || strconv.FormatInt(id, 10) != raw || messageChat.Type != "private" {
+			return refuse("common_callback_invalid_request")
+		}
+		p.private = true
+		privateGroupID = id
+	} else {
+		asker, valid := lockdownParseAsker(p.fields)
+		if !valid || strconv.FormatInt(asker, 10) != p.fields["u"] || messageChat.Type == "private" {
+			return refuse("common_callback_invalid_request")
+		}
+		p.opener = asker
+	}
+
+	// 2. A Telegram service identity is refused before any lookup.
+	if staffServiceUserIDs[query.From.Id] {
+		return refuse("lockdown_alert_post_as_yourself")
+	}
+
+	// 3. A group menu answers only the admin who opened it.
+	if !p.private && query.From.Id != p.opener {
+		return refuse("settings_not_your_menu")
+	}
+
+	// 4. One live getChatMember of the presser in the group being configured. The admin
+	// cache never authorizes, and a lookup that fails refuses.
+	groupID := messageChat.Id
+	if p.private {
+		groupID = privateGroupID
+	}
+	member, err := lockdownLiveMember(b, groupID, query.From.Id)
+	if err != nil {
+		log.Warnf("[Settings] live check of user %d in chat %d failed: %v", query.From.Id, groupID, err)
+		if p.action == settingsActPick {
+			// c is attacker-controlled: a client error (any 4xx, whatever its wording) is one
+			// answer whether or not the bot is in that chat, so a forged pick learns nothing.
+			if isTelegramClientError(err) {
+				return refuse("settings_pick_unavailable")
+			}
+			return refuse("settings_check_failed")
+		}
+		if p.private && chat_status.IsBotMissingError(err) {
+			// The bot left the group, or the group is gone: this private menu can never
+			// work again, so it closes itself instead of failing on every press (D-11).
+			p.cannotOpen()
+			return nil
+		}
+		return refuse("settings_check_failed")
+	}
+	if member.Status != gotgbot.ChatMemberStatusCreator && member.Status != gotgbot.ChatMemberStatusAdministrator {
+		if p.action == settingsActPick {
+			return refuse("settings_pick_unavailable")
+		}
+		return refuse("settings_not_admin")
+	}
+	p.member = member
+
+	// 4b. The owner gate: by default only the group's owner, or an administrator the owner let
+	// in, may use a menu. A menu opened earlier is gated again on every press, Close included,
+	// so an administrator the owner has since shut out is refused here and edits nothing (D-10).
+	// An unknown answer refuses, and never as the owner-only text.
+	switch settingsGate(b, groupID, query.From, member) {
+	case settingsGateIn:
+	case settingsGateOwnerOnly:
+		return refuse("settings_gate_owner_only")
+	default:
+		return refuse("settings_check_failed")
+	}
+
+	if !p.private {
+		p.group = &messageChat
+		return p
+	}
+	lookupCtx, cancel := context.WithTimeout(context.Background(), lockdownLiveCheckTimeout)
+	defer cancel()
+	full, err := b.GetChatWithContext(lookupCtx, groupID, nil)
+	if err != nil || full == nil {
+		log.Warnf("[Settings] getChat of chat %d for a private menu failed: %v", groupID, err)
+		if p.action == settingsActPick {
+			if err != nil && isTelegramClientError(err) {
+				return refuse("settings_pick_unavailable")
+			}
+			return refuse("settings_check_failed")
+		}
+		if err != nil && chat_status.IsBotMissingError(err) {
+			p.cannotOpen()
+			return nil
+		}
+		return refuse("settings_check_failed")
+	}
+	group := full.ToChat()
+	// Callback data is not authenticated by Telegram, so c can name any chat the presser
+	// administers. Only a group or supergroup is configured here, as the deep link does.
+	if group.Type != "group" && group.Type != "supergroup" {
+		if p.action == settingsActPick {
+			return refuse("settings_pick_unavailable")
+		}
+		p.cannotOpen()
+		return nil
+	}
+	p.group = &group
+	return p
+}
+
+// settingsCallback dispatches the settings| buttons. Every path answers the query exactly
+// once and returns ext.EndGroups.
+func (m moduleStruct) settingsCallback(b *gotgbot.Bot, ctx *ext.Context) error {
+	defer error_handling.RecoverFromPanic("settingsCallback", "Settings")
+
+	query, ok := callbackQueryFromContext(ctx)
+	if !ok {
+		return ext.EndGroups
+	}
+	press := newSettingsPress(b, ctx, query)
+	// Deferred after the recover above, so it runs first: a panic anywhere below, in the
+	// checks or in a page, still answers the query once instead of leaving the client's
+	// spinner running until Telegram times it out. A press that already answered is a no-op.
+	defer press.answer("", false)
+	p := press.verify()
+	if p == nil {
+		return ext.EndGroups
+	}
+	p.dispatch()
+	// A handler that did not answer (a normal success) answers empty now.
+	p.answer("", false)
+	return ext.EndGroups
+}
+
+// dispatch runs the verified press.
+func (p *settingsPress) dispatch() {
+	switch p.action {
+	case settingsActOpenHere, settingsActBack, settingsActPick:
+		p.edit(settingsMainScreen(p, ""))
+	case settingsActOpen, settingsActCancel:
+		pg, ok := settingsPageByKey(p.fields["p"])
+		if !ok {
+			p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
+			return
+		}
+		p.openPage(pg, "")
+	case settingsActClose:
+		p.closeMenu()
+	case settingsActToggle, settingsActSet:
+		p.runControl()
+	default:
+		p.runPageAction()
+	}
+}
+
+// openPage draws a page, or the cannot-open edit when its data cannot be read.
+func (p *settingsPress) openPage(pg settingsPage, notice string) {
+	// An owner-only page is never opened for anyone but the live creator, whatever route
+	// reached it (open, cancel, a forged Refresh): the alert edits nothing.
+	if pg.OwnerOnly && p.member.Status != gotgbot.ChatMemberStatusCreator {
+		p.answer(settingsText(p.tr, "settings_access_owner_only"), true)
+		return
+	}
+	// A hidden page (the Deletion page in a Staff Group) is refused whatever route reached it.
+	if pg.Hidden != nil && pg.Hidden(p.group) {
+		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
+		return
+	}
+	// A private-only page in a group menu is the framework's note, drawn before any page code runs
+	// (D-01, U-8): nothing of the page, not even a read, is reachable from a group.
+	if pg.PrivateOnly && !p.private {
+		if pg.PrivateNoteKey != "" {
+			p.edit(renderSettingsPrivateOnlyNoteWith(p.view(), pg.TitleKey, pg.PrivateNoteKey, getBotUsername(p.b)))
+			return
+		}
+		p.edit(renderSettingsPrivateOnlyNote(p.view(), pg.TitleKey, getBotUsername(p.b)))
+		return
+	}
+	screen, err := pg.Open(p, notice)
+	if err != nil {
+		log.Warnf("[Settings] page %q of chat %d could not be read: %v", pg.Key, p.group.Id, err)
+		p.cannotOpen()
+		return
+	}
+	p.edit(screen)
+}
+
+// renderSettingsPrivateOnlyNote draws a private-only page in a menu opened in the group (Screen 7):
+// the page's header, the one note line, the Open in private row and Back and Close. It is pure and
+// carries no intro, count, entry or action, because a group menu is read by every member. Without a
+// bot username the URL row is left out and logged, as the editor does.
+func renderSettingsPrivateOnlyNote(v settingsView, titleKey, botUsername string) settingsScreen {
+	return renderSettingsPrivateOnlyNoteWith(v, titleKey, "settings_entries_group_note", botUsername)
+}
+
+// renderSettingsPrivateOnlyNoteWith is renderSettingsPrivateOnlyNote with the page's own note line (the
+// page's PrivateNoteKey, such as the Messages page's settings_msg_group_note). It is pure.
+func renderSettingsPrivateOnlyNoteWith(v settingsView, titleKey, noteKey, botUsername string) settingsScreen {
+	k := newSettingsKeyboard(v)
+	settingsEditOpenPrivateRow(k, settingsEditScreenOpts{BotUsername: botUsername})
+	k.navRow(false)
+	return k.screen(settingsCompose(v, titleKey, []string{settingsText(v.Tr, noteKey)}, "", false))
+}
+
+// closeMenu deletes the menu message and, when that fails (a private message older than 48
+// hours, a missing right), edits it to the closed note with no keyboard.
+func (p *settingsPress) closeMenu() {
+	deleted, err := p.query.Message.Delete(p.b, nil)
+	if err == nil && deleted {
+		return
+	}
+	log.Warnf("[Settings] delete of the menu message in chat %d failed (%v), editing it instead", p.query.Message.GetChat().Id, err)
+	p.edit(settingsScreen{Text: settingsText(p.tr, "settings_closed")})
+}
+
+// checkRight judges the right of a control or action. A refusal that is an alert answers
+// it and edits nothing; one that is a notice answers empty and redraws page with the
+// warning line. It returns true when the right is held.
+func (p *settingsPress) checkRight(right settingsRight, pageKey string) bool {
+	key, alert := settingsRightRefusal(p, right)
+	if key == "" {
+		return true
+	}
+	text := settingsText(p.tr, key)
+	if alert {
+		p.answer(text, true)
+		return false
+	}
+	p.answer("", false)
+	if pg, ok := settingsPageByKey(pageKey); ok {
+		p.openPage(pg, settingsNoticeWarn(text))
+	}
+	return false
+}
+
+// runControl handles tg and st: it finds the page and control, checks the control's right
+// and applies the absolute value.
+func (p *settingsPress) runControl() {
+	pg, ok := settingsPageByKey(p.fields["p"])
+	if !ok {
+		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
+		return
+	}
+	control, ok := pg.Controls[p.fields["t"]]
+	if !ok || control.Set == nil || p.pageHidden(pg.Key) {
+		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
+		return
+	}
+	if !p.checkRight(control.Right, pg.Key) {
+		return
+	}
+	if screen := control.Set(p, p.fields["v"]); screen != nil {
+		p.edit(*screen)
+	}
+}
+
+// pageHidden reports whether the page of key does not exist in the press's group (its Hidden hook). A control or
+// action of a hidden page is refused as an invalid request before its right is judged, so a forged press is answered
+// the same whoever presses it and never reveals which right the hidden page's control would need.
+func (p *settingsPress) pageHidden(key string) bool {
+	pg, ok := settingsPageByKey(key)
+	return ok && pg.Hidden != nil && pg.Hidden(p.group)
+}
+
+// runPageAction handles an action code a page declared.
+func (p *settingsPress) runPageAction() {
+	entry, ok := settingsActions[p.action]
+	if !ok || entry.action.Run == nil || p.pageHidden(entry.pageKey) {
+		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
+		return
+	}
+	if !p.checkRight(entry.action.Right, entry.pageKey) {
+		return
+	}
+	if screen := entry.action.Run(p); screen != nil {
+		p.edit(*screen)
+	}
+}

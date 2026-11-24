@@ -51,12 +51,12 @@ func checkResults(input io.Reader, output io.Writer) error {
 }
 
 func postgresSkip(event testEvent) bool {
-	if event.Package == "github.com/uasneppy/fuku_robot/fuku/db/migrations" {
-		return os.Getenv("FUKU_TEST_MIGRATION_CHAIN") != "true" && os.Getenv("FUKU_TEST_DATABASE") != "true"
+	if event.Package == "github.com/uasneppy/Xenobot-72/xenobot/db/migrations" {
+		return os.Getenv("XENOBOT_TEST_MIGRATION_CHAIN") != "true" && os.Getenv("XENOBOT_TEST_DATABASE") != "true"
 	}
-	postgresOnly := (event.Package == "github.com/uasneppy/fuku_robot/fuku/db/chats" && event.Test == "TestUpdateChat") ||
-		(event.Package == "github.com/uasneppy/fuku_robot/fuku/db/staff" && event.Test == "TestStaffExclusivityTrigger")
-	return postgresOnly && os.Getenv("FUKU_TEST_DATABASE") != "true"
+	postgresOnly := (event.Package == "github.com/uasneppy/Xenobot-72/xenobot/db/chats" && event.Test == "TestUpdateChat") ||
+		(event.Package == "github.com/uasneppy/Xenobot-72/xenobot/db/staff" && event.Test == "TestStaffExclusivityTrigger")
+	return postgresOnly && os.Getenv("XENOBOT_TEST_DATABASE") != "true"
 }
 
 func main() {

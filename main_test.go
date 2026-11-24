@@ -13,11 +13,11 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/uasneppy/fuku_robot/fuku/config"
-	"github.com/uasneppy/fuku_robot/fuku/db"
-	"github.com/uasneppy/fuku_robot/fuku/modules"
-	fukuerrors "github.com/uasneppy/fuku_robot/fuku/utils/errors"
-	"github.com/uasneppy/fuku_robot/fuku/utils/tracing"
+	"github.com/uasneppy/Xenobot-72/xenobot/config"
+	"github.com/uasneppy/Xenobot-72/xenobot/db"
+	"github.com/uasneppy/Xenobot-72/xenobot/modules"
+	xenoerrors "github.com/uasneppy/Xenobot-72/xenobot/utils/errors"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/tracing"
 )
 
 type mainBotCall struct {
@@ -33,7 +33,7 @@ func (c *mainBotClient) RequestWithContext(_ context.Context, _ string, method s
 	c.calls = append(c.calls, mainBotCall{method: method, params: params})
 	switch method {
 	case "getMe":
-		return json.RawMessage(`{"id":999,"is_bot":true,"first_name":"Fuku","username":"FukuTestBot"}`), nil
+		return json.RawMessage(`{"id":999,"is_bot":true,"first_name":"Xenobot-72","username":"XenobotTestBot"}`), nil
 	case "setMyCommands":
 		return json.RawMessage(`true`), nil
 	case "sendMessage":
@@ -133,7 +133,7 @@ func TestPostInitSetsCommandsAndStartupMessage(t *testing.T) {
 		User: gotgbot.User{
 			Id:       999,
 			IsBot:    true,
-			Username: "FukuTestBot",
+			Username: "XenobotTestBot",
 		},
 	}
 	dispatcher := ext.NewDispatcher(&ext.DispatcherOpts{MaxRoutines: -1})
@@ -165,8 +165,8 @@ func TestResolveBotUsernameReadsGetMeResponse(t *testing.T) {
 		User:      gotgbot.User{Id: 999, IsBot: true},
 	}
 
-	if got := resolveBotUsername(bot); got != "FukuTestBot" {
-		t.Fatalf("resolveBotUsername() = %q, want FukuTestBot", got)
+	if got := resolveBotUsername(bot); got != "XenobotTestBot" {
+		t.Fatalf("resolveBotUsername() = %q, want XenobotTestBot", got)
 	}
 }
 
@@ -185,7 +185,7 @@ func TestNewDispatcherHandlesExpectedAndWrappedErrors(t *testing.T) {
 		t.Fatalf("expected Telegram error action = %s, want noop", action)
 	}
 
-	action = dispatcher.Error(nil, ctx, fukuerrors.Wrap(assertErr{}, "wrapped failure"))
+	action = dispatcher.Error(nil, ctx, xenoerrors.Wrap(assertErr{}, "wrapped failure"))
 	if action != ext.DispatcherActionNoop {
 		t.Fatalf("wrapped error action = %s, want noop", action)
 	}

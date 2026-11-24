@@ -1,0 +1,411 @@
+package backup
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestNewBackupFormat(t *testing.T) {
+
+	chatID := int64(123456)
+	chatName := "Test Chat"
+	exportedBy := int64(789)
+	modules := []string{"admin", "filters"}
+
+	bf := NewBackupFormat(chatID, chatName, exportedBy, modules)
+
+	if bf.Version != BackupFormatVersion {
+		t.Fatalf("Version = %q, want %q", bf.Version, BackupFormatVersion)
+	}
+	if bf.BotName != "Xenobot-72" {
+		t.Fatalf("BotName = %q, want %q", bf.BotName, "Xenobot-72")
+	}
+	if bf.ChatID != chatID {
+		t.Fatalf("ChatID = %d, want %d", bf.ChatID, chatID)
+	}
+	if bf.ChatName != chatName {
+		t.Fatalf("ChatName = %q, want %q", bf.ChatName, chatName)
+	}
+	if bf.ExportedBy != exportedBy {
+		t.Fatalf("ExportedBy = %d, want %d", bf.ExportedBy, exportedBy)
+	}
+	if len(bf.Modules) != len(modules) {
+		t.Fatalf("Modules len = %d, want %d", len(bf.Modules), len(modules))
+	}
+	if bf.Data == nil {
+		t.Fatal("Data should be initialized to non-nil map")
+	}
+	if bf.ExportedAt.IsZero() {
+		t.Fatal("ExportedAt should be set to current time")
+	}
+}
+
+// TestBackupFormat_ValidateAcceptsLegacyBotName keeps backups exported under the
+// bot's earlier name importable after the rename.
+func TestBackupFormat_ValidateAcceptsLegacyBotName(t *testing.T) {
+	bf := &BackupFormat{
+		Version:    legacyFormatVersion,
+		BotName:    "Xenobot-72",
+		ChatID:     123,
+		Modules:    []string{"admin"},
+		Data:       map[string]interface{}{"admin": map[string]interface{}{}},
+		ExportedAt: time.Now(),
+	}
+	if err := bf.Validate(); err != nil {
+		t.Fatalf("Validate() on a backup named Xenobot-72 = %v, want nil", err)
+	}
+}
+
+func TestBackupFormat_Validate(t *testing.T) {
+
+	now := time.Now().UTC()
+
+	tests := []struct {
+		name    string
+		bf      *BackupFormat
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid backup format returns no error",
+			bf: &BackupFormat{
+				Version:    BackupFormatVersion,
+				BotName:    "Xenobot-72",
+				ChatID:     123,
+				Modules:    []string{"admin"},
+				Data:       map[string]interface{}{"admin": map[string]interface{}{}},
+				ExportedAt: now,
+			},
+			wantErr: false,
+		},
+		{
+			name: "current format requires every module payload",
+			bf: &BackupFormat{
+				Version:    BackupFormatVersion,
+				BotName:    "Xenobot-72",
+				ChatID:     123,
+				Modules:    []string{"admin"},
+				Data:       make(map[string]interface{}),
+				ExportedAt: now,
+			},
+			wantErr: true,
+			errMsg:  "missing data for module: admin",
+		},
+		{
+			name: "legacy format requires every module payload",
+			bf: &BackupFormat{
+				Version:    legacyFormatVersion,
+				BotName:    "Xenobot-72",
+				ChatID:     123,
+				Modules:    []string{"admin"},
+				Data:       make(map[string]interface{}),
+				ExportedAt: now,
+			},
+			wantErr: true,
+			errMsg:  "missing data for module: admin",
+		},
+		{
+			name: "empty version returns error",
+			bf: &BackupFormat{
+				Version:    "",
+				BotName:    "Xenobot-72",
+				ChatID:     123,
+				Modules:    []string{"admin"},
+				Data:       make(map[string]interface{}),
+				ExportedAt: now,
+			},
+			wantErr: true,
+			errMsg:  "backup version is required",
+		},
+		{
+			name: "empty bot name returns error",
+			bf: &BackupFormat{
+				Version:    BackupFormatVersion,
+				BotName:    "",
+				ChatID:     123,
+				Modules:    []string{"admin"},
+				Data:       make(map[string]interface{}),
+				ExportedAt: now,
+			},
+			wantErr: true,
+			errMsg:  "bot name is required",
+		},
+		{
+			name: "zero chat ID returns error",
+			bf: &BackupFormat{
+				Version:    BackupFormatVersion,
+				BotName:    "Xenobot-72",
+				ChatID:     0,
+				Modules:    []string{"admin"},
+				Data:       make(map[string]interface{}),
+				ExportedAt: now,
+			},
+			wantErr: true,
+			errMsg:  "chat ID is required",
+		},
+		{
+			name: "empty modules returns error",
+			bf: &BackupFormat{
+				Version:    BackupFormatVersion,
+				BotName:    "Xenobot-72",
+				ChatID:     123,
+				Modules:    []string{},
+				Data:       make(map[string]interface{}),
+				ExportedAt: now,
+			},
+			wantErr: true,
+			errMsg:  "at least one module must be specified",
+		},
+		{
+			name: "nil data returns error",
+			bf: &BackupFormat{
+				Version:    BackupFormatVersion,
+				BotName:    "Xenobot-72",
+				ChatID:     123,
+				Modules:    []string{"admin"},
+				Data:       nil,
+				ExportedAt: now,
+			},
+			wantErr: true,
+			errMsg:  "data field cannot be nil",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+
+			err := tc.bf.Validate()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if err.Error() != tc.errMsg {
+					t.Fatalf("error = %q, want %q", err.Error(), tc.errMsg)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestBackupFormat_IsCompatibleVersion(t *testing.T) {
+
+	tests := []struct {
+		name    string
+		version string
+		want    bool
+	}{
+		{
+			name:    "exact version match returns true",
+			version: BackupFormatVersion,
+			want:    true,
+		},
+		{
+			name:    "different version returns false",
+			version: "2.0",
+			want:    false,
+		},
+		{
+			name:    "empty version returns false",
+			version: "",
+			want:    false,
+		},
+		{
+			name:    "legacy version remains compatible",
+			version: legacyFormatVersion,
+			want:    true,
+		},
+		{
+			name:    "unsupported older version returns false",
+			version: "0.9",
+			want:    false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+
+			bf := &BackupFormat{
+				Version:    tc.version,
+				BotName:    "Xenobot-72",
+				ChatID:     123,
+				Modules:    []string{"admin"},
+				Data:       make(map[string]interface{}),
+				ExportedAt: time.Now().UTC(),
+			}
+			got := bf.IsCompatibleVersion()
+			if got != tc.want {
+				t.Fatalf("IsCompatibleVersion() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBackupFormat_ToJSON(t *testing.T) {
+
+	bf := NewBackupFormat(123, "Test", 456, []string{"admin"})
+	bf.Data["admin"] = map[string]interface{}{"anon_admin": true}
+
+	data, err := bf.ToJSON()
+	if err != nil {
+		t.Fatalf("ToJSON() error: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("ToJSON() produced invalid JSON: %v", err)
+	}
+
+	if parsed["version"] != BackupFormatVersion {
+		t.Fatalf("JSON version = %v, want %v", parsed["version"], BackupFormatVersion)
+	}
+	if parsed["bot_name"] != "Xenobot-72" {
+		t.Fatalf("JSON bot_name = %v, want %v", parsed["bot_name"], "Xenobot-72")
+	}
+	if parsed["chat_id"] != float64(123) {
+		t.Fatalf("JSON chat_id = %v, want 123", parsed["chat_id"])
+	}
+
+	if !strings.Contains(string(data), "\n") {
+		t.Fatalf("JSON missing indentation/newlines: got %q", string(data))
+	}
+}
+
+func TestBackupFormatFromJSON(t *testing.T) {
+
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+		wantVer string
+		wantID  int64
+	}{
+		{
+			name:    "valid JSON parses correctly",
+			input:   `{"version":"1.0","bot_name":"Xenobot-72","chat_id":123,"chat_name":"Test","exported_by":456,"modules":["admin"],"data":{"admin":true},"exported_at":"2024-01-01T00:00:00Z"}`,
+			wantErr: false,
+			wantVer: "1.0",
+			wantID:  123,
+		},
+		{
+			name:    "invalid JSON returns error",
+			input:   `not json at all`,
+			wantErr: true,
+		},
+		{
+			name:    "empty JSON returns error",
+			input:   ``,
+			wantErr: true,
+		},
+		{
+			name:    "trailing JSON returns error",
+			input:   `{"version":"1.0"} {}`,
+			wantErr: true,
+		},
+		{
+			name:    "minimal valid JSON parses",
+			input:   `{"version":"2.0","bot_name":"TestBot","chat_id":789,"exported_by":0,"modules":["filters"],"data":{},"exported_at":"2024-06-01T12:00:00Z"}`,
+			wantErr: false,
+			wantVer: "2.0",
+			wantID:  789,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+
+			bf, err := BackupFormatFromJSON([]byte(tc.input))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if bf.Version != tc.wantVer {
+				t.Fatalf("Version = %q, want %q", bf.Version, tc.wantVer)
+			}
+			if bf.ChatID != tc.wantID {
+				t.Fatalf("ChatID = %d, want %d", bf.ChatID, tc.wantID)
+			}
+		})
+	}
+
+	const largeID = "9007199254740993"
+	bf, err := BackupFormatFromJSON([]byte(`{"data":{"warns":[{"user_id":` + largeID + `}]}}`))
+	if err != nil {
+		t.Fatalf("large nested integer parse: %v", err)
+	}
+	got := bf.Data["warns"].([]any)[0].(map[string]any)["user_id"]
+	if got != json.Number(largeID) {
+		t.Fatalf("nested user_id = %v (%T), want exact json.Number(%s)", got, got, largeID)
+	}
+}
+
+// TestBackupImportToleratesEarlierBotName proves that the bot name of an export is informational:
+// a file written under an arbitrary earlier bot name parses and validates like one written now,
+// while the real refusals of Validate still stand.
+func TestBackupImportToleratesEarlierBotName(t *testing.T) {
+	const earlierName = "LegacyBot"
+
+	build := func(botName, version string, modules string) []byte {
+		return []byte(`{"version":"` + version + `","bot_name":"` + botName + `","chat_id":123,` +
+			`"chat_name":"Test","exported_by":456,"modules":` + modules +
+			`,"data":{"admin":{"anon_admin":true}},"exported_at":"2024-01-01T00:00:00Z"}`)
+	}
+
+	valid := []struct {
+		name string
+		raw  []byte
+	}{
+		{"earlier name", build(earlierName, "1.0", `["admin"]`)},
+		{"current name", build("Xenobot-72", "1.0", `["admin"]`)},
+	}
+	for _, tc := range valid {
+		t.Run(tc.name, func(t *testing.T) {
+			bf, err := BackupFormatFromJSON(tc.raw)
+			if err != nil {
+				t.Fatalf("BackupFormatFromJSON() error: %v", err)
+			}
+			if err := bf.Validate(); err != nil {
+				t.Fatalf("Validate() error: %v", err)
+			}
+		})
+	}
+
+	// An export this version writes carries the current name and still passes its own checks.
+	fresh := NewBackupFormat(123, "Test", 456, []string{"admin"})
+	fresh.Data["admin"] = map[string]interface{}{"anon_admin": true}
+	if err := fresh.Validate(); err != nil {
+		t.Fatalf("Validate() of a new export error: %v", err)
+	}
+
+	refused := []struct {
+		name string
+		raw  []byte
+	}{
+		{"empty name", build("", "1.0", `["admin"]`)},
+		{"missing version", build(earlierName, "", `["admin"]`)},
+		{"empty module list", build(earlierName, "1.0", `[]`)},
+		{"unknown module", build(earlierName, "1.0", `["nonexistent"]`)},
+		{"module without data", build(earlierName, "1.0", `["filters"]`)},
+	}
+	for _, tc := range refused {
+		t.Run("refuses "+tc.name, func(t *testing.T) {
+			bf, err := BackupFormatFromJSON(tc.raw)
+			if err != nil {
+				t.Fatalf("BackupFormatFromJSON() error: %v", err)
+			}
+			if err := bf.Validate(); err == nil {
+				t.Fatal("Validate() = nil, want an error")
+			}
+		})
+	}
+}

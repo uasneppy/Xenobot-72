@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/uasneppy/fuku_robot/fuku/db"
+	"github.com/uasneppy/Xenobot-72/xenobot/db"
 	"gorm.io/gorm"
 )
 
