@@ -365,6 +365,7 @@ func memberReqPostEventNotice(ctx context.Context, b *gotgbot.Bot, c memberReqCa
 	withButton := len(rows) > 0
 	in := eventDefaultInput{Target: user, Rules: hold.Rules, Rows: rows}
 	values := eventValues{Reason: memberReqRulesText(tr, hold.Rules)}
+	appeal := false
 	switch hold.Action {
 	case models.RequirementActionKick:
 		values.Action = eventActionWord(tr, "kick")
@@ -382,6 +383,7 @@ func memberReqPostEventNotice(ctx context.Context, b *gotgbot.Bot, c memberReqCa
 				case "kick", "ban", "mute":
 					in.Action = mode
 					values.Action = eventActionWord(tr, mode)
+					appeal = mode == "ban"
 				}
 			}
 		}
@@ -416,6 +418,7 @@ func memberReqPostEventNotice(ctx context.Context, b *gotgbot.Bot, c memberReqCa
 		Note:         memberReqNoticeAppended(hold.Action)(tr, in),
 		TextOnly:     true,
 		Required:     hold.Action == models.RequirementActionMute,
+		Appeal:       appeal,
 	}
 	if withButton {
 		reply.KeepRows, reply.KeepRowsLast = rows, true

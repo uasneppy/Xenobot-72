@@ -15,6 +15,7 @@ import (
 	"github.com/uasneppy/fuku_robot/fuku/db/eventmsg"
 	"github.com/uasneppy/fuku_robot/fuku/db/memberreq"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
+	"github.com/uasneppy/fuku_robot/fuku/db/modtuning"
 	"github.com/uasneppy/fuku_robot/fuku/db/warns"
 	"github.com/uasneppy/fuku_robot/fuku/i18n"
 )
@@ -393,4 +394,67 @@ func TestEventMessageMemberReqMute(t *testing.T) {
 		}
 		mreqEventWantPM(t, env, member, mreqEventPMText(t, env, tr, "eventmsg_pm_mreqmute"))
 	})
+}
+
+func TestMemberReqWarnLimitBanAppeal(t *testing.T) {
+	_ = phase28InProcessMiniredis(t)
+	withFastPMCopyPacer(t)
+	s := newScreenGoldenSite(t)
+	s.bot.BotClient = eventPMTestClient{BotClient: s.bot.BotClient, script: &eventPMScript{}}
+	eventPMCleanup(t, s.chat.Id)
+	t.Cleanup(pmCopyJobs.wait)
+
+	const appealURL = "https://example.com/appeal"
+	if err := modtuning.SetAppealURL(t.Context(), s.chat.Id, appealURL, 1); err != nil {
+		t.Fatalf("SetAppealURL() error = %v", err)
+	}
+	storeEventPM(t, s.chat.Id, eventmsg.EventReqWarn, "", true)
+	tr := i18n.MustNewTranslator("en")
+	member := gotgbot.User{Id: 42, FirstName: "Ann", Username: "ann_lee"}
+	wantRow := [][]gotgbot.InlineKeyboardButton{{{Text: mreqEventWord(t, tr, "eventmsg_btn_appeal"), Url: appealURL}}}
+
+	for _, tc := range []struct {
+		mode       string
+		wantAppeal bool
+	}{
+		{mode: "ban", wantAppeal: true},
+		{mode: "tban", wantAppeal: true},
+		{mode: "kick", wantAppeal: false},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			beforeGroup, beforePM := eventPMCalls(t, s)
+			hold := &models.ChatRequirementHold{
+				ID:     1,
+				ChatID: s.chat.Id,
+				UserID: member.Id,
+				Action: models.RequirementActionWarn,
+				Rules:  memberReqRuleBits("lastname"),
+			}
+			warn := &warnApplyResult{Count: 3, Limit: 3, Mode: tc.mode, LimitReached: true, LimitApplied: true}
+			msgID, err := memberReqPostEventNotice(t.Context(), s.bot, memberReqCase{Chat: s.chat}, tr, member, hold, warn)
+			if err != nil || msgID == 0 {
+				t.Fatalf("memberReqPostEventNotice(%s) = (%d, %v), want sent message", tc.mode, msgID, err)
+			}
+			waitEventPM(t)
+			group, pm := eventPMCalls(t, s)
+			newGroup := group[len(beforeGroup):]
+			newPM := pm[len(beforePM):]
+			if len(newGroup) != 1 {
+				t.Fatalf("group notices = %d, want 1", len(newGroup))
+			}
+			if len(newPM) != 1 {
+				t.Fatalf("private copies = %d, want 1", len(newPM))
+			}
+			var want [][]gotgbot.InlineKeyboardButton
+			if tc.wantAppeal {
+				want = wantRow
+			}
+			if got := staffKeyboardOf(newGroup[0].Params["reply_markup"]); fmt.Sprint(got) != fmt.Sprint(want) {
+				t.Errorf("mode=%s group notice keyboard = %+v, want %+v", tc.mode, got, want)
+			}
+			if got := staffKeyboardOf(newPM[0].Params["reply_markup"]); fmt.Sprint(got) != fmt.Sprint(want) {
+				t.Errorf("mode=%s private copy keyboard = %+v, want %+v", tc.mode, got, want)
+			}
+		})
+	}
 }
