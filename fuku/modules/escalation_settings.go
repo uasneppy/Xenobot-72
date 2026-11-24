@@ -2,6 +2,7 @@ package modules
 
 import (
 	"context"
+	"errors"
 
 	log "github.com/sirupsen/logrus"
 
@@ -51,17 +52,17 @@ var escalationForgetPresets = []int{1, 7, 30, 90}
 
 // escalationWrites stores the ladder. Its fields are variables only so a test can make a write fail.
 var escalationWrites = struct {
-	SetEnabled          func(ctx context.Context, chatID int64, on bool, by int64) error
-	SetEnabledWithSteps func(ctx context.Context, chatID int64, steps []escalation.Step, by int64) error
-	SetStep             func(ctx context.Context, chatID int64, n int, s escalation.Step, by int64) error
-	SetForgetDays       func(ctx context.Context, chatID int64, days int, by int64) error
-	ClearOffences       func(ctx context.Context, chatID int64) error
+	SetEnabledChecked     func(ctx context.Context, chatID int64, on bool, exampleSteps []escalation.Step, by int64) (*escalation.Ladder, bool, error)
+	SetStepChecked        func(ctx context.Context, chatID int64, n int, s escalation.Step, by int64) (*escalation.Ladder, error)
+	RemoveLastStepChecked func(ctx context.Context, chatID int64, n int, by int64) (*escalation.Ladder, error)
+	SetForgetDays         func(ctx context.Context, chatID int64, days int, by int64) error
+	ClearOffences         func(ctx context.Context, chatID int64) error
 }{
-	SetEnabled:          escalation.SetEnabled,
-	SetEnabledWithSteps: escalation.SetEnabledWithSteps,
-	SetStep:             escalation.SetStep,
-	SetForgetDays:       escalation.SetForgetDays,
-	ClearOffences:       escalation.ClearOffences,
+	SetEnabledChecked:     escalation.SetEnabledChecked,
+	SetStepChecked:        escalation.SetStepChecked,
+	RemoveLastStepChecked: escalation.RemoveLastStepChecked,
+	SetForgetDays:         escalation.SetForgetDays,
+	ClearOffences:         escalation.ClearOffences,
 }
 
 // escalationRead reads the ladder fresh; a variable so a test can make it fail.
@@ -97,77 +98,72 @@ func escalationFinish(ctx context.Context, chatID int64, outcome escalationApply
 }
 
 // escalationFailed logs a failed write by chat ID and returns the save failure with the ladder before it.
-func escalationFailed(chatID int64, before *escalation.Ladder, err error) escalationApplyResult {
+func escalationFailed(ctx context.Context, chatID int64, before *escalation.Ladder, err error) escalationApplyResult {
 	log.Warnf("[Escalation] the ladder of chat %d could not be saved", chatID)
+	if before == nil {
+		if read, readErr := escalationRead(ctx, chatID); readErr == nil {
+			before = read
+		}
+	}
 	return escalationApplyResult{Outcome: escalationSaveFailed, Ladder: before, Err: err}
 }
 
-// applyEscalationEnabled turns the ladder on or off. Turning it on with no step stores the example
-// ladder (escalationExampleAdded); turning it on with steps stores only the switch. Turning it off stores
-// the switch and deletes the group's offence counts, so turning it on again starts fresh; a failed delete
-// is logged and does not undo the switch, because counts left behind age out by comparison (D-27).
+// applyEscalationEnabled turns the ladder on or off inside a single locked transaction. Turning it
+// on with no step stores the example ladder (escalationExampleAdded); turning it on with steps
+// stores only the switch. Turning it off stores the switch and deletes the group's offence counts,
+// so turning it on again starts fresh; a failed delete is logged and does not undo the switch,
+// because counts left behind age out by comparison (D-27).
 func applyEscalationEnabled(ctx context.Context, chatID int64, on bool, by int64) escalationApplyResult {
-	before, refused := escalationBefore(ctx, chatID)
-	if refused != nil {
-		return *refused
-	}
-	if on && len(before.Steps) == 0 {
-		if err := escalationWrites.SetEnabledWithSteps(ctx, chatID, escalationExampleSteps, by); err != nil {
-			return escalationFailed(chatID, before, err)
-		}
-		return escalationFinish(ctx, chatID, escalationExampleAdded)
-	}
-	if err := escalationWrites.SetEnabled(ctx, chatID, on, by); err != nil {
-		return escalationFailed(chatID, before, err)
+	after, exampleAdded, err := escalationWrites.SetEnabledChecked(ctx, chatID, on, escalationExampleSteps, by)
+	if err != nil {
+		return escalationFailed(ctx, chatID, nil, err)
 	}
 	if !on {
 		if err := escalationWrites.ClearOffences(ctx, chatID); err != nil {
 			log.Warnf("[Escalation] the offence counts of chat %d could not be cleared", chatID)
 		}
 	}
-	return escalationFinish(ctx, chatID, escalationApplied)
+	if exampleAdded {
+		return escalationApplyResult{Outcome: escalationExampleAdded, Ladder: after}
+	}
+	return escalationApplyResult{Outcome: escalationApplied, Ladder: after}
 }
 
-// applyEscalationStep stores step n (1-based): it replaces an existing step or appends the next one, so n
-// may be at most len(steps)+1 by a fresh read; a larger n is stale. An invalid step or an n outside 1 to
-// escalation.MaxSteps is invalid; both write nothing.
+// applyEscalationStep stores step n (1-based) inside a single locked transaction: it replaces an
+// existing step or appends the next one, so n may be at most len(steps)+1; a larger n is stale. An
+// invalid step or an n outside 1 to escalation.MaxSteps is invalid; both write nothing.
 func applyEscalationStep(ctx context.Context, chatID int64, n int, s escalation.Step, by int64) escalationApplyResult {
 	if n < 1 || n > escalation.MaxSteps || !escalation.ValidStep(s) {
 		return escalationApplyResult{Outcome: escalationInvalid}
 	}
-	before, refused := escalationBefore(ctx, chatID)
-	if refused != nil {
-		return *refused
+	ladder, err := escalationWrites.SetStepChecked(ctx, chatID, n, s, by)
+	if errors.Is(err, escalation.ErrStaleStep) {
+		return escalationApplyResult{Outcome: escalationStale, Ladder: ladder}
 	}
-	if n > len(before.Steps)+1 {
-		return escalationApplyResult{Outcome: escalationStale, Ladder: before}
+	if err != nil {
+		return escalationFailed(ctx, chatID, ladder, err)
 	}
-	if err := escalationWrites.SetStep(ctx, chatID, n, s, by); err != nil {
-		return escalationFailed(chatID, before, err)
-	}
-	return escalationFinish(ctx, chatID, escalationApplied)
+	return escalationApplyResult{Outcome: escalationApplied, Ladder: ladder}
 }
 
-// applyEscalationRemoveStep clears the last step: n must equal len(steps) by a fresh read, else the screen
-// is stale. The only step of a ladder that is on is refused; with the ladder off it is cleared.
+// applyEscalationRemoveStep clears the last step inside a single locked transaction: n must equal
+// len(steps), else the screen is stale. The only step of a ladder that is on is refused; with the
+// ladder off it is cleared.
 func applyEscalationRemoveStep(ctx context.Context, chatID int64, n int, by int64) escalationApplyResult {
 	if n < 1 || n > escalation.MaxSteps {
 		return escalationApplyResult{Outcome: escalationInvalid}
 	}
-	before, refused := escalationBefore(ctx, chatID)
-	if refused != nil {
-		return *refused
+	ladder, err := escalationWrites.RemoveLastStepChecked(ctx, chatID, n, by)
+	if errors.Is(err, escalation.ErrStaleStep) {
+		return escalationApplyResult{Outcome: escalationStale, Ladder: ladder}
 	}
-	if n != len(before.Steps) {
-		return escalationApplyResult{Outcome: escalationStale, Ladder: before}
+	if errors.Is(err, escalation.ErrLastStepEnabled) {
+		return escalationApplyResult{Outcome: escalationLastStepRefused, Ladder: ladder}
 	}
-	if n == 1 && before.Enabled {
-		return escalationApplyResult{Outcome: escalationLastStepRefused, Ladder: before}
+	if err != nil {
+		return escalationFailed(ctx, chatID, ladder, err)
 	}
-	if err := escalationWrites.SetStep(ctx, chatID, n, escalation.Step{}, by); err != nil {
-		return escalationFailed(chatID, before, err)
-	}
-	return escalationFinish(ctx, chatID, escalationApplied)
+	return escalationApplyResult{Outcome: escalationApplied, Ladder: ladder}
 }
 
 // applyEscalationForget stores how many days a member's offences are remembered: one of
@@ -181,7 +177,7 @@ func applyEscalationForget(ctx context.Context, chatID int64, days int, by int64
 		return *refused
 	}
 	if err := escalationWrites.SetForgetDays(ctx, chatID, days, by); err != nil {
-		return escalationFailed(chatID, before, err)
+		return escalationFailed(ctx, chatID, before, err)
 	}
 	return escalationFinish(ctx, chatID, escalationApplied)
 }

@@ -186,9 +186,15 @@ func TestTimedPunishmentLogsCarryIDsOnly(t *testing.T) {
 			Expiry: func(context.Context, int64, int) error { return boom },
 		})
 		mreqSwap(t, &blacklistWrites.SetAction, func(context.Context, int64, string, int) (int64, error) { return 0, boom })
-		mreqSwap(t, &escalationWrites.SetEnabled, func(context.Context, int64, bool, int64) error { return boom })
-		mreqSwap(t, &escalationWrites.SetEnabledWithSteps, func(context.Context, int64, []escalation.Step, int64) error { return boom })
-		mreqSwap(t, &escalationWrites.SetStep, func(context.Context, int64, int, escalation.Step, int64) error { return boom })
+		mreqSwap(t, &escalationWrites.SetEnabledChecked, func(context.Context, int64, bool, []escalation.Step, int64) (*escalation.Ladder, bool, error) {
+			return nil, false, boom
+		})
+		mreqSwap(t, &escalationWrites.SetStepChecked, func(context.Context, int64, int, escalation.Step, int64) (*escalation.Ladder, error) {
+			return nil, boom
+		})
+		mreqSwap(t, &escalationWrites.RemoveLastStepChecked, func(context.Context, int64, int, int64) (*escalation.Ladder, error) {
+			return nil, boom
+		})
 		mreqSwap(t, &escalationWrites.SetForgetDays, func(context.Context, int64, int, int64) error { return boom })
 		mreqSwap(t, &escalationRead, func(context.Context, int64) (*escalation.Ladder, error) {
 			return &escalation.Ladder{Enabled: true, ForgetDays: 30, Steps: []escalation.Step{{Action: "ban"}, {Action: "ban"}}}, nil

@@ -51,6 +51,12 @@ var (
 	// outside the stored ones, and by CountOffence for a chat of 0, a user ID of 0 or less, or
 	// a forget period under one second.
 	ErrInvalidValue = errors.New("escalation: invalid value")
+	// ErrStaleStep is returned by SetStepChecked and RemoveLastStepChecked when the requested
+	// step number does not match the current locked ladder (e.g. another admin edited it concurrently).
+	ErrStaleStep = errors.New("escalation: step is stale")
+	// ErrLastStepEnabled is returned by RemoveLastStepChecked when attempting to remove the
+	// only remaining step while the ladder is enabled.
+	ErrLastStepEnabled = errors.New("escalation: cannot remove last step while enabled")
 )
 
 // Step is one step of a ladder: an action and, for tmute and tban only, its seconds.
@@ -223,6 +229,181 @@ func SetForgetDays(ctx context.Context, chatID int64, days int, by int64) error 
 	row := defaultRow(chatID, by)
 	row.ForgetDays = days
 	return upsert(ctx, row, "forget_days")
+}
+
+// lockLadderTx ensures a chat_escalation row exists inside tx and locks it FOR UPDATE so
+// concurrent ladder edits serialize cleanly. When the caller returns an error from the
+// transaction, any newly inserted default row is rolled back.
+func lockLadderTx(tx *gorm.DB, chatID, by int64) (*models.ChatEscalation, error) {
+	seed := defaultRow(chatID, by)
+	if err := tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "chat_id"}},
+		DoNothing: true,
+	}).Create(seed).Error; err != nil {
+		return nil, fukuerrors.Wrapf(err, "lock the escalation ladder of chat %d", chatID)
+	}
+	var row models.ChatEscalation
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("chat_id = ?", chatID).Take(&row).Error; err != nil {
+		return nil, fukuerrors.Wrapf(err, "lock the escalation ladder of chat %d", chatID)
+	}
+	return &row, nil
+}
+
+// SetEnabledChecked atomically locks chatID's ladder, checks whether any steps exist, and enables
+// or disables the ladder in a single transaction. When turning on a ladder with zero steps, it
+// stores exampleSteps in the same transaction and reports exampleAdded = true. It drops
+// CacheKey(chatID) after commit and returns the resulting ladder.
+func SetEnabledChecked(ctx context.Context, chatID int64, on bool, exampleSteps []Step, by int64) (*Ladder, bool, error) {
+	if len(exampleSteps) > MaxSteps {
+		return nil, false, ErrInvalidValue
+	}
+	for _, s := range exampleSteps {
+		if !ValidStep(s) {
+			return nil, false, ErrInvalidValue
+		}
+	}
+	if db.DB == nil {
+		return nil, false, fukuerrors.Wrap(errNoDatabase, "write the escalation ladder")
+	}
+	var (
+		after        *Ladder
+		exampleAdded bool
+	)
+	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		row, err := lockLadderTx(tx, chatID, by)
+		if err != nil {
+			return err
+		}
+		before := ladderOf(row)
+		now := time.Now()
+		if on && len(before.Steps) == 0 {
+			if len(exampleSteps) == 0 {
+				return ErrInvalidValue
+			}
+			row.Enabled = true
+			updates := map[string]any{"enabled": true, "updated_by": by, "updated_at": now}
+			for n := 1; n <= MaxSteps; n++ {
+				var s Step
+				if n <= len(exampleSteps) {
+					s = exampleSteps[n-1]
+				}
+				setRowStep(row, n, s)
+				cols := stepColumns(n)
+				updates[cols[0]] = s.Action
+				updates[cols[1]] = s.Secs
+			}
+			if err := tx.Model(&models.ChatEscalation{}).Where("chat_id = ?", chatID).Updates(updates).Error; err != nil {
+				return fukuerrors.Wrapf(err, "write the escalation ladder of chat %d", chatID)
+			}
+			exampleAdded = true
+		} else {
+			row.Enabled = on
+			if err := tx.Model(&models.ChatEscalation{}).Where("chat_id = ?", chatID).Updates(map[string]any{
+				"enabled":    on,
+				"updated_by": by,
+				"updated_at": now,
+			}).Error; err != nil {
+				return fukuerrors.Wrapf(err, "write the escalation ladder of chat %d", chatID)
+			}
+		}
+		after = ladderOf(row)
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	cache.DeleteCache(CacheKey(chatID))
+	return after, exampleAdded, nil
+}
+
+// SetStepChecked atomically locks chatID's ladder, verifies n <= len(steps)+1, and writes step n
+// in a single transaction. If n > len(steps)+1 it rolls back and returns the locked ladder with
+// ErrStaleStep. It drops CacheKey(chatID) after commit.
+func SetStepChecked(ctx context.Context, chatID int64, n int, s Step, by int64) (*Ladder, error) {
+	if n < 1 || n > MaxSteps || !ValidStep(s) {
+		return nil, ErrInvalidValue
+	}
+	if db.DB == nil {
+		return nil, fukuerrors.Wrap(errNoDatabase, "write the escalation ladder")
+	}
+	var before, after *Ladder
+	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		row, err := lockLadderTx(tx, chatID, by)
+		if err != nil {
+			return err
+		}
+		before = ladderOf(row)
+		if n > len(before.Steps)+1 {
+			return ErrStaleStep
+		}
+		cols := stepColumns(n)
+		if err := tx.Model(&models.ChatEscalation{}).Where("chat_id = ?", chatID).Updates(map[string]any{
+			cols[0]:      s.Action,
+			cols[1]:      s.Secs,
+			"updated_by": by,
+			"updated_at": time.Now(),
+		}).Error; err != nil {
+			return fukuerrors.Wrapf(err, "write the escalation ladder of chat %d", chatID)
+		}
+		setRowStep(row, n, s)
+		after = ladderOf(row)
+		return nil
+	})
+	if errors.Is(err, ErrStaleStep) {
+		return before, ErrStaleStep
+	}
+	if err != nil {
+		return nil, err
+	}
+	cache.DeleteCache(CacheKey(chatID))
+	return after, nil
+}
+
+// RemoveLastStepChecked atomically locks chatID's ladder, verifies n == len(steps) and that the
+// only step of an enabled ladder is not removed, and clears step n in a single transaction. On
+// refusal it rolls back and returns the locked ladder with ErrStaleStep or ErrLastStepEnabled. It
+// drops CacheKey(chatID) after commit.
+func RemoveLastStepChecked(ctx context.Context, chatID int64, n int, by int64) (*Ladder, error) {
+	if n < 1 || n > MaxSteps {
+		return nil, ErrInvalidValue
+	}
+	if db.DB == nil {
+		return nil, fukuerrors.Wrap(errNoDatabase, "write the escalation ladder")
+	}
+	var before, after *Ladder
+	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		row, err := lockLadderTx(tx, chatID, by)
+		if err != nil {
+			return err
+		}
+		before = ladderOf(row)
+		if n != len(before.Steps) {
+			return ErrStaleStep
+		}
+		if n == 1 && before.Enabled {
+			return ErrLastStepEnabled
+		}
+		cols := stepColumns(n)
+		if err := tx.Model(&models.ChatEscalation{}).Where("chat_id = ?", chatID).Updates(map[string]any{
+			cols[0]:      "",
+			cols[1]:      0,
+			"updated_by": by,
+			"updated_at": time.Now(),
+		}).Error; err != nil {
+			return fukuerrors.Wrapf(err, "write the escalation ladder of chat %d", chatID)
+		}
+		setRowStep(row, n, Step{})
+		after = ladderOf(row)
+		return nil
+	})
+	if errors.Is(err, ErrStaleStep) || errors.Is(err, ErrLastStepEnabled) {
+		return before, err
+	}
+	if err != nil {
+		return nil, err
+	}
+	cache.DeleteCache(CacheKey(chatID))
+	return after, nil
 }
 
 // ReplaceLadderTx validates ladder and replaces chatID's entire escalation ladder inside

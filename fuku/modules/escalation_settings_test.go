@@ -153,8 +153,8 @@ func TestEscalationApply(t *testing.T) {
 		if err := escalation.SetEnabledWithSteps(ctx, chatID, escalationExampleSteps[:1], 1); err != nil {
 			t.Fatal(err)
 		}
-		mreqSwap(t, &escalationWrites.SetStep, func(context.Context, int64, int, escalation.Step, int64) error {
-			return errors.New("boom")
+		mreqSwap(t, &escalationWrites.SetStepChecked, func(context.Context, int64, int, escalation.Step, int64) (*escalation.Ladder, error) {
+			return nil, errors.New("boom")
 		})
 		mreqSwap(t, &escalationWrites.SetForgetDays, func(context.Context, int64, int, int64) error { return errors.New("boom") })
 		for name, got := range map[string]escalationApplyResult{
