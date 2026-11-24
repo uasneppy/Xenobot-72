@@ -251,6 +251,9 @@ func RemoveWarnAt(ctx context.Context, userId, chatId int64, now time.Time) (boo
 
 	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockWarnChat(tx, chatId); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
 			return err
 		}
 		expiryDays, err := readWarnExpiry(tx, chatId)
