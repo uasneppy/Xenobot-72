@@ -5,7 +5,7 @@ status: Awaiting next milestone
 stopped_at: Phase 30 complete, ready to verify Phase 21
 last_updated: "2026-11-24T21:04:51.049Z"
 last_activity: 2026-11-24
-last_activity_desc: "Quick task 261124-v7y shipped as PR #30"
+last_activity_desc: "Quick task 261124-l1n: fix CI lint findings after the rebrand"
 state_head: dfe7bfccd42a6f5680e7174b20454e9ca6d34843
 milestone_name: Conversations, Custom Messages and Tuning
 current_phase: 30
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-24)
 Phase: Milestone v1.2 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-11-24 -- Quick task 261124-v7y shipped as PR #30
+Last activity: 2026-11-24 -- Quick task 261124-l1n: fix CI lint findings after the rebrand
 
 ## Performance Metrics
 
@@ -441,6 +441,7 @@ None yet.
 | 261118-p4r | Formatting cleanup, the rest: all uk/en texts, Markdown sites to HTML, one text-only golden re-record | 2026-11-18 | 890f1a8 | .planning/quick/261118-p4r-formatting-rest |
 | 261118-p5l | Leftover fixes after PR #18: root test race, two-line replies, /disabledel text, staff last-seen zone, Smarkdown removed | 2026-11-18 | ef11de0 | .planning/quick/261118-p5l-leftover-fixes |
 | 261124-v7y | Replace Fuku and Alita mentions everywhere with Xenobot-72 and cleanup the repo | 2026-11-24 | 97b708a5 | [261124-v7y-replace-fuku-and-alita-mentions-everywhe](./quick/261124-v7y-replace-fuku-and-alita-mentions-everywhe/) |
+| 261124-l1n | Fix the CI lint findings the rebrand's fuku/ to xenobot/ move exposed (test errchecks, unused funcs, backup dispatch tables) | 2026-11-24 | 8609a4ee | [261124-l1n-fix-ci-lint-findings-after-rebrand](./quick/261124-l1n-fix-ci-lint-findings-after-rebrand/) |
 
 ## Deferred Items
 
