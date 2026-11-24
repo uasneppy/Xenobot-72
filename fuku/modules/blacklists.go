@@ -818,6 +818,9 @@ func (m moduleStruct) blacklistWatcher(b *gotgbot.Bot, ctx *ext.Context) error {
 		// nothing for post nothing (D-08).
 		return ext.ContinueGroups
 	}
+	if !chat_status.CanBotRestrict(b, ctx, chat) {
+		return ext.ContinueGroups
+	}
 	p = escalate(tracing.UpdateContext(ctx), b, chat.Id, user.Id(), "blacklist", p)
 	applied, notice, err := blacklistPunish(b, ctx, user, p)
 	if err != nil {
