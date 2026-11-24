@@ -38,7 +38,7 @@ func TestMemberReqAIBaselineTTL(t *testing.T) {
 		if n := ai.count(); n != 0 {
 			t.Errorf("provider requests = %d, want none for a first sighting", n)
 		}
-		_, ttl, ok := mreqAIBaselineOf(t, member.Id)
+		_, ttl, ok := mreqAIBaselineOf(t, env.chat.Id, member.Id)
 		if !ok {
 			t.Fatal("no baseline was recorded")
 		}
@@ -52,7 +52,7 @@ func TestMemberReqAIBaselineTTL(t *testing.T) {
 		if got := mreqAIAskAs(env, member.Id, mreqAINamesOfUser(member), memberReqLookupMode{}); got != memberReqPass {
 			t.Fatalf("verdict = %v, want pass", got)
 		}
-		_, ttl, ok := mreqAIBaselineOf(t, member.Id)
+		_, ttl, ok := mreqAIBaselineOf(t, env.chat.Id, member.Id)
 		if !ok {
 			t.Fatal("no baseline was recorded")
 		}
@@ -72,18 +72,18 @@ func TestMemberReqAIBaselineTTL(t *testing.T) {
 			t.Fatal("no marker was written")
 		}
 		wantAbout(t, "marker", ttl, 30*day)
-		mreqAIWantNoBaseline(t, member.Id)
+		mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 	})
 
 	t.Run("an equal baseline is still a pass with no write", func(t *testing.T) {
 		env, _ := jobEnv(t)
 		member := mreqAIOrdinary(env)
-		mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
-		env.redis.SetTTL(memberReqAIBaselineKey(member.Id), time.Hour)
+		mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
+		env.redis.SetTTL(memberReqAIBaselineKey(env.chat.Id, member.Id), time.Hour)
 		if got := mreqAIAskAs(env, member.Id, mreqAINamesOfUser(member), memberReqLookupMode{}); got != memberReqPass {
 			t.Fatalf("verdict = %v, want pass", got)
 		}
-		if ttl := env.redis.TTL(memberReqAIBaselineKey(member.Id)); ttl > time.Hour {
+		if ttl := env.redis.TTL(memberReqAIBaselineKey(env.chat.Id, member.Id)); ttl > time.Hour {
 			t.Errorf("baseline ttl = %v, want it not rewritten", ttl)
 		}
 	})

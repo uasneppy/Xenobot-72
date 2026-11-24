@@ -384,6 +384,60 @@ func TestAdvancedThresholdsAIAndMemberReq(t *testing.T) {
 		}
 	})
 
+	t.Run("memberreq_ai_baseline_isolated_per_chat", func(t *testing.T) {
+		mr := phase28InProcessMiniredis(t)
+		ctx := context.Background()
+
+		mreqSwap(t, &config.AppConfig.EnableAISpam, true)
+		mreqSwap(t, &config.AppConfig.AnthropicAPIKey, "test-key")
+		mreqSwap(t, &config.AppConfig.AnthropicModel, "test-model")
+
+		chatPermissive := uniqueModuleChatID()
+		chatStrict := uniqueModuleChatID()
+		cleanupAdvThresholdsChat(t, chatPermissive)
+		cleanupAdvThresholdsChat(t, chatStrict)
+		if err := advthresholds.SetField(ctx, chatPermissive, advthresholds.FieldMemberReqAIBar, 95, 1); err != nil {
+			t.Fatalf("SetField(permissive bar=95): %v", err)
+		}
+		if err := advthresholds.SetField(ctx, chatStrict, advthresholds.FieldMemberReqAIBar, 60, 1); err != nil {
+			t.Fatalf("SetField(strict bar=60): %v", err)
+		}
+
+		names := memberReqNames{First: "Crypto", Last: "Signals", Username: "wr04_iso_user"}
+		canon, ok := namecanon.Of(names.First, names.Last, names.Username)
+		if !ok {
+			t.Fatal("namecanon.Of() = false")
+		}
+		verdictKey := memberReqAIVerdictKey(config.AppConfig.AnthropicModel, canon)
+		if err := mr.Set(verdictKey, "0.80"); err != nil {
+			t.Fatalf("mr.Set(verdict): %v", err)
+		}
+
+		const userID int64 = 7501
+		// Pass in permissive chat (0.80 < 0.95) records Chat A's baseline only.
+		if got := memberReqAIRule(ctx, nil, chatPermissive, userID, memberReqLookupMode{Names: &names}); got != memberReqPass {
+			t.Fatalf("memberReqAIRule(permissive=95, prob=0.80) = %v, want memberReqPass", got)
+		}
+		if !mr.Exists(memberReqAIBaselineKey(chatPermissive, userID)) {
+			t.Fatal("expected baseline key in permissive chat")
+		}
+		if mr.Exists(memberReqAIBaselineKey(chatStrict, userID)) {
+			t.Fatal("baseline key leaked into strict chat")
+		}
+
+		// Strict chat (0.80 >= 0.60) must NOT be satisfied by permissive chat's baseline.
+		settingsStrict := &models.ChatRequirements{
+			ChatID:   chatStrict,
+			AIAction: models.RequirementActionWarn,
+		}
+		if satisfied, _ := memberReqLookupCachedWith(settingsStrict, chatStrict, userID, "pass", names, false); satisfied {
+			t.Fatal("memberReqLookupCachedWith(strict=60) satisfied = true, want false")
+		}
+		if got := memberReqAIRule(ctx, nil, chatStrict, userID, memberReqLookupMode{Names: &names}); got != memberReqBreach {
+			t.Fatalf("memberReqAIRule(strict=60, prob=0.80) = %v, want memberReqBreach", got)
+		}
+	})
+
 	t.Run("memberreq_cap_and_pause_custom", func(t *testing.T) {
 		mr := phase28InProcessMiniredis(t)
 		withStaffLocale(t)

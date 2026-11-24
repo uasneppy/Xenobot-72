@@ -20,7 +20,7 @@ import (
 func mreqAIFlushState(t *testing.T, chatID, userID int64) {
 	t.Helper()
 	mreqAIDeleteVerdicts()
-	mreqAIDeleteBaselines([]int64{userID})
+	mreqAIDeleteBaselines([]int64{chatID}, []int64{userID})
 	client := memberReqRedisClient()
 	if client == nil {
 		t.Fatal("no Redis client")
@@ -49,7 +49,7 @@ func TestMemberReqAIHeldRedisLoss(t *testing.T) {
 		if env.mreqHold(member.Id) == nil {
 			t.Error("the hold was released although the names are still judged spam")
 		}
-		mreqAIWantNoBaseline(t, member.Id)
+		mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 		mreqAIWantMarker(t, env.chat.Id, member.Id, true)
 		mreqHeldNoPunishment(t, env, member)
 	})
@@ -74,7 +74,7 @@ func TestMemberReqAIHeldRedisLoss(t *testing.T) {
 		if hold := env.mreqHold(member.Id); hold != nil {
 			t.Errorf("hold = %+v, want it released", hold)
 		}
-		mreqAIWantBaseline(t, member.Id, mreqAIHashOfUser(t, member))
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAIHashOfUser(t, member))
 	})
 }
 
@@ -93,7 +93,7 @@ func TestMemberReqAIFixedRedisLoss(t *testing.T) {
 		if live := mreqLiveRecord(t, env, member.Id); !isMemberReqMute(live, hold.MuteUntil) {
 			t.Errorf("the member after the refusal = %+v, want still muted with the marker", live)
 		}
-		mreqAIWantNoBaseline(t, member.Id)
+		mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 	})
 
 	t.Run("a changed ordinary name is freed with one request", func(t *testing.T) {

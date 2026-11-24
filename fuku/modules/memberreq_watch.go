@@ -189,7 +189,7 @@ type memberReqAIWatchRead struct {
 }
 
 // memberReqAIWatchQueue adds the AI rule's three single-key GETs to the watcher's pipeline:
-// fuku:memberreq:nv:<verdict key hash>, fuku:memberreq:nm:<user> and fuku:memberreq:nu:<chat>:<user>.
+// fuku:memberreq:nv:<verdict key hash>, fuku:memberreq:nm:<chat>:<user> and fuku:memberreq:nu:<chat>:<user>.
 // The canonical names and the verdict key are computed by pure Go (namecanon, with the configured
 // model). For names the rule never judges nothing is queued and the zero value is returned,
 // which is satisfied with no key read. It queues reads only; it writes nothing and calls nobody.
@@ -200,7 +200,7 @@ func memberReqAIWatchQueue(ctx context.Context, pipe redis.Pipeliner, chatID, us
 	}
 	return memberReqAIWatchRead{
 		verdict:  pipe.Get(ctx, memberReqAIVerdictKey(config.AppConfig.AnthropicModel, canon)),
-		baseline: pipe.Get(ctx, memberReqAIBaselineKey(userID)),
+		baseline: pipe.Get(ctx, memberReqAIBaselineKey(chatID, userID)),
 		marker:   pipe.Get(ctx, memberReqAIMarkerKey(chatID, userID)),
 		hash:     canon.Hash,
 	}

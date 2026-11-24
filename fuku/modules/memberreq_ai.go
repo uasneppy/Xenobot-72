@@ -77,10 +77,11 @@ const memberReqAIBar = 0.9
 // the model and the prompt version, never a name.
 const memberReqAIVerdictPrefix = "fuku:memberreq:nv:"
 
-// memberReqAIBaselinePrefix is the Redis key family of the baseline: fuku:memberreq:nm:<user>
+// memberReqAIBaselinePrefix is the Redis key family of the baseline: fuku:memberreq:nm:<chat>:<user>
 // holds the names hash (32 hex characters, never a name) of the names the bot last accepted for
-// this account. A name belongs to the account, so the key has no chat. Outside the fuku:cache:
-// prefix, so CLEAR_CACHE_ON_STARTUP keeps it.
+// this member in this chat. Scoped per chat so a pass accepted under a permissive chat's AI bar
+// never exempts the account in a stricter chat. Outside the fuku:cache: prefix, so
+// CLEAR_CACHE_ON_STARTUP keeps it.
 const memberReqAIBaselinePrefix = "fuku:memberreq:nm:"
 
 // memberReqAIMarkerPrefix is the Redis key family of the new-member marker:
@@ -226,9 +227,9 @@ func memberReqAIRead(ctx context.Context, key string) (probability float64, hit 
 	return probability, hit, nil
 }
 
-// memberReqAIBaselineKey is the Redis key of an account's baseline.
-func memberReqAIBaselineKey(userID int64) string {
-	return memberReqAIBaselinePrefix + strconv.FormatInt(userID, 10)
+// memberReqAIBaselineKey is the Redis key of a member's baseline in one chat.
+func memberReqAIBaselineKey(chatID, userID int64) string {
+	return memberReqAIBaselinePrefix + strconv.FormatInt(chatID, 10) + ":" + strconv.FormatInt(userID, 10)
 }
 
 // memberReqAIMarkerKey is the Redis key of a member's new-member marker in one chat.
@@ -275,7 +276,7 @@ func memberReqAIReadState(ctx context.Context, verdictKey string, chatID, userID
 	defer cancel()
 	pipe := client.Pipeline()
 	verdictCmd := pipe.Get(readCtx, verdictKey)
-	baselineCmd := pipe.Get(readCtx, memberReqAIBaselineKey(userID))
+	baselineCmd := pipe.Get(readCtx, memberReqAIBaselineKey(chatID, userID))
 	markerCmd := pipe.Get(readCtx, memberReqAIMarkerKey(chatID, userID))
 	// Exec reports the first command's error, a miss included, so every command is read on its own.
 	if _, err := pipe.Exec(readCtx); err != nil && !errors.Is(err, redis.Nil) {
@@ -394,7 +395,7 @@ func memberReqAIRule(ctx context.Context, _ *gotgbot.Bot, chatID, userID int64, 
 		return plan.verdict
 	}
 	if plan.baselineOnly {
-		memberReqAIBaseline(ctx, userID, plan.canon.Hash)
+		memberReqAIBaseline(ctx, chatID, userID, plan.canon.Hash)
 		return plan.verdict
 	}
 	verdict := plan.verdict
@@ -447,7 +448,7 @@ func memberReqAIRecordPass(ctx context.Context, chatID, userID int64, hash strin
 	writeCtx, cancel := context.WithTimeout(ctx, raidRedisTimeout)
 	defer cancel()
 	pipe := client.TxPipeline()
-	pipe.Set(writeCtx, memberReqAIBaselineKey(userID), hash, memberReqAIBaselineTTL)
+	pipe.Set(writeCtx, memberReqAIBaselineKey(chatID, userID), hash, memberReqAIBaselineTTL)
 	pipe.Del(writeCtx, memberReqAIMarkerKey(chatID, userID))
 	if _, err := pipe.Exec(writeCtx); err != nil {
 		log.Debugf("[MemberReq] the AI baseline of user %d in chat %d was not recorded: %s", userID, chatID, memberReqErrText(err))
@@ -478,18 +479,18 @@ func memberReqAIMarkJoin(ctx context.Context, chatID, userID int64) {
 	memberReqAIMark(ctx, chatID, userID)
 }
 
-// memberReqAIBaseline records the baseline of an established member's first sighting with SET NX,
-// so two replicas that see the member at once write one value and nobody's later pass is
-// overwritten by it. Best effort, logged by IDs only.
-func memberReqAIBaseline(ctx context.Context, userID int64, hash string) {
+// memberReqAIBaseline records the baseline of an established member's first sighting in chatID
+// with SET NX, so two replicas that see the member at once write one value and nobody's later
+// pass is overwritten by it. Best effort, logged by IDs only.
+func memberReqAIBaseline(ctx context.Context, chatID, userID int64, hash string) {
 	client := memberReqRedisClient()
 	if client == nil {
 		return
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, raidRedisTimeout)
 	defer cancel()
-	if err := client.SetNX(writeCtx, memberReqAIBaselineKey(userID), hash, memberReqAIBaselineTTL).Err(); err != nil {
-		log.Debugf("[MemberReq] the AI baseline of user %d was not recorded: %s", userID, memberReqErrText(err))
+	if err := client.SetNX(writeCtx, memberReqAIBaselineKey(chatID, userID), hash, memberReqAIBaselineTTL).Err(); err != nil {
+		log.Debugf("[MemberReq] the AI baseline of user %d in chat %d was not recorded: %s", userID, chatID, memberReqErrText(err))
 	}
 }
 

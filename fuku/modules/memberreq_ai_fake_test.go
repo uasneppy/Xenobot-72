@@ -301,7 +301,7 @@ func mreqAICleanup(t *testing.T, chatIDs, userIDs []int64) {
 	clean := func() {
 		mreqAIDeleteVerdicts()
 		mreqAIDeleteBudgets()
-		mreqAIDeleteBaselines(userIDs)
+		mreqAIDeleteBaselines(chatIDs, userIDs)
 	}
 	clean()
 	t.Cleanup(clean)
@@ -367,14 +367,16 @@ func withAIBudgets(t *testing.T, user, chat, global int64) {
 	mreqSwap(t, &memberReqAIGlobalHourlyBudget, global)
 }
 
-// mreqAIDeleteBaselines removes the baselines of the given users from Redis.
-func mreqAIDeleteBaselines(userIDs []int64) {
+// mreqAIDeleteBaselines removes the baselines of the given chats and users from Redis.
+func mreqAIDeleteBaselines(chatIDs, userIDs []int64) {
 	client := memberReqRedisClient()
 	if client == nil {
 		return
 	}
-	for _, id := range userIDs {
-		client.Del(context.Background(), memberReqAIBaselineKey(id))
+	for _, chatID := range chatIDs {
+		for _, id := range userIDs {
+			client.Del(context.Background(), memberReqAIBaselineKey(chatID, id))
+		}
 	}
 }
 
@@ -392,10 +394,10 @@ func mreqAIMarkNew(t *testing.T, chatID, userID int64) {
 	}
 }
 
-// mreqAIBaselineOf reads a user's baseline and its remaining life; ok is false when there is none.
-func mreqAIBaselineOf(t *testing.T, userID int64) (value string, ttl time.Duration, ok bool) {
+// mreqAIBaselineOf reads a member's baseline in a chat and its remaining life; ok is false when there is none.
+func mreqAIBaselineOf(t *testing.T, chatID, userID int64) (value string, ttl time.Duration, ok bool) {
 	t.Helper()
-	return mreqAIKeyState(t, memberReqAIBaselineKey(userID))
+	return mreqAIKeyState(t, memberReqAIBaselineKey(chatID, userID))
 }
 
 // mreqAIMarkerOf reads a member's marker in a chat and its remaining life; ok is false when absent.

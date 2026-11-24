@@ -129,7 +129,7 @@ func TestMemberReqWatcherAIPaused(t *testing.T) {
 		if n := ai.count(); n != 1 {
 			t.Errorf("provider requests after the pause = %d, want 1 (the member is judged)", n)
 		}
-		mreqAIWantBaseline(t, member.Id, mreqAIHashOfUser(t, member))
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAIHashOfUser(t, member))
 		mreqAIWantMarker(t, env.chat.Id, member.Id, false)
 	})
 

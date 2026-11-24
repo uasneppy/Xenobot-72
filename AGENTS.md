@@ -432,7 +432,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   bot and never about a member) and never classifies; a group with name rules only keeps its single `GET` exactly as before.
   While the AI spam-name rule is live (`memberReqAILive`: its action is not Off and the process is configured; an
   unconfigured stored value counts as Off there, or every message of every member would start a job for ever) the same
-  round also reads `fuku:memberreq:nv:<verdict key hash>`, `fuku:memberreq:nm:<user>` and `fuku:memberreq:nu:<chat>:<user>`
+  round also reads `fuku:memberreq:nv:<verdict key hash>`, `fuku:memberreq:nm:<chat>:<user>` and `fuku:memberreq:nu:<chat>:<user>`
   (`memberReqAIWatchQueue`: the canonical names and the verdict key come from pure Go, with `config.AppConfig.AnthropicModel`),
   and the AI part is satisfied only when the marker is absent and either the verdict parses and is below the bar or the
   baseline equals the current names hash (`memberReqAIWatchSatisfied`, pure: a miss, an unparsable value, NaN, an infinity
@@ -2980,13 +2980,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   serves an old verdict; it holds a hash and a probability and never a name, and it sits outside the `fuku:cache:` prefix, so
   `CLEAR_CACHE_ON_STARTUP` keeps it. It amends Phase 14's "positive only" rule for this one string-level fact: a verdict about
   a member is still never cached, only one about a string of names.
-- `fuku:memberreq:nm:<user>` is the AI spam-name rule's baseline (`memberreq_ai.go`, `memberReqAIBaselineKey`): the names hash
-  (32 hex characters, never a name) of the names the bot last accepted for this account, `SET EX` 180 days
+- `fuku:memberreq:nm:<chat>:<user>` is the AI spam-name rule's per-chat baseline (`memberreq_ai.go`, `memberReqAIBaselineKey`): the names hash
+  (32 hex characters, never a name) of the names the bot last accepted for this member in this chat, `SET EX` 180 days
   (`memberReqAIBaselineTTL`; the marker below keeps `memberReqAIStateTTL`, 30 days). The TTL is absolute and nothing
   refreshes it (the watcher is read-only and an equal baseline is a no-write pass), so a member dormant for over 180 days
   is first-sighted again and baselined with no call, whatever names they carry then (accepted, the same D-02 limit as an
   established member who was in the group when the rule was switched on; Phase 15 review WR-02 raised it from 30 days,
-  which reopened that hole for every member every month). A name belongs to the account, so the key has no chat. Only the rule writes it, never the watcher:
+  which reopened that hole for every member every month). The key is scoped per chat so a pass accepted under a permissive chat's AI bar never exempts the account in a stricter chat (Phase 28 review WR-04). Only the rule writes it, never the watcher:
   `SET NX` for an established member's first sighting (which makes no call), and overwritten by every definite pass together
   with the deletion of the marker below, in one transaction. A baseline that differs from the current names hash is a rename
   and is judged. It sits outside the `fuku:cache:` prefix, so `CLEAR_CACHE_ON_STARTUP` keeps it; Redis only.

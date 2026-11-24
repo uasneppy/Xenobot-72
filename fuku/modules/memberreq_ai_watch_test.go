@@ -98,10 +98,10 @@ func TestMemberReqWatcherAI(t *testing.T) {
 			mreqAIPlant(t, env, mreqAIKeyOf(t, mreqAINamesOfUser(member)), "0.2")
 		}},
 		{"a baseline equal to the names and no marker", func(t *testing.T, env *memberReqEnv, member gotgbot.User) {
-			mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
+			mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
 		}},
 		{"the rule (SEC-01): a baseline equal to the names, no marker and another account's cached breach", func(t *testing.T, env *memberReqEnv, member gotgbot.User) {
-			mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
+			mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
 			mreqAIPlant(t, env, mreqAIKeyOf(t, mreqAINamesOfUser(member)), "0.95")
 		}},
 	}
@@ -122,18 +122,18 @@ func TestMemberReqWatcherAI(t *testing.T) {
 	}{
 		{"no verdict, no baseline and no marker", func(*testing.T, *memberReqEnv, gotgbot.User) {}},
 		{"a marker, even with a baseline equal to the names", func(t *testing.T, env *memberReqEnv, member gotgbot.User) {
-			mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
+			mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
 			mreqAIMarkNew(t, env.chat.Id, member.Id)
 		}},
 		{"a baseline that differs (a rename)", func(t *testing.T, env *memberReqEnv, member gotgbot.User) {
-			mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), "0123456789abcdef0123456789abcdef")
+			mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), "0123456789abcdef0123456789abcdef")
 		}},
 		{"a cached breach and no baseline", func(t *testing.T, env *memberReqEnv, member gotgbot.User) {
 			mreqAIPlant(t, env, mreqAIKeyOf(t, mreqAINamesOfUser(member)), "0.95")
 		}},
 		{"a cached breach and a baseline that differs", func(t *testing.T, env *memberReqEnv, member gotgbot.User) {
 			mreqAIPlant(t, env, mreqAIKeyOf(t, mreqAINamesOfUser(member)), "0.95")
-			mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), "0123456789abcdef0123456789abcdef")
+			mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), "0123456789abcdef0123456789abcdef")
 		}},
 		{"a cached verdict below the bar and a join marker (Q3: the job records the baseline)", func(t *testing.T, env *memberReqEnv, member gotgbot.User) {
 			mreqAIPlant(t, env, mreqAIKeyOf(t, mreqAINamesOfUser(member)), "0.2")
@@ -161,7 +161,7 @@ func TestMemberReqWatcherAI(t *testing.T) {
 		mreqAIMarkNew(t, env.chat.Id, member.Id)
 		env.mreqSend(member, "hello")
 		memberReqJobs.wait()
-		if value, _, ok := mreqAIKeyState(t, memberReqAIBaselineKey(member.Id)); !ok || value != mreqAIHashOfUser(t, member) {
+		if value, _, ok := mreqAIKeyState(t, memberReqAIBaselineKey(env.chat.Id, member.Id)); !ok || value != mreqAIHashOfUser(t, member) {
 			t.Errorf("baseline = %q, %t, want the names hash recorded by the job", value, ok)
 		}
 		if _, _, ok := mreqAIKeyState(t, memberReqAIMarkerKey(env.chat.Id, member.Id)); ok {
@@ -218,7 +218,7 @@ func TestMemberReqWatcherAI(t *testing.T) {
 	t.Run("no Redis starts a job", func(t *testing.T) {
 		env, ai := mreqAIWatchEnv(t, models.RequirementActionMute)
 		member := mreqAIOrdinary(env)
-		mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
+		mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
 		mreqSwap(t, &memberReqRedisClient, func() *redis.Client { return nil })
 		if n := watch(t, env, ai, member); n != 1 {
 			t.Errorf("no Redis: job starts = %d, want 1", n)
@@ -285,7 +285,7 @@ func TestMemberReqWatcherAI(t *testing.T) {
 		if got := env.redis.CommandCount() - before; got < 1 {
 			t.Errorf("Redis commands of the name-only path = %d, want its pass-key read", got)
 		}
-		if _, err := env.redis.Get(memberReqAIBaselineKey(member.Id)); err == nil {
+		if _, err := env.redis.Get(memberReqAIBaselineKey(env.chat.Id, member.Id)); err == nil {
 			t.Errorf("the name-only path touched the AI keys")
 		}
 	})
@@ -313,7 +313,7 @@ func TestMemberReqWatcherAI(t *testing.T) {
 		})
 		t.Run("a satisfied member", func(t *testing.T) {
 			member := mreqAIOrdinary(env)
-			mreqAIPlant(t, env, memberReqAIBaselineKey(member.Id), mreqAIHashOfUser(t, member))
+			mreqAIPlant(t, env, memberReqAIBaselineKey(env.chat.Id, member.Id), mreqAIHashOfUser(t, member))
 			run(t, member)
 		})
 		t.Run("a Redis failure", func(t *testing.T) {
@@ -389,7 +389,7 @@ func TestMemberReqWatcherAIBurst(t *testing.T) {
 		t.Errorf("provider requests = %d, want none: switching the rule on costs no provider call", n)
 	}
 	for _, member := range members {
-		mreqAIWantBaseline(t, member.Id, mreqAIHashOfUser(t, member))
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAIHashOfUser(t, member))
 		if hold := env.mreqHold(member.Id); hold != nil {
 			t.Errorf("hold = %+v, want none for an established member", hold)
 		}
@@ -424,7 +424,7 @@ func TestMemberReqPassCacheWithAI(t *testing.T) {
 	// in for the AI positive, so a job runs and records the baseline.
 	env.mreqSend(member, "the pass key is stored")
 	memberReqJobs.wait()
-	mreqAIWantBaseline(t, member.Id, mreqAIHashOfUser(t, member))
+	mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAIHashOfUser(t, member))
 	if n := ai.count(); n != 0 {
 		t.Errorf("provider requests = %d, want none for the baseline job", n)
 	}
@@ -472,7 +472,7 @@ func TestMemberReqHeldReleaseAI(t *testing.T) {
 		if hold := env.mreqHold(member.Id); hold != nil {
 			t.Errorf("hold = %+v, want it released", hold)
 		}
-		mreqAIWantBaseline(t, member.Id, mreqAIHashOfUser(t, member))
+		mreqAIWantBaseline(t, env.chat.Id, member.Id, mreqAIHashOfUser(t, member))
 		mreqAIWantMarker(t, env.chat.Id, member.Id, false)
 		mreqHeldNoPunishment(t, env, member)
 		if deleted := env.mreqDeleted(); len(deleted) != 0 {
@@ -530,7 +530,7 @@ func TestMemberReqHeldReleaseAI(t *testing.T) {
 		if n := ai.count(); n != 1 {
 			t.Errorf("provider requests = %d, want 1 (the marker forces a judgement)", n)
 		}
-		mreqAIWantNoBaseline(t, member.Id)
+		mreqAIWantNoBaseline(t, env.chat.Id, member.Id)
 		if env.mreqHold(member.Id) == nil {
 			t.Error("the hold was released although the names were judged spam")
 		}
