@@ -5,6 +5,7 @@ package modtuning
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -410,6 +411,63 @@ func TestReplaceDefaultsAndShortcuts(t *testing.T) {
 		after, err := GetShortcuts(ctx, chatID)
 		if err != nil || len(after) != 0 {
 			t.Fatalf("GetShortcuts after empty = %v, %v; want empty", after, err)
+		}
+	})
+
+	t.Run("AddShortcut enforces cap atomically under concurrent adds", func(t *testing.T) {
+		chatID := modTuningChat(t)
+		for i := 0; i < models.ReasonShortcutsCapMax-1; i++ {
+			added, err := AddShortcut(ctx, chatID, fmt.Sprintf("w%02d", i), "reason", 1)
+			if err != nil || !added {
+				t.Fatalf("seed AddShortcut #%d = (%v, %v), want (true, nil)", i, added, err)
+			}
+		}
+
+		// Launch 4 concurrent writers competing for the single remaining slot.
+		const racers = 4
+		var wg sync.WaitGroup
+		var addedCount atomic.Int32
+		var capCount atomic.Int32
+		errs := make(chan error, racers)
+		start := make(chan struct{})
+		for i := 0; i < racers; i++ {
+			word := fmt.Sprintf("race%d", i)
+			wg.Add(1)
+			go func(w string) {
+				defer wg.Done()
+				<-start
+				added, err := AddShortcut(ctx, chatID, w, "race reason", 2)
+				switch {
+				case err == nil && added:
+					addedCount.Add(1)
+				case errors.Is(err, ErrShortcutCapReached) && !added:
+					capCount.Add(1)
+				default:
+					errs <- fmt.Errorf("AddShortcut(%s) = (%v, %v)", w, added, err)
+				}
+			}(word)
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Fatal(err)
+		}
+
+		if addedCount.Load() != 1 || capCount.Load() != racers-1 {
+			t.Fatalf("concurrent adds = %d added, %d cap; want 1 added, %d cap", addedCount.Load(), capCount.Load(), racers-1)
+		}
+		count, err := CountShortcutsFresh(ctx, chatID)
+		if err != nil || count != models.ReasonShortcutsCapMax {
+			t.Fatalf("CountShortcutsFresh = (%d, %v), want (%d, nil)", count, err, models.ReasonShortcutsCapMax)
+		}
+		// Existing word at cap still reports duplicate (false, nil), not cap error.
+		if added, err := AddShortcut(ctx, chatID, "w00", "dup", 3); added || err != nil {
+			t.Fatalf("duplicate AddShortcut at cap = (%v, %v), want (false, nil)", added, err)
+		}
+		// New word at cap reports (false, ErrShortcutCapReached).
+		if added, err := AddShortcut(ctx, chatID, "overcap", "new", 3); added || !errors.Is(err, ErrShortcutCapReached) {
+			t.Fatalf("overcap AddShortcut = (%v, %v), want (false, ErrShortcutCapReached)", added, err)
 		}
 	})
 }

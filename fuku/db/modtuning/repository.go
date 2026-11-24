@@ -9,6 +9,8 @@ package modtuning
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -32,6 +34,13 @@ var (
 	// ErrInvalidValue is returned before any DB write when a duration, URL, word, or reason is
 	// outside the table's allowed bounds.
 	ErrInvalidValue = errors.New("modtuning: invalid value")
+	// ErrShortcutCapReached is returned by AddShortcut when a chat already stores
+	// models.ReasonShortcutsCapMax shortcuts.
+	ErrShortcutCapReached = errors.New("modtuning: reason shortcuts cap reached")
+	// nonPostgresShortcutAddMu serializes AddShortcut transactions on non-Postgres drivers (SQLite
+	// in unit tests), where pg_advisory_xact_lock is unavailable and concurrent read-then-write
+	// transactions fail with SQLITE_BUSY.
+	nonPostgresShortcutAddMu sync.Mutex
 )
 
 // Defaults is a chat's manual command defaults and appeal button URL. Zero value means no default
@@ -314,7 +323,10 @@ func ExistsShortcutFresh(ctx context.Context, chatID int64, word string) (bool, 
 }
 
 // AddShortcut inserts one reason shortcut with ON CONFLICT (chat_id, word) DO NOTHING so a
-// duplicate never overwrites an existing entry. The cache key is dropped only when a row is added.
+// duplicate never overwrites an existing entry, while atomically enforcing
+// models.ReasonShortcutsCapMax inside a transaction (serialized per chat via pg_advisory_xact_lock
+// on Postgres). Returns (false, nil) if word already exists, (false, ErrShortcutCapReached) if the
+// chat is already at cap, and (true, nil) after invalidating the cache key when a row is added.
 func AddShortcut(ctx context.Context, chatID int64, word, reason string, by int64) (bool, error) {
 	if word == "" || utf8.RuneCountInString(word) > models.ReasonShortcutWordMaxRunes ||
 		reason == "" || utf8.RuneCountInString(reason) > models.ReasonShortcutTextMaxRunes {
@@ -323,21 +335,59 @@ func AddShortcut(ctx context.Context, chatID int64, word, reason string, by int6
 	if db.DB == nil {
 		return false, fukuerrors.Wrap(errNoDatabase, "add reason shortcut")
 	}
-	row := &models.ChatReasonShortcut{
-		ChatId:    chatID,
-		Word:      word,
-		Reason:    reason,
-		CreatedBy: by,
-		CreatedAt: time.Now(),
+	if db.DB.Name() != "postgres" {
+		nonPostgresShortcutAddMu.Lock()
+		defer nonPostgresShortcutAddMu.Unlock()
 	}
-	res := db.DB.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "chat_id"}, {Name: "word"}},
-		DoNothing: true,
-	}).Create(row)
-	if res.Error != nil {
-		return false, fukuerrors.Wrapf(res.Error, "add reason shortcut of chat %d", chatID)
+	var added bool
+	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if tx.Name() == "postgres" {
+			lockKey := fmt.Sprintf("fuku:chat_reason_shortcuts:%d", chatID)
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", lockKey).Error; err != nil {
+				return err
+			}
+		}
+		var existing int64
+		if err := tx.Model(&models.ChatReasonShortcut{}).
+			Where("chat_id = ? AND word = ?", chatID, word).
+			Count(&existing).Error; err != nil {
+			return err
+		}
+		if existing > 0 {
+			return nil
+		}
+		var count int64
+		if err := tx.Model(&models.ChatReasonShortcut{}).
+			Where("chat_id = ?", chatID).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count >= models.ReasonShortcutsCapMax {
+			return ErrShortcutCapReached
+		}
+		row := &models.ChatReasonShortcut{
+			ChatId:    chatID,
+			Word:      word,
+			Reason:    reason,
+			CreatedBy: by,
+			CreatedAt: time.Now(),
+		}
+		res := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "chat_id"}, {Name: "word"}},
+			DoNothing: true,
+		}).Create(row)
+		if res.Error != nil {
+			return res.Error
+		}
+		added = res.RowsAffected == 1
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, ErrShortcutCapReached) {
+			return false, ErrShortcutCapReached
+		}
+		return false, fukuerrors.Wrapf(err, "add reason shortcut of chat %d", chatID)
 	}
-	added := res.RowsAffected == 1
 	if added {
 		cache.DeleteCache(ShortcutsCacheKey(chatID))
 	}

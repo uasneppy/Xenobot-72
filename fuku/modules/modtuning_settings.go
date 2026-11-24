@@ -339,6 +339,9 @@ func applyReasonShortcutAdd(ctx context.Context, chatID int64, word, text string
 	}
 	added, err := reasonShortcutWrites.Add(ctx, chatID, norm, trimmed, by)
 	if err != nil {
+		if errors.Is(err, modtuning.ErrShortcutCapReached) {
+			return reasonShortcutCap
+		}
 		log.Warnf("[ModTuning] reason shortcut for chat %d could not be saved (by=%d)", chatID, by)
 		return reasonShortcutFailed
 	}

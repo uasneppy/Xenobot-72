@@ -188,6 +188,14 @@ func TestReasonShortcutValidationAndApply(t *testing.T) {
 			t.Fatalf("raced Add = %v, want reasonShortcutExists", got)
 		}
 
+		// Stage cap race on Add (CountFresh saw < cap, but atomic Add hit cap).
+		reasonShortcutWrites.Add = func(context.Context, int64, string, string, int64) (bool, error) {
+			return false, modtuning.ErrShortcutCapReached
+		}
+		if got := applyReasonShortcutAdd(ctx, chatID, secretWord, secretReason, 42); got != reasonShortcutCap {
+			t.Fatalf("cap-raced Add = %v, want reasonShortcutCap", got)
+		}
+
 		// Stage DB errors containing secret text to prove logs never echo errors or user text.
 		leakyErr := fmt.Errorf("db error mentioning %s and %s", secretWord, secretReason)
 		reasonShortcutWrites.ExistsFresh = func(context.Context, int64, string) (bool, error) { return false, leakyErr }
