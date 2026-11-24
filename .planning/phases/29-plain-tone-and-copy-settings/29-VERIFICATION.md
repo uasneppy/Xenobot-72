@@ -84,7 +84,7 @@ covered_files:
   - locales/ru.yml
   - locales/uk.yml
   - migrations/20261123130000_add_event_message_plain_tone.sql
-covered_digest: "v4:sha256:22f4b6578ddf64c1bad59a66cae2992fbd3ed409d85b5bbb337b29fe69dc5256"
+covered_digest: "v4:sha256:e3a788cce1343e9ab02b4d9275b29e4b508941207b477bdc147c54ef53a7ffaf"
 behavior_unverified: 1
 overrides_applied: 0
 behavior_unverified_items:
