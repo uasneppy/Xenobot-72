@@ -19,7 +19,7 @@ func TestPersonaCheckFilesAgree(t *testing.T) {
 	if len(questions) < 40 {
 		t.Fatalf("%d questions, want at least 40", len(questions))
 	}
-	sheet, err := os.ReadFile("../../.planning/phases/20-conversations/20-PERSONA-CHECK.md")
+	sheet, err := os.ReadFile("../../.planning/milestones/v1.2-phases/20-conversations/20-PERSONA-CHECK.md")
 	if err != nil {
 		t.Fatal(err)
 	}
