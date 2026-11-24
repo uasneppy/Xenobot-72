@@ -19,51 +19,42 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// moduleExporters maps each backup module to its export function. A table keeps
+// ExportModuleData flat as modules are added (gocyclo counts every switch case).
+var moduleExporters = map[string]func(chatID int64) (interface{}, error){
+	BackupModuleAdmin:       exporter(exportAdminData),
+	BackupModuleAntiflood:   exporter(exportAntifloodData),
+	BackupModuleAntiraid:    exporter(exportAntiraidData),
+	BackupModuleApprovals:   exporter(exportApprovalsData),
+	BackupModuleBlacklists:  exporter(exportBlacklistsData),
+	BackupModuleCaptcha:     exporter(exportCaptchaData),
+	BackupModuleConnections: exporter(exportConnectionsData),
+	BackupModuleDisabling:   exporter(exportDisablingData),
+	BackupModuleFilters:     exporter(exportFiltersData),
+	BackupModuleGreetings:   exporter(exportGreetingsData),
+	BackupModuleLocks:       exporter(exportLocksData),
+	BackupModuleNotes:       exporter(exportNotesData),
+	BackupModulePins:        exporter(exportPinsData),
+	BackupModuleReactions:   exporter(exportReactionsData),
+	BackupModuleReports:     exporter(exportReportsData),
+	BackupModuleRules:       exporter(exportRulesData),
+	BackupModuleWarns:       exporter(exportWarnsData),
+	BackupModuleFederations: exporter(exportFederationsData),
+	BackupModuleLogChannels: exporter(exportLogChannelsData),
+	BackupModuleMessages:    exporter(exportMessagesData),
+}
+
+// exporter adapts a typed export function to the moduleExporters signature.
+func exporter[T any](export func(int64) (T, error)) func(int64) (interface{}, error) {
+	return func(chatID int64) (interface{}, error) { return export(chatID) }
+}
+
 func ExportModuleData(chatID int64, module string) (interface{}, error) {
-	switch module {
-	case BackupModuleAdmin:
-		return exportAdminData(chatID)
-	case BackupModuleAntiflood:
-		return exportAntifloodData(chatID)
-	case BackupModuleAntiraid:
-		return exportAntiraidData(chatID)
-	case BackupModuleApprovals:
-		return exportApprovalsData(chatID)
-	case BackupModuleBlacklists:
-		return exportBlacklistsData(chatID)
-	case BackupModuleCaptcha:
-		return exportCaptchaData(chatID)
-	case BackupModuleConnections:
-		return exportConnectionsData(chatID)
-	case BackupModuleDisabling:
-		return exportDisablingData(chatID)
-	case BackupModuleFilters:
-		return exportFiltersData(chatID)
-	case BackupModuleGreetings:
-		return exportGreetingsData(chatID)
-	case BackupModuleLocks:
-		return exportLocksData(chatID)
-	case BackupModuleNotes:
-		return exportNotesData(chatID)
-	case BackupModulePins:
-		return exportPinsData(chatID)
-	case BackupModuleReactions:
-		return exportReactionsData(chatID)
-	case BackupModuleReports:
-		return exportReportsData(chatID)
-	case BackupModuleRules:
-		return exportRulesData(chatID)
-	case BackupModuleWarns:
-		return exportWarnsData(chatID)
-	case BackupModuleFederations:
-		return exportFederationsData(chatID)
-	case BackupModuleLogChannels:
-		return exportLogChannelsData(chatID)
-	case BackupModuleMessages:
-		return exportMessagesData(chatID)
-	default:
+	export, ok := moduleExporters[module]
+	if !ok {
 		return nil, fmt.Errorf("unknown module: %s", module)
 	}
+	return export(chatID)
 }
 
 func withBackupTx(fn func(tx *gorm.DB) ([]string, error)) error {
@@ -1079,54 +1070,40 @@ func moduleFieldPresent(payload interface{}, field string) bool {
 	return ok
 }
 
+// moduleClearers maps each backup module to the function that resets its data,
+// kept as a table for the same reason as moduleExporters.
+var moduleClearers = map[string]func(tx *gorm.DB, chatID int64) ([]string, error){
+	BackupModuleAdmin:       clearAdmin,
+	BackupModuleAntiflood:   clearAntiflood,
+	BackupModuleAntiraid:    clearAntiraid,
+	BackupModuleApprovals:   clearApprovals,
+	BackupModuleBlacklists:  clearBlacklists,
+	BackupModuleCaptcha:     clearCaptcha,
+	BackupModuleConnections: clearConnections,
+	BackupModuleDisabling:   clearDisabling,
+	BackupModuleFilters:     clearFilters,
+	BackupModuleGreetings:   clearGreetings,
+	BackupModuleLocks:       clearLocks,
+	BackupModuleNotes:       clearNotes,
+	BackupModulePins:        clearPins,
+	BackupModuleReactions:   clearReactions,
+	BackupModuleReports:     clearReports,
+	BackupModuleRules:       clearRules,
+	BackupModuleWarns:       clearWarns,
+	BackupModuleFederations: clearFederations,
+	BackupModuleLogChannels: clearLogChannels,
+	BackupModuleMessages:    clearMessages,
+}
+
 func clearModuleData(tx *gorm.DB, chatID int64, module string) ([]string, error) {
 	if err := ensureBackupChat(tx, chatID); err != nil {
 		return nil, err
 	}
-	switch module {
-	case BackupModuleAdmin:
-		return clearAdmin(tx, chatID)
-	case BackupModuleAntiflood:
-		return clearAntiflood(tx, chatID)
-	case BackupModuleAntiraid:
-		return clearAntiraid(tx, chatID)
-	case BackupModuleApprovals:
-		return clearApprovals(tx, chatID)
-	case BackupModuleBlacklists:
-		return clearBlacklists(tx, chatID)
-	case BackupModuleCaptcha:
-		return clearCaptcha(tx, chatID)
-	case BackupModuleConnections:
-		return clearConnections(tx, chatID)
-	case BackupModuleDisabling:
-		return clearDisabling(tx, chatID)
-	case BackupModuleFilters:
-		return clearFilters(tx, chatID)
-	case BackupModuleGreetings:
-		return clearGreetings(tx, chatID)
-	case BackupModuleLocks:
-		return clearLocks(tx, chatID)
-	case BackupModuleNotes:
-		return clearNotes(tx, chatID)
-	case BackupModulePins:
-		return clearPins(tx, chatID)
-	case BackupModuleReactions:
-		return clearReactions(tx, chatID)
-	case BackupModuleReports:
-		return clearReports(tx, chatID)
-	case BackupModuleRules:
-		return clearRules(tx, chatID)
-	case BackupModuleWarns:
-		return clearWarns(tx, chatID)
-	case BackupModuleFederations:
-		return clearFederations(tx, chatID)
-	case BackupModuleLogChannels:
-		return clearLogChannels(tx, chatID)
-	case BackupModuleMessages:
-		return clearMessages(tx, chatID)
-	default:
+	clearFn, ok := moduleClearers[module]
+	if !ok {
 		return nil, fmt.Errorf("unknown module: %s", module)
 	}
+	return clearFn(tx, chatID)
 }
 
 func ensureBackupChat(tx *gorm.DB, chatID int64) error {

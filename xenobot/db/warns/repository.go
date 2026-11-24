@@ -52,10 +52,6 @@ func checkWarnSettingsContext(ctx context.Context, chatID int64) (warnrc *models
 	return warnrc, nil
 }
 
-func checkWarns(userId, chatId int64) (warnrc *models.Warns) {
-	return checkWarnsContext(context.Background(), userId, chatId)
-}
-
 func checkWarnsContext(ctx context.Context, userId, chatId int64) (warnrc *models.Warns) {
 	defaultWarnSrc := &models.Warns{UserId: userId, ChatId: chatId, NumWarns: 0, Reasons: make(models.StringArray, 0)}
 	warnrc = &models.Warns{}

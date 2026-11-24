@@ -271,7 +271,9 @@ func TestAntiRaidKeySweep(t *testing.T) {
 	t.Run("removes exactly the retired keys", func(t *testing.T) {
 		mr := withMiniredisServer(t)
 		for _, key := range append(append([]string{}, retired...), kept...) {
-			mr.Set(key, "x")
+			if err := mr.Set(key, "x"); err != nil {
+				t.Fatalf("mr.Set: %v", err)
+			}
 		}
 
 		removed, err := sweepRetiredAntiRaidKeys(context.Background())
@@ -298,9 +300,13 @@ func TestAntiRaidKeySweep(t *testing.T) {
 	t.Run("sweeps more keys than one scan batch", func(t *testing.T) {
 		mr := withMiniredisServer(t)
 		for i := 0; i < 350; i++ {
-			mr.Set(fmt.Sprintf("xenobot:antiraid:state:%d", -2000-i), "x")
+			if err := mr.Set(fmt.Sprintf("xenobot:antiraid:state:%d", -2000-i), "x"); err != nil {
+				t.Fatalf("mr.Set: %v", err)
+			}
 		}
-		mr.Set("xenobot:raid:{-2000}:joined", "x")
+		if err := mr.Set("xenobot:raid:{-2000}:joined", "x"); err != nil {
+			t.Fatalf("mr.Set: %v", err)
+		}
 
 		removed, err := sweepRetiredAntiRaidKeys(context.Background())
 		if err != nil || removed != 350 {
@@ -323,7 +329,9 @@ func TestAntiRaidKeySweep(t *testing.T) {
 
 	t.Run("a Redis failure is returned and keeps the keys", func(t *testing.T) {
 		mr := withMiniredisServer(t)
-		mr.Set(retired[0], "x")
+		if err := mr.Set(retired[0], "x"); err != nil {
+			t.Fatalf("mr.Set: %v", err)
+		}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
@@ -342,7 +350,9 @@ func TestAntiRaidSweepRunsOnceOnLoad(t *testing.T) {
 	antiraidSweepOnce = sync.Once{}
 	t.Cleanup(func() { quietAntiRaidSweep(t) })
 
-	mr.Set("xenobot:antiraid:state:-3001", "x")
+	if err := mr.Set("xenobot:antiraid:state:-3001", "x"); err != nil {
+		t.Fatalf("mr.Set: %v", err)
+	}
 	LoadAntiRaid(ext.NewDispatcher(&ext.DispatcherOpts{MaxRoutines: -1}))
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -354,7 +364,9 @@ func TestAntiRaidSweepRunsOnceOnLoad(t *testing.T) {
 	}
 
 	// A second load in the same process does not sweep again.
-	mr.Set("xenobot:antiraid:state:-3002", "x")
+	if err := mr.Set("xenobot:antiraid:state:-3002", "x"); err != nil {
+		t.Fatalf("mr.Set: %v", err)
+	}
 	LoadAntiRaid(ext.NewDispatcher(&ext.DispatcherOpts{MaxRoutines: -1}))
 	time.Sleep(300 * time.Millisecond)
 	if !mr.Exists("xenobot:antiraid:state:-3002") {
