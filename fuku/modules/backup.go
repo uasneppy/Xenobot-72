@@ -601,6 +601,9 @@ func parseImportModules(text string, backupData map[string]interface{}) ([]strin
 		args := strings.Fields(text)
 		if len(args) > 1 {
 			return parseModuleArgs(args[1:], func(module string) bool {
+				if !backup.IsValidModule(module) {
+					return false
+				}
 				_, ok := backupData[module]
 				return ok
 			})

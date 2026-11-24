@@ -164,6 +164,22 @@ func TestParseImportModules(t *testing.T) {
 		require.ErrorIs(t, err, errNoValidModule)
 		assert.Nil(t, got)
 	})
+
+	t.Run("rejects unknown extra keys present in backupData", func(t *testing.T) {
+		dataWithExtras := map[string]interface{}{
+			"notes":       map[string]interface{}{"a": 1},
+			"unknown":     map[string]interface{}{"x": 1},
+			"<b>evil</b>": map[string]interface{}{"y": 2},
+		}
+
+		got, err := parseImportModules("/import unknown <b>evil</b>", dataWithExtras)
+		require.ErrorIs(t, err, errNoValidModule)
+		assert.Nil(t, got)
+
+		got, err = parseImportModules("/import notes unknown <b>evil</b>", dataWithExtras)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"notes"}, got)
+	})
 }
 
 func TestParseModuleArgs(t *testing.T) {
