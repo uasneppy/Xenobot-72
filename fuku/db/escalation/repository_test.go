@@ -463,6 +463,8 @@ func TestReplaceLadder(t *testing.T) {
 		"invalid step action":  {Enabled: true, Steps: []Step{{Action: "explode"}}, ForgetDays: 14},
 		"timed step zero secs": {Enabled: true, Steps: []Step{{Action: ActionTMute, Secs: 0}}, ForgetDays: 14},
 		"too many steps":       {Enabled: true, Steps: make([]Step, MaxSteps+1), ForgetDays: 14},
+		"leading empty step":   {Enabled: true, Steps: []Step{{}, {Action: ActionBan}}, ForgetDays: 14},
+		"interior empty step":  {Enabled: true, Steps: []Step{{Action: ActionKick}, {}, {Action: ActionBan}}, ForgetDays: 14},
 	} {
 		if err := ReplaceLadder(ctx, chatID, bad, 9); !errors.Is(err, ErrInvalidValue) {
 			t.Errorf("ReplaceLadder(%s) err = %v, want ErrInvalidValue", name, err)

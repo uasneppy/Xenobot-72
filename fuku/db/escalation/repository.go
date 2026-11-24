@@ -239,11 +239,13 @@ func ReplaceLadder(ctx context.Context, chatID int64, ladder Ladder, by int64) e
 		return ErrInvalidValue
 	}
 	hasSteps := false
+	seenEmpty := false
 	for _, s := range ladder.Steps {
 		if s == (Step{}) {
+			seenEmpty = true
 			continue
 		}
-		if !ValidStep(s) {
+		if seenEmpty || !ValidStep(s) {
 			return ErrInvalidValue
 		}
 		hasSteps = true
