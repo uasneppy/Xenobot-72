@@ -460,11 +460,15 @@ func settingsModDefAppealTyped(r *settingsInputReply) {
 	}
 	r.finishWait(claim)
 	log.Infof("[Settings] user %d updated appeal link for chat %d", r.user.Id, r.wait.GroupID)
+	notice := settingsNoticeOK(settingsText(r.tr, "settings_moddef_saved_appeal"))
 	defs, err := settingsModDefaultsReadNow(r.wait.GroupID)
 	if err != nil {
-		defs = modtuning.Defaults{AppealURL: cleaned}
+		log.Warnf("[Settings] manual defaults of chat %d could not be read after a typed save: %v", r.wait.GroupID, err)
+		r.send(notice, nil, false)
+		r.closePrompt()
+		return
 	}
-	screen := renderSettingsModDefaults(r.view(), defs, settingsNoticeOK(settingsText(r.tr, "settings_moddef_saved_appeal")))
+	screen := renderSettingsModDefaults(r.view(), defs, notice)
 	r.send(screen.Text, &screen.Keyboard, false)
 	r.closePrompt()
 }

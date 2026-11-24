@@ -4,6 +4,7 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -341,6 +342,45 @@ func TestSettingsModDefaults(t *testing.T) {
 		m.press("a", settingsActModDefAppealRemove)
 		if defs := settingsModDefaultsStored(t, env.chat.Id); defs.AppealURL != "" {
 			t.Errorf("second Remove changed AppealURL to %q", defs.AppealURL)
+		}
+	})
+
+	t.Run("appeal_link_post_save_read_error_sends_notice_only", func(t *testing.T) {
+		env := &settingsListEnv{settingsEnv: newPhase28SettingsEnv(t)}
+		env.fake.setBotRole(env.chat.Id, staffRoleAdmin)
+		modDefaultsCleanup(t, env.chat.Id)
+		owner := settingsFiltersOwner(env, env.chat)
+		if err := modtuning.SetDefaultBanSecs(context.Background(), env.chat.Id, 3600, owner.Id); err != nil {
+			t.Fatalf("seed DefaultBanSecs: %v", err)
+		}
+		if err := modtuning.SetReasonRequired(context.Background(), env.chat.Id, true, owner.Id); err != nil {
+			t.Fatalf("seed ReasonRequired: %v", err)
+		}
+
+		m := settingsListOpenMenuPage(env, env.chat, owner, settingsPageModDefaults)
+		m.press("a", settingsActModDefAppealPrompt)
+
+		prevRead := settingsModDefaultsRead
+		settingsModDefaultsRead = func(context.Context, int64) (modtuning.Defaults, error) {
+			return modtuning.Defaults{}, errors.New("read failed")
+		}
+		t.Cleanup(func() { settingsModDefaultsRead = prevRead })
+
+		sentBefore := len(env.fake.sentTo(owner.Id))
+		settingsListDoorSay(env, owner, "https://example.com/appeal-ok")
+		replies := env.fake.sentTo(owner.Id)[sentBefore:]
+		if len(replies) != 1 {
+			t.Fatalf("post-save read error replies = %d, want 1", len(replies))
+		}
+		got := sentText(replies[0])
+		if !strings.Contains(got, staffMarker("settings_moddef_saved_appeal")) {
+			t.Errorf("notice-only reply lacks saved confirmation: %q", got)
+		}
+		if strings.Contains(got, staffMarker("settings_moddef_permanent")) || strings.Contains(got, staffMarker("settings_state_off")) {
+			t.Errorf("post-save read error rendered fabricated zero defaults: %q", got)
+		}
+		if defs := settingsModDefaultsStored(t, env.chat.Id); defs.AppealURL != "https://example.com/appeal-ok" {
+			t.Errorf("stored AppealURL = %q, want saved URL", defs.AppealURL)
 		}
 	})
 
