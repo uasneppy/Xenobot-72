@@ -121,6 +121,9 @@ func TestEventMsgValidateWriteMatchesSettingsPage(t *testing.T) {
 				if !ok {
 					t.Fatalf("missing PM edit def for event %q", ev.Key)
 				}
+				if got := eventmsg.NoMedia(ev.Key, eventmsg.DestPM); got != (settingsEditPartByCode(pmDef, settingsEditPartMedia) == nil) {
+					t.Errorf("event %q: NoMedia(pm) = %v, disagrees with pmDef media part", ev.Key, got)
+				}
 				if got := eventmsg.ReservedButtonsFor(ev.Key, eventmsg.DestPM); got != pmDef.ReservedButtons {
 					t.Errorf("event %q: ReservedButtonsFor(pm) = %d, want %d", ev.Key, got, pmDef.ReservedButtons)
 				}

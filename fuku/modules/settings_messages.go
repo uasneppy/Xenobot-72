@@ -462,15 +462,17 @@ func settingsMsgEditDef(fam settingsMsgFamily, ev settingsMsgEvent) settingsEdit
 
 // settingsMsgPMEditDef is the message editor definition of one event's private copy (D-07, D-23): the hooked
 // kind, the private copy's title (so the prompt says it is for the private copy), its icon, the same five editor
-// codes and can_change_info as the group message, the family's parts (no reserved text: a private copy appends
-// nothing, D-35), the fields k and d=p on every editor
-// button (Set, Remove, the previews and the Cancel of the prompt and of a refusal), no reserved buttons (a
-// private copy never carries the bot's Unban or Unmute row) and the hooks that read, draw, remove, write and preview
-// the pm row (the previews through composeEventPM, the send path's composer, under their own header line).
+// codes and can_change_info as the group message, all three parts (text, media and buttons — private copies
+// append no group requirements line/remedies, so eventmsg.NoMedia is false for DestPM, and no reserved text, D-35),
+// the fields k and d=p on every editor
+// button (Set, Remove, the previews and the Cancel of the prompt and of a refusal), no reserved buttons except
+// Appeal on ban/tban/mreqban (a private copy never carries the bot's Unban or Unmute row) and the hooks that
+// read, draw, remove, write and preview the pm row (the previews through composeEventPM, the send path's
+// composer, under their own header line).
 func settingsMsgPMEditDef(fam settingsMsgFamily, ev settingsMsgEvent) settingsEditPageDef {
 	def := settingsMsgEditCodes
 	def.Key, def.Kind, def.Icon, def.TitleKey = settingsMsgPMWaitPage(ev), settingsEditEvent, settingsMsgPMIcon, "settings_msg_pm_title"
-	def.Parts = settingsMsgPartsOf(fam)
+	def.Parts = []settingsEditPart{settingsMsgTextPart(fam), settingsEditMediaPart, settingsEditButtonsPart}
 	def.Fields = map[string]string{settingsMsgEventField: ev.Code, settingsMsgDestField: settingsMsgDestPMCode}
 	if ev.Key == eventmsg.EventBan || ev.Key == eventmsg.EventTimedBan || ev.Key == eventmsg.EventReqBan {
 		def.ReservedButtons = 1
