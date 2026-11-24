@@ -722,3 +722,48 @@ func TestRmWarnButtonEditsMediaCards(t *testing.T) {
 		}
 	})
 }
+
+func TestWarnTopicThreadIDPropagated(t *testing.T) {
+	admin := gotgbot.User{Id: 777000, FirstName: "Telegram"}
+	target := gotgbot.User{Id: 42, FirstName: "Member"}
+
+	t.Run("topic message sets thread id on swarn notice", func(t *testing.T) {
+		client := newModuleBotClient()
+		bot := newModuleTestBot(client)
+		chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Forum Chat", IsForum: true}
+		ctx := newWarnReplyContext(bot, chat, admin, target, "/swarn off-topic")
+		ctx.EffectiveMessage.IsTopicMessage = true
+		ctx.EffectiveMessage.MessageThreadId = 777
+
+		if err := warnsModule.sWarnUser(bot, ctx); err != ext.EndGroups {
+			t.Fatalf("sWarnUser() error = %v, want EndGroups", err)
+		}
+		calls := client.callsFor("sendMessage")
+		if len(calls) != 1 {
+			t.Fatalf("sendMessage calls = %d, want 1", len(calls))
+		}
+		if got := calls[0].Params["message_thread_id"]; got != int64(777) {
+			t.Fatalf("message_thread_id = %#v, want int64(777)", got)
+		}
+	})
+
+	t.Run("non-topic message omits thread id", func(t *testing.T) {
+		client := newModuleBotClient()
+		bot := newModuleTestBot(client)
+		chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Regular Chat"}
+		ctx := newWarnReplyContext(bot, chat, admin, target, "/swarn spam")
+		ctx.EffectiveMessage.IsTopicMessage = false
+		ctx.EffectiveMessage.MessageThreadId = 777
+
+		if err := warnsModule.sWarnUser(bot, ctx); err != ext.EndGroups {
+			t.Fatalf("sWarnUser() error = %v, want EndGroups", err)
+		}
+		calls := client.callsFor("sendMessage")
+		if len(calls) != 1 {
+			t.Fatalf("sendMessage calls = %d, want 1", len(calls))
+		}
+		if got, ok := calls[0].Params["message_thread_id"]; ok && got != "" && got != "0" {
+			t.Fatalf("message_thread_id = %v, want omitted for non-topic message", got)
+		}
+	})
+}

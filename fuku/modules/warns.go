@@ -431,14 +431,19 @@ func (moduleStruct) warnThisUser(b *gotgbot.Bot, ctx *ext.Context, userId int64,
 		return res.LimitErr
 	}
 
+	site := warnSite(b, ctx, tr, source)
 	switch {
 	case res.LimitApplied:
-		err = postEvent(warnSite(b, ctx, tr, source), warnLimitEventReply(tr, msg.MessageId, u, reason, res))
+		reply := warnLimitEventReply(tr, msg.MessageId, u, reason, res)
+		reply.Opts.MessageThreadId = site.ThreadID
+		err = postEvent(site, reply)
 	case res.LimitReached:
 		// A stored mode the code applies nothing for (tban, tmute, empty) is not an event: today's reply.
 		err = warnPostLimit(b, chat, msg, tr, u, res, source)
 	default:
-		err = postEvent(warnSite(b, ctx, tr, source), warnEventReply(b, chat, msg.MessageId, tr, u, reason, res))
+		reply := warnEventReply(b, chat, msg.MessageId, tr, u, reason, res)
+		reply.Opts.MessageThreadId = site.ThreadID
+		err = postEvent(site, reply)
 	}
 	if err != nil {
 		log.Errorf("[warn] sendMessage (%d) - %s", userId, err)
@@ -463,6 +468,9 @@ func warnSite(b *gotgbot.Bot, ctx *ext.Context, tr *i18n.Translator, source warn
 		SendDefault: func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
 			return b.SendMessage(chat.Id, text, opts)
 		},
+	}
+	if ctx.EffectiveMessage.IsTopicMessage {
+		site.ThreadID = ctx.EffectiveMessage.MessageThreadId
 	}
 	if source != warnSourceAuto {
 		site.Actor = eventActor{User: ctx.EffectiveUser, Anonymous: actorIsAnonymous(ctx)}
@@ -552,9 +560,14 @@ func warnPostLimit(b *gotgbot.Bot, chat *gotgbot.Chat, msg *gotgbot.Message, tr 
 		fmt.Fprintf(&sb, "\n - %s", html.EscapeString(warnReason))
 	}
 	reply += sb.String()
+	var threadID int64
+	if msg.IsTopicMessage {
+		threadID = msg.MessageThreadId
+	}
 	sent, err := b.SendMessage(chat.Id, reply,
 		&gotgbot.SendMessageOpts{
-			ParseMode: formatting.HTML,
+			MessageThreadId: threadID,
+			ParseMode:       formatting.HTML,
 			LinkPreviewOptions: &gotgbot.LinkPreviewOptions{
 				IsDisabled: true,
 			},
