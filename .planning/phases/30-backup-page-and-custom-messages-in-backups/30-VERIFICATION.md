@@ -43,7 +43,7 @@ covered_files:
   - locales/pt.yml
   - locales/ru.yml
   - locales/uk.yml
-covered_digest: "v4:sha256:dd7d2ac2aaa660bfbeaeb86fd3176cdbcd49607d3a6d23a92075028fde42ff8c"
+covered_digest: "v4:sha256:733c8990552d2f111f814ec8d490aaee2371994bd2d7852cc6f84ddd8007196a"
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
