@@ -106,8 +106,8 @@ var settingsMsgLockdownForged = []settingsMsgForgedPress{
 
 // settingsMsgScreeningForged are the forged presses of the Phase 24 events that the generated forms of
 // settingsMsgForgedPresses do not already make (D-29, D-32): the Member requirements list and the failed captcha's screen
-// from a group menu, a destination other than p on the requirement mute, a media part on a requirement event and on its
-// private copy (the family has text and buttons only), a Silent press on the requirement mute (it cannot be silenced), a
+// from a group menu, a destination other than p on the requirement mute, a media part on a requirement event (its group
+// message has text and buttons only; its private copy may carry media), a Silent press on the requirement mute (it cannot be silenced), a
 // Notice target of 2 on the AI spam notice, a private copy switch whose target is not a digit and a Full preview with an
 // extra key.
 var settingsMsgScreeningForged = []settingsMsgForgedPress{
@@ -115,7 +115,6 @@ var settingsMsgScreeningForged = []settingsMsgForgedPress{
 	{name: "he of cf from a group menu", group: true, kv: []string{"a", settingsActMsgEvent, settingsMsgEventField, "cf"}},
 	{name: "he of rm with d=x", kv: []string{"a", settingsActMsgEvent, settingsMsgEventField, "rm", settingsMsgDestField, "x"}},
 	{name: "hs of rw with the media part", kv: []string{"a", settingsActMsgSet, "t", settingsEditPartMedia, settingsMsgEventField, "rw"}},
-	{name: "hv of rk with the media part and d=p", kv: []string{"a", settingsActMsgPreview, "t", settingsEditPartMedia, settingsMsgEventField, "rk", settingsMsgDestField, settingsMsgDestPMCode}},
 	{name: "hq of rm with v=1", kv: []string{"a", settingsActMsgSilent, settingsMsgEventField, "rm", "v", "1"}},
 	{name: "hq of ai with v=2", kv: []string{"a", settingsActMsgSilent, settingsMsgEventField, "ai", "v", "2"}},
 	{name: "hp of rb with v=x", kv: []string{"a", settingsActMsgPM, settingsMsgEventField, "rb", "v", "x"}},

@@ -7,6 +7,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	"github.com/stretchr/testify/require"
 
 	"github.com/uasneppy/fuku_robot/fuku/db"
 	"github.com/uasneppy/fuku_robot/fuku/db/models"
@@ -669,7 +670,8 @@ func TestRmWarnButtonEditsMediaCards(t *testing.T) {
 		client := newModuleBotClient()
 		bot := newModuleTestBot(client)
 		chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Warn Chat"}
-		warns.WarnUser(target.Id, chat.Id, "media")
+		_, _, err := warns.WarnUser(target.Id, chat.Id, "media")
+		require.NoError(t, err)
 		ctx := newModuleCallbackContext(bot, chat, admin, data)
 		mediaMsg := &gotgbot.Message{
 			MessageId: 501,
@@ -698,7 +700,8 @@ func TestRmWarnButtonEditsMediaCards(t *testing.T) {
 		client := newModuleBotClient()
 		bot := newModuleTestBot(client)
 		chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Warn Chat"}
-		warns.WarnUser(target.Id, chat.Id, "sticker")
+		_, _, err := warns.WarnUser(target.Id, chat.Id, "sticker")
+		require.NoError(t, err)
 		ctx := newModuleCallbackContext(bot, chat, admin, data)
 		stickerMsg := &gotgbot.Message{
 			MessageId: 502,

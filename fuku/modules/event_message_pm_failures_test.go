@@ -521,6 +521,8 @@ func TestEventPMLogsCarryIDsOnly(t *testing.T) {
 			run: func(t *testing.T, s *botSite) {
 				token := blockedWithDetails(t, s)
 				open(t, s, eventPMMember, pmCopyDetailsPrefix+token)
+				// The custom copy and its default fallback are both refused, so the view fails and logs.
+				eventPMRefuse(t, s, eventPMTelegramError(400, "Bad Request: "+description, 0))
 				eventPMRefuse(t, s, eventPMTelegramError(400, "Bad Request: "+description, 0))
 				open(t, s, eventPMMember, pmCopyDetailsPrefix+token)
 				open(t, s, eventPMMember+1, pmCopyDetailsPrefix+token)

@@ -1896,7 +1896,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`memberReqRuleBits("un", "ph")`, so its preview shows the photo remedy, D-33); the mute reserves 1 button (its "I fixed it" row) and is
   `NoSilent` (D-20). The family is `NoMedia` (its events have the parts `x b` only, P4) and its `ReservedText` is `memberReqNoticeNoteReserve`
   (600), held back by the editor from the text limit (the prompt reads `Up to 3496`), while its private copy definitions hold back nothing
-  (D-35). The fourth is the Lockdown family (`l`, 🚨, `settings_msg_fam_lockdown`, intro `settings_msg_fam_lockdown_intro`, prompt
+  and have all three parts, media included (`settingsMsgPMEditDef`: a private copy appends no requirements line, D-35). The fourth is the Lockdown family (`l`, 🚨, `settings_msg_fam_lockdown`, intro `settings_msg_fam_lockdown_intro`, prompt
   `settings_msg_wait_text_lockdown`, hint `settings_msg_hint_lockdown`; Phase 25 plan 25-03, D-28 to D-32), drawn after the Member
   requirements one, `settingsMsgLockdownEvents`: the start by an admin `ld` 🔒 (`EventLockdown`, `lockdownStartDefaultReply`, the sample reason),
   the join surge `lj` 👥 (`EventLockJoinSurge`, `lockdownAutoDefaultReply(models.LockdownTriggerJoinSurge)`, sample 15 joins in 60 s), the flood
@@ -6762,8 +6762,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   The page's safeguards over the Phase 24 events (plan 24-07): `settingsMsgValidPresses` holds a valid press of the Member requirements
   list (`hl&t=r`), the failed captcha's screen and Full preview, the requirement mute's private copy screen, the AI spam notice's Notice
   switch (`hq&k=ai&v=0`), a requirement Set and the requirement ban's private copy switch, and `settingsMsgScreeningForged` the forms the
-  generated ones do not make (the list and the captcha screen from a group menu, `he&k=rm&d=x`, a media part on `rw` and on `rk`'s private
-  copy, `hq&k=rm&v=1`, `hq&k=ai&v=2`, `hp&k=rb&v=x`, `hf&k=cf` with an extra key), so `TestSettingsMessagesForged` refuses every one in
+  generated ones do not make (the list and the captcha screen from a group menu, `he&k=rm&d=x`, a media part on `rw` (a private copy may carry media),
+  `hq&k=rm&v=1`, `hq&k=ai&v=2`, `hp&k=rb&v=x`, `hf&k=cf` with an extra key), so `TestSettingsMessagesForged` refuses every one in
   step 1 with no member lookup; `TestSettingsMessagesReadsCreateNothing` and `TestSettingsMessagesCost` also open the Member requirements
   list, the `rm` screen and its private copy screen and the `ai` screen. `TestSettingsAuthorityMessagesScreening`
   (`settings_messages_screening_test.go`, one environment, about 0.05 s): a typist demoted between Set on the captcha's text and the typed
