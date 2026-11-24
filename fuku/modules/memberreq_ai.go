@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
@@ -402,18 +403,14 @@ func memberReqAIRule(ctx context.Context, _ *gotgbot.Bot, chatID, userID int64, 
 	if plan.cached {
 		memberReqAIStats.cached.Add(1)
 	} else {
+		var leader atomic.Bool
 		answer, _ := memberReqFlightValue(ctx, "n:"+plan.key, func(flightCtx context.Context) memberReqAIAnswer {
+			leader.Store(true)
 			return memberReqAIJudge(flightCtx, chatID, userID, plan)
 		})
 		if answer.HasProbability {
 			verdict = memberReqAIVerdictOfBar(answer.Probability, bar)
-			if answer.Fresh {
-				if verdict == memberReqBreach {
-					memberReqAIStats.breached.Add(1)
-				} else {
-					memberReqAIStats.passed.Add(1)
-				}
-			}
+			memberReqAIRecordFlightStats(leader.Load(), answer, verdict)
 		} else {
 			verdict = answer.Verdict
 		}
@@ -423,6 +420,24 @@ func memberReqAIRule(ctx context.Context, _ *gotgbot.Bot, chatID, userID int64, 
 	}
 	memberReqAIRecord(ctx, chatID, userID, plan.canon.Hash, verdict)
 	return verdict
+}
+
+// memberReqAIRecordFlightStats updates AI rule counters for one flight caller: coalesced
+// followers count as cached reuse, while only the flight leader counts fresh breached/passed
+// outcomes so breached + passed matches checked.
+func memberReqAIRecordFlightStats(leader bool, answer memberReqAIAnswer, verdict memberReqVerdict) {
+	if !leader {
+		memberReqAIStats.cached.Add(1)
+		return
+	}
+	if !answer.Fresh {
+		return
+	}
+	if verdict == memberReqBreach {
+		memberReqAIStats.breached.Add(1)
+	} else {
+		memberReqAIStats.passed.Add(1)
+	}
 }
 
 // memberReqAIRecord records one definite answer for the member: a pass is the baseline and the end

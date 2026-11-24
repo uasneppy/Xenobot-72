@@ -241,6 +241,11 @@ func TestAdvancedThresholdsAIAndMemberReq(t *testing.T) {
 		ctxA := context.WithValue(ctx, memberReqLookupTouchKey{}, touchA)
 		ctxB := context.WithValue(ctx, memberReqLookupTouchKey{}, touchB)
 
+		checkedBefore := memberReqAIStats.checked.Load()
+		breachedBefore := memberReqAIStats.breached.Load()
+		passedBefore := memberReqAIStats.passed.Load()
+		cachedBefore := memberReqAIStats.cached.Load()
+
 		resA := make(chan memberReqVerdict, 1)
 		resB := make(chan memberReqVerdict, 1)
 
@@ -295,6 +300,18 @@ func TestAdvancedThresholdsAIAndMemberReq(t *testing.T) {
 		}
 		if verdictB != memberReqPass {
 			t.Fatalf("Chat B (bar 0.95, p=0.80) verdict = %v, want memberReqPass (must not inherit Chat A breach)", verdictB)
+		}
+		if got := memberReqAIStats.checked.Load() - checkedBefore; got != 1 {
+			t.Fatalf("memberReqAIStats.checked delta = %d, want 1", got)
+		}
+		if got := memberReqAIStats.breached.Load() - breachedBefore; got != 1 {
+			t.Fatalf("memberReqAIStats.breached delta = %d, want 1 (leader only)", got)
+		}
+		if got := memberReqAIStats.passed.Load() - passedBefore; got != 0 {
+			t.Fatalf("memberReqAIStats.passed delta = %d, want 0 (follower must not count as fresh pass)", got)
+		}
+		if got := memberReqAIStats.cached.Load() - cachedBefore; got != 1 {
+			t.Fatalf("memberReqAIStats.cached delta = %d, want 1 (follower counted as cached)", got)
 		}
 	})
 
