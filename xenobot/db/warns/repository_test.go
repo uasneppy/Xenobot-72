@@ -250,8 +250,12 @@ func TestRemoveWarn(t *testing.T) {
 		_ = db.DB.Where("chat_id = ?", chatID).Delete(&models.Chat{}).Error
 	})
 
-	WarnUser(userID, chatID, "first")
-	WarnUser(userID, chatID, "second")
+	if _, _, err := WarnUser(userID, chatID, "first"); err != nil {
+		t.Fatalf("WarnUser: %v", err)
+	}
+	if _, _, err := WarnUser(userID, chatID, "second"); err != nil {
+		t.Fatalf("WarnUser: %v", err)
+	}
 
 	removed, err := RemoveWarn(userID, chatID)
 	if err != nil {
@@ -289,9 +293,15 @@ func TestResetWarns(t *testing.T) {
 		_ = db.DB.Where("chat_id = ?", chatID).Delete(&models.Chat{}).Error
 	})
 
-	WarnUser(userID, chatID, "a")
-	WarnUser(userID, chatID, "b")
-	WarnUser(userID, chatID, "c")
+	if _, _, err := WarnUser(userID, chatID, "a"); err != nil {
+		t.Fatalf("WarnUser: %v", err)
+	}
+	if _, _, err := WarnUser(userID, chatID, "b"); err != nil {
+		t.Fatalf("WarnUser: %v", err)
+	}
+	if _, _, err := WarnUser(userID, chatID, "c"); err != nil {
+		t.Fatalf("WarnUser: %v", err)
+	}
 
 	numBefore, _ := GetWarns(userID, chatID)
 	if numBefore != 3 {
@@ -462,7 +472,9 @@ func TestSequentialMultipleWarns(t *testing.T) {
 
 	const total = 5
 	for i := 0; i < total; i++ {
-		WarnUser(userID, chatID, fmt.Sprintf("reason %d", i))
+		if _, _, err := WarnUser(userID, chatID, fmt.Sprintf("reason %d", i)); err != nil {
+			t.Fatalf("WarnUser: %v", err)
+		}
 	}
 
 	numWarns, reasons := GetWarns(userID, chatID)
@@ -491,8 +503,12 @@ func TestGetAllChatWarns(t *testing.T) {
 		_ = db.DB.Where("chat_id = ?", chatID).Delete(&models.Chat{}).Error
 	})
 
-	WarnUser(userID1, chatID, "reason1")
-	WarnUser(userID2, chatID, "reason2")
+	if _, _, err := WarnUser(userID1, chatID, "reason1"); err != nil {
+		t.Fatalf("WarnUser: %v", err)
+	}
+	if _, _, err := WarnUser(userID2, chatID, "reason2"); err != nil {
+		t.Fatalf("WarnUser: %v", err)
+	}
 
 	count := GetAllChatWarns(chatID)
 	if count < 2 {
@@ -517,8 +533,12 @@ func TestResetAllChatWarns(t *testing.T) {
 		_ = db.DB.Where("chat_id = ?", chatID).Delete(&models.Chat{}).Error
 	})
 
-	WarnUser(userID1, chatID, "a")
-	WarnUser(userID2, chatID, "b")
+	if _, _, err := WarnUser(userID1, chatID, "a"); err != nil {
+		t.Fatalf("WarnUser: %v", err)
+	}
+	if _, _, err := WarnUser(userID2, chatID, "b"); err != nil {
+		t.Fatalf("WarnUser: %v", err)
+	}
 
 	if err := ResetAllChatWarns(chatID); err != nil {
 		t.Fatalf("ResetAllChatWarns() error = %v", err)
@@ -547,7 +567,9 @@ func TestWarnUserCreatesSettingsWithDefaultMode(t *testing.T) {
 
 	// WarnUser is the first operation — no prior GetWarnSetting call — so it
 	// must create the WarnSettings row itself inside its transaction.
-	WarnUser(userID, chatID, "trigger settings creation")
+	if _, _, err := WarnUser(userID, chatID, "trigger settings creation"); err != nil {
+		t.Fatalf("WarnUser: %v", err)
+	}
 
 	var settings models.WarnSettings
 	if err := db.DB.Where("chat_id = ?", chatID).First(&settings).Error; err != nil {

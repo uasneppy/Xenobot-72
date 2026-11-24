@@ -257,7 +257,7 @@ func TestClearModuleDataConnectionsDisablesAllowConnect(t *testing.T) {
 	})
 
 	_ = connections.GetChatConnectionSetting(chatID)
-	connections.ToggleAllowConnect(chatID, true)
+	require.NoError(t, connections.ToggleAllowConnect(chatID, true))
 	require.True(t, connections.GetChatConnectionSetting(chatID).AllowConnect)
 
 	require.NoError(t, ClearModuleData(chatID, BackupModuleConnections))
@@ -518,7 +518,7 @@ func TestClearChatData_SpecificModules(t *testing.T) {
 
 	require.NoError(t, filters.AddFilter(chatID, "hello", "hi", "", nil, db.TEXT))
 	require.NoError(t, antiflood.SetFlood(chatID, 5))
-	rules.SetChatRules(chatID, "rules text")
+	require.NoError(t, rules.SetChatRules(chatID, "rules text"))
 
 	require.NoError(t, ClearChatData(chatID, []string{BackupModuleFilters}))
 
@@ -537,7 +537,7 @@ func TestClearChatData_AllModules(t *testing.T) {
 	require.NoError(t, filters.AddFilter(chatID, "hello", "hi", "", nil, db.TEXT))
 	require.NoError(t, blacklists.AddBlacklist(chatID, "bad"))
 	require.NoError(t, antiflood.SetFlood(chatID, 5))
-	rules.SetChatRules(chatID, "rules text")
+	require.NoError(t, rules.SetChatRules(chatID, "rules text"))
 	require.NoError(t, captcha.SetCaptchaEnabled(chatID, true))
 	_ = pins.GetPinData(chatID)
 	require.NoError(t, pins.SetAntiChannelPin(chatID, true))
@@ -588,7 +588,7 @@ func TestClearModuleData_IndividualModules(t *testing.T) {
 	require.NoError(t, ClearModuleData(chatID, BackupModuleNotes))
 	assert.Empty(t, notes.GetNotesList(chatID, true))
 
-	rules.SetChatRules(chatID, "some rules")
+	require.NoError(t, rules.SetChatRules(chatID, "some rules"))
 	require.NoError(t, ClearModuleData(chatID, BackupModuleRules))
 	assert.Equal(t, "", rules.GetChatRulesInfo(chatID).Rules)
 
@@ -721,7 +721,7 @@ func TestExportChatData_Full(t *testing.T) {
 	require.NoError(t, admin.SetAnonAdminMode(chatID, true))
 	require.NoError(t, antiflood.SetFlood(chatID, 4))
 	require.NoError(t, filters.AddFilter(chatID, "hi", "hello", "", nil, db.TEXT))
-	rules.SetChatRules(chatID, "Be kind")
+	require.NoError(t, rules.SetChatRules(chatID, "Be kind"))
 	require.NoError(t, captcha.SetCaptchaEnabled(chatID, true))
 
 	backup, err := ExportChatData(chatID, "Test Chat", 1, []string{
