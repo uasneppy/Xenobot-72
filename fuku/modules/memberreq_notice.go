@@ -400,8 +400,8 @@ func memberReqPostEventNotice(ctx context.Context, b *gotgbot.Bot, c memberReqCa
 			})
 		},
 		SendCustom: func(msg media.GreetingMessage) (*gotgbot.Message, error) {
-			return memberReqNoticeSend(ctx, withButton, func(context.Context) (*gotgbot.Message, error) {
-				return media.SendGreetingMessage(b, chatID, msg)
+			return memberReqNoticeSend(ctx, withButton, func(callCtx context.Context) (*gotgbot.Message, error) {
+				return media.SendGreetingMessageWithContext(callCtx, b, chatID, msg)
 			})
 		},
 		Schedule: func(sent *gotgbot.Message) { memberReqScheduleNotice(sent, withButton) },

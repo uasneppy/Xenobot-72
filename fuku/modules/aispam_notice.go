@@ -150,18 +150,18 @@ func postAISpamNotice(task aispamTask) {
 		},
 		SendDefault: func(text string, opts *gotgbot.SendMessageOpts) (*gotgbot.Message, error) {
 			var sent *gotgbot.Message
-			err := aispamNoticePaced(poolCtx, func(context.Context) error {
+			err := aispamNoticePaced(poolCtx, func(callCtx context.Context) error {
 				var sendErr error
-				sent, sendErr = helpers.SendMessageWithErrorHandling(task.bot, task.chatID, text, opts)
+				sent, sendErr = helpers.SendMessageWithErrorHandlingContext(callCtx, task.bot, task.chatID, text, opts)
 				return sendErr
 			})
 			return sent, err
 		},
 		SendCustom: func(msg media.GreetingMessage) (*gotgbot.Message, error) {
 			var sent *gotgbot.Message
-			err := aispamNoticePaced(poolCtx, func(context.Context) error {
+			err := aispamNoticePaced(poolCtx, func(callCtx context.Context) error {
 				var sendErr error
-				sent, sendErr = media.SendGreetingMessage(task.bot, task.chatID, msg)
+				sent, sendErr = media.SendGreetingMessageWithContext(callCtx, task.bot, task.chatID, msg)
 				return sendErr
 			})
 			return sent, err
