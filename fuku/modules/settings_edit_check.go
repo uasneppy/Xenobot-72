@@ -195,14 +195,47 @@ func settingsEditMinimalUser() *gotgbot.User {
 	return &gotgbot.User{Id: 1, FirstName: "A"}
 }
 
+// settingsEditEventMinimalReplacer clears optional event placeholders on the minimal dry-run pass
+// and replaces {admin} with a one-letter name (since {admin} is never empty at runtime).
+var settingsEditEventMinimalReplacer = strings.NewReplacer(
+	"{admin}", "A",
+	"{reason}", "",
+	"{duration}", "",
+	"{until}", "",
+	"{action}", "",
+	"{count}", "",
+	"{limit}", "",
+	"{window}", "",
+	"{percent}", "",
+)
+
+// settingsEditEventWorstReplacer fills {admin} with a worst-case 129-unit full name (64 + space + 64)
+// and {until} with a 16-unit timestamp ("02.01.2006 15:04") on the worst-case dry-run pass.
+var settingsEditEventWorstReplacer = strings.NewReplacer(
+	"{admin}", strings.Repeat("W", 64)+" "+strings.Repeat("L", 64),
+	"{until}", "02.01.2006 15:04",
+)
+
 // settingsEditFilledLongest fills stored for the owner, the worst-case member and the minimal
 // member, the way a real join fills it, and returns the longest visible length (UTF-16 units)
-// and whether the minimal member's text is blank.
+// and whether the minimal member's text is blank. For event messages, event placeholders are
+// substituted before FillPlaceholders so optional tokens that can render empty are caught on
+// the minimal pass and {admin}/{until} are measured at worst-case width.
 func settingsEditFilledLongest(in settingsEditCheckInput, stored string) (longest int, minimalBlank bool) {
 	owner := in.Owner
+	worst := settingsEditWorstUser()
 	minimal := settingsEditMinimalUser()
-	for _, user := range []*gotgbot.User{&owner, settingsEditWorstUser(), minimal} {
-		filled := formatting.FillPlaceholders(stored, user, in.GroupTitle, settingsEditFillCount)
+	for _, user := range []*gotgbot.User{&owner, worst, minimal} {
+		text := stored
+		if in.Def.Kind == settingsEditEvent {
+			switch user {
+			case minimal:
+				text = settingsEditEventMinimalReplacer.Replace(text)
+			case worst:
+				text = settingsEditEventWorstReplacer.Replace(text)
+			}
+		}
+		filled := formatting.FillPlaceholders(text, user, in.GroupTitle, settingsEditFillCount)
 		if n := formatting.VisibleLength(filled); n > longest {
 			longest = n
 		}
