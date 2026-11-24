@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -328,4 +329,86 @@ func TestAISpamNotice(t *testing.T) {
 			t.Fatalf("notices = %d, want the first one only", got)
 		}
 	})
+}
+
+type aispamRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f aispamRoundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestAISpamNoticeSkippedWhenMessageCannotBeDeleted(t *testing.T) {
+	resetAISpamRuntime()
+	t.Cleanup(resetAISpamRuntime)
+	withAISpamTestConfig(t, "typesafe-test-key", true, 0)
+	mreqSwap(t, &aispamHTTPClient, &http.Client{
+		Transport: aispamRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(aispamDecisionBody(0.95, "scam"))),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	})
+	_ = phase28InProcessMiniredis(t)
+	withFastPMCopyPacer(t)
+	withFastAISpamNoticePacer(t)
+	mreqSwap(t, &raidSettingsLookup, func(context.Context, int64) (*models.ChatRaidDetection, error) {
+		return &models.ChatRaidDetection{AIEnabled: false, AIThreshold: 5}, nil
+	})
+	s := newScreenGoldenSite(t)
+	s.bot.BotClient = eventPMTestClient{BotClient: s.bot.BotClient, script: &eventPMScript{}}
+	eventPMCleanup(t, s.chat.Id)
+	t.Cleanup(pmCopyJobs.wait)
+	if err := eventmsg.SetSilent(t.Context(), s.chat.Id, eventmsg.EventAISpam, eventmsg.DestGroup, false, 1); err != nil {
+		t.Fatalf("SetSilent(aispam, group, false) error = %v", err)
+	}
+
+	member := aispamNoticeMembers(1)[0]
+
+	s.client.mu.Lock()
+	s.client.errors["deleteMessage"] = &gotgbot.TelegramError{
+		Method:      "deleteMessage",
+		Code:        400,
+		Description: "Bad Request: message can't be deleted",
+	}
+	s.client.mu.Unlock()
+
+	processAISpam(aispamTask{
+		bot:       s.bot,
+		chat:      s.chat,
+		chatID:    s.chat.Id,
+		user:      member,
+		userID:    member.Id,
+		messageID: 7201,
+		text:      aispamNoticeSpamText,
+		language:  "en",
+	})
+
+	if got := len(s.client.callsFor("deleteMessage")); got != 1 {
+		t.Fatalf("deleteMessage calls = %d, want 1", got)
+	}
+	group, _ := eventPMCalls(t, s)
+	if got := len(group); got != 0 {
+		t.Fatalf("notices after \"message can't be deleted\" = %d, want 0", got)
+	}
+
+	// Verify a succeeding delete posts the notice.
+	s.client.mu.Lock()
+	delete(s.client.errors, "deleteMessage")
+	s.client.mu.Unlock()
+
+	processAISpam(aispamTask{
+		bot:       s.bot,
+		chat:      s.chat,
+		chatID:    s.chat.Id,
+		user:      member,
+		userID:    member.Id,
+		messageID: 7202,
+		text:      aispamNoticeSpamText,
+		language:  "en",
+	})
+
+	group, _ = eventPMCalls(t, s)
+	if got := len(group); got != 1 {
+		t.Fatalf("notices after successful delete = %d, want 1", got)
+	}
 }

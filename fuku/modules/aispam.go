@@ -333,8 +333,8 @@ func processAISpam(task aispamTask) {
 
 	aispamDeleted.Add(1)
 	// Tolerates an already-deleted message, so racing another watcher is fine.
-	deleteErr := helpers.DeleteMessageWithErrorHandling(task.bot, task.chatID, task.messageID)
-	if deleteErr != nil {
+	deleted, deleteErr := task.bot.DeleteMessage(task.chatID, task.messageID, nil)
+	if deleteErr != nil && !strings.Contains(deleteErr.Error(), "message to delete not found") {
 		log.WithFields(log.Fields{
 			"chat_id":    task.chatID,
 			"message_id": task.messageID,
@@ -350,7 +350,7 @@ func processAISpam(task aispamTask) {
 	raidAIRecordVerdict(task.bot, task.chat, task.userID, task.itemKey)
 
 	// The AI spam notice (off by default) is the last step, and only after the message was deleted.
-	if deleteErr == nil {
+	if deleted && deleteErr == nil {
 		postAISpamNotice(task)
 	}
 }
