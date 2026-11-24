@@ -3,10 +3,10 @@ gsd_state_version: "1.0"
 milestone: v1.2
 status: Awaiting next milestone
 stopped_at: Phase 30 complete, ready to verify Phase 21
-last_updated: "2026-11-24T20:54:46.454Z"
+last_updated: "2026-11-24T21:04:51.049Z"
 last_activity: 2026-11-24
-last_activity_desc: Milestone v1.2 completed and archived
-state_head: 97b708a5ba092d99302f733c30791975a1b227d7
+last_activity_desc: "Quick task 261124-v7y shipped as PR #30"
+state_head: dfe7bfccd42a6f5680e7174b20454e9ca6d34843
 milestone_name: Conversations, Custom Messages and Tuning
 current_phase: 30
 current_phase_name: Backup Page and Custom Messages in Backups
@@ -32,7 +32,7 @@ See: .planning/PROJECT.md (updated 2026-11-24)
 Phase: Milestone v1.2 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-11-24 - Completed quick task 261124-v7y: Replace Fuku and Alita mentions everywhere with Xenobot-72 and cleanup the repo
+Last activity: 2026-11-24 -- Quick task 261124-v7y shipped as PR #30
 
 ## Performance Metrics
 
