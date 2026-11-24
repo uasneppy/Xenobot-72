@@ -14,7 +14,7 @@ This page documents the complete PostgreSQL database schema for Xenobot-72.
 - **Migration Metadata**: `schema_migrations`
 - **Database Type**: PostgreSQL
 - **ORM**: GORM
-- **Migration Tool**: Custom SQL migration runner (`fuku/db/migrations/runner.go`)
+- **Migration Tool**: Custom SQL migration runner (`xenobot/db/migrations/runner.go`)
 - **Migrations**: Timestamped forward SQL files using `YYYYMMDDHHMMSS_description.sql` naming
 
 ## Design Patterns

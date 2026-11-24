@@ -1,6 +1,6 @@
 # Xenobot-72 Documentation
 
-This is the documentation website for [Xenobot-72](https://github.com/uasneppy/fuku_robot), a modern Telegram group management bot built with Go.
+This is the documentation website for [Xenobot-72](https://github.com/uasneppy/Xenobot-72), a modern Telegram group management bot built with Go.
 
 Built with [Blume](https://useblume.dev/) — a fast, AI-ready, markdown-first documentation framework.
 
@@ -64,4 +64,4 @@ See the main [README](../README.md) for full contribution guidelines.
 
 ## Links
 
-- [Xenobot-72 Repository](https://github.com/uasneppy/fuku_robot)
+- [Xenobot-72 Repository](https://github.com/uasneppy/Xenobot-72)

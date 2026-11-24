@@ -138,8 +138,7 @@ for the whole bot.
 
 Rough cost per reply, from the planning estimate of about 10,000 cached system tokens,
 1,500 fresh input tokens and 300 output tokens at list prices on 2026-11-19. These are
-estimates, not measurements; `scripts/chat-spike` prints the real token counts of your
-own runs.
+estimates rather than measurements; actual costs depend on cache hit rate and message length.
 
 | Model | Per reply | 1,000 replies |
 |---|---|---|
@@ -497,7 +496,7 @@ Service name for trace identification.
 |----------|-------|
 | **Type** | `string` |
 | **Required** | No |
-| **Default** | `fuku_robot` |
+| **Default** | `xenobot-72` |
 
 ### `OTEL_TRACES_SAMPLE_RATE`
 
@@ -646,7 +645,7 @@ Maximum memory usage in MB
 
 ### `CLEAR_CACHE_ON_STARTUP`
 
-Whether to clear disposable `fuku:cache:*` entries on bot startup. Operational keys (lockdown, staff and raid detection state under `fuku:lockdown:*`, `fuku:staff:*` and `fuku:raid:*`) and pending confirmations are preserved.
+Whether to clear disposable `xenobot:cache:*` entries on bot startup. Operational keys (lockdown, staff and raid detection state under `xenobot:lockdown:*`, `xenobot:staff:*` and `xenobot:raid:*`) and pending confirmations are preserved.
 
 | Property | Value |
 |----------|-------|
@@ -763,7 +762,7 @@ MIGRATIONS_PATH=# path to migration files (default: migrations)
 OTEL_EXPORTER_CONSOLE=# enable console trace exporter (default: false)
 OTEL_EXPORTER_OTLP_ENDPOINT=# OTLP gRPC endpoint (e.g., localhost:4317)
 OTEL_EXPORTER_OTLP_INSECURE=# use insecure OTLP gRPC (default: false)
-OTEL_SERVICE_NAME=# service name for traces (default: fuku_robot)
+OTEL_SERVICE_NAME=# service name for traces (default: xenobot-72)
 OTEL_TRACES_SAMPLE_RATE=# trace sampling rate 0.0-1.0 (default: 1.0)
 REDIS_DB=# Redis database number (default: 1)
 REDIS_PASSWORD=# Redis password

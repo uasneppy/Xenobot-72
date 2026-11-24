@@ -7,7 +7,7 @@ export default defineConfig({
 	description:
 		"A modern Telegram group management bot built with Go — 39 modules, 231 command names, 8 languages, and blazing-fast performance powered by Redis caching and PostgreSQL.",
 	logo: { image: "/favicon.svg", text: "Xenobot-72" },
-	github: { owner: "uasneppy", repo: "fuku_robot" },
+	github: { owner: "uasneppy", repo: "Xenobot-72" },
 
 	// Content stays where Starlight had it; the Go docs generator still
 	// writes here (output path unchanged).
@@ -16,7 +16,7 @@ export default defineConfig({
 	// Static output keeps the existing Cloudflare Workers deployment as-is.
 	deployment: {
 		output: "static",
-		site: "https://uasneppy.github.io/fuku_robot",
+		site: "https://uasneppy.github.io/Xenobot-72",
 	},
 
 	// Built-in AI artifacts (on by default): llms.txt, llms-full.txt, and a

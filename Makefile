@@ -31,10 +31,10 @@ lint:
 	@which $(GOLANGCI_LINT_CMD) > /dev/null || (echo "golangci-lint not found, install it from https://golangci-lint.run/usage/install/" && exit 1)
 	$(GOLANGCI_LINT_CMD) run
 
-# The flags every full or sharded test run shares (race, coverage over all of fuku, no cache).
-TEST_FLAGS = -tags testtools -json -race -coverpkg=$$(go list ./fuku/... | paste -sd, -) -count=1 -timeout 40m
+# The flags every full or sharded test run shares (race, coverage over all of xenobot, no cache).
+TEST_FLAGS = -tags testtools -json -race -coverpkg=$$(go list ./xenobot/... | paste -sd, -) -count=1 -timeout 40m
 # The package CI splits into shards (most of the suite's time), and how many.
-SHARDED_PKG = ./fuku/modules
+SHARDED_PKG = ./xenobot/modules
 SHARDS ?= 4
 
 test: SHELL := /bin/bash
@@ -74,9 +74,9 @@ coverage-merge:
 test-postgres-integrity:
 	$(GO_CMD) test -tags testtools -v -race -p 1 -count=1 -timeout 10m \
 		-run '^(TestAllModulesRoundTripEveryMeaningfulField|TestImportChatDataRollsBackEarlierModules|TestImportWarnsCreatesMissingParents|TestLegacyBackupPreservesFieldsThatVersionDidNotExport|TestDeleteCaptchaAttemptByIDAtomicSingleClaim|TestCreateMutedUserUpdatesExistingSchedule|TestCreateCaptchaAttemptReplacesExistingChallenge|TestCreateCaptchaAttemptIfEnabledRejectsDisabledChat|TestCaptchaAttemptClaimsSchedulePermissionRestore|TestDeleteMutedUserIfUnchangedPreservesNewerSchedule|TestIncrementCaptchaAttemptsRejectsRefreshedChallenge|TestUpdateChannelClearsAndReassignsNormalizedUsername|TestConnectChat|TestAddAndGetFiltersList|TestAddNotePreservesExistingUntilExplicitUpdate|TestReportSettingsCRUD|TestWarnUserCreatesMissingParentRows|TestConcurrentWarnAndRemovePreserveCount|TestUpdateChat|TestStaffExclusivityTrigger|TestStartLockdownOneActivePerChat|TestBeginAlert|TestBanRunStart|TestUnqueueBanRun|TestBanRunReport|TestAlertClose|TestRecordLinkRevoked|TestAlertSync|TestAlertSyncKeepsAMarkSetDuringTheEdit|TestReminderSlots|TestRaidDetectionSettings|TestRaidDetectionCarryOver|TestCaptchaModeTurnstileConstraint|TestAdminIndexReplaceConcurrent|TestMenuAccessUpsert|TestGreetedMemberClaimConcurrent|TestRulesMediaMigrationDefaults|TestImportGreetingsOmittedBlocks|TestRequirementHolds|TestChatRequirementsSettings|TestRequirementHoldClaimConcurrent|TestMemberRequirementLookupMigrationDefaults|TestMemberRequirementAIMigrationDefaults|TestScheduleKeepsEarliest|TestClaimBatchOneWinner|TestReleaseStaleClaims|TestDeleteRules|TestApplyJoinLeftRule|TestScheduledDeletionMigrationDefaults|TestScheduleBatchKeepsEarliest|TestScheduleBatchDuplicateKey|TestCountPending|TestDropPendingMessage|TestBlacklistActionValuesOnPostgres|TestWarnModeCheckOnPostgres|TestStaffForwardBlockConstraints|TestStaffForwardBlockMigrationDefaults|TestEventMessagesUpsert|TestChatEventMessagesMigrationDefaults|TestEventMessageOptionsMigrationDefaults|TestChatConversationSettings|TestChatConversationMigrationDefaults|TestTimedPunishmentMigrationDefaults|TestSetWarnModeDuration|TestWarnExpiryMigrationDefaults|TestWarnExpiryWrites|TestEscalationMigrationDefaults|TestEscalationSettings|TestOffenceCountRules|TestOffenceCountConcurrent|TestManualCommandTuningMigrationDefaults|TestManualDefaultsAndShortcutsCRUD|TestAdvancedThresholdsMigrationDefaults|TestAdvancedThresholdsCRUD|TestEventMessagePlainToneMigrationDefaults)$$' \
-		./fuku/db/backup ./fuku/db/captcha ./fuku/db/channels ./fuku/db/connections \
-		./fuku/db/filters ./fuku/db/notes ./fuku/db/reports ./fuku/db/warns ./fuku/db/chats ./fuku/db/staff \
-		./fuku/db/lockdown ./fuku/db/raiddetection ./fuku/db/migrations ./fuku/db/adminindex ./fuku/db/menuaccess ./fuku/db/greetings ./fuku/db/memberreq ./fuku/db/deletion ./fuku/db/eventmsg ./fuku/db/chatconv ./fuku/db/escalation ./fuku/db/modtuning ./fuku/db/advthresholds
+		./xenobot/db/backup ./xenobot/db/captcha ./xenobot/db/channels ./xenobot/db/connections \
+		./xenobot/db/filters ./xenobot/db/notes ./xenobot/db/reports ./xenobot/db/warns ./xenobot/db/chats ./xenobot/db/staff \
+		./xenobot/db/lockdown ./xenobot/db/raiddetection ./xenobot/db/migrations ./xenobot/db/adminindex ./xenobot/db/menuaccess ./xenobot/db/greetings ./xenobot/db/memberreq ./xenobot/db/deletion ./xenobot/db/eventmsg ./xenobot/db/chatconv ./xenobot/db/escalation ./xenobot/db/modtuning ./xenobot/db/advthresholds
 
 check-translations:
 	@echo "🔍 Checking for missing translations..."
@@ -126,7 +126,7 @@ generate-docs:
 check-docs:
 	@echo "🔍 Checking docs generation for drift..."
 	@set -e; \
-	TMP=$$(mktemp -d /tmp/fuku-docs-check.XXXXXX); \
+	TMP=$$(mktemp -d /tmp/xenobot-docs-check.XXXXXX); \
 	trap 'rm -rf "$$TMP"' EXIT; \
 	ROOT=$$(pwd); \
 	cp -R docs/src/content/docs/. "$$TMP"/; \

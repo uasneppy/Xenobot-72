@@ -152,7 +152,7 @@ When the bot starts (`main.go`), it performs these steps in order:
     been loaded and validated by the config package.
 
     ```go
-    if err := fuku.InitialChecks(b); err != nil {
+    if err := xenobot.InitialChecks(b); err != nil {
         log.Fatalf("Initial checks failed: %v", err)
     }
     ```
@@ -228,7 +228,7 @@ func LoadModules(dispatcher *ext.Dispatcher) {
     modules.LoadAllModules(dispatcher)
 }
 
-fuku.LoadModules(dispatcher)
+xenobot.LoadModules(dispatcher)
 if err := modules.StartCaptchaLifecycle(bot); err != nil {
     log.Fatalf("[Captcha] Failed to start lifecycle: %v", err)
 }

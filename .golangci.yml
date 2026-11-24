@@ -31,8 +31,8 @@ linters:
       - path: scripts/generate_docs/
         linters:
           - gocyclo
-      # Exclude pre-existing complex migration logic (moved from fuku/db/migrations.go)
-      - path: fuku/db/migrations/
+      # Exclude pre-existing complex migration logic (moved from xenobot/db/migrations.go)
+      - path: xenobot/db/migrations/
         linters:
           - gocyclo
 

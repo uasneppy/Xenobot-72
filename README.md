@@ -690,8 +690,8 @@ flowchart TD
     end
 
     D --> Groups
-    Groups --> M["fuku/modules<br/>modules register in init(), help loads last"]
-    M --> R["fuku/db repositories"]
+    Groups --> M["xenobot/modules<br/>modules register in init(), help loads last"]
+    M --> R["xenobot/db repositories"]
     R -->|"reads"| L["In-process LRU<br/>CACHE_LOCAL_TTL"]
     L -->|"miss"| RD[("Redis<br/>cache, raid counters,<br/>captcha challenges, pacing")]
     RD -->|"miss"| PG[("PostgreSQL<br/>schema from migrations/*.sql")]
@@ -700,9 +700,9 @@ flowchart TD
     M -->|"replies and actions"| TG
 ```
 
-- **Startup.** `fuku/config` loads `.env` and validates it. `fuku/db` connects to PostgreSQL (5 attempts) before `main()` runs and applies the SQL migrations when `AUTO_MIGRATE=true`. `main.go` then sets up Redis, the embedded locales, tracing, the bot client, the dispatcher, the monitors and the HTTP server. It loads the 41 modules, which register themselves in `init()` (help loads last), and posts a "Started Bot!" message to `MESSAGE_DUMP`.
+- **Startup.** `xenobot/config` loads `.env` and validates it. `xenobot/db` connects to PostgreSQL (5 attempts) before `main()` runs and applies the SQL migrations when `AUTO_MIGRATE=true`. `main.go` then sets up Redis, the embedded locales, tracing, the bot client, the dispatcher, the monitors and the HTTP server. It loads the 41 modules, which register themselves in `init()` (help loads last), and posts a "Started Bot!" message to `MESSAGE_DUMP`.
 - **Handler groups.** Handlers run in numeric order. Watchers pass the update on to the next handler. Commands end it. New commands go through `helpers.WrapCommand`, a pipeline that runs the permission and disable checks, and every command handler is built by `helpers.NewBotCommand`, which records its name. Command deletion wraps the dispatcher's processor and acts after every group has run. See [handler groups](docs/src/content/docs/architecture/handler-groups.md) and [AGENTS.md](AGENTS.md).
-- **Data.** Each domain has a repository package in `fuku/db/<domain>/`. Reads go through a cache loader (process memory, then Redis, then PostgreSQL), and every write drops the cache keys it affects. Operational state in Redis, such as the raid counters and the captcha challenges, sits outside the cache prefix and survives `CLEAR_CACHE_ON_STARTUP`.
+- **Data.** Each domain has a repository package in `xenobot/db/<domain>/`. Reads go through a cache loader (process memory, then Redis, then PostgreSQL), and every write drops the cache keys it affects. Operational state in Redis, such as the raid counters and the captcha challenges, sits outside the cache prefix and survives `CLEAR_CACHE_ON_STARTUP`.
 - **Background work.** The lockdown worker and the scheduled deletion worker resume from the database after a restart. Sweepers recheck the Staff Group links and the settings roster every hour.
 - **Shutdown.** Handlers stop in reverse order inside a 60 second budget, 10 seconds each unless a handler registers its own timeout. The Compose file sets `stop_grace_period: 75s`, so Docker does not stop the process before the shutdown ends.
 
@@ -764,8 +764,8 @@ flowchart TD
 ### 2. Configure
 
 ```bash
-git clone https://github.com/uasneppy/Fuku_Robot.git
-cd Fuku_Robot
+git clone https://github.com/uasneppy/Xenobot-72.git
+cd Xenobot-72
 cp sample.env .env
 # Fill in at least BOT_TOKEN, OWNER_ID, MESSAGE_DUMP and DATABASE_URL.
 ```
@@ -774,12 +774,12 @@ cp sample.env .env
 
 ### 3a. Run with Docker Compose (production stack, webhook mode)
 
-[`docker-compose.yml`](docker-compose.yml) starts the bot together with PostgreSQL 17 and Redis 7. The bot image is `ghcr.io/uasneppy/fuku_robot:latest`. The file sets `AUTO_MIGRATE=true`, `USE_WEBHOOKS=true` and `DROP_PENDING_UPDATES=true`, publishes port 8080, health-checks the container with `fuku_robot --health`, and sets `stop_grace_period: 75s` so a shutdown can use its full 60 second budget. You need a public HTTPS domain that proxies to port 8080.
+[`docker-compose.yml`](docker-compose.yml) starts the bot together with PostgreSQL 17 and Redis 7. The bot image is `ghcr.io/uasneppy/xenobot-72:latest`. The file sets `AUTO_MIGRATE=true`, `USE_WEBHOOKS=true` and `DROP_PENDING_UPDATES=true`, publishes port 8080, health-checks the container with `/app/xenobot-72 --health`, and sets `stop_grace_period: 75s` so a shutdown can use its full 60 second budget. You need a public HTTPS domain that proxies to port 8080.
 
 ```bash
 # .env must define BOT_TOKEN, OWNER_ID, MESSAGE_DUMP, WEBHOOK_DOMAIN and WEBHOOK_SECRET
 docker compose up -d
-docker compose logs -f fuku
+docker compose logs -f xenobot
 ```
 
 Two facts about this stack.
@@ -789,34 +789,16 @@ Two facts about this stack.
   ```yaml
   # local.docker-compose.yml
   services:
-    fuku:
+    xenobot:
       environment:
         METRICS_AUTH_TOKEN: ${METRICS_AUTH_TOKEN}
         TYPESAFE_API_KEY: ${TYPESAFE_API_KEY}
   ```
 
   Start it with `docker compose -f docker-compose.yml -f local.docker-compose.yml up -d`.
-- The stack ships fixed demo credentials: `fuku` and `fuku` for PostgreSQL, and `redis` for Redis. Neither service publishes a port. Change the credentials before you use the stack for anything real.
+- The stack ships fixed demo credentials: `xenobot` and `xenobot` for PostgreSQL, and `redis` for Redis. Neither service publishes a port. Change the credentials before you use the stack for anything real.
 
-### 3b. Run a local debug stack (polling mode)
-
-[`debug.docker-compose.yml`](debug.docker-compose.yml) builds [`docker/alpine.debug`](docker/alpine.debug) (Alpine with a shell), passes your whole `.env` to the bot, and publishes PostgreSQL on `5432` and Redis on `6379`. Add these to `.env` first:
-
-```ini
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=<choose-a-password>
-POSTGRES_DB=fuku_robot
-REDIS_PASSWORD=<choose-a-password>
-AUTO_MIGRATE=true
-```
-
-```bash
-docker compose -f debug.docker-compose.yml up --build
-```
-
-The stack also defines an optional local Bot API server (`aiogram/telegram-bot-api`). To use it, set `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` and `API_SERVER=http://telegram-bot-api:8081`.
-
-### 3c. Run from source
+### 3b. Run from source
 
 ```bash
 # PostgreSQL and Redis must be reachable with the values in .env.
@@ -824,9 +806,9 @@ The stack also defines an optional local Bot API server (`aiogram/telegram-bot-a
 make run                       # = go run main.go; long polling unless USE_WEBHOOKS=true
 
 # or build a static binary
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o fuku_robot .
-./fuku_robot                  # keep migrations/ next to it when AUTO_MIGRATE=true
-./fuku_robot --version        # prints the version and exits
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o xenobot-72 .
+./xenobot-72                  # keep migrations/ next to it when AUTO_MIGRATE=true
+./xenobot-72 --version        # prints the version and exits
 ```
 
 Locales are embedded in the binary. Migrations are read from `MIGRATIONS_PATH` (default `migrations`).
@@ -844,10 +826,6 @@ Optional. Math and text captcha need none of this.
 
 The full walk-through, with proxy examples and troubleshooting, is in [the web captcha guide](docs/src/content/docs/self-hosting/captcha-web.md).
 
-### Other deployment targets
-
-The repository also holds manifests for [`render.yaml`](render.yaml) (Render blueprint: Docker image, managed PostgreSQL and Redis, `HTTP_PORT=10000`), [`railway.toml`](railway.toml) (health check on `/health`), [`app.json`](app.json) with [`Procfile`](Procfile) (Heroku with PostgreSQL and Redis add-ons) and [`nixpacks.toml`](nixpacks.toml).
-
 ### Webhook or polling
 
 | | Polling (default) | Webhook |
@@ -860,7 +838,7 @@ In both modes the HTTP server runs, so `/health` and `/metrics` are always avail
 
 ## Configuration
 
-I read every variable below in [`fuku/config/config.go`](fuku/config/config.go), except the `OTEL_*` variables, which [`fuku/utils/tracing/tracing.go`](fuku/utils/tracing/tracing.go) reads. [`sample.env`](sample.env) is an annotated template. Booleans accept `true`, `yes` or `1`. An integer that fails to parse falls back to its default. Compose passes only five of these variables into the bot container, as described under Getting started.
+I read every variable below in [`xenobot/config/config.go`](xenobot/config/config.go), except the `OTEL_*` variables, which [`xenobot/utils/tracing/tracing.go`](xenobot/utils/tracing/tracing.go) reads. [`sample.env`](sample.env) is an annotated template. Booleans accept `true`, `yes` or `1`. An integer that fails to parse falls back to its default. Compose passes only five of these variables into the bot container, as described under Getting started.
 
 <details open>
 <summary><b>Required</b></summary>
@@ -992,7 +970,7 @@ The first four variables go together: set all of them or none. With only some of
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | OTLP gRPC endpoint. With this empty and the console exporter off, tracing is disabled |
 | `OTEL_EXPORTER_OTLP_INSECURE` | `false` | Plain gRPC without TLS when `true` |
 | `OTEL_EXPORTER_CONSOLE` | `false` | Spans to stderr when `true` |
-| `OTEL_SERVICE_NAME` | `fuku_robot` | Service name on the spans |
+| `OTEL_SERVICE_NAME` | `xenobot-72` | Service name on the spans |
 | `OTEL_TRACES_SAMPLE_RATE` | `1.0` | Sampling ratio, clamped to 0.0 to 1.0 |
 
 </details>
@@ -1002,10 +980,8 @@ The first four variables go together: set all of them or none. With only some of
 
 | Variable | Used by |
 | --- | --- |
-| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | `debug.docker-compose.yml` (the PostgreSQL container and the bot's `DATABASE_URL`) |
-| `TELEGRAM_API_ID`, `TELEGRAM_API_HASH` | `debug.docker-compose.yml` (local Bot API server) |
 | `PSQL_DB_HOST`, `PSQL_DB_PORT`, `PSQL_DB_NAME`, `PSQL_DB_USER`, `PSQL_DB_PASSWORD`, `PSQL_DB_SSLMODE` | `make psql-migrate`, `make psql-status`, `make psql-reset` |
-| `FUKU_TEST_DATABASE`, `FUKU_TEST_MIGRATION_CHAIN` | Tests: opt in to the PostgreSQL-backed tests and the migration chain test, both through `DATABASE_URL` |
+| `XENOBOT_TEST_DATABASE`, `XENOBOT_TEST_MIGRATION_CHAIN` | Tests: opt in to the PostgreSQL-backed tests and the migration chain test, both through `DATABASE_URL` |
 
 </details>
 
@@ -1022,16 +998,16 @@ Never commit `.env`, and never paste real tokens, owner IDs, database URLs or we
 | `/debug/pprof/` | Go profiling. Only when `ENABLE_PPROF=true` |
 | `/captcha`, `/captcha/verify`, `/captcha/health` | The web captcha page, its verify route and its health check. Only when the web captcha is configured |
 
-`fuku_robot --health` calls `/health` on the configured port and exits `0` on HTTP 200 and `1` otherwise, which suits a distroless image without curl. `fuku_robot --version` prints the version and exits.
+`xenobot-72 --health` calls `/health` on the configured port and exits `0` on HTTP 200 and `1` otherwise, which suits a distroless image without curl. `xenobot-72 --version` prints the version and exits.
 
 All of these routes share one port. With `METRICS_AUTH_TOKEN` empty, `/metrics` and `/db_metrics` are open and the server logs a warning. A public proxy must forward only `/captcha` and `/captcha/*`. Logs are JSON, and known secrets are redacted. More in [monitoring](docs/src/content/docs/self-hosting/monitoring.md) and [profiling](docs/src/content/docs/self-hosting/profiling.md).
 
 ## Project structure
 
 ```text
-Fuku_Robot/
+Xenobot-72/
 ├── main.go                    # entry point: cache, locales, tracing, bot, HTTP server, webhook or polling
-├── fuku/
+├── xenobot/
 │   ├── main.go                # LoadModules, ListModules, InitialChecks
 │   ├── config/                # every env var: parsing, defaults, validation
 │   ├── db/                    # GORM connection, migration runner, one repository package per domain
@@ -1042,7 +1018,7 @@ Fuku_Robot/
 │   ├── modules/               # one file per bot module: bans.go, notes.go, captcha.go, lockdown.go, staff.go, settings.go, …
 │   └── utils/                 # command pipeline, permission checks, callback codec, cache, HTTP server, web captcha, tracing, monitoring, …
 ├── locales/                   # uk, en, es, fr, hi, id, pt, ru + config.yml (help aliases)
-├── migrations/                # 76 timestamped .sql files: the schema's source of truth
+├── migrations/                # timestamped .sql files: the schema's source of truth
 ├── docker/                    # alpine (production), alpine.debug, goreleaser, pr-build Dockerfiles
 ├── docs/                      # Blume docs site: generated command pages, guides, architecture notes
 ├── scripts/                   # docs generator, translation checker, psql migrate and backup, test-result gate, captcha page tests
@@ -1050,7 +1026,6 @@ Fuku_Robot/
 ├── formal/antiflood/          # TLA+ and Lean models of the antiflood counter reset
 ├── .github/workflows/         # CI, release, docs, Dependabot auto-merge, Pullfrog
 ├── docker-compose.yml         # production stack (bot + PostgreSQL 17 + Redis 7, webhook mode)
-├── debug.docker-compose.yml   # local build + PostgreSQL + Redis + optional local Bot API server
 ├── sample.env                 # annotated configuration template
 ├── AGENTS.md                  # contributor rulebook: handlers, cache, migrations, tests
 └── Makefile
@@ -1062,7 +1037,7 @@ Fuku_Robot/
 | --- | --- |
 | `make run` | `go run main.go` |
 | `make test` | The full test suite: `-tags testtools -race`, coverage, result gate |
-| `make test-postgres-integrity` | PostgreSQL-only integrity tests (needs `DATABASE_URL` and `FUKU_TEST_DATABASE=true`) |
+| `make test-postgres-integrity` | PostgreSQL-only integrity tests (needs `DATABASE_URL` and `XENOBOT_TEST_DATABASE=true`) |
 | `make lint` · `make check-duplicates` | golangci-lint v2; duplicate-code check |
 | `make check-translations` | Report locale keys missing from any language |
 | `make generate-docs` · `make check-docs` | Regenerate the docs pages, or fail on drift |
@@ -1074,13 +1049,13 @@ Fuku_Robot/
 | `make tidy` · `make vendor` | `go mod tidy` and `go mod vendor` |
 
 ```bash
-make test                                                            # always use the Makefile target
-go test -tags testtools -race -count=1 -run '^TestName$' ./fuku/db/warns   # a single test
-CGO_ENABLED=0 go build ./...                                         # quick compile check
+make test                                                               # always use the Makefile target
+go test -tags testtools -race -count=1 -run '^TestName$' ./xenobot/db/warns   # a single test
+CGO_ENABLED=0 go build ./...                                            # quick compile check
 ```
 
 - Tests need `CGO_ENABLED=1` (SQLite). Production builds use `CGO_ENABLED=0`. Without `-tags testtools`, test files are silently left out.
-- Tests run on SQLite and miniredis by default. Set `DATABASE_URL` and `FUKU_TEST_DATABASE=true` to use real PostgreSQL.
+- Tests run on SQLite and miniredis by default. Set `DATABASE_URL` and `XENOBOT_TEST_DATABASE=true` to use real PostgreSQL.
 - Before adding a module, a migration or a command, read [AGENTS.md](AGENTS.md). It covers migration naming and checksums, cache invalidation, handler groups, the locale rule (every new key goes into all 8 files) and Conventional Commits.
 - [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs gosec and govulncheck, lint, build, tests with a 78 percent coverage floor, docs and translation drift checks, and a Docker build. On pushes to `main` it also publishes a `dev` image.
 
@@ -1092,7 +1067,6 @@ CGO_ENABLED=0 go build ./...                                         # quick com
 ## Attributions
 
 - **Character and setting.** The name, character and voice of Xenobot-72 come from *Mau Makan Apa?*, the webcomic and animated series by Labirhin ([X](https://x.com/LabiLabirhin), [website](https://maumakanapa.art/)). Thank you to Labirhin for creating such an amazing character.
-- **Original bot.** This project is a fork of [Alita_Robot](https://github.com/Divkix/Alita_Robot) by [Divkix](https://github.com/Divkix). Its MIT copyright notice is kept in [`LICENSE`](LICENSE).
 
 This project is a fan work. It is not affiliated with or endorsed by Labirhin. Xenobot-72 and Jaya Abadi belong to their creator.
 

@@ -541,7 +541,7 @@ helpers.WrapCommand(dispatcher, helpers.CommandDescriptor{
 }, handler)
 ```
 
-**Key types** (from `fuku/utils/helpers/command_pipeline.go`):
+**Key types** (from `xenobot/utils/helpers/command_pipeline.go`):
 
 | Type | Description |
 |------|-------------|

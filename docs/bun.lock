@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "fuku-robot-docs",
+      "name": "xenobot-72-docs",
       "dependencies": {
         "blume": "^1.1.4",
         "typescript": "^6.0.3",

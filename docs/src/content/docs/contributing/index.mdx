@@ -19,8 +19,8 @@ Thank you for your interest in contributing to Xenobot-72! This guide will help 
 <Steps>
   <Step title="Clone the repository">
     ```bash
-    git clone https://github.com/uasneppy/fuku_robot.git
-    cd Fuku_Robot
+    git clone https://github.com/uasneppy/Xenobot-72.git
+    cd Xenobot-72
     ```
   </Step>
 
@@ -70,8 +70,8 @@ make psql-reset    # Reset database (DANGEROUS: drops all tables)
 ## Project Structure
 
 ```
-Fuku_Robot/
-├── fuku/
+Xenobot-72/
+├── xenobot/
 │   ├── config/       # Configuration and environment parsing
 │   ├── db/           # Database operations and repositories
 │   ├── i18n/         # Internationalization
@@ -86,11 +86,11 @@ Fuku_Robot/
 
 <Steps>
   <Step title="Create database operations">
-    Add them in `fuku/db/{module}/repository.go` (following the domain-package pattern).
+    Add them in `xenobot/db/{module}/repository.go` (following the domain-package pattern).
   </Step>
 
   <Step title="Implement command handlers">
-    Put them in `fuku/modules/{module}.go`.
+    Put them in `xenobot/modules/{module}.go`.
   </Step>
 
   <Step title="Register commands">
@@ -102,7 +102,7 @@ Fuku_Robot/
   </Step>
 
   <Step title="Self-register in init()">
-    Use `RegisterLegacyModule("MyModule", priority, LoadMyModule)` — modules auto-load via `LoadAllModules()` in `fuku/main.go`.
+    Use `RegisterLegacyModule("MyModule", priority, LoadMyModule)` — modules auto-load via `LoadAllModules()` in `xenobot/main.go`.
   </Step>
 </Steps>
 
@@ -115,7 +115,7 @@ import (
     "github.com/PaulSonOfLars/gotgbot/v2"
     "github.com/PaulSonOfLars/gotgbot/v2/ext"
 
-    "github.com/uasneppy/fuku_robot/fuku/utils/helpers"
+    "github.com/uasneppy/Xenobot-72/xenobot/utils/helpers"
 )
 
 var myModule = moduleStruct{moduleName: "MyModule"}
@@ -164,7 +164,7 @@ pip install pre-commit && pre-commit install
 Always escape user-controlled input before rendering in HTML-formatted messages:
 
 ```go
-import "github.com/uasneppy/fuku_robot/fuku/utils/formatting"
+import "github.com/uasneppy/Xenobot-72/xenobot/utils/formatting"
 
 // Wrong - vulnerable to HTML injection
 text := fmt.Sprintf("Welcome to %s!", chat.Title)
@@ -381,4 +381,4 @@ The `tgmd2html` library provides conversion functions:
 
 ## Getting Help
 
-- **GitHub Issues**: [Report bugs or request features](https://github.com/uasneppy/fuku_robot/issues)
+- **GitHub Issues**: [Report bugs or request features](https://github.com/uasneppy/Xenobot-72/issues)

@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://uasneppy.github.io/fuku_robot/sitemap-index.xml
+Sitemap: https://uasneppy.github.io/Xenobot-72/sitemap-index.xml

@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -trimpath \
-    -o fuku_robot .
+    -o xenobot-72 .
 
 # Stage 2: Alpine runtime with shell access
 FROM alpine:3.21
@@ -36,21 +36,21 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 
 # Copy binary and migrations
-COPY --from=builder /app/fuku_robot /app/fuku_robot
+COPY --from=builder /app/xenobot-72 /app/xenobot-72
 COPY --from=builder /app/migrations /app/migrations
 
 # Create non-root user
-RUN addgroup -g 65532 -S fuku && \
-    adduser -u 65532 -S fuku -G fuku && \
-    chown -R fuku:fuku /app
+RUN addgroup -g 65532 -S xenobot && \
+    adduser -u 65532 -S xenobot -G xenobot && \
+    chown -R xenobot:xenobot /app
 
-USER fuku:fuku
+USER xenobot:xenobot
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/fuku_robot"]
+ENTRYPOINT ["/app/xenobot-72"]
 
 # Metadata
-LABEL org.opencontainers.image.source="https://github.com/uasneppy/fuku_robot"
+LABEL org.opencontainers.image.source="https://github.com/uasneppy/Xenobot-72"
 LABEL org.opencontainers.image.title="Xenobot-72"
 LABEL org.opencontainers.image.description="Xenobot-72 Debug Docker Image"

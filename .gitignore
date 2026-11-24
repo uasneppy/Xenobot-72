@@ -20,8 +20,8 @@ tmp/
 .idea/
 
 # Executables
-Fuku_Robot
-Fuku_Robot.exe
+xenobot-72
+xenobot-72.exe
 .env
 .db.env
 local.docker-compose.yml
@@ -29,7 +29,7 @@ local.docker-compose.yml
 # Mac OS DS_Store file
 .DS_Store
 .mcp.json
-fuku_test
+xenobot_test
 .gocache/
 specs/.current-spec
 **/.progress.md

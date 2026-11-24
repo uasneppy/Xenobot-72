@@ -85,7 +85,7 @@ elif [[ -d "$DEFAULT_MIGRATIONS_DIR" ]]; then
   MIGRATIONS_DIR="$DEFAULT_MIGRATIONS_DIR"
   SOURCE_MIGRATIONS_DIR="$DEFAULT_MIGRATIONS_DIR"
 elif [[ -d "$SRC_MIGRATIONS_DIR" ]]; then
-  AUTO_TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fuku-migrations.XXXXXX")
+  AUTO_TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/xenobot-migrations.XXXXXX")
   trap cleanup_temp_dir EXIT
   echo -e "${BLUE}No local migrations found. Auto-preparing from migrations/...${NC}"
   prepare_clean_migrations_from_supabase "$SRC_MIGRATIONS_DIR" "$AUTO_TEMP_DIR"
@@ -245,7 +245,7 @@ EOF
   print_color "$GREEN" "Found ${#migration_files[@]} migration files"
   echo
 
-  # Every applied file is verified below on every run, like fuku/db/migrations/runner.go; a
+  # Every applied file is verified below on every run, like xenobot/db/migrations/runner.go; a
   # recorded version with no file is reported and changes nothing.
   known_versions=""
   for migration_file in "${migration_files[@]}"; do
