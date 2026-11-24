@@ -498,6 +498,25 @@ func ReminderPlanned(lockdownID uint, seq int) (bool, error) {
 	return count > 0, nil
 }
 
+// LatestReminder returns the highest sequence number and creation time among all reminder
+// copies of the lockdown, in any state. When no reminder exists yet, it returns (0, zero, nil).
+func LatestReminder(lockdownID uint) (int, time.Time, error) {
+	var row models.ChatLockdownAlert
+	err := db.DB.Select("seq, created_at").
+		Where("lockdown_id = ? AND kind = ?", lockdownID, models.AlertKindReminder).
+		Order("seq DESC, created_at DESC").
+		Limit(1).
+		Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, time.Time{}, nil
+		}
+		log.Errorf("[Lockdown] LatestReminder: %v", err)
+		return 0, time.Time{}, fukuerrors.Wrapf(err, "read the latest reminder of lockdown %d", lockdownID)
+	}
+	return row.Seq, row.CreatedAt, nil
+}
+
 // PlanReminderSlots creates the pending reminder copies of one sequence number, one per
 // slot, in one transaction, and returns how many rows it inserted. Each slot is inserted
 // with ON CONFLICT DO NOTHING on the (lockdown, kind, seq, dest) key, so whichever

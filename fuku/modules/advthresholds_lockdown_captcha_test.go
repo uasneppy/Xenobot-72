@@ -173,6 +173,53 @@ func TestAdvancedThresholdsLockdownAndCaptcha(t *testing.T) {
 		}
 	})
 
+	t.Run("lockdown_reminder_lengthened_mid_lockdown_does_not_suppress", func(t *testing.T) {
+		s := newPhase28ReminderScene(t, func(env *lockdownEnv) {
+			if err := advthresholds.SetField(context.Background(), env.chat.Id, advthresholds.FieldLockdownReminder, 15, env.admin.Id); err != nil {
+				t.Fatalf("SetField(15) error = %v", err)
+			}
+		})
+		env := s.env
+
+		// At 121m with 15m interval, seq 8 is planned and posted.
+		ageAlert(t, s.row.ID, 121*time.Minute)
+		env.cycle()
+		s.wantPosted(2)
+
+		// Owner lengthens the interval to 60m mid-lockdown (121m/60m = 2 <= 8).
+		if err := advthresholds.SetField(context.Background(), env.chat.Id, advthresholds.FieldLockdownReminder, 60, env.admin.Id); err != nil {
+			t.Fatalf("SetField(60) error = %v", err)
+		}
+
+		// 30m after seq 8: not due yet.
+		if err := db.DB.Model(&models.ChatLockdownAlert{}).
+			Where("lockdown_id = ? AND kind = ? AND seq = ?", s.row.ID, models.AlertKindReminder, 8).
+			Update("created_at", time.Now().Add(-30*time.Minute)).Error; err != nil {
+			t.Fatalf("backdate seq 8 to 30m: %v", err)
+		}
+		env.cycle()
+		s.wantPosted(2)
+
+		// 61m after seq 8: seq 9 must be planned and posted without being suppressed.
+		if err := db.DB.Model(&models.ChatLockdownAlert{}).
+			Where("lockdown_id = ? AND kind = ? AND seq = ?", s.row.ID, models.AlertKindReminder, 8).
+			Update("created_at", time.Now().Add(-61*time.Minute)).Error; err != nil {
+			t.Fatalf("backdate seq 8 to 61m: %v", err)
+		}
+		env.cycle()
+		s.wantPosted(3)
+
+		var seq9Count int
+		for _, r := range env.reminderRows() {
+			if r.Seq == 9 && r.State == models.AlertStatePosted {
+				seq9Count++
+			}
+		}
+		if seq9Count != 2 {
+			t.Fatalf("posted seq 9 reminder rows = %d, want 2", seq9Count)
+		}
+	})
+
 	t.Run("captcha_timeout_extended_30m_and_reset", func(t *testing.T) {
 		phase28InProcessMiniredis(t)
 
