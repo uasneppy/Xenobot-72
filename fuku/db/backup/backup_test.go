@@ -119,6 +119,20 @@ func TestBackupTypes(t *testing.T) {
 				},
 				wantErr: true,
 			},
+			{
+				name: "duplicate modules",
+				backup: &BackupFormat{
+					Version: "1.0",
+					BotName: "Xenobot-72",
+					ChatID:  12345,
+					Modules: []string{"rules", "notes", "rules"},
+					Data: map[string]interface{}{
+						"rules": map[string]interface{}{},
+						"notes": map[string]interface{}{},
+					},
+				},
+				wantErr: true,
+			},
 		}
 
 		for _, tt := range tests {
