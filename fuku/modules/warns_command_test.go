@@ -525,6 +525,9 @@ func TestWarnCallbackHandlersPropagateGotgbotRequestErrors(t *testing.T) {
 		if !errors.Is(err, requestErr) {
 			t.Fatalf("rmWarnButton() error = %v, want edit request error", err)
 		}
+		if calls := client.callsFor("answerCallbackQuery"); len(calls) != 1 {
+			t.Fatalf("answerCallbackQuery calls = %d, want 1 even after edit failure", len(calls))
+		}
 	})
 
 	t.Run("remove warn answer failure", func(t *testing.T) {
@@ -655,4 +658,67 @@ func TestLoadWarnsRegistersHelpAndHandlers(t *testing.T) {
 	if !DefaultHelpRegistry().AbleMap[warnsModule.moduleName] {
 		t.Fatal("warns help registration = false, want enabled")
 	}
+}
+
+func TestRmWarnButtonEditsMediaCards(t *testing.T) {
+	admin := gotgbot.User{Id: 777000, FirstName: "Telegram"}
+	target := gotgbot.User{Id: 42, FirstName: "Member"}
+	data := encodeCallbackData("rmWarn", map[string]string{"u": "42"})
+
+	t.Run("captioned photo edits caption", func(t *testing.T) {
+		client := newModuleBotClient()
+		bot := newModuleTestBot(client)
+		chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Warn Chat"}
+		warns.WarnUser(target.Id, chat.Id, "media")
+		ctx := newModuleCallbackContext(bot, chat, admin, data)
+		mediaMsg := &gotgbot.Message{
+			MessageId: 501,
+			Chat:      chat,
+			Caption:   "warned",
+			Photo:     []gotgbot.PhotoSize{{FileId: "photo-1"}},
+		}
+		ctx.CallbackQuery.Message = mediaMsg
+		ctx.EffectiveMessage = mediaMsg
+
+		if err := warnsModule.rmWarnButton(bot, ctx); err != ext.EndGroups {
+			t.Fatalf("rmWarnButton() error = %v, want EndGroups", err)
+		}
+		if got := len(client.callsFor("editMessageCaption")); got != 1 {
+			t.Fatalf("editMessageCaption calls = %d, want 1", got)
+		}
+		if got := len(client.callsFor("editMessageText")); got != 0 {
+			t.Fatalf("editMessageText calls = %d, want 0", got)
+		}
+		if got := len(client.callsFor("answerCallbackQuery")); got != 1 {
+			t.Fatalf("answerCallbackQuery calls = %d, want 1", got)
+		}
+	})
+
+	t.Run("captionless sticker clears reply markup", func(t *testing.T) {
+		client := newModuleBotClient()
+		bot := newModuleTestBot(client)
+		chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Warn Chat"}
+		warns.WarnUser(target.Id, chat.Id, "sticker")
+		ctx := newModuleCallbackContext(bot, chat, admin, data)
+		stickerMsg := &gotgbot.Message{
+			MessageId: 502,
+			Chat:      chat,
+			Sticker:   &gotgbot.Sticker{FileId: "sticker-1"},
+		}
+		ctx.CallbackQuery.Message = stickerMsg
+		ctx.EffectiveMessage = stickerMsg
+
+		if err := warnsModule.rmWarnButton(bot, ctx); err != ext.EndGroups {
+			t.Fatalf("rmWarnButton() error = %v, want EndGroups", err)
+		}
+		if got := len(client.callsFor("editMessageReplyMarkup")); got != 1 {
+			t.Fatalf("editMessageReplyMarkup calls = %d, want 1", got)
+		}
+		if got := len(client.callsFor("editMessageText")); got != 0 {
+			t.Fatalf("editMessageText calls = %d, want 0", got)
+		}
+		if got := len(client.callsFor("answerCallbackQuery")); got != 1 {
+			t.Fatalf("answerCallbackQuery calls = %d, want 1", got)
+		}
+	})
 }

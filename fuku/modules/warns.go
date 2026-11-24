@@ -819,19 +819,52 @@ func (moduleStruct) rmWarnButton(b *gotgbot.Bot, ctx *ext.Context) error {
 	}
 
 	pmCopyMarkGroupActionResolved(chat.Id, query.Message.GetMessageId())
-	_, _, err := query.Message.EditText(b, &gotgbot.EditMessageTextOpts{Text: replyText, ParseMode: formatting.HTML})
-	if err != nil {
+	editErr := editRmWarnMessage(b, query.Message, ctx.EffectiveMessage, replyText)
+	if editErr != nil {
+		log.Error(editErr)
+	}
+
+	// The press is answered whether or not the edit landed: the warn removal already took effect.
+	if _, err := query.Answer(b, nil); err != nil {
 		log.Error(err)
 		return err
 	}
-
-	_, err = query.Answer(b, nil)
-	if err != nil {
-		log.Error(err)
-		return err
+	if editErr != nil {
+		return editErr
 	}
 
 	return ext.EndGroups
+}
+
+// editRmWarnMessage updates the warn card after its Remove warn button is pressed.
+// Text messages are edited with EditText, captionless media (stickers and video notes) clear
+// their inline keyboard with EditReplyMarkup, and caption-capable media (photo, video,
+// animation, document, audio, voice) are edited with EditCaption.
+func editRmWarnMessage(b *gotgbot.Bot, msg gotgbot.MaybeInaccessibleMessage, effective *gotgbot.Message, replyText string) error {
+	if effective == nil {
+		if m, ok := msg.(*gotgbot.Message); ok {
+			effective = m
+		}
+	}
+	if effective == nil || effective.Text != "" {
+		_, _, err := msg.EditText(b, &gotgbot.EditMessageTextOpts{
+			Text:      replyText,
+			ParseMode: formatting.HTML,
+		})
+		return err
+	}
+	if effective.Sticker != nil || effective.VideoNote != nil {
+		// Stickers and video notes cannot carry a caption; clear the inline keyboard so the button is not left live.
+		_, _, err := msg.EditReplyMarkup(b, &gotgbot.EditMessageReplyMarkupOpts{
+			ReplyMarkup: gotgbot.InlineKeyboardMarkup{},
+		})
+		return err
+	}
+	_, _, err := msg.EditCaption(b, &gotgbot.EditMessageCaptionOpts{
+		Caption:   replyText,
+		ParseMode: formatting.HTML,
+	})
+	return err
 }
 
 func (moduleStruct) setWarnLimit(b *gotgbot.Bot, ctx *ext.Context) error {
