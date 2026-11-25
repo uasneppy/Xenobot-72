@@ -385,6 +385,91 @@ func TestSettingsDriftChat(t *testing.T) {
 	if !ok || !strings.HasPrefix(selected.Text, settingsSelectedPrefix) {
 		t.Errorf("the stored provider is not marked: %+v", selected)
 	}
+	if err := chatconv.SetJudgeTo(ctx, env.chat.Id, chatconv.JudgeToStaff, 1); err != nil {
+		t.Fatal(err)
+	}
+	env.pressPrivate(owner, msgID, env.privateFields(env.chat.Id, "a", "op", "p", settingsPageChat))
+	text, keyboard = env.lastEdit(owner.Id, msgID)
+	if !strings.Contains(text, staffMarker("settings_chat_judge_line")) || !strings.Contains(text, staffMarker("settings_btn_chat_judge_staff")) {
+		t.Errorf("the page %q does not draw the stored judge destination", text)
+	}
+	if staffButton, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlJudge && f["v"] == "s" }); !ok || !strings.HasPrefix(staffButton.Text, settingsSelectedPrefix) {
+		t.Errorf("the stored judge destination is not marked: %+v", staffButton)
+	}
+}
+
+// TestSettingsChatJudge drives the /judge destination choice: the owner's three presses store each
+// value, a press of the stored value writes nothing, and a group menu, a forged value, an
+// administrator and a member are refused with nothing written.
+func TestSettingsChatJudge(t *testing.T) {
+	withChatProviders(t, true, true, true)
+	env := settingsChatEnv(t)
+	owner := env.newOwner(env.chat)
+	private := settingsPrivateChat(owner)
+	msgID := settingsChatOpenPrivate(t, env, owner)
+	text, keyboard := env.lastEdit(owner.Id, msgID)
+	if !strings.Contains(text, staffMarker("settings_chat_judge_line")) {
+		t.Fatalf("the page %q has no judge line", text)
+	}
+	group, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlJudge && f["v"] == "g" })
+	if !ok || !strings.HasPrefix(group.Text, settingsSelectedPrefix) {
+		t.Fatalf("the group destination is not drawn as stored: %+v", keyboard)
+	}
+	for _, want := range []struct {
+		code string
+		to   int
+	}{{"p", chatconv.JudgeToPrivate}, {"s", chatconv.JudgeToStaff}, {"g", chatconv.JudgeToGroup}} {
+		_, keyboard = env.lastEdit(owner.Id, msgID)
+		button, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlJudge && f["v"] == want.code })
+		if !ok || settingsButtonFields(t, button)["a"] != "st" {
+			t.Fatalf("no st button for %s: %+v", want.code, keyboard)
+		}
+		env.pressRaw(private, owner, msgID, button.CallbackData)
+		if got := settingsChatStored(t, env.chat.Id); got.JudgeTo != want.to || got.Enabled || got.LogEnabled {
+			t.Fatalf("after %s: %+v", want.code, got)
+		}
+		_, keyboard = env.lastEdit(owner.Id, msgID)
+		if marked, _ := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlJudge && f["v"] == want.code }); !strings.HasPrefix(marked.Text, settingsSelectedPrefix) {
+			t.Errorf("after %s the stored destination is not marked", want.code)
+		}
+	}
+
+	lookups := func() int { return len(env.fake.callsFor("getChatMember")) }
+	before := lookups()
+	for _, fields := range []map[string]string{
+		env.privateFields(env.chat.Id, "a", "st", "p", settingsPageChat, "t", settingsChatControlJudge, "v", "x"),
+		env.privateFields(env.chat.Id, "a", "tg", "p", settingsPageChat, "t", settingsChatControlJudge, "v", "s"),
+	} {
+		env.pressPrivate(owner, msgID, fields)
+		if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("common_callback_invalid_request")) {
+			t.Errorf("a forged press %v answered %q (alert %v)", fields, answer, alert)
+		}
+	}
+	if n := lookups() - before; n != 0 {
+		t.Errorf("forged presses made %d member lookups, want none (refused in step 1)", n)
+	}
+	// A group menu's press is refused like every control of the page: the invalid-request alert,
+	// nothing written.
+	groupMsg := env.openMenu(owner)
+	env.press(owner, groupMsg, env.groupFields(owner, "a", "st", "p", settingsPageChat, "t", settingsChatControlJudge, "v", "s"))
+	if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("common_callback_invalid_request")) {
+		t.Errorf("a group press answered %q (alert %v)", answer, alert)
+	}
+
+	env.setAdminsAllowed(env.chat.Id, true)
+	env.pressPrivate(env.admin, 77, env.privateFields(env.chat.Id, "a", "st", "p", settingsPageChat, "t", settingsChatControlJudge, "v", "s"))
+	if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("settings_access_owner_only")) {
+		t.Errorf("an administrator's press answered %q (alert %v)", answer, alert)
+	}
+	member := gotgbot.User{Id: uniqueLinkOwnerID() + 8_000_000, FirstName: "Member"}
+	env.fake.setMember(env.chat.Id, member.Id, staffFakeMember{Status: gotgbot.ChatMemberStatusMember})
+	env.pressPrivate(member, 79, env.privateFields(env.chat.Id, "a", "st", "p", settingsPageChat, "t", settingsChatControlJudge, "v", "s"))
+	if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("settings_not_admin")) {
+		t.Errorf("a member's press answered %q (alert %v)", answer, alert)
+	}
+	if got := settingsChatStored(t, env.chat.Id); got.JudgeTo != chatconv.JudgeToGroup {
+		t.Fatalf("a refused press changed the destination: %+v", got)
+	}
 }
 
 func TestSettingsChatCallbackBytes(t *testing.T) {
@@ -394,7 +479,10 @@ func TestSettingsChatCallbackBytes(t *testing.T) {
 	screens := map[string]settingsScreen{"card": renderSettingsChatCard(view, chatconv.ProviderGoogle)}
 	for _, on := range []bool{false, true} {
 		for _, provider := range chatProviders {
-			screens[fmt.Sprintf("page %t %s", on, provider)] = renderSettingsChat(view, chatconv.Settings{Enabled: on, Provider: provider, Audience: 1, LogEnabled: on}, "")
+			for _, to := range []int{chatconv.JudgeToGroup, chatconv.JudgeToPrivate, chatconv.JudgeToStaff} {
+				stored := chatconv.Settings{Enabled: on, Provider: provider, Audience: 1, LogEnabled: on, JudgeTo: to}
+				screens[fmt.Sprintf("page %t %s %d", on, provider, to)] = renderSettingsChat(view, stored, "")
+			}
 		}
 	}
 	for label, screen := range screens {
@@ -418,10 +506,15 @@ func TestSettingsChatPageFitsEveryLocale(t *testing.T) {
 			tr := i18n.MustNewTranslator(code)
 			notice := settingsNoticeWarn(settingsText(tr, "common_settings_save_failed"))
 			view := settingsView{Tr: tr, Private: true, OwnerKey: "c", OwnerValue: "-1001234567890", GroupID: -1001234567890, GroupTitle: title, OpenerName: "N", Owner: true}
-			for _, screen := range []settingsScreen{
-				renderSettingsChatCard(view, chatconv.ProviderAnthropic),
-				renderSettingsChat(view, chatconv.Settings{Enabled: true, Provider: chatconv.ProviderGoogle, Audience: 1, LogEnabled: true}, notice),
-			} {
+			screens := []settingsScreen{renderSettingsChatCard(view, chatconv.ProviderAnthropic)}
+			for _, to := range []int{chatconv.JudgeToGroup, chatconv.JudgeToPrivate, chatconv.JudgeToStaff} {
+				stored := chatconv.Settings{Enabled: true, Provider: chatconv.ProviderGoogle, Audience: 1, LogEnabled: true, JudgeTo: to}
+				screens = append(screens, renderSettingsChat(view, stored, notice))
+			}
+			for _, screen := range screens {
+				if rows := len(screen.Keyboard.InlineKeyboard); rows > 8 {
+					t.Errorf("the page has %d rows, want at most 8", rows)
+				}
 				if got := panelUTF16Len(screen.Text); got > 3800 {
 					t.Errorf("a screen is %d UTF-16 units, want at most 3800", got)
 				}

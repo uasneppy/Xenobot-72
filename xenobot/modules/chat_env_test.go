@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -245,15 +246,86 @@ func (e *chatEnv) callCount() int {
 	return len(e.client.calls)
 }
 
-// chatTelegramFake is the module fake with one more behaviour of the real Bot API: once a message
-// is deleted, a send that replies to it without allow_sending_without_reply is refused with a 400.
+// chatTelegramFake is the module fake with more behaviours of the real Bot API: once a message is
+// deleted, a send that replies to it without allow_sending_without_reply is refused with a 400; a
+// member's live status can be set (members, by user ID: the base answer for anyone else); extra
+// administrators can be listed for the cached admin list (admins); and a chat can refuse every send
+// with a 403 (refused, as a user who never started the bot does).
 type chatTelegramFake struct {
 	*moduleBotClient
 	mu      sync.Mutex
 	deleted map[int64]bool
+	members map[int64]string
+	admins  []int64
+	refused map[int64]bool
+}
+
+// setStatus makes getChatMember of userID answer status ("creator", "administrator", "member").
+func (f *chatTelegramFake) setStatus(userID int64, status string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.members == nil {
+		f.members = map[int64]string{}
+	}
+	f.members[userID] = status
+}
+
+// listAdmins adds administrators to the getChatAdministrators answer, which the cached admin list
+// is loaded from.
+func (f *chatTelegramFake) listAdmins(ids ...int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.admins = append(f.admins, ids...)
+}
+
+// refuse makes every send to chatID fail with Telegram's 403.
+func (f *chatTelegramFake) refuse(chatID int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.refused == nil {
+		f.refused = map[int64]bool{}
+	}
+	f.refused[chatID] = true
+}
+
+// answer is the fake's own answer to a method, when it has one.
+func (f *chatTelegramFake) answer(method string, params map[string]any) (json.RawMessage, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch method {
+	case "getChatMember":
+		id, _ := strconv.ParseInt(fmt.Sprint(params["user_id"]), 10, 64)
+		if status, ok := f.members[id]; ok {
+			return json.RawMessage(fmt.Sprintf(`{"status":%q,"user":{"id":%d,"is_bot":false,"first_name":"Member"},"can_restrict_members":true}`, status, id)), true, nil
+		}
+	case "getChatAdministrators":
+		if len(f.admins) > 0 {
+			list := []string{`{"status":"administrator","user":{"id":999,"is_bot":true,"first_name":"Xenobot-72"},"can_restrict_members":true,"can_delete_messages":true}`}
+			for _, id := range f.admins {
+				list = append(list, fmt.Sprintf(`{"status":"administrator","user":{"id":%d,"is_bot":false,"first_name":"Admin"},"can_restrict_members":true}`, id))
+			}
+			return json.RawMessage("[" + strings.Join(list, ",") + "]"), true, nil
+		}
+	case "sendMessage":
+		id, _ := strconv.ParseInt(fmt.Sprint(params["chat_id"]), 10, 64)
+		if f.refused[id] {
+			return nil, true, &gotgbot.TelegramError{Method: method, Code: 403, Description: "Forbidden: bot can't initiate conversation with a user"}
+		}
+	}
+	return nil, false, nil
 }
 
 func (f *chatTelegramFake) RequestWithContext(ctx context.Context, token, method string, params map[string]any, opts *gotgbot.RequestOpts) (json.RawMessage, error) {
+	if raw, ok, err := f.answer(method, params); ok {
+		recorded := method
+		if err != nil {
+			recorded += " (refused)"
+		}
+		f.moduleBotClient.mu.Lock()
+		f.calls = append(f.calls, moduleBotCall{Method: recorded, Params: params})
+		f.moduleBotClient.mu.Unlock()
+		return raw, err
+	}
 	switch method {
 	case "deleteMessage":
 		if id, ok := params["message_id"].(int64); ok {

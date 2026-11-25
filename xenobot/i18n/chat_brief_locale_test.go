@@ -33,6 +33,22 @@ var chatBriefLocaleLimits = map[string]chatBriefLimit{
 	"brief_malfunction":  {80, 120},
 	"brief_allowance":    {90, 130},
 	"brief_refused":      {70, 100},
+	"brief_usage_long":   {200, 280},
+	"brief_header_long":  {60, 80},
+	"judge_usage":        {200, 280},
+	"judge_header":       {60, 80},
+	"judge_header_other": {100, 140},
+	"judge_ai_notice":    {180, 240},
+	// judge_unscored_note and judge_unscored_more are plain text spliced into the verdict's closing
+	// block; the names are escaped by the code.
+	"judge_unscored_note":      {120, 160},
+	"judge_unscored_more":      {24, 32},
+	"judge_note_pm":            {80, 120},
+	"judge_note_staff":         {80, 120},
+	"judge_pm_blocked":         {140, 200},
+	"judge_no_staff":           {120, 170},
+	"judge_staff_check_failed": {100, 140},
+	"judge_staff_send_failed":  {90, 130},
 }
 
 // chatBriefAllowedTags is the markup a brief_ or judge_ text may carry: bold and italic lines.

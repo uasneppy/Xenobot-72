@@ -167,3 +167,32 @@ func TestApplyChatLog(t *testing.T) {
 		}
 	})
 }
+
+func TestApplyChatJudgeTo(t *testing.T) {
+	ctx := context.Background()
+	chatID := uniqueModuleChatID()
+	chatConvCleanup(t, chatID)
+
+	for _, to := range []int{chatconv.JudgeToStaff, chatconv.JudgeToPrivate, chatconv.JudgeToGroup} {
+		if r := applyChatJudgeTo(ctx, chatID, to, 5); r.Outcome != chatApplied || r.Settings == nil || r.Settings.JudgeTo != to {
+			t.Fatalf("judge destination %d: %+v", to, r)
+		}
+	}
+	// A value outside the stored ones writes nothing; the stored one stays.
+	if r := applyChatJudgeTo(ctx, chatID, chatconv.JudgeToPrivate, 5); r.Outcome != chatApplied {
+		t.Fatalf("private: %+v", r)
+	}
+	if r := applyChatJudgeTo(ctx, chatID, 3, 5); r.Outcome != chatInvalidValue {
+		t.Errorf("an invalid destination: %+v", r)
+	}
+	if got, _ := chatconv.GetFresh(ctx, chatID); got.JudgeTo != chatconv.JudgeToPrivate {
+		t.Errorf("an invalid value changed the stored destination: %+v", got)
+	}
+	// A failed write reports the failure.
+	previous := chatConvWrites.JudgeTo
+	chatConvWrites.JudgeTo = func(context.Context, int64, int, int64) error { return errors.New("db down") }
+	t.Cleanup(func() { chatConvWrites.JudgeTo = previous })
+	if r := applyChatJudgeTo(ctx, chatID, chatconv.JudgeToStaff, 5); r.Outcome != chatSaveFailed || r.Err == nil {
+		t.Fatalf("a failed write: %+v", r)
+	}
+}

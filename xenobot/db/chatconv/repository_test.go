@@ -129,8 +129,49 @@ func TestChatConversationSettings(t *testing.T) {
 		}
 	})
 
+	t.Run("the judge destination is its own column", func(t *testing.T) {
+		chatID := newChat(t)
+		if got, err := Get(ctx, chatID); err != nil || got.JudgeTo != JudgeToGroup {
+			t.Fatalf("a chat with no row reads judge_to %+v, %v", got, err)
+		}
+		if err := SetProvider(ctx, chatID, ProviderGoogle, 7); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetLogEnabled(ctx, chatID, true, 7); err != nil {
+			t.Fatal(err)
+		}
+		for _, to := range []int{JudgeToStaff, JudgeToPrivate, JudgeToGroup} {
+			if err := SetJudgeTo(ctx, chatID, to, 8); err != nil {
+				t.Fatal(err)
+			}
+			want := Settings{Provider: ProviderGoogle, Audience: AudienceEveryone, LogEnabled: true, JudgeTo: to}
+			if got, err := Get(ctx, chatID); err != nil || got != want {
+				t.Fatalf("after SetJudgeTo(%d): %+v, %v, want %+v", to, got, err, want)
+			}
+			if fresh, _ := GetFresh(ctx, chatID); fresh != want {
+				t.Fatalf("GetFresh = %+v", fresh)
+			}
+		}
+		// Writing the other controls leaves the destination alone.
+		if err := SetJudgeTo(ctx, chatID, JudgeToStaff, 8); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetLogEnabled(ctx, chatID, false, 9); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := Get(ctx, chatID); got.JudgeTo != JudgeToStaff || got.LogEnabled {
+			t.Fatalf("SetLogEnabled clobbered the destination: %+v", got)
+		}
+	})
+
 	t.Run("an invalid value writes nothing", func(t *testing.T) {
 		chatID := newChat(t)
+		if err := SetJudgeTo(ctx, chatID, 3, 1); !errors.Is(err, ErrInvalidValue) {
+			t.Errorf("judge: %v", err)
+		}
+		if err := SetJudgeTo(ctx, chatID, -1, 1); !errors.Is(err, ErrInvalidValue) {
+			t.Errorf("judge -1: %v", err)
+		}
 		if err := SetProvider(ctx, chatID, "openai", 1); !errors.Is(err, ErrInvalidValue) {
 			t.Errorf("provider: %v", err)
 		}
@@ -151,6 +192,10 @@ func TestChatConversationSettings(t *testing.T) {
 		bad = &models.ChatConversation{ChatID: chatID, Provider: ProviderAnthropic, Audience: 2}
 		if err := db.DB.Create(bad).Error; err == nil {
 			t.Error("an audience outside the check was stored")
+		}
+		bad = &models.ChatConversation{ChatID: chatID, Provider: ProviderAnthropic, JudgeTo: 3}
+		if err := db.DB.Create(bad).Error; err == nil {
+			t.Error("a judge destination outside the check was stored")
 		}
 	})
 

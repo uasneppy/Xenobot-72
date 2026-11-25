@@ -23,6 +23,8 @@ What goes to the AI provider the owner chose: the message, the message it replie
 
 | Command | Description | Disableable |
 |---------|-------------|-------------|
+| `/judge` | No description available | ❌ |
+| `/unrolllong` | No description available | ❌ |
 | `/unrollshort` | No description available | ❌ |
 
 ## Usage Examples
@@ -30,6 +32,8 @@ What goes to the AI provider the owner chose: the message, the message it replie
 ### Basic Usage
 
 ```text
+/judge
+/unrolllong
 /unrollshort
 ```
 

@@ -27,7 +27,26 @@ var unrollShortDesc = helpers.CommandDescriptor{
 	RequiredChecks: []helpers.CheckFunc{helpers.CheckDisabled("unrollshort"), helpers.RequireGroup()},
 }
 
-// LoadChat registers /ask (alias /xeno), /unrollshort, the conversation watcher, alone at its own
+// unrollLongDesc is /unrolllong: a detailed brief, for everyone, checking its own name.
+var unrollLongDesc = helpers.CommandDescriptor{
+	Name:           "unrolllong",
+	Disableable:    true,
+	RequiredChecks: []helpers.CheckFunc{helpers.CheckDisabled("unrolllong"), helpers.RequireGroup()},
+}
+
+// judgeDesc is /judge: administrators only. Its authority is requireLockdownAuthority(false), a live
+// getChatMember of the sender that never reads the admin cache and always sends an anonymous admin
+// the proof prompt; it sits last so a disabled command or a private chat costs no Telegram call.
+// The tap re-enters through anonPipelineHandler, which re-runs these checks for the tapper.
+var judgeDesc = helpers.CommandDescriptor{
+	Name:        "judge",
+	Disableable: true,
+	RequiredChecks: []helpers.CheckFunc{
+		helpers.CheckDisabled("judge"), helpers.RequireGroup(), requireLockdownAuthority(false),
+	},
+}
+
+// LoadChat registers /ask (alias /xeno), /unrollshort, /unrolllong, /judge, the conversation watcher, alone at its own
 // handler group after every other group, with no setter (new messages of real users only), and the
 // message log watcher at the group after it.
 func LoadChat(dispatcher *ext.Dispatcher) {
@@ -43,6 +62,8 @@ func LoadChat(dispatcher *ext.Dispatcher) {
 		RequiredChecks: []helpers.CheckFunc{helpers.CheckDisabled("xeno"), helpers.CheckDisabled("ask")},
 	}, chatModule.ask)
 	helpers.WrapCommand(dispatcher, unrollShortDesc, chatModule.unrollShort)
+	helpers.WrapCommand(dispatcher, unrollLongDesc, chatModule.unrollLong)
+	helpers.WrapCommand(dispatcher, judgeDesc, chatModule.judgeCommand)
 	dispatcher.AddHandlerToGroup(handlers.NewMessage(message.All, chatModule.chatWatcher), chatWatchGroup)
 	// The log watcher is the only handler of its group. It sees edits, which the conversation
 	// watcher does not, and ends no update.
@@ -111,4 +132,5 @@ func chatReplyText(c *helpers.CommandContext, key string) {
 
 func init() {
 	RegisterLegacyModule("Chat", 245, LoadChat)
+	RegisterAnonymousAdminHandler("judge", anonPipelineHandler(judgeDesc, judgeAnon))
 }

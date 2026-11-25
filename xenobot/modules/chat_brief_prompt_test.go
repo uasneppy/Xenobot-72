@@ -115,6 +115,80 @@ func TestChatBriefPrompt(t *testing.T) {
 			t.Error("the user text does not mark the transcript as untrusted data")
 		}
 	})
+
+	t.Run("the three kinds differ in instruction and output cap; only the verdict has a roster", func(t *testing.T) {
+		short := chatBriefRequest(chatBriefShort, entries, "G", "English", "2026-11-25")
+		long := chatBriefRequest(chatBriefLong, entries, "G", "English", "2026-11-25")
+		judge := chatBriefRequest(chatBriefJudge, entries, "G", "English", "2026-11-25")
+		if short.Static == long.Static || long.Static == judge.Static || short.Static == judge.Static {
+			t.Error("two kinds share an instruction")
+		}
+		if short.MaxTokens >= long.MaxTokens || long.MaxTokens >= judge.MaxTokens {
+			t.Errorf("MaxTokens short %d, long %d, judge %d: want rising", short.MaxTokens, long.MaxTokens, judge.MaxTokens)
+		}
+		if short.User != long.User || short.Dynamic != long.Dynamic {
+			t.Error("a short and a long brief differ in more than the kind")
+		}
+		if strings.Contains(short.User, "[The roster") || !strings.Contains(judge.User, "[The roster") {
+			t.Error("the roster must be in the verdict's request only")
+		}
+		if !strings.Contains(judge.Dynamic, "People on the roster: 4") {
+			t.Errorf("the verdict's dynamic text %q does not count the roster", judge.Dynamic)
+		}
+	})
+
+	t.Run("the roster lists every participant, marks those the cap left out and spills the rest", func(t *testing.T) {
+		// Dora only wrote in the middle, which the cap drops; Alice and Al are told apart by ID.
+		stretch := []chatLogEntry{{MessageID: 300, UserID: 7772001, Name: "Alice", Text: "it started here"}}
+		for i := range 6 {
+			stretch = append(stretch, chatLogEntry{MessageID: int64(301 + i), UserID: 7772004, Name: "Dora", Text: strings.Repeat("d", 60)})
+		}
+		stretch = append(stretch,
+			chatLogEntry{MessageID: 320, UserID: 7772002, Name: "alice", Text: "me too"},
+			chatLogEntry{MessageID: 321, UserID: 7772003, Name: "Bob", Text: "stop"},
+			chatLogEntry{MessageID: 322, UserID: 7772001, Name: "Alice", Text: "no", Media: "[photo]"},
+		)
+		labels := chatBriefLabels(stretch)
+		chatSwap(t, &chatBriefMaxInputRunes, chatBriefRosterReserve()+200)
+		req := chatBriefRequest(chatBriefJudge, stretch, "G", "English", "2026-11-25")
+		if !strings.Contains(req.User, "messages were left out here") {
+			t.Fatalf("the cap left nothing out: %s", req.User)
+		}
+		_, roster, _ := strings.Cut(req.User, "[The roster")
+		for _, id := range []int64{7772001, 7772002, 7772003} {
+			if !strings.Contains(roster, "\n"+labels[id]+"\n") {
+				t.Errorf("the roster lacks %q unmarked:\n%s", labels[id], roster)
+			}
+		}
+		if !strings.Contains(roster, "\nDora"+chatBriefNoMessagesShown) {
+			t.Errorf("Dora is not marked as not shown:\n%s", roster)
+		}
+		if strings.Contains(roster, "Alice #1"+chatBriefNoMessagesShown) || strings.Contains(roster, "Bob"+chatBriefNoMessagesShown) {
+			t.Errorf("a shown participant is marked:\n%s", roster)
+		}
+		for _, text := range []string{req.Dynamic, req.User} {
+			if strings.Contains(text, "7772") {
+				t.Fatalf("a user ID reached the request: %q", text)
+			}
+		}
+		// Dora wrote most, so she leads the roster; ties keep the order of first appearance.
+		all, unscored := chatBriefParticipants(stretch)
+		if want := []string{"Dora", "Alice #1", "alice #2", "Bob"}; strings.Join(all, "|") != strings.Join(want, "|") || len(unscored) != 0 {
+			t.Fatalf("participants %q, unscored %q, want %q", all, unscored, want)
+		}
+		chatSwap(t, &chatBriefMaxRoster, 2)
+		roster2, unscored := chatBriefParticipants(stretch)
+		if strings.Join(roster2, "|") != "Dora|Alice #1" || strings.Join(unscored, "|") != "alice #2|Bob" {
+			t.Fatalf("with a roster of 2: roster %q, unscored %q", roster2, unscored)
+		}
+		req = chatBriefRequest(chatBriefJudge, stretch, "G", "English", "2026-11-25")
+		if _, r, _ := strings.Cut(req.User, "[The roster"); strings.Contains(r, "Bob") {
+			t.Errorf("a participant beyond the roster is on it:\n%s", r)
+		}
+		if !strings.Contains(req.Dynamic, "2 further people took part") {
+			t.Errorf("the dynamic text %q does not say people were left off the roster", req.Dynamic)
+		}
+	})
 }
 
 func TestChatBriefParts(t *testing.T) {

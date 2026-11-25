@@ -402,3 +402,33 @@ func TestChatBriefEndToEnd(t *testing.T) {
 		t.Fatal("Off left the log on or the ring behind")
 	}
 }
+
+func TestChatBriefLong(t *testing.T) {
+	env := newChatEnv(t)
+	chatLogTurnOn(t, env)
+	alice, bob, carol := env.member("Alice"), env.member("Bob"), env.member("Carol")
+	msgs := briefTalk(env, alice, bob, carol)
+	asker := env.member("Dave")
+
+	env.deliver(env.commandMessage(asker, "/unrolllong", nil))
+	env.deliver(env.commandMessage(asker, "/unrolllong", env.message(alice, "not logged")))
+	if got := env.sends(); len(got) != 2 || got[0] != chatCanned(t, "brief_usage_long") || got[1] != chatCanned(t, "brief_too_old") {
+		t.Fatalf("refusals %q, want the long usage and too old", got)
+	}
+	if n := len(env.provider.calls()); n != 0 {
+		t.Fatalf("a refusal made %d provider calls", n)
+	}
+
+	env.provider.script(chatAnswerText("Bob reported the lift. Carol called maintenance."))
+	env.deliver(env.commandMessage(asker, "/unrolllong", msgs[1]))
+	calls := env.provider.calls()
+	if len(calls) != 1 || calls[0].MaxTokens != chatBriefMaxTokens(chatBriefLong) || calls[0].Static != chatBriefInstruction(chatBriefLong) {
+		t.Fatalf("provider calls %+v, want one long request", calls)
+	}
+	last := env.sends()[len(env.sends())-1]
+	for _, want := range []string{chatCanned(t, "brief_header_long"), "Bob reported the lift.", chatCanned(t, "brief_ai_notice")} {
+		if !strings.Contains(last, want) {
+			t.Errorf("the brief %q lacks %q", last, want)
+		}
+	}
+}

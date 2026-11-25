@@ -111,12 +111,15 @@ var chatConvWrites = struct {
 	Audience func(ctx context.Context, chatID int64, audience int, by int64) error
 	// LogEnabled writes the Message log switch.
 	LogEnabled func(ctx context.Context, chatID int64, on bool, by int64) error
+	// JudgeTo writes the default destination of a /judge verdict.
+	JudgeTo func(ctx context.Context, chatID int64, to int, by int64) error
 }{
 	Enabled:  chatconv.SetEnabled,
 	Provider: chatconv.SetProvider,
 	Audience: chatconv.SetAudience,
 
 	LogEnabled: chatconv.SetLogEnabled,
+	JudgeTo:    chatconv.SetJudgeTo,
 }
 
 // chatConvRead reads the setting back after a write; a variable so a test can make it fail.
@@ -177,6 +180,19 @@ func applyChatAudience(ctx context.Context, chatID int64, audience int, by int64
 	}
 	if err := chatConvWrites.Audience(ctx, chatID, audience, by); err != nil {
 		log.Warnf("[Chat] saving the audience of chat %d failed: %v", chatID, err)
+		return chatApplyResult{Outcome: chatSaveFailed, Err: err}
+	}
+	return chatReadBack(ctx, chatID)
+}
+
+// applyChatJudgeTo stores where a chat's /judge verdict goes by default: chatconv.JudgeToGroup,
+// JudgeToPrivate or JudgeToStaff. It judges no person's rights.
+func applyChatJudgeTo(ctx context.Context, chatID int64, to int, by int64) chatApplyResult {
+	if !chatconv.ValidJudgeTo(to) {
+		return chatApplyResult{Outcome: chatInvalidValue}
+	}
+	if err := chatConvWrites.JudgeTo(ctx, chatID, to, by); err != nil {
+		log.Warnf("[Chat] saving the judge destination of chat %d failed: %v", chatID, err)
 		return chatApplyResult{Outcome: chatSaveFailed, Err: err}
 	}
 	return chatReadBack(ctx, chatID)

@@ -106,7 +106,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   nothing needs resuming: the transcript and the set of the feature's message IDs are written only after a reply was sent. It
   adds 2 s to the webhook-mode worst case, which is now 70 s (HTTP stop 10, conversations 2, AI spam 10, raid AI 2, raid posts 3,
   lockdown 6, staff actions 31, member requirements 3, deletion worker 3) against the enforced 60 s budget: the cut described
-  under `StopDeletionWorker` comes 2 s earlier and costs no correctness. Brief jobs (`/unrollshort`) join the same stop with no
+  under `StopDeletionWorker` comes 2 s earlier and costs no correctness. Brief jobs (`/unrollshort`, `/unrolllong` and `/judge`) join the same stop with no
   new drain: they are counted in `chatJobs`, refused while `chatDraining` and derive from `chatContext`. `TestShutdownEndsChat` proves it: a job inside a hung
   provider call is ended inside the wait, sends nothing, writes no memory, and a later message starts no job; a test that runs
   the stop restores the pool with `restoreChatPool`.
@@ -537,7 +537,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   re-entry (anonymous admins and channels get nothing, as for `/ask`). It is for everyone and never needs conversations to be on: the
   gate (`chatBriefGateOf`) is the server (`chatAnyProviderConfigured` false answers `brief_unavailable`), the cached setting (a read
   failure is silent), the owner's Message log switch (off answers `brief_off_hint`), the stored provider configured (else
-  `brief_unavailable`) and Redis (none is silent). The handler `chatBriefCommand` checks, in order, a group, a sender that counts
+  `brief_unavailable`) and Redis (none is silent). The handler `chatBriefCommand` (through `chatBriefPrepare`) checks, in order, a group, a sender that counts
   (`raidFloodSenderCounts`, not a bot), `extraction.ReplyTarget` (none answers the usage `brief_usage_short`), the gate, and
   `chatLogHas` of the replied-to ID (a Redis error is silent; absent answers `brief_too_old` and makes no provider call); then it
   queues a `chatBriefJob`. Briefs have their own queue of 16 and one dedicated worker (`chatBriefWorker`), started inside
@@ -574,6 +574,47 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   capped) are in memory per replica and appended to the developer `/stats` line of conversations (`chatBriefStatsSection`). Logs carry
   chat and user IDs and error classes only. The brief is an AI opinion of the logged messages and nothing automated acts on it. A
   brief can include a message that was deleted after it was logged, because deletions are not tracked (a stated limit).
+- `/unrolllong` and `/judge` (Quick 261125-0iq, task 2) extend the brief: both reuse `chatBriefPrepare` (the shared checks of
+  `/unrollshort` above: group, sender, `extraction.ReplyTarget`, the gate, `chatLogHas`), the brief queue and worker, the cooldown, the
+  hourly budgets, the breaker and delivery, and add no queue, worker, drain or Redis family. Their descriptors `unrollLongDesc` and
+  `judgeDesc` sit in `chat.go` beside `LoadChat` (the docs generator), each `Disableable` and checking its own name. `/unrolllong` is for
+  everyone (`chatBriefLong`: its own instruction, a detailed brief of about 400 words, `MaxTokens` 3000, header `brief_header_long`,
+  usage `brief_usage_long`, closing `brief_ai_notice`). `/judge` (`chatBriefJudge`, `MaxTokens` 4000) is for administrators only:
+  `judgeDesc.RequiredChecks` is `CheckDisabled("judge")`, `RequireGroup` and, last, `requireLockdownAuthority(false)`, the live
+  `getChatMember` of the sender (`lockdownLiveMember`, creator or administrator) that never reads the admin cache or the chat's
+  AnonAdmin setting, refuses a message sent as another chat, fails closed on a lookup error and always sends an anonymous sender the
+  proof prompt (`chat_status.PromptAnonAdminProof`), so `judgeCommand` is never entered for an anonymous first message. The tap
+  re-enters through `RegisterAnonymousAdminHandler("judge", anonPipelineHandler(judgeDesc, judgeAnon))` in `chat.go`'s `init`, which
+  re-runs the same live check for the tapper (the proof tap itself only consults the cached admin list), and the tapper is the sender
+  and the recipient of a `pm` verdict. The check precedes every provider call and send; the window between it and the delivery is the
+  queue wait plus one provider call, bounded by `chatJobTimeout` (accepted). After the shared checks the handler reads the one optional
+  argument (`chatJudgeDestination` over `strings.Fields` of `chatCommandArgument`: `group`, `pm` or `staff` in any case; none is the
+  stored `JudgeTo`, a stored value outside the three reads as the group; more than one word or any other word answers `judge_usage`
+  with no provider call and no budget spent), and for `staff` reads the link fresh through `chatJudgeStaffLink` (=
+  `staff.GetLinkOfGroupFresh`, a seam): an error answers `judge_staff_check_failed`, no link `judge_no_staff`, neither makes an AI call.
+  The job carries `dest` and the requester's first name. The verdict's prompt adds a roster: `chatBriefParticipants(entries)` lists
+  every participant once by the transcript's labels (`chatBriefLabels` over the whole stretch), most messages first, ties by first
+  appearance, the first `chatBriefMaxRoster` (40, a variable for tests) on the roster and the rest unscored; `chatBriefRequest` puts the
+  roster after the transcript under a header saying it is the complete list to score, one label per line and nothing else, marking
+  `" (no messages shown)"` a name with no entry among the kept ones, and reserves `chatBriefRosterReserve()` (200 runes for the header
+  and 72 per name, so a 32-rune label with its member mark, number suffix, the mark and the line break always fits) from the
+  transcript's budget, so transcript and roster stay within `chatBriefMaxInputRunes`. `Dynamic` counts the roster and says when further
+  people are not on it. The judge instruction asks for a detailed brief, then one entry per roster name exactly as listed and for no one
+  else, a 1 (no fault) to 10 (most responsible) score with one or two short sentences resting only on that person's lines, "not enough
+  shown to judge" for a marked name, low scores when nothing wrong happened, and says scores are opinions from limited text. The
+  verdict's frame (`chatBriefFrame`) is `judge_header` in the group, or `judge_header_other` (the group title and the requester's name,
+  each cleaned to the chatprompt limits and `html.EscapeString`-ed, filled through `chatCannedTextWith`) for `pm` and `staff`; its
+  closing block starts with `judge_unscored_note` when anyone was left off the roster (`{names}`: the escaped labels joined by a comma
+  and a space up to `chatBriefUnscoredNameRunes`, 300 runes, then `judge_unscored_more` with the count of the rest) and always ends
+  with `judge_ai_notice`, assembled by `chatBriefMessages` (on the last part, or as its own final message past 4000 units). Delivery:
+  the group as for briefs; `pm` to the requester's user ID from the update's sender (never from text or callback data), no reply target
+  and no topic, where a Telegram 403 (`settingsEditIsForbidden`) answers `judge_pm_blocked` in the group and sends nothing else and any
+  other error is counted failed with `brief_malfunction` (gated); `staff` reads the link fresh again right before the send (no link
+  answers `judge_no_staff`, an error `judge_staff_check_failed`) and sends to the row's `StaffChatID`, a failed send answering
+  `judge_staff_send_failed`. After a delivered `pm` or `staff` verdict the group gets one note, `judge_note_pm` or `judge_note_staff`
+  ("the admins", never the Staff Group's title or ID). The canned group lines of the worker are plain text through `chatSendReply`. Every
+  send goes through `chatPaced` and derives from the job context, so `StopChat` ends it. A verdict is an AI opinion: nothing automated
+  reads or writes a warn, mute, ban or approval from it (`TestChatJudgeNeverActs`).
 - The web captcha adds no handler group: its routes are HTTP routes on the bot's server, not dispatcher handlers.
 - The Settings module (priority 239, `settings.go`) adds one handler group, `1`, for the typed-reply door below; its other entry points are `/settings`, the callbacks and the deep link. `/settings` goes through `helpers.WrapCommand`
   with `settingsDesc.RequiredChecks` of `requireSettingsAccess()` alone (`settings_gate.go`: a private chat passes at
@@ -1916,6 +1957,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   reports conversations only (a stated limit). `settings_chat_not_set_up` and `settings_chat_provider_missing` now say
   "conversations or the message log". `TestSettingsChatLog` holds it, and `TestSettingsDriftChat`, `TestSettingsChatCallbackBytes` and
   `TestSettingsChatPageFitsEveryLocale` cover the log-on state.
+  Task 2 of the same quick task added the Judge destination choice (control `j`, `settingsChatControlJudge`, `st` only, `Validate`
+  exactly `g`, `p` or `s` through `settingsChatJudgeCodes`, right `settingsRightOwner`, so a forged value or a `tg` press is an
+  invalid request in step 1 with no member lookup, and a group menu's press is refused by `settingsChatGroupRefused` with nothing
+  written). The body gains `settings_chat_judge_line` (the stored destination's name, `settingsChatJudgeKey`, a value outside the three
+  reading as the group) after the log status line, and the keyboard one always-drawn row of three buttons
+  (`settings_btn_chat_judge_group`, `_pm`, `_staff`, `settingsChatJudgeRow`, the stored one marked with `settingsSelectedPrefix`) after
+  the log toggle row and before the navigation row, so the page has 6 rows, inside the 8-row private budget; the third label is the
+  feature's name and the page names no Staff Group title or ID. `settingsChatSetJudge` (through `settingsChatSetStored`, shared with the
+  audience choice) writes nothing for the stored value and otherwise calls `applyChatJudgeTo`. It needs no provider. `TestSettingsChatJudge`
+  holds it, with the judge cases of `TestSettingsDriftChat`, `TestSettingsChatCallbackBytes` and `TestSettingsChatPageFitsEveryLocale`
+  (all three stored values, at most 8 rows).
 - The Timezone page (`settings_timezone.go`, page `z`, `Order` 87 with key `z`, so it sorts right after Language; icon 🕒,
   `settings_page_tz`; plan of 2026-11-18, Part 3) and `/timezone` (`timezone.go`, `helpers.WrapCommand` with `RequireGroup`
   and `RequireUserAdmin`, anonymous-admin re-entry, not `Disableable`) write through one apply function, `applyTimezone`
@@ -2323,6 +2375,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the join threshold (see the retired raid mode under Subsystem traps) with exactly the same checks and anonymous-admin
   re-entry, so neither is ever decided by the cached admin list.
 
+- `/judge` (`judgeDesc`, `chat_brief.go`) is for administrators only, judged by `requireLockdownAuthority(false)`: a live
+  `getChatMember` of the sender (creator or administrator), never the cached admin list, the Telegram service IDs or the chat's
+  AnonAdmin setting, a failed lookup refusing (`lockdown_check_failed`) and a non-admin answered `chat_status_user_admin_cmd_error`, all
+  before any provider call. An anonymous admin always gets the proof prompt first; after the tap `anonPipelineHandler` re-runs the same
+  live check for the tapper, so an administrator the cache still lists but whose live record is a plain member is refused there too
+  (`TestChatJudge`, `TestChatJudgeAnonymousAdmin`). `/unrollshort` and `/unrolllong` judge no person's rights. No score of a verdict is
+  ever read by any automated action.
 - "I fixed it" (`mreq|v1`, `memberReqFixedCallback`) is for the held member only, with no admin override: the presser must be
   the member `u` of the button, an admin who presses it is refused, and admins lift a mute with `/unmute`. It lifts only a
   mute the requirements placed, proved by the live marker (`isMemberReqMute`), never an admin's, a staff, the captcha's,
@@ -3382,7 +3441,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   through the same `chat_conv` key: `log_enabled` (`BOOLEAN NOT NULL DEFAULT FALSE`, the owner's Message log switch, in the model as
   `LogEnabled` with no `default:` tag and in `chatconv.Settings` as `LogEnabled` with msgpack tag `l`, so a value an older build cached
   decodes to off) and `judge_to` (`SMALLINT NOT NULL DEFAULT 0`, `chk_chat_conversations_judge_to` 0 to 2, the default destination of
-  a `/judge` verdict: 0 the group, 1 the admin's private chat, 2 the linked Staff Group; the model carries it and nothing reads it yet).
+  a `/judge` verdict: 0 the group, 1 the admin's private chat, 2 the linked Staff Group; in `chatconv.Settings` as `JudgeTo` with msgpack
+  tag `j`, so an older cached value decodes to the group; constants `chatconv.JudgeToGroup`, `JudgeToPrivate`, `JudgeToStaff` and
+  `ValidJudgeTo`). `chatconv.SetJudgeTo(ctx, chat, to, by)` refuses a value outside 0 to 2 with `ErrInvalidValue` before any write and is a
+  column-targeted upsert of `judge_to` that drops the key; `applyChatJudgeTo(ctx, chat, to, by)` validates (`chatInvalidValue`), writes
+  through the `chatConvWrites.JudgeTo` seam and reads back, judging no person's rights.
   `chatconv.SetLogEnabled` is a column-targeted upsert like the others and drops the key; `applyChatLog(ctx, chat, on, by)` writes it
   through the `chatConvWrites.LogEnabled` seam, judges no person's rights and, on a successful Off, deletes the chat's ring
   `xenobot:chat:{<chat>}:log` (`chatWipeLog`, best effort, no-op without Redis; `chatWipeMemory` and `chatWipeLog` share
@@ -6016,7 +6079,16 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `TestChatConversationLogMigrationStatements` and `TestChatConversationLogMigrationDefaults` (`xenobot/db/migrations`; the second
   is PostgreSQL only and skips locally) and `TestChatBriefLocaleKeys` (`xenobot/i18n`: every `brief_` and `judge_` key in 8
   languages against its ceiling). `withChatRuntime` also restores the brief cooldown, budgets, `chatLogMax` and
-  `chatBriefMaxInputRunes`, and `chatEnv.deliverEdit` runs an edited message through the dispatcher.
+  `chatBriefMaxInputRunes`, and `chatEnv.deliverEdit` runs an edited message through the dispatcher. Task 2 adds `TestChatBriefLong`
+  (`chat_brief_test.go`), the kinds and roster subtests of `TestChatBriefPrompt`, `TestChatJudge`, `TestChatJudgeStaff`,
+  `TestChatJudgeRoster`, `TestChatJudgeAnonymousAdmin` and `TestChatJudgeNeverActs` (`chat_brief_judge_test.go`, each on one environment;
+  the roster test shrinks `chatBriefMaxInputRunes` and `chatBriefMaxRoster` through `chatSwap`), `TestApplyChatJudgeTo`
+  (`chat_settings_test.go`), `TestSettingsChatJudge` (`settings_chat_test.go`) and the judge subtest of `TestChatConversationSettings`.
+  `chatTelegramFake` gains `setStatus` (a live `getChatMember` answer per user ID, the base answer for anyone else), `listAdmins` (extra
+  administrators in `getChatAdministrators`, which the cached admin list and the proof tap read; a test that uses it invalidates the
+  chat's admin cache in a cleanup) and `refuse` (every send to a chat fails with a 403, recorded as `sendMessage (refused)`); a test of
+  the anonymous re-entry loads `LoadBotUpdates` on the env's dispatcher. `chatEnv.commandMessage`, `judge` (which fast-forwards
+  miniredis past the brief cooldown) and `sendsTo` are its helpers.
 - Assert observable behavior (reply sent, row persisted, cache invalidated, gate enforced). Never assert literals,
   source substrings, or test-double internals.
 - The Turnstile page's script test is `node --test scripts/captcha-page/*.test.mjs` (the directory form does not work on
