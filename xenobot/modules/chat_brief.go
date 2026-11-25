@@ -248,7 +248,7 @@ func (moduleStruct) judgeCommand(c *helpers.CommandContext) error {
 	if !ok {
 		return ext.EndGroups
 	}
-	dest, ok := chatJudgeDestination(chatCommandArgument(c.Msg.Text), gate.judgeTo)
+	dest, ok := chatJudgeDestination(chatCommandArgument(chatMessageText(c.Msg)), gate.judgeTo)
 	if !ok {
 		chatReplyText(c, "judge_usage")
 		return ext.EndGroups
@@ -265,9 +265,23 @@ func (moduleStruct) judgeCommand(c *helpers.CommandContext) error {
 		}
 	}
 	job.dest = dest
-	job.requester = c.User.FirstName
+	job.requester = chatJudgeRequester(c)
 	chatBriefEnqueue(job)
 	return ext.EndGroups
+}
+
+// chatJudgeRequester is the name a verdict sent outside the group gives its requester: the sender's
+// first name, or "an admin" in the group's language (eventmsg_admin_anon) when the command came from
+// an anonymous admin, whose re-entered update carries the tapper as its sender and must never name
+// them (verifyAnonymousAdmin marks it, actorIsAnonymous reads the mark).
+func chatJudgeRequester(c *helpers.CommandContext) string {
+	if actorIsAnonymous(c.Ctx) {
+		if anon, err := c.Tr.GetString("eventmsg_admin_anon"); err == nil && strings.TrimSpace(anon) != "" {
+			return anon
+		}
+		return "an admin"
+	}
+	return c.User.FirstName
 }
 
 // judgeAnon is the re-entry of /judge after an anonymous admin's proof tap. anonPipelineHandler has

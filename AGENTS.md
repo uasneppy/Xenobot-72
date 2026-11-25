@@ -568,12 +568,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   language as plain text), `Dynamic` holds the cleaned group title, the language name, today's date, the number of messages and a line
   when middle messages were left out, and `User` holds the transcript with a closing line that says everything above is member
   conversation. Members are labelled by first name only (`chatBriefLabels`: a deterministic ` #1`, ` #2` on a collision computed from
-  the user IDs in Go, an ID never in any label), the stretch keeps the topic of its first message (`chatBriefStretch`, so a forum's
+  the user IDs in Go, bumped to the next free number when a candidate is already taken, so a member named `Bob #1` beside two Bobs
+  never shares a label and labels are unique per user ID; colons and square brackets in a name are neutralised by
+  `chatBriefLabelBase`, so a name cannot mimic a `label: text` line or a bracketed line; an ID never in any label), the stretch keeps the topic of its first message (`chatBriefStretch`, so a forum's
   topics never mix) and the input is capped at `chatBriefMaxInputRunes` (30000, a variable for tests: the first entry and the newest
   entries that fit, with the omitted count stated in `Dynamic` and in the transcript). No user ID, username or chat ID reaches the
   provider. The output cap is `chatBriefMaxTokens` (1500) through `chatRequest.MaxTokens`. Delivery is HTML: every part of the answer
   is `html.EscapeString`-ed, `chatBriefParts` measures each part of at most 3000 UTF-16 units on the escaped text, at line breaks and
-  at most 5 parts, and `chatBriefMessages` puts the header (`brief_header_short`) and a blank line before the first part and the
+  at most 5 parts (an answer that needs more ends its fifth part with `chatBriefCutMark`, `[…]`, measured within the cap, so the
+  cut is never silent), and `chatBriefMessages` puts the header (`brief_header_short`) and a blank line before the first part and the
   closing block (`brief_ai_notice`) after the last part, or as one more message when that would pass 4000 units. The first message is a
   reply to the command through `chatPaced` with `AllowSendingWithoutReply` true, because `CommandDeletionProcessor` deletes the command
   right after the handler returns and a reply to a deleted target would otherwise be refused (a conversation reply keeps `false`: the
@@ -596,12 +599,16 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   re-runs the same live check for the tapper (the proof tap itself only consults the cached admin list), and the tapper is the sender
   and the recipient of a `pm` verdict. The check precedes every provider call and send; the window between it and the delivery is the
   queue wait plus one provider call, bounded by `chatJobTimeout` (accepted). After the shared checks the handler reads the one optional
-  argument (`chatJudgeDestination` over `strings.Fields` of `chatCommandArgument`: `group`, `pm` or `staff` in any case; none is the
+  argument from the text or, for a media message, the caption (`chatMessageText`, as the command matcher reads it;
+  `chatJudgeDestination` over `strings.Fields` of `chatCommandArgument`: `group`, `pm` or `staff` in any case; none is the
   stored `JudgeTo`, a stored value outside the three reads as the group; more than one word or any other word answers `judge_usage`
   with no provider call and no budget spent), and for `staff` reads the link fresh through `chatJudgeStaffLink` (=
   `staff.GetLinkOfGroupFresh`, a seam): an error answers `judge_staff_check_failed`, no link `judge_no_staff`, neither makes an AI call.
-  The job carries `dest` and the requester's first name. The verdict's prompt adds a roster: `chatBriefParticipants(entries)` lists
-  every participant once by the transcript's labels (`chatBriefLabels` over the whole stretch), most messages first, ties by first
+  The job carries `dest` and the requester's name (`chatJudgeRequester`: the sender's first name, or `eventmsg_admin_anon`, "an
+  admin" in the group's language, when `actorIsAnonymous` marks an anonymous admin's re-entered update, so a verdict never names the
+  tapper). The verdict's prompt adds a roster: `chatBriefParticipants(entries)` lists
+  every participant once by the transcript's labels (`chatBriefLabels` over the whole stretch; `chatBriefParticipantIDs` gives the
+  same order by user ID, and the roster's "shown" marks are matched by user ID, never by label), most messages first, ties by first
   appearance, the first `chatBriefMaxRoster` (40, a variable for tests) on the roster and the rest unscored; `chatBriefRequest` puts the
   roster after the transcript under a header saying it is the complete list to score, one label per line and nothing else, marking
   `" (no messages shown)"` a name with no entry among the kept ones, and reserves `chatBriefRosterReserve()` (200 runes for the header
@@ -1957,8 +1964,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   with the stored provider's name: it says the log is separate from conversations, that while it is on the bot keeps the newest 1000
   messages (text, captions, a tag such as `[photo]`, the sender's first name and Telegram ID, edits), that turning it off deletes the
   log, and that the messages from the replied-to one to now go to the provider with first names, the group's title and language and
-  today's date when a member runs `/unrollshort` or `/unrolllong` or an admin `/judge`, never user IDs, usernames, phone numbers or
-  other groups. The keyboard gains one full-width toggle row (`settings_btn_chat_log`, `settingsToggleButton`) directly after the
+  today's date when a member runs `/unrollshort` or `/unrolllong` or an admin `/judge`, never user IDs, account usernames or anything
+  from other groups, and that text members type is sent as written. The keyboard gains one full-width toggle row (`settings_btn_chat_log`, `settingsToggleButton`) directly after the
   audience row and before the navigation row, drawn when any provider is configured or the log is stored on (so Off is always
   reachable); every earlier row keeps its order. `settingsChatSetLog` writes Off at once through `applyChatLog` (which deletes the
   stored ring) and On in ONE tap with no card, after a live read of the stored setting: a provider this server cannot run is refused
@@ -3650,7 +3657,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   nothing automated acts on its output, which is link-filtered and HTML-escaped. A `/judge` score is an opinion from a limited
   stretch: its roster holds at most `chatBriefMaxRoster` (40) names, a name whose lines the input cap left out is marked
   `" (no messages shown)"` (the model answers "not enough shown to judge"), and anyone beyond the 40 is named in the closing
-  `judge_unscored_note` line, so nobody is silently left out of a verdict.
+  `judge_unscored_note` line, and an answer longer than 5 parts ends with the cut mark `[…]`, so nobody is silently left out of a
+  verdict (the cut tail itself is not delivered, a stated limit).
 - Antiflood counters are in-process (per replica). The raid detection counters (`xenobot:raid:*`) are Redis-only: without
   Redis the automatic triggers do nothing, and `/lockdown` still works.
 - The warn commands and the warn limit count only the warns that count (warn expiry, Phase 26 plan 26-06, D-35, D-36):

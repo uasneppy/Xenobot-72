@@ -170,6 +170,21 @@ func TestChatJudge(t *testing.T) {
 		}
 	})
 
+	t.Run("a captioned /judge pm reads its destination from the caption", func(t *testing.T) {
+		groupBefore, privateBefore := len(env.sendsTo(env.chatID)), verdicts(admin.Id)
+		msg := env.commandMessage(admin, "/judge pm", msgs[1])
+		msg.Caption, msg.CaptionEntities, msg.Text, msg.Entities = msg.Text, msg.Entities, "", nil
+		msg.Photo = []gotgbot.PhotoSize{{FileId: "judge-evidence", FileUniqueId: "judge-evidence", Width: 1, Height: 1}}
+		env.deliver(msg)
+		env.mr.FastForward(chatBriefCooldown + time.Second)
+		if verdicts(admin.Id) != privateBefore+1 {
+			t.Fatalf("private verdicts %d, want one more", verdicts(admin.Id)-privateBefore)
+		}
+		if got := env.sendsTo(env.chatID)[groupBefore:]; len(got) != 1 || got[0] != chatCanned(t, "judge_note_pm") {
+			t.Fatalf("group sends %q, want the pm note alone", got)
+		}
+	})
+
 	t.Run("the argument overrides the stored default in every direction", func(t *testing.T) {
 		staffChat, _ := judgeLinkStaff(t, env, "Secret HQ")
 		if err := chatconv.SetJudgeTo(ctx, env.chatID, chatconv.JudgeToPrivate, 1); err != nil {
@@ -361,8 +376,8 @@ func TestChatJudgeAnonymousAdmin(t *testing.T) {
 	env.fake.setStatus(tapper.Id, gotgbot.ChatMemberStatusAdministrator)
 	env.fake.setStatus(demoted.Id, gotgbot.ChatMemberStatusMember)
 
-	anonymous := func() {
-		msg := env.commandMessage(&gotgbot.User{Id: 1087968824, IsBot: true, FirstName: "Group", Username: "GroupAnonymousBot"}, "/judge pm", msgs[1])
+	anonymous := func(text string) {
+		msg := env.commandMessage(&gotgbot.User{Id: 1087968824, IsBot: true, FirstName: "Group", Username: "GroupAnonymousBot"}, text, msgs[1])
 		msg.SenderChat = &gotgbot.Chat{Id: env.chatID, Type: "supergroup", Title: "Facility 7"}
 		env.deliver(msg)
 	}
@@ -392,7 +407,7 @@ func TestChatJudgeAnonymousAdmin(t *testing.T) {
 		chatJobs.wait()
 	}
 
-	anonymous()
+	anonymous("/judge pm")
 	data := proof()
 	if n := len(env.provider.calls()); n != 0 {
 		t.Fatalf("the anonymous /judge made %d provider calls before the proof", n)
@@ -409,7 +424,7 @@ func TestChatJudgeAnonymousAdmin(t *testing.T) {
 	})
 
 	t.Run("an admin tapper is checked live and gets the verdict in private", func(t *testing.T) {
-		anonymous()
+		anonymous("/judge pm")
 		tap(tapper, proof())
 		asked := false
 		for _, call := range env.client.callsFor("getChatMember") {
@@ -426,6 +441,23 @@ func TestChatJudgeAnonymousAdmin(t *testing.T) {
 		private := env.sendsTo(tapper.Id)
 		if len(private) != 1 || !strings.Contains(private[0], chatCanned(t, "judge_ai_notice")) {
 			t.Fatalf("the tapper's private sends %q", private)
+		}
+	})
+
+	t.Run("a staff verdict names an admin, never the tapper", func(t *testing.T) {
+		staffChat, _ := judgeLinkStaff(t, env, "Secret HQ")
+		env.mr.FastForward(chatBriefCooldown + time.Second)
+		anonymous("/judge staff")
+		tap(tapper, proof())
+		toStaff := env.sendsTo(staffChat)
+		if len(toStaff) != 1 || !strings.Contains(toStaff[0], chatCanned(t, "judge_ai_notice")) {
+			t.Fatalf("Staff Group sends %q, want one verdict", toStaff)
+		}
+		if strings.Contains(toStaff[0], tapper.FirstName) {
+			t.Fatalf("the staff verdict names the tapper: %q", toStaff[0])
+		}
+		if anon := html.EscapeString(chatCanned(t, "eventmsg_admin_anon")); !strings.Contains(toStaff[0], anon) {
+			t.Fatalf("the staff verdict %q does not name the requester as %q", toStaff[0], anon)
 		}
 	})
 }

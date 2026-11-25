@@ -99,10 +99,31 @@ func chatBriefMaxTokens(kind chatBriefKind) int {
 	}
 }
 
+// chatBriefLabelReplacer neutralises the characters a name could use to mimic the transcript's own
+// forms: a colon (a "label: text" line, the full-width and look-alike colons included) and square
+// brackets (a bracketed system line such as "[3 messages were left out here]").
+var chatBriefLabelReplacer = strings.NewReplacer(
+	":", " ", "\uff1a", " ", "\ufe55", " ", "\ua789", " ", "\u2236", " ",
+	"[", "(", "]", ")",
+)
+
+// chatBriefLabelBase is the name a label starts from: the chatprompt name with the transcript's
+// own forms neutralised (chatBriefLabelReplacer), white space collapsed again, and the default
+// name when nothing is left.
+func chatBriefLabelBase(name string) string {
+	base := chatprompt.Clean(chatBriefLabelReplacer.Replace(chatprompt.Name(name)), chatprompt.MaxNameRunes+len(" (member)"))
+	if base == "" {
+		return chatprompt.DefaultName
+	}
+	return base
+}
+
 // chatBriefLabels maps each user ID in the entries to the name the transcript uses for them: the
-// cleaned first name of their newest entry; people whose names collide (without regard to case)
-// get " #1", " #2" in order of first appearance. An ID never appears in a label. Labels are
-// always computed over the whole stretch, so a person has one name wherever it is used.
+// cleaned first name of their newest entry (chatBriefLabelBase); people whose names collide
+// (without regard to case) get " #1", " #2" in order of first appearance. Labels are unique per
+// user ID: a candidate already taken by an earlier person (a member named "Bob #1" beside two Bobs)
+// gets the next free number, so two people never share a label. An ID never appears in a label.
+// Labels are always computed over the whole stretch, so a person has one name wherever it is used.
 func chatBriefLabels(entries []chatLogEntry) map[int64]string {
 	var order []int64
 	newest := map[int64]string{}
@@ -112,22 +133,32 @@ func chatBriefLabels(entries []chatLogEntry) map[int64]string {
 		}
 		newest[e.UserID] = e.Name
 	}
+	bases := make(map[int64]string, len(order))
 	groups := map[string][]int64{}
 	for _, id := range order {
-		base := strings.ToLower(chatprompt.Name(newest[id]))
-		groups[base] = append(groups[base], id)
+		bases[id] = chatBriefLabelBase(newest[id])
+		key := strings.ToLower(bases[id])
+		groups[key] = append(groups[key], id)
 	}
 	labels := make(map[int64]string, len(order))
+	used := make(map[string]bool, len(order))
 	for _, id := range order {
-		label := chatprompt.Name(newest[id])
-		if group := groups[strings.ToLower(label)]; len(group) > 1 {
+		base := bases[id]
+		label, n := base, 1
+		if group := groups[strings.ToLower(base)]; len(group) > 1 {
 			for i, member := range group {
 				if member == id {
-					label += " #" + strconv.Itoa(i+1)
+					n = i + 1
 					break
 				}
 			}
+			label = base + " #" + strconv.Itoa(n)
 		}
+		for used[strings.ToLower(label)] {
+			n++
+			label = base + " #" + strconv.Itoa(n)
+		}
+		used[strings.ToLower(label)] = true
 		labels[id] = label
 	}
 	return labels
@@ -213,6 +244,19 @@ func chatBriefTranscript(kept []chatLogEntry, labels map[int64]string, omitted i
 // order. It reads only the entries, so the worker can call it again to learn the unscored list.
 func chatBriefParticipants(entries []chatLogEntry) (roster, unscored []string) {
 	labels := chatBriefLabels(entries)
+	rosterIDs, unscoredIDs := chatBriefParticipantIDs(entries)
+	for _, id := range rosterIDs {
+		roster = append(roster, labels[id])
+	}
+	for _, id := range unscoredIDs {
+		unscored = append(unscored, labels[id])
+	}
+	return roster, unscored
+}
+
+// chatBriefParticipantIDs is chatBriefParticipants by user ID: the order and the roster cut are the
+// same, so a caller can match people by ID and never by a label.
+func chatBriefParticipantIDs(entries []chatLogEntry) (roster, unscored []int64) {
 	var order []int64
 	counts := map[int64]int{}
 	for _, e := range entries {
@@ -222,14 +266,10 @@ func chatBriefParticipants(entries []chatLogEntry) (roster, unscored []string) {
 		counts[e.UserID]++
 	}
 	sort.SliceStable(order, func(i, j int) bool { return counts[order[i]] > counts[order[j]] })
-	for i, id := range order {
-		if i < chatBriefMaxRoster {
-			roster = append(roster, labels[id])
-		} else {
-			unscored = append(unscored, labels[id])
-		}
+	if len(order) > chatBriefMaxRoster {
+		return order[:chatBriefMaxRoster], order[chatBriefMaxRoster:]
 	}
-	return roster, unscored
+	return order, nil
 }
 
 // chatBriefRosterReserve is what the judge's roster may cost against the input cap, so the
@@ -241,17 +281,17 @@ func chatBriefRosterReserve() int {
 // chatBriefRoster renders the judge's roster: one label per line, a name with no kept entry marked
 // "(no messages shown)". It carries no text, ID or username.
 func chatBriefRoster(stretch, kept []chatLogEntry) string {
-	roster, _ := chatBriefParticipants(stretch)
+	roster, _ := chatBriefParticipantIDs(stretch)
 	labels := chatBriefLabels(stretch)
-	shown := map[string]bool{}
+	shown := map[int64]bool{}
 	for _, e := range kept {
-		shown[labels[e.UserID]] = true
+		shown[e.UserID] = true
 	}
 	var b strings.Builder
 	b.WriteString("[The roster: the complete list of the people to score, one name per line.]")
-	for _, name := range roster {
-		b.WriteString("\n" + name)
-		if !shown[name] {
+	for _, id := range roster {
+		b.WriteString("\n" + labels[id])
+		if !shown[id] {
 			b.WriteString(chatBriefNoMessagesShown)
 		}
 	}
@@ -342,8 +382,28 @@ func chatBriefParts(text string, maxUnits int) []string {
 	flush()
 	if len(parts) > chatBriefMaxParts {
 		parts = parts[:chatBriefMaxParts]
+		parts[len(parts)-1] = chatBriefMarkCut(parts[len(parts)-1], maxUnits)
 	}
 	return parts
+}
+
+// chatBriefCutMark ends the last part of an answer that did not fit chatBriefMaxParts, so a reader
+// sees the verdict or brief goes on and nothing is dropped silently.
+const chatBriefCutMark = "\n[…]"
+
+// chatBriefMarkCut appends chatBriefCutMark to part, removing runes from its end first when the mark
+// would take it over maxUnits escaped UTF-16 units.
+func chatBriefMarkCut(part string, maxUnits int) string {
+	room := maxUnits - chatBriefEscapedUnits(chatBriefCutMark)
+	runes := []rune(part)
+	for len(runes) > 0 && chatBriefEscapedUnits(string(runes)) > room {
+		cut := chatBriefEscapedUnits(string(runes)) - room
+		if cut > len(runes) {
+			cut = len(runes)
+		}
+		runes = runes[:len(runes)-max(1, cut/6)]
+	}
+	return strings.TrimRight(string(runes), " \n") + chatBriefCutMark
 }
 
 // chatBriefCutLine cuts one long line at rune boundaries into chunks of at most maxUnits escaped
