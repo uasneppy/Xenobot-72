@@ -442,6 +442,7 @@ None yet.
 | 261118-p5l | Leftover fixes after PR #18: root test race, two-line replies, /disabledel text, staff last-seen zone, Smarkdown removed | 2026-11-18 | ef11de0 | .planning/quick/261118-p5l-leftover-fixes |
 | 261124-v7y | Replace Fuku and Alita mentions everywhere with Xenobot-72 and cleanup the repo | 2026-11-24 | 97b708a5 | [261124-v7y-replace-fuku-and-alita-mentions-everywhe](./quick/261124-v7y-replace-fuku-and-alita-mentions-everywhe/) |
 | 261124-l1n | Fix the CI lint findings the rebrand's fuku/ to xenobot/ move exposed (test errchecks, unused funcs, backup dispatch tables) | 2026-11-24 | 8609a4ee | [261124-l1n-fix-ci-lint-findings-after-rebrand](./quick/261124-l1n-fix-ci-lint-findings-after-rebrand/) |
+| 261125-0iq | /unrollshort, /unrolllong and /judge: owner Message log switch, rolling log of 1000 messages, AI briefs and judge verdicts with destinations | 2026-11-25 | 129d200 | [261125-0iq-add-unrollshort-unrolllong-and-judge-ai-](./quick/261125-0iq-add-unrollshort-unrolllong-and-judge-ai-/) |
 
 ## Deferred Items
 
