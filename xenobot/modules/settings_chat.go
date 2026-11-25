@@ -17,7 +17,9 @@ import (
 // every control and action refuses a press from a group menu again before any read or write.
 // Every control declares settingsRightOwner, judged on the press's own live getChatMember record.
 // Turning conversations on takes two taps through the shared confirm card, whose text is the data
-// notice; turning them off takes one. There is no command to compare with.
+// notice; turning them off takes one. The Message log switch (control l) is separate: one tap each
+// way, because the page's notice already says what is kept and what is sent. There is no command to
+// compare with.
 
 const (
 	// settingsPageChat is the p value of the page.
@@ -28,6 +30,8 @@ const (
 	settingsChatControlProvider = "m"
 	// settingsChatControlAudience is the audience choice (st only, v e or a).
 	settingsChatControlAudience = "w"
+	// settingsChatControlLog is the Message log toggle (tg only, v 0 or 1).
+	settingsChatControlLog = "l"
 	// settingsActChatYes is the On card's Yes (fields: e).
 	settingsActChatYes = "py"
 )
@@ -63,6 +67,10 @@ func init() {
 			settingsChatControlAudience: {
 				Right: settingsRightOwner, Set: settingsChatSetAudience,
 				Actions: []string{settingsActSet}, Validate: func(v string) bool { _, ok := settingsChatAudienceCodes[v]; return ok },
+			},
+			settingsChatControlLog: {
+				Right: settingsRightOwner, Set: settingsChatSetLog,
+				Actions: []string{settingsActToggle}, Validate: settingsEditSwitchValue,
 			},
 		},
 		Actions: map[string]settingsPageAction{
@@ -126,6 +134,8 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 		settingsText(v.Tr, "settings_chat_provider_line", i18n.TranslationParams{"provider": chatProviderName(stored.Provider)}),
 		settingsText(v.Tr, "settings_chat_audience_line", i18n.TranslationParams{"audience": settingsText(v.Tr, audienceKey)}),
 	}
+	logState := settingsStateWord(v.Tr, stored.LogEnabled)
+	body = append(body, settingsText(v.Tr, "settings_chat_log_status", i18n.TranslationParams{"state": logState}))
 	anyConfigured := chatAnyProviderConfigured()
 	switch {
 	case !anyConfigured:
@@ -133,7 +143,8 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 	case !chatProviderConfigured(stored.Provider):
 		body = append(body, "🚫 "+settingsText(v.Tr, "settings_chat_provider_missing"))
 	}
-	body = append(body, "", settingsText(v.Tr, "settings_chat_hint"), "", settingsChatDataNotice(v.Tr, stored.Provider))
+	body = append(body, "", settingsText(v.Tr, "settings_chat_hint"), "", settingsChatDataNotice(v.Tr, stored.Provider),
+		"", settingsText(v.Tr, "settings_chat_log_notice", i18n.TranslationParams{"provider": chatProviderName(stored.Provider)}))
 
 	k := newSettingsKeyboard(v)
 	if anyConfigured || stored.Enabled {
@@ -166,6 +177,10 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 		}
 	}
 	k.row(audience...)
+	if anyConfigured || stored.LogEnabled {
+		label := settingsText(v.Tr, "settings_btn_chat_log", i18n.TranslationParams{"state": logState})
+		k.row(settingsToggleButton(k, settingsPageChat, settingsChatControlLog, label, stored.LogEnabled)...)
+	}
 	k.navRow(false)
 	return k.screen(settingsCompose(v, "settings_page_chat", body, notice, false))
 }
@@ -326,4 +341,32 @@ func settingsChatSetAudience(p *settingsPress, value string) *settingsScreen {
 	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
 	defer cancel()
 	return settingsChatFromResult(p, applyChatAudience(ctx, p.group.Id, audience, p.query.From.Id))
+}
+
+// settingsChatSetLog serves the Message log toggle. 0 writes off at once and deletes the log; 1 is
+// one tap with no card (the page's notice discloses what is kept and sent): it is refused when the
+// stored provider cannot run here, redraws without a write when the log is already on, and
+// otherwise writes on.
+func settingsChatSetLog(p *settingsPress, value string) *settingsScreen {
+	if settingsChatGroupRefused(p) {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
+	defer cancel()
+	if value == "0" {
+		return settingsChatFromResult(p, applyChatLog(ctx, p.group.Id, false, p.query.From.Id))
+	}
+	stored, err := settingsChatReadSettings(p.group.Id)
+	if err != nil {
+		p.cannotOpen()
+		return nil
+	}
+	if !chatProviderConfigured(stored.Provider) {
+		return settingsChatUnavailable(p)
+	}
+	if stored.LogEnabled {
+		screen := renderSettingsChat(p.view(), stored, "")
+		return &screen
+	}
+	return settingsChatFromResult(p, applyChatLog(ctx, p.group.Id, true, p.query.From.Id))
 }

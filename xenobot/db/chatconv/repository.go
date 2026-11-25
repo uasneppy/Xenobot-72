@@ -39,6 +39,9 @@ type Settings struct {
 	Enabled  bool   `msgpack:"e"`
 	Provider string `msgpack:"p"`
 	Audience int    `msgpack:"a"`
+	// LogEnabled is the owner's Message log switch. A value an older build cached has no field
+	// and decodes to off.
+	LogEnabled bool `msgpack:"l"`
 }
 
 // Defaults is the setting of a chat with no row: off, Anthropic, everyone.
@@ -82,7 +85,7 @@ func GetFresh(ctx context.Context, chatID int64) (Settings, error) {
 	if err != nil {
 		return Settings{}, xenoerrors.Wrapf(err, "read the conversation setting of chat %d", chatID)
 	}
-	return Settings{Enabled: row.Enabled, Provider: row.Provider, Audience: int(row.Audience)}, nil
+	return Settings{Enabled: row.Enabled, Provider: row.Provider, Audience: int(row.Audience), LogEnabled: row.LogEnabled}, nil
 }
 
 // SetEnabled writes the on/off switch with one column-targeted upsert and drops the key.
@@ -110,6 +113,13 @@ func SetAudience(ctx context.Context, chatID int64, audience int, by int64) erro
 	row := defaultRow(chatID, by)
 	row.Audience = int16(audience) // #nosec G115 -- validated as 0 or 1
 	return upsert(ctx, row, "audience")
+}
+
+// SetLogEnabled writes the Message log switch with one column-targeted upsert and drops the key.
+func SetLogEnabled(ctx context.Context, chatID int64, on bool, by int64) error {
+	row := defaultRow(chatID, by)
+	row.LogEnabled = on
+	return upsert(ctx, row, "log_enabled")
 }
 
 func defaultRow(chatID, by int64) *models.ChatConversation {

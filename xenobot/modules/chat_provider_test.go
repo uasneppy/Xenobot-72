@@ -107,4 +107,37 @@ func TestChatProvidersRequest(t *testing.T) {
 	if claudeBody.System[0].Text != geminiBody.SystemInstruction.Parts[0].Text {
 		t.Fatalf("the static system block differs between two groups")
 	}
+
+	// The output cap reaches both providers: the default for a conversation turn and a request's own
+	// MaxTokens (a brief's) when it sets one.
+	capOf := func(body string, provider string) int {
+		t.Helper()
+		var parsed struct {
+			MaxTokens        int `json:"max_tokens"`
+			GenerationConfig struct {
+				MaxOutputTokens int `json:"maxOutputTokens"`
+			} `json:"generationConfig"`
+		}
+		if err := json.Unmarshal([]byte(body), &parsed); err != nil {
+			t.Fatalf("%s body: %v", provider, err)
+		}
+		if provider == chatconv.ProviderGoogle {
+			return parsed.GenerationConfig.MaxOutputTokens
+		}
+		return parsed.MaxTokens
+	}
+	if got := capOf(standIn.bodies[0], chatconv.ProviderAnthropic); got != chatMaxOutputTokens {
+		t.Errorf("anthropic default cap = %d, want %d", got, chatMaxOutputTokens)
+	}
+	if got := capOf(standIn.bodies[1], chatconv.ProviderGoogle); got != chatMaxOutputTokens {
+		t.Errorf("google default cap = %d, want %d", got, chatMaxOutputTokens)
+	}
+	for _, provider := range chatProviders {
+		if _, err := chatProviderFor(provider).converse(context.Background(), chatRequest{Static: "s", Dynamic: "d", User: "u", MaxTokens: 1234}); err != nil {
+			t.Fatalf("%s converse: %v", provider, err)
+		}
+		if got := capOf(standIn.bodies[len(standIn.bodies)-1], provider); got != 1234 {
+			t.Errorf("%s request cap = %d, want 1234", provider, got)
+		}
+	}
 }

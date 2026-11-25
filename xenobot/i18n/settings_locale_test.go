@@ -636,6 +636,9 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_btn_chat_toggle":        {30, 40},
 	"settings_btn_chat_everyone":      {20, 20},
 	"settings_btn_chat_admins":        {20, 20},
+	"settings_chat_log_status":        {30, 40},
+	"settings_btn_chat_log":           {30, 40},
+	"settings_chat_log_notice":        {640, 800},
 
 	// The Timezone page (plan of 2026-11-18, Part 3): its name, body lines, buttons, prompt, notices and the
 	// preset cities.

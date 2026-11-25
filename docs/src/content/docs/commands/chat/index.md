@@ -19,3 +19,23 @@ What goes to the AI provider the owner chose: the message, the message it replie
 **Example**
 `/ask what is tempe?`
 
+## Available Commands
+
+| Command | Description | Disableable |
+|---------|-------------|-------------|
+| `/unrollshort` | No description available | ❌ |
+
+## Usage Examples
+
+### Basic Usage
+
+```text
+/unrollshort
+```
+
+For detailed command usage, refer to the commands table above.
+
+## Required Permissions
+
+Commands in this module are available to all users unless otherwise specified.
+

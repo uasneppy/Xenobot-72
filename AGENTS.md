@@ -106,7 +106,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   nothing needs resuming: the transcript and the set of the feature's message IDs are written only after a reply was sent. It
   adds 2 s to the webhook-mode worst case, which is now 70 s (HTTP stop 10, conversations 2, AI spam 10, raid AI 2, raid posts 3,
   lockdown 6, staff actions 31, member requirements 3, deletion worker 3) against the enforced 60 s budget: the cut described
-  under `StopDeletionWorker` comes 2 s earlier and costs no correctness. `TestShutdownEndsChat` proves it: a job inside a hung
+  under `StopDeletionWorker` comes 2 s earlier and costs no correctness. Brief jobs (`/unrollshort`) join the same stop with no
+  new drain: they are counted in `chatJobs`, refused while `chatDraining` and derive from `chatContext`. `TestShutdownEndsChat` proves it: a job inside a hung
   provider call is ended inside the wait, sends nothing, writes no memory, and a later message starts no job; a test that runs
   the stop restores the pool with `restoreChatPool`.
 - `StopRaidAI` is a drain registered after DB-close as well, through `RegisterRaidAIDrain` (`raidAIStopWait`, 1 s, plus
@@ -196,7 +197,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   item to the raid AI pool, never ends an update) · `3` aispam · `4` antiflood · `5`/`6` locks · `7` blacklists ·
   `8` reports+reactions (the `@admin` watcher, `reportWatch`, returns `nil` after reporting so groups 9 to 12 still run) · `9` filters · `10` pins · `11` log-channel · `12` late raid flood counter (slash-prefixed texts only; keep it
   after every group that can end a slash text) · `13` conversation watcher (the Chat module, the only handler of the group; handles no command,
-  ignores slash texts and ends no update, which is why it may come after group 12; see the `Chat` bullet).
+  ignores slash texts and ends no update, which is why it may come after group 12; see the `Chat` bullet) · `14` message log watcher (the Chat
+  module, the only handler of the group; sees new messages and edits of real members, ends no update; see the `Chat` bullet).
 - gotgbot stops a group at the first matching handler. Watchers return `ext.ContinueGroups`; commands return
   `ext.EndGroups`. A group-0 watcher returning `nil` silently kills every later group-0 handler.
 - Modules register in `init()` via `RegisterLegacyModule(name, priority, load)`. Use a unique name; duplicates are
@@ -516,6 +518,62 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and otherwise the text after the command is handed to the pool after the same checks as a mention (`chatAccept`, shared with the
   watcher). The module's help page is `chat_help_msg` (`help_module_name_chat`, icon 🗨), which says how to talk to the bot, that
   the owner turns it on in private and what goes to the provider.
+  The module also registers the message log watcher (Quick 261125-0iq, `chat_log.go`) alone at handler group `14` (`chatLogGroup`),
+  through `handlers.NewMessage(message.All, chatModule.chatLogWatcher).SetAllowEdited(true)` with no setter for bots, channel posts or
+  business messages, so one handler serves new messages and edits (it branches on `ctx.EditedMessage`). It is the only handler of its
+  group, and its result is a named value preset to `ext.ContinueGroups` with `defer error_handling.RecoverFromPanic`, so no path ends an
+  update. Its order, cheapest first with no I/O before the settings read: a group or supergroup; `chatAnyProviderConfigured` (config only,
+  so `ENABLE_CHAT=false`, the default, is the kill switch of the log and of the brief commands); `raidFloodItemKey` reports user content
+  that is not a slash text (service messages and any command nothing took are dropped; a command the bot handles ends the update at
+  group 0 and never arrives); `raidFloodSenderCounts` and not a bot; an entry to keep (a cleaned first name, the text or caption cut to
+  400 runes, a media tag; nothing is stored when both text and tag are empty); the cached setting with `LogEnabled` and the stored
+  provider configured (an error stores nothing); Redis; then `chatLogEdit` for an edit and `chatLogRecord` for a new message. A Redis
+  error is one Debug line with the chat ID and the error class. The log is described under the conversation Redis keys; `/unrollshort`
+  and the other briefs are described in their own bullet below the Chat bullets.
+- `/unrollshort` (Quick 261125-0iq, `chat_brief.go`, `chat_brief_prompt.go`) is a brief of a stretch of the group's conversation: a
+  member replies to a message and the bot posts an AI brief of that message and every logged message after it. Its descriptor
+  `unrollShortDesc` (declared in `chat.go` beside `LoadChat`, so the docs generator finds descriptor and registration in one file) is
+  `Disableable`, checks its own name and `RequireGroup`, and is registered through `helpers.WrapCommand` with no anonymous-admin
+  re-entry (anonymous admins and channels get nothing, as for `/ask`). It is for everyone and never needs conversations to be on: the
+  gate (`chatBriefGateOf`) is the server (`chatAnyProviderConfigured` false answers `brief_unavailable`), the cached setting (a read
+  failure is silent), the owner's Message log switch (off answers `brief_off_hint`), the stored provider configured (else
+  `brief_unavailable`) and Redis (none is silent). The handler `chatBriefCommand` checks, in order, a group, a sender that counts
+  (`raidFloodSenderCounts`, not a bot), `extraction.ReplyTarget` (none answers the usage `brief_usage_short`), the gate, and
+  `chatLogHas` of the replied-to ID (a Redis error is silent; absent answers `brief_too_old` and makes no provider call); then it
+  queues a `chatBriefJob`. Briefs have their own queue of 16 and one dedicated worker (`chatBriefWorker`), started inside
+  `chatEnsureWorkers`'s `Once`, counted in `chatJobs`, refused while `chatDraining` and derived from `chatContext`, so `StopChat` drains
+  them and no shutdown drain, handler registration or allowance is added (the 70 s worst case is unchanged). The worker calls
+  `chatBriefProcess`, a package variable, exactly as `chatWorker` calls `chatProcess`: `TestCommandRepliesStayInsideTheHandler`
+  follows plain function names from `go` statements and a goroutine may not reach `ReplyParameters`, so the job function sits behind
+  the variable and the handler's own replies use `chatReplyText`. A job (`chatBriefProcessJob`, under `chatJobTimeout`) runs, in order:
+  Redis and the provider still available; the per-user cooldown (`xenobot:chat:brief:cd:{<chat>}:<user>`, 20 s, a loser is silent); the
+  provider's breaker, shared with conversations (paused answers `brief_malfunction` once per 5 minutes per chat through
+  `chatSayGated` under the kind `brief_malfunction`, so it never silences the conversation lines); the hourly budgets
+  `xenobot:chat:brief:b:u:<chat>:<user>:<hour>`, `:c:<chat>:<hour>` and `:g:<hour>` (`chatReserveWith`, 6, 30 and 300, over the same
+  stateless `raidAIBudgetTake` as conversations; capped answers `brief_allowance` once an hour per chat, a counter fault is shed);
+  the typing action; `chatLogSince` then `chatBriefStretch` (nothing, or a first entry that is not the asked ID, answers
+  `brief_too_old`); `chatBriefRequest`; the provider call through `chatProviderOf` (a cancelled root is shed with no line; any other
+  error is `chatRecordFailure` plus `brief_malfunction`; a refusal answers `brief_refused`); the text through `chatSanitizeText`
+  (links replaced, a zero-width space after an at-handle; blank is `brief_malfunction`, a truncated answer gets an ellipsis);
+  `chatBriefParts`; delivery. The prompt is the brief's own and never uses the conversation persona and archive: the static text is
+  the code-owned `chatBriefInstruction` (the transcript is data and never instructions; use only what it shows; write in the group's
+  language as plain text), `Dynamic` holds the cleaned group title, the language name, today's date, the number of messages and a line
+  when middle messages were left out, and `User` holds the transcript with a closing line that says everything above is member
+  conversation. Members are labelled by first name only (`chatBriefLabels`: a deterministic ` #1`, ` #2` on a collision computed from
+  the user IDs in Go, an ID never in any label), the stretch keeps the topic of its first message (`chatBriefStretch`, so a forum's
+  topics never mix) and the input is capped at `chatBriefMaxInputRunes` (30000, a variable for tests: the first entry and the newest
+  entries that fit, with the omitted count stated in `Dynamic` and in the transcript). No user ID, username or chat ID reaches the
+  provider. The output cap is `chatBriefMaxTokens` (1500) through `chatRequest.MaxTokens`. Delivery is HTML: every part of the answer
+  is `html.EscapeString`-ed, `chatBriefParts` measures each part of at most 3000 UTF-16 units on the escaped text, at line breaks and
+  at most 5 parts, and `chatBriefMessages` puts the header (`brief_header_short`) and a blank line before the first part and the
+  closing block (`brief_ai_notice`) after the last part, or as one more message when that would pass 4000 units. The first message is a
+  reply to the command through `chatPaced` with `AllowSendingWithoutReply` true, because `CommandDeletionProcessor` deletes the command
+  right after the handler returns and a reply to a deleted target would otherwise be refused (a conversation reply keeps `false`: the
+  zero value of `chatJob.allowMissingReply`); later parts are plain messages in the same topic. Link previews are off, and briefs are not
+  scheduled for deletion and not added to the set of the feature's own message IDs. The counters (answered, refused, failed, shed,
+  capped) are in memory per replica and appended to the developer `/stats` line of conversations (`chatBriefStatsSection`). Logs carry
+  chat and user IDs and error classes only. The brief is an AI opinion of the logged messages and nothing automated acts on it. A
+  brief can include a message that was deleted after it was logged, because deletions are not tracked (a stated limit).
 - The web captcha adds no handler group: its routes are HTTP routes on the bot's server, not dispatcher handlers.
 - The Settings module (priority 239, `settings.go`) adds one handler group, `1`, for the typed-reply door below; its other entry points are `/settings`, the callbacks and the deep link. `/settings` goes through `helpers.WrapCommand`
   with `settingsDesc.RequiredChecks` of `requireSettingsAccess()` alone (`settings_gate.go`: a private chat passes at
@@ -1842,6 +1900,22 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   admit administrators the owner lets in, while this page admits the creator alone. With this page Main has
   `settingsMainOwnerOnlyRows` 2 (Conversations and Access) and, with the Messages page of Phase 21,
   `settingsMainOwnerRows` 14.
+  Quick 261125-0iq added the Message log switch (control `l`, `settingsChatControlLog`, `tg` only with `v` exactly 0 or 1 through
+  `settingsEditSwitchValue`, right `settingsRightOwner`, so a group menu's press is refused first by `settingsChatGroupRefused` and an
+  administrator the owner gate admits gets the owner-only alert). The body gains a status line after the audience line
+  (`settings_chat_log_status`, the state word) and, after the conversation data notice, one blank line and `settings_chat_log_notice`
+  with the stored provider's name: it says the log is separate from conversations, that while it is on the bot keeps the newest 1000
+  messages (text, captions, a tag such as `[photo]`, the sender's first name and Telegram ID, edits), that turning it off deletes the
+  log, and that the messages from the replied-to one to now go to the provider with first names, the group's title and language and
+  today's date when a member runs `/unrollshort` or `/unrolllong` or an admin `/judge`, never user IDs, usernames, phone numbers or
+  other groups. The keyboard gains one full-width toggle row (`settings_btn_chat_log`, `settingsToggleButton`) directly after the
+  audience row and before the navigation row, drawn when any provider is configured or the log is stored on (so Off is always
+  reachable); every earlier row keeps its order. `settingsChatSetLog` writes Off at once through `applyChatLog` (which deletes the
+  stored ring) and On in ONE tap with no card, after a live read of the stored setting: a provider this server cannot run is refused
+  with `settingsChatUnavailable` before any write, a log already on redraws without a write. Main's state line is unchanged and
+  reports conversations only (a stated limit). `settings_chat_not_set_up` and `settings_chat_provider_missing` now say
+  "conversations or the message log". `TestSettingsChatLog` holds it, and `TestSettingsDriftChat`, `TestSettingsChatCallbackBytes` and
+  `TestSettingsChatPageFitsEveryLocale` cover the log-on state.
 - The Timezone page (`settings_timezone.go`, page `z`, `Order` 87 with key `z`, so it sorts right after Language; icon 🕒,
   `settings_page_tz`; plan of 2026-11-18, Part 3) and `/timezone` (`timezone.go`, `helpers.WrapCommand` with `RequireGroup`
   and `RequireUserAdmin`, anonymous-admin re-entry, not `Disableable`) write through one apply function, `applyTimezone`
@@ -3274,6 +3348,22 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   what was addressed to the bot and the bot's replies, bounded, short-lived and disclosed on the settings page. Turning
   conversations off deletes the transcript and the `mine` set. Without Redis conversations are inert on that replica (one info
   line per process).
+  `xenobot:chat:{<chat>}:log` (Quick 261125-0iq, `chat_log.go`) is the group's message log: a sorted set scored by the Telegram
+  message ID, its members compact JSON entries (`m` message ID, `u` user ID, `n` first name cleaned to 32 runes, `t` text or caption
+  cleaned and cut to 400 runes, `k` the English media tag such as `[photo]`, `th` the forum topic thread ID, `e` the edited flag), the
+  newest `chatLogMax` (1000, a variable for tests), with a 7 day idle expiry renewed by every write. It is written only while the
+  owner's Message log switch is on and the stored provider is configured, by two Lua scripts (`chatLogInsertScript`: replace any member
+  at the message's own score, add, trim to the newest 1000, renew the expiry, so a redelivered update replaces instead of duplicating;
+  `chatLogEditScript`: the same, but it writes nothing when no member sits at the score, so an edit of a message that was never logged
+  or already left the ring inserts nothing) and read with `ZCOUNT` of the score (`chatLogHas`: the members are JSON, so `ZSCORE`
+  cannot be used) and `ZRANGE ... BYSCORE` from an ID (`chatLogSince`, an entry that does not parse is skipped). Deleted messages are
+  not tracked and stay in the ring; slash texts and service messages are not logged; the user ID is stored for telling two people of
+  one name apart and is never sent to a provider. Turning the switch off deletes the key at once (`applyChatLog`); a message already
+  past the switch check on another replica can still write once afterwards (accepted, the residual of a switch with no shared lock),
+  and the key then expires after its idle time. A supergroup migration orphans the old chat's log (not migrated). Without Redis the log
+  and the brief commands are inert on that replica. The brief commands add the keys `xenobot:chat:brief:cd:{<chat>}:<user>` (the
+  cooldown), `xenobot:chat:brief:b:u:...`, `:c:...` and `:g:...` (the hourly budgets) and the canned-line gates
+  `xenobot:chat:{<chat>}:said:brief_malfunction` and `:brief_allowance`; all sit outside the cache prefix.
 - `chat_conversations` (migration 20261119120000, Phase 20) is one group's conversation setting: `chat_id` primary key,
   `enabled` (no `default:` tag in the model, so a Go false is written), `provider` (`anthropic` or `google`,
   `chk_chat_conversations_provider`), `audience` (0 everyone, 1 admins and approved members,
@@ -3287,7 +3377,16 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   conversations on (`TestChatConversationsStayOutOfBackup`). The apply functions `applyChatEnabled`, `applyChatProvider`
   and `applyChatAudience` (`xenobot/modules/chat_settings.go`, write seam `chatConvWrites`, typed `chatApplyResult`) judge
   no person's rights; turning conversations off also deletes the chat's transcript `xenobot:chat:{<chat>}:h` and its set of
-  the feature's message IDs `xenobot:chat:{<chat>}:mine` (best effort; a failed write deletes nothing).
+  the feature's message IDs `xenobot:chat:{<chat>}:mine` (best effort; a failed write deletes nothing). Migration
+  20261125120000 (Quick 261125-0iq, two idempotent statements, `judge_to` with its named CHECK inline) adds two columns, both read
+  through the same `chat_conv` key: `log_enabled` (`BOOLEAN NOT NULL DEFAULT FALSE`, the owner's Message log switch, in the model as
+  `LogEnabled` with no `default:` tag and in `chatconv.Settings` as `LogEnabled` with msgpack tag `l`, so a value an older build cached
+  decodes to off) and `judge_to` (`SMALLINT NOT NULL DEFAULT 0`, `chk_chat_conversations_judge_to` 0 to 2, the default destination of
+  a `/judge` verdict: 0 the group, 1 the admin's private chat, 2 the linked Staff Group; the model carries it and nothing reads it yet).
+  `chatconv.SetLogEnabled` is a column-targeted upsert like the others and drops the key; `applyChatLog(ctx, chat, on, by)` writes it
+  through the `chatConvWrites.LogEnabled` seam, judges no person's rights and, on a successful Off, deletes the chat's ring
+  `xenobot:chat:{<chat>}:log` (`chatWipeLog`, best effort, no-op without Redis; `chatWipeMemory` and `chatWipeLog` share
+  `chatWipeKeys`); On deletes nothing. Neither column is part of backup, export, import or reset.
 - `chat_event_messages` (migration 20261120110000) holds a group's custom event messages, one row per `(chat_id, event,
   dest)` under the inline primary key `pk_chat_event_messages`: `text`, `file_id` and `media_type` (one media item, 0 for
   none, the `db.*` media constants the greetings and rules rows use), `buttons` (jsonb, `'[]'` for none,
@@ -5799,7 +5898,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `HTTPError` is retryable for 408, 5xx and a 429 that names no per-day quota, reads `RetryInfo.retryDelay` (or a
   `retry-after` header) when present and never relies on it, and reports a rejected key for 401, 402, 403 and an
   `API_KEY_INVALID` 400. Neither package logs; no error carries the key or the URL. Both are tested only against
-  `httptest` servers.
+  `httptest` servers. The runtime's `chatRequest` carries an optional `MaxTokens` (0 means `chatMaxOutputTokens`, 2000) that both
+  adapters pass as `max_tokens` and `maxOutputTokens`: a conversation turn keeps the default, a brief sets its own cap
+  (`chatBriefMaxTokens`); `TestChatProvidersRequest` proves both reach each stand-in.
 - `xenobot/utils/chatprompt` (Phase 20, the standard library and `xenopersona` only, `TestChatpromptPackageIsLeaf`) is the one
   builder of a conversation request's three strings: `Static` (the persona and archive), `Dynamic` (the group's title cut
   to 64 runes, its language name, the date and the bot's username, each cleaned of control and format characters) and
@@ -5866,7 +5967,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `main.go`). Run `make bump-version` on a PR branch, merge, then tag. Tags match `^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$`.
 - `.env` in cwd auto-loads without overriding real env. Run `--version` smoke checks from `/tmp`.
 - Defaults that surprise: `ENABLE_CHAT=false` (group conversations are off on the whole server until it is set, and then
-  each group's owner still turns them on; `CHAT_ANTHROPIC_MODEL` and `CHAT_GEMINI_MODEL` are separate from
+  each group's owner still turns them on; it is also the kill switch of the message log and the brief commands, which the owner's
+  Message log switch then turns on per group; `CHAT_ANTHROPIC_MODEL` and `CHAT_GEMINI_MODEL` are separate from
   `ANTHROPIC_MODEL` and fall back to `claude-haiku-5-5` and `gemini-4-hydrogen` with a warning); `DEFAULT_TIMEZONE=Europe/Kyiv` (the zone every group without a choice shows times in; an invalid
   name stops startup; the zone database is embedded through `time/tzdata`, imported in `xenobot/config` so it is ready before
   the config reads the variable); `REDIS_DB=1`; `ENABLE_AISPAM=true` (the global AI kill switch, text, images and the AI spam-name rule; the text checks are inert without `TYPESAFE_API_KEY`); `ANTHROPIC_API_KEY` empty
@@ -5901,7 +6003,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   against one `httptest` stand-in, `chat_provider_test.go`), `TestChatLogsCarryIDsOnly` (`chat_logs_test.go`) and `TestChatEndToEnd`
   (`chat_e2e_test.go`: the owner turns conversations on from the private page, a member mentions the bot, the real Anthropic
   adapter answers through the stand-in, a second member replies and the next request carries the first exchange;
-  `newChatEnvFor` builds the environment over the page's group).
+  `newChatEnvFor` builds the environment over the page's group). The message log and briefs (Quick 261125-0iq) add, in
+  `xenobot/modules`: `TestChatLogRing`, `TestChatLogMediaTag`, `TestChatLogWatcher`, `TestChatLogWatcherNeverEndsUpdate` and
+  `TestChatLogWatcherGroupReached` (`chat_log_test.go`: the ring on miniredis with `chatLogMax` shrunk, the watcher through the real
+  dispatcher with a recorder at group 15, and `LoadAllModules` with a recorder at group 14 for a text, a caption and an edit),
+  `TestChatBriefPrompt`, `TestChatBriefParts` and `TestChatBriefMessages` (`chat_brief_prompt_test.go`, pure),
+  `TestChatBriefShort`, `TestChatBriefRefusals`, `TestChatBriefLimits`, `TestChatBriefProviderAnswers`, `TestChatBriefQueue` and
+  `TestChatBriefEndToEnd` (`chat_brief_test.go`: the owner's one-tap Message log toggle, members talking, a reply of `/unrollshort`, the
+  real Anthropic adapter against the stand-in, and Off deleting the ring; the command is marked deleted through
+  `chatEnv.markDeleted` before the reply to prove `AllowSendingWithoutReply`), `TestApplyChatLog` (`chat_settings_test.go`),
+  `TestSettingsChatLog` (`settings_chat_test.go`), `TestChatConversationSettings`'s log subtest (`xenobot/db/chatconv`),
+  `TestChatConversationLogMigrationStatements` and `TestChatConversationLogMigrationDefaults` (`xenobot/db/migrations`; the second
+  is PostgreSQL only and skips locally) and `TestChatBriefLocaleKeys` (`xenobot/i18n`: every `brief_` and `judge_` key in 8
+  languages against its ceiling). `withChatRuntime` also restores the brief cooldown, budgets, `chatLogMax` and
+  `chatBriefMaxInputRunes`, and `chatEnv.deliverEdit` runs an edited message through the dispatcher.
 - Assert observable behavior (reply sent, row persisted, cache invalidated, gate enforced). Never assert literals,
   source substrings, or test-double internals.
 - The Turnstile page's script test is `node --test scripts/captcha-page/*.test.mjs` (the directory form does not work on

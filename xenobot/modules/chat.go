@@ -19,8 +19,17 @@ import (
 
 var chatModule = moduleStruct{moduleName: "Chat"}
 
-// LoadChat registers /ask (alias /xeno) and the conversation watcher, alone at its own handler
-// group after every other group, with no setter (new messages of real users only).
+// unrollShortDesc is /unrollshort: everyone may run it. It checks its own name, so disabling it
+// silences it. The handler and the brief pool are in chat_brief.go.
+var unrollShortDesc = helpers.CommandDescriptor{
+	Name:           "unrollshort",
+	Disableable:    true,
+	RequiredChecks: []helpers.CheckFunc{helpers.CheckDisabled("unrollshort"), helpers.RequireGroup()},
+}
+
+// LoadChat registers /ask (alias /xeno), /unrollshort, the conversation watcher, alone at its own
+// handler group after every other group, with no setter (new messages of real users only), and the
+// message log watcher at the group after it.
 func LoadChat(dispatcher *ext.Dispatcher) {
 	helpers.WrapCommand(dispatcher, helpers.CommandDescriptor{
 		Name:           "ask",
@@ -33,7 +42,11 @@ func LoadChat(dispatcher *ext.Dispatcher) {
 		Disableable:    true,
 		RequiredChecks: []helpers.CheckFunc{helpers.CheckDisabled("xeno"), helpers.CheckDisabled("ask")},
 	}, chatModule.ask)
+	helpers.WrapCommand(dispatcher, unrollShortDesc, chatModule.unrollShort)
 	dispatcher.AddHandlerToGroup(handlers.NewMessage(message.All, chatModule.chatWatcher), chatWatchGroup)
+	// The log watcher is the only handler of its group. It sees edits, which the conversation
+	// watcher does not, and ends no update.
+	dispatcher.AddHandlerToGroup(handlers.NewMessage(message.All, chatModule.chatLogWatcher).SetAllowEdited(true), chatLogGroup)
 
 	SetModuleEnabled(chatModule.moduleName, true)
 	DefaultHelpRegistry().AltHelpOptions["Chat"] = []string{"conversations", "ask", "xeno"}

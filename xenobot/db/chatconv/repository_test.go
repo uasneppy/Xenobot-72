@@ -86,6 +86,49 @@ func TestChatConversationSettings(t *testing.T) {
 		}
 	})
 
+	t.Run("the message log is its own column", func(t *testing.T) {
+		chatID := newChat(t)
+		if got, _ := Get(ctx, chatID); got.LogEnabled {
+			t.Fatal("a chat with no row reads the log on")
+		}
+		if err := SetProvider(ctx, chatID, ProviderGoogle, 7); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetAudience(ctx, chatID, AudienceAdminsApproved, 7); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetLogEnabled(ctx, chatID, true, 8); err != nil {
+			t.Fatal(err)
+		}
+		want := Settings{Provider: ProviderGoogle, Audience: AudienceAdminsApproved, LogEnabled: true}
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetLogEnabled(true): %+v, %v", got, err)
+		}
+		// A Go false is written and the other columns stay.
+		if err := SetLogEnabled(ctx, chatID, false, 9); err != nil {
+			t.Fatal(err)
+		}
+		want.LogEnabled = false
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetLogEnabled(false): %+v, %v", got, err)
+		}
+		// Writing the other controls leaves the log alone.
+		if err := SetLogEnabled(ctx, chatID, true, 9); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetEnabled(ctx, chatID, true, 9); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := GetFresh(ctx, chatID); !got.LogEnabled || !got.Enabled {
+			t.Fatalf("SetEnabled clobbered the log: %+v", got)
+		}
+		var row models.ChatConversation
+		db.DB.Where("chat_id = ?", chatID).Take(&row)
+		if row.JudgeTo != 0 {
+			t.Errorf("judge_to = %d", row.JudgeTo)
+		}
+	})
+
 	t.Run("an invalid value writes nothing", func(t *testing.T) {
 		chatID := newChat(t)
 		if err := SetProvider(ctx, chatID, "openai", 1); !errors.Is(err, ErrInvalidValue) {

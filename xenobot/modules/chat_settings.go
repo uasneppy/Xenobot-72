@@ -75,6 +75,13 @@ func chatMineKey(chatID int64) string {
 	return chatKeyPrefix + "{" + strconv.FormatInt(chatID, 10) + "}:mine"
 }
 
+// chatLogKey is a chat's rolling message log, the newest messages of its members (the chat ID is a
+// hash tag). It is written only while the owner's Message log switch is on and deleted when it is
+// turned off.
+func chatLogKey(chatID int64) string {
+	return chatKeyPrefix + "{" + strconv.FormatInt(chatID, 10) + "}:log"
+}
+
 // chatNoRedisLogged makes the no-Redis line appear once per process.
 var chatNoRedisLogged atomic.Bool
 
@@ -102,10 +109,14 @@ var chatConvWrites = struct {
 	Enabled  func(ctx context.Context, chatID int64, enabled bool, by int64) error
 	Provider func(ctx context.Context, chatID int64, provider string, by int64) error
 	Audience func(ctx context.Context, chatID int64, audience int, by int64) error
+	// LogEnabled writes the Message log switch.
+	LogEnabled func(ctx context.Context, chatID int64, on bool, by int64) error
 }{
 	Enabled:  chatconv.SetEnabled,
 	Provider: chatconv.SetProvider,
 	Audience: chatconv.SetAudience,
+
+	LogEnabled: chatconv.SetLogEnabled,
 }
 
 // chatConvRead reads the setting back after a write; a variable so a test can make it fail.
@@ -171,6 +182,19 @@ func applyChatAudience(ctx context.Context, chatID int64, audience int, by int64
 	return chatReadBack(ctx, chatID)
 }
 
+// applyChatLog switches a chat's Message log on or off. It judges no person's rights. Turning it
+// off deletes the stored log at once; turning it on deletes nothing.
+func applyChatLog(ctx context.Context, chatID int64, on bool, by int64) chatApplyResult {
+	if err := chatConvWrites.LogEnabled(ctx, chatID, on, by); err != nil {
+		log.Warnf("[Chat] saving the message log switch of chat %d failed: %v", chatID, err)
+		return chatApplyResult{Outcome: chatSaveFailed, Err: err}
+	}
+	if !on {
+		chatWipeLog(chatID)
+	}
+	return chatReadBack(ctx, chatID)
+}
+
 func chatReadBack(ctx context.Context, chatID int64) chatApplyResult {
 	settings, err := chatConvRead(ctx, chatID)
 	if err != nil {
@@ -184,13 +208,23 @@ func chatReadBack(ctx context.Context, chatID int64) chatApplyResult {
 // best effort: without Redis there is nothing to delete, and a failed delete leaves keys that
 // expire within two hours (the transcript) and a day (the ID set).
 func chatWipeMemory(chatID int64) {
+	chatWipeKeys(chatID, "conversation memory", chatHistoryKey(chatID), chatMineKey(chatID))
+}
+
+// chatWipeLog deletes a chat's message log. It is best effort: without Redis there is nothing to
+// delete, and a failed delete leaves a key that expires after its idle time.
+func chatWipeLog(chatID int64) {
+	chatWipeKeys(chatID, "message log", chatLogKey(chatID))
+}
+
+func chatWipeKeys(chatID int64, what string, keys ...string) {
 	client := chatRedisClient()
 	if client == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), chatWipeTimeout)
 	defer cancel()
-	if err := client.Del(ctx, chatHistoryKey(chatID), chatMineKey(chatID)).Err(); err != nil {
-		log.Warnf("[Chat] deleting the conversation memory of chat %d failed: %v", chatID, err)
+	if err := client.Del(ctx, keys...).Err(); err != nil {
+		log.Warnf("[Chat] deleting the %s of chat %d failed: %v", what, chatID, err)
 	}
 }

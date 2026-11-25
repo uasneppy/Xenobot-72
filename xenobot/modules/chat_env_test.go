@@ -76,6 +76,7 @@ type chatEnv struct {
 	rc         *redis.Client
 	provider   *chatFakeProvider
 	passed     []int64
+	fake       *chatTelegramFake
 	nextUpdate int64
 	nextMsg    int64
 }
@@ -101,7 +102,8 @@ func newChatEnvFor(t *testing.T, chatID int64) *chatEnv {
 
 	env := &chatEnv{t: t, mr: mr, rc: rc, client: newModuleBotClient(), provider: &chatFakeProvider{}, nextUpdate: 1, nextMsg: 500}
 	env.bot = newModuleTestBot(env.client)
-	env.bot.BotClient = &chatTelegramFake{moduleBotClient: env.client, deleted: map[int64]bool{}}
+	env.fake = &chatTelegramFake{moduleBotClient: env.client, deleted: map[int64]bool{}}
+	env.bot.BotClient = env.fake
 	env.chatID = chatID
 	chatConvCleanup(t, env.chatID)
 	memberReqCleanup(t, []int64{env.chatID}, nil)
@@ -130,6 +132,12 @@ func withChatRuntime(t *testing.T) {
 	chatSwap(t, &chatUserHourlyBudget, chatUserHourlyBudget)
 	chatSwap(t, &chatChatHourlyBudget, chatChatHourlyBudget)
 	chatSwap(t, &chatGlobalHourlyBudget, chatGlobalHourlyBudget)
+	chatSwap(t, &chatBriefCooldown, chatBriefCooldown)
+	chatSwap(t, &chatBriefUserHourlyBudget, chatBriefUserHourlyBudget)
+	chatSwap(t, &chatBriefChatHourlyBudget, chatBriefChatHourlyBudget)
+	chatSwap(t, &chatBriefGlobalHourlyBudget, chatBriefGlobalHourlyBudget)
+	chatSwap(t, &chatLogMax, chatLogMax)
+	chatSwap(t, &chatBriefMaxInputRunes, chatBriefMaxInputRunes)
 	t.Cleanup(chatJobs.wait)
 }
 
@@ -171,6 +179,16 @@ func (e *chatEnv) deliver(msg *gotgbot.Message) {
 	e.nextUpdate++
 	if err := e.dispatcher.ProcessUpdate(e.bot, &gotgbot.Update{UpdateId: e.nextUpdate, Message: msg}, nil); err != nil {
 		e.t.Fatalf("ProcessUpdate: %v", err)
+	}
+	chatJobs.wait()
+}
+
+// deliverEdit runs the edited form of a message through the dispatcher and waits for the jobs.
+func (e *chatEnv) deliverEdit(msg *gotgbot.Message) {
+	e.t.Helper()
+	e.nextUpdate++
+	if err := e.dispatcher.ProcessUpdate(e.bot, &gotgbot.Update{UpdateId: e.nextUpdate, EditedMessage: msg}, nil); err != nil {
+		e.t.Fatalf("ProcessUpdate (edit): %v", err)
 	}
 	chatJobs.wait()
 }

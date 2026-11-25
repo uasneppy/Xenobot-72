@@ -41,6 +41,16 @@ type chatRequest struct {
 	Static  string
 	Dynamic string
 	User    string
+	// MaxTokens is the output cap; 0 means chatMaxOutputTokens.
+	MaxTokens int
+}
+
+// maxTokens is the request's output cap.
+func (r chatRequest) maxTokens() int {
+	if r.MaxTokens > 0 {
+		return r.MaxTokens
+	}
+	return chatMaxOutputTokens
 }
 
 // chatAnswer is what the runtime reads from a provider.
@@ -82,7 +92,7 @@ type chatAnthropicProvider struct{ client *claude.Client }
 
 func (p chatAnthropicProvider) converse(ctx context.Context, req chatRequest) (chatAnswer, error) {
 	reply, err := p.client.Converse(ctx, claude.ConverseRequest{
-		Static: req.Static, Dynamic: req.Dynamic, User: req.User, MaxTokens: chatMaxOutputTokens,
+		Static: req.Static, Dynamic: req.Dynamic, User: req.User, MaxTokens: req.maxTokens(),
 	})
 	if err != nil {
 		return chatAnswer{}, err
@@ -95,7 +105,7 @@ type chatGeminiProvider struct{ client *gemini.Client }
 
 func (p chatGeminiProvider) converse(ctx context.Context, req chatRequest) (chatAnswer, error) {
 	reply, err := p.client.Generate(ctx, gemini.Request{
-		Static: req.Static, Dynamic: req.Dynamic, User: req.User, MaxTokens: chatMaxOutputTokens,
+		Static: req.Static, Dynamic: req.Dynamic, User: req.User, MaxTokens: req.maxTokens(),
 	})
 	if err != nil {
 		return chatAnswer{}, err
