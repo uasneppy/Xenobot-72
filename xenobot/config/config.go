@@ -445,7 +445,7 @@ func LoadConfig() (*Config, error) {
 
 	cfg := &Config{
 		BotToken:    os.Getenv("BOT_TOKEN"),
-		BotVersion:  "3.0.1",
+		BotVersion:  "3.0.2",
 		ApiServer:   os.Getenv("API_SERVER"),
 		WorkingMode: "worker",
 		Debug:       typeConvertor{str: os.Getenv("DEBUG")}.Bool(),
