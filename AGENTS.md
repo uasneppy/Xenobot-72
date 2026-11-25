@@ -6253,7 +6253,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   clobber each other, a Go false written, the two checks refusing values outside the stored ones; it also runs on SQLite
   in `make test`) and `TestChatConversationMigrationDefaults` (`./xenobot/db/migrations`: the statement runs twice, a row with
   only `chat_id` reads off, anthropic, 0, and both named checks refuse with SQLSTATE 23514; PostgreSQL only, it skips
-  locally; `TestChatConversationMigrationStatements` is its database-free half).
+  locally; `TestChatConversationMigrationStatements` is its database-free half). Quick 261125-0iq adds
+  `TestChatConversationLogMigrationDefaults` (`./xenobot/db/migrations`: the two statements run twice, a row with only
+  `chat_id` reads `log_enabled` false and `judge_to` 0, and `chk_chat_conversations_judge_to` refuses 3 with SQLSTATE 23514;
+  PostgreSQL only; `TestChatConversationLogMigrationStatements` is its database-free half).
   The forward blocklist guarantees (quick task 261113-tjj) are `TestStaffForwardBlockConstraints` (`./xenobot/db/staff`: the
   unique key, `chk_staff_forward_blocks_source` and `chk_staff_forward_block_action` refuse a duplicate, a non-negative
   source and an action outside the five; it also runs on SQLite in `make test`) and `TestStaffForwardBlockMigrationDefaults`
