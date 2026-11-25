@@ -15,7 +15,9 @@ import (
 )
 
 // The Chat module (Phase 20): Xenobot-72 answers members who address it, in groups whose owner
-// turned conversations on from the bot's private chat. It never converses in a private chat.
+// turned conversations on from the bot's private chat. It never converses in a private chat. It
+// also keeps a group's message log while the owner's Message log switch is on and writes briefs of
+// it (/unrollshort, /unrolllong) and an admin's AI verdict (/judge); see chat_log.go and chat_brief.go.
 
 var chatModule = moduleStruct{moduleName: "Chat"}
 
@@ -70,7 +72,7 @@ func LoadChat(dispatcher *ext.Dispatcher) {
 	dispatcher.AddHandlerToGroup(handlers.NewMessage(message.All, chatModule.chatLogWatcher).SetAllowEdited(true), chatLogGroup)
 
 	SetModuleEnabled(chatModule.moduleName, true)
-	DefaultHelpRegistry().AltHelpOptions["Chat"] = []string{"conversations", "ask", "xeno"}
+	DefaultHelpRegistry().AltHelpOptions["Chat"] = []string{"conversations", "ask", "xeno", "unrollshort", "unrolllong", "judge", "messagelog"}
 	log.Info("[Modules] Chat module loaded")
 }
 

@@ -4,6 +4,9 @@ package i18n
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -107,5 +110,62 @@ func TestChatBriefLocaleKeys(t *testing.T) {
 				t.Error(failure)
 			}
 		})
+	}
+}
+
+// chatKeyLiteral finds a locale key literal of the Chat module's code: a brief_, judge_ or chat_
+// reply key, or a key of the Conversations page.
+var chatKeyLiteral = regexp.MustCompile(`"((?:brief|judge|chat_reply|chat_off|chat_private|chat_ask|chat_help|settings_chat|settings_btn_chat|settings_state_chat)_[a-z_]+)"`)
+
+// TestChatKeyLiteralsExist holds every key literal the Chat module's Go code passes to a translator
+// to the locale files: make check-translations cannot see a key handed to a helper such as
+// chatReplyText or chatSayGated, so a typo there would ship an empty message.
+func TestChatKeyLiteralsExist(t *testing.T) {
+	files, err := filepath.Glob("../modules/*chat*.go")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no Chat module files found: %v", err)
+	}
+	keys := map[string]bool{}
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Clean(file))
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		for _, m := range chatKeyLiteral.FindAllStringSubmatch(string(raw), -1) {
+			keys[m[1]] = true
+		}
+	}
+	for _, key := range []string{"brief_usage_short", "brief_usage_long", "judge_usage", "settings_chat_log_notice"} {
+		if !keys[key] {
+			t.Fatalf("the scan found no %s, so it reads the wrong files", key)
+		}
+	}
+	for _, lang := range staffLocales {
+		data := loadStaffLocale(t, lang)
+		for key := range keys {
+			if text, ok := data[key].(string); !ok || strings.TrimSpace(text) == "" {
+				t.Errorf("%s: the Chat module uses %s, which is missing or empty", lang, key)
+			}
+		}
+	}
+}
+
+// TestChatHelpFitsOneMessage holds chat_help_msg in every language to one Telegram message and to the
+// commands and facts it must name: /ask, /xeno, /unrollshort, /unrolllong, /judge with its three
+// destinations, /settings, and the 1000 messages the log keeps.
+func TestChatHelpFitsOneMessage(t *testing.T) {
+	for _, lang := range staffLocales {
+		help, _ := loadStaffLocale(t, lang)["chat_help_msg"].(string)
+		if total := lockdownHelpLength(help); total > lockdownHelpTelegramLimit {
+			t.Errorf("%s: chat_help_msg is %d UTF-16 units, over Telegram's %d", lang, total, lockdownHelpTelegramLimit)
+		}
+		for _, want := range []string{"/ask", "/xeno", "/unrollshort", "/unrolllong", "/judge", "/settings", "1000", "<code>group</code>", "<code>pm</code>", "<code>staff</code>"} {
+			if !strings.Contains(help, want) {
+				t.Errorf("%s: chat_help_msg does not name %s", lang, want)
+			}
+		}
 	}
 }

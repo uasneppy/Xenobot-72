@@ -107,9 +107,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   adds 2 s to the webhook-mode worst case, which is now 70 s (HTTP stop 10, conversations 2, AI spam 10, raid AI 2, raid posts 3,
   lockdown 6, staff actions 31, member requirements 3, deletion worker 3) against the enforced 60 s budget: the cut described
   under `StopDeletionWorker` comes 2 s earlier and costs no correctness. Brief jobs (`/unrollshort`, `/unrolllong` and `/judge`) join the same stop with no
-  new drain: they are counted in `chatJobs`, refused while `chatDraining` and derive from `chatContext`. `TestShutdownEndsChat` proves it: a job inside a hung
-  provider call is ended inside the wait, sends nothing, writes no memory, and a later message starts no job; a test that runs
-  the stop restores the pool with `restoreChatPool`.
+  new drain, handler registration or second: they are counted in `chatJobs`, refused while `chatDraining` and derive from
+  `chatContext`, so a brief or verdict cut off is lost with nothing to resume (its one budget unit stays spent), and the 70 s worst
+  case and `stop_grace_period: 75s` are unchanged. The message log watcher starts no job and needs no stop. `TestShutdownEndsChat`
+  proves it: a job inside a hung provider call is ended inside the wait, sends nothing, writes no memory, and a later message starts
+  no job; `TestShutdownEndsChatBriefs` proves the same for a brief (and that a later `/unrollshort` starts no job and spends no
+  budget); a test that runs the stop restores the pool with `restoreChatPool`.
 - `StopRaidAI` is a drain registered after DB-close as well, through `RegisterRaidAIDrain` (`raidAIStopWait`, 1 s, plus
   grace), in `main.go` right after `RegisterRaidPostsDrain`. Shutdown is LIFO, so it runs after `DrainAISpamChecks`
   (whose verdicts can start lockdowns) and before `StopRaidPosts` (a start can post a notice) and the database close. It
@@ -516,8 +519,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   answer `chat_private_refused`, in a group whose conversations are off or cannot run here `chat_off_hint`, with no text
   `chat_ask_usage`, for an anonymous admin, a channel, an unreadable setting, no Redis or an audience the sender is not in nothing,
   and otherwise the text after the command is handed to the pool after the same checks as a mention (`chatAccept`, shared with the
-  watcher). The module's help page is `chat_help_msg` (`help_module_name_chat`, icon 🗨), which says how to talk to the bot, that
-  the owner turns it on in private and what goes to the provider.
+  watcher). The module's help page is `chat_help_msg` (`help_module_name_chat`, icon 🗨, alt names `conversations`, `ask`, `xeno`,
+  `unrollshort`, `unrolllong`, `judge` and `messagelog`), which says how to talk to the bot, that the owner turns conversations
+  and the message log on in private, what the log keeps (the newest 1000 messages, deleted when it is turned off), the brief
+  commands for everyone and `/judge` with its `group`, `pm` and `staff` words for admins, what goes to the provider (no IDs, no
+  usernames) and that a verdict decides nothing; `TestChatHelpFitsOneMessage` (`xenobot/i18n`) holds it to one Telegram message
+  and to those words in 8 languages, and `TestHelpPagesKeepTheirCommands` holds its commands for `uk` and `en`. The module is
+  three features behind one owner page: conversations, the message log with its briefs, and `/judge`.
   The module also registers the message log watcher (Quick 261125-0iq, `chat_log.go`) alone at handler group `14` (`chatLogGroup`),
   through `handlers.NewMessage(message.All, chatModule.chatLogWatcher).SetAllowEdited(true)` with no setter for bots, channel posts or
   business messages, so one handler serves new messages and edits (it branches on `ctx.EditedMessage`). It is the only handler of its
@@ -1919,7 +1927,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `/addreaction` store the same row, and the page draws what the commands wrote), `TestSettingsAuthorityParityReactions`,
   `TestSettingsListReactionsFits` and `TestReactionCap` hold it.
 - The Conversations page (`settings_chat.go`, page `p`, `Order` 89 with key `p`, after Anonymous admins; icon 🗨,
-  `settings_page_chat`; Phase 20 plan 20-05) is the one door that turns a group's conversations on, and it is both
+  `settings_page_chat`; Phase 20 plan 20-05) is the one door that turns a group's conversations on (and, since Quick
+  261125-0iq, the message log, and where a `/judge` verdict goes by default), and it is both
   `OwnerOnly` and `PrivateOnly`: Main shows it, on its own full-width row before Access, only to the live creator, and only
   in the bot's private chat (a group menu reads `In private` on the owner's line and opens the framework note). Every
   control and action declares `settingsRightOwner` and is refused for a press from a menu in a group
@@ -2380,8 +2389,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   AnonAdmin setting, a failed lookup refusing (`lockdown_check_failed`) and a non-admin answered `chat_status_user_admin_cmd_error`, all
   before any provider call. An anonymous admin always gets the proof prompt first; after the tap `anonPipelineHandler` re-runs the same
   live check for the tapper, so an administrator the cache still lists but whose live record is a plain member is refused there too
-  (`TestChatJudge`, `TestChatJudgeAnonymousAdmin`). `/unrollshort` and `/unrolllong` judge no person's rights. No score of a verdict is
-  ever read by any automated action.
+  (`TestChatJudge`, `TestChatJudgeAnonymousAdmin`). The check runs on the first pass (from the descriptor) and again for the tapper
+  after the proof, never later: the window from the check to the delivery (the queue wait and one provider call, bounded by
+  `chatJobTimeout`) is accepted. The private recipient of `/judge pm` is the update's sender (the tapper after a proof) and the Staff
+  Group of `/judge staff` is the group's link read fresh from the database at the handler and again before the send; neither ever
+  comes from the command text or callback data. `/unrollshort` and `/unrolllong` need no admin and judge no person's rights (their
+  gate is the server's provider configuration and the owner's Message log switch). No score of a verdict is ever read by any automated action.
 - "I fixed it" (`mreq|v1`, `memberReqFixedCallback`) is for the held member only, with no admin override: the presser must be
   the member `u` of the button, an admin who presses it is refused, and admins lift a mute with `/unmute`. It lifts only a
   mute the requirements placed, proved by the live marker (`isMemberReqMute`), never an admin's, a staff, the captcha's,
@@ -3627,6 +3640,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   read-back is not (`settingsFloodTurnedOn`, D-34); a limit press never shows it, and the commands' replies are unchanged. A repository fix (insert with limit 0
   on the first write) would change `/setfloodmode` and `/delflood` too, so it is a separate follow-up and must update
   those two tests and this bullet.
+- The message log and the briefs (Quick 261125-0iq, `chat_log.go`, `chat_brief.go`) have stated limits, none a bug: a message
+  deleted after it was logged stays in the ring and can appear in a brief (deletions are not tracked); an edit replaces its entry in
+  place (and an edit of a message the ring never held or already dropped inserts nothing); slash texts, service messages, bots and
+  `sender_chat` senders are never logged; a supergroup migration orphans the old chat's log until it expires (7 days idle); after Off,
+  a message already past the switch check on another replica can write one entry once more (no shared lock), bounded by the idle
+  expiry; a reply to a message older than the newest 1000, or sent before the log was on, answers `brief_too_old`. Transcript text is
+  untrusted input placed in a prompt: the code-owned instruction says it is data, every entry is one line, the model has no tools and
+  nothing automated acts on its output, which is link-filtered and HTML-escaped. A `/judge` score is an opinion from a limited
+  stretch: its roster holds at most `chatBriefMaxRoster` (40) names, a name whose lines the input cap left out is marked
+  `" (no messages shown)"` (the model answers "not enough shown to judge"), and anyone beyond the 40 is named in the closing
+  `judge_unscored_note` line, so nobody is silently left out of a verdict.
 - Antiflood counters are in-process (per replica). The raid detection counters (`xenobot:raid:*`) are Redis-only: without
   Redis the automatic triggers do nothing, and `/lockdown` still works.
 - The warn commands and the warn limit count only the warns that count (warn expiry, Phase 26 plan 26-06, D-35, D-36):
@@ -6088,7 +6112,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   administrators in `getChatAdministrators`, which the cached admin list and the proof tap read; a test that uses it invalidates the
   chat's admin cache in a cleanup) and `refuse` (every send to a chat fails with a 403, recorded as `sendMessage (refused)`); a test of
   the anonymous re-entry loads `LoadBotUpdates` on the env's dispatcher. `chatEnv.commandMessage`, `judge` (which fast-forwards
-  miniredis past the brief cooldown) and `sendsTo` are its helpers.
+  miniredis past the brief cooldown) and `sendsTo` are its helpers. Task 3 adds the cross-cutting safeguards in
+  `chat_brief_safety_test.go`, each on one environment: `TestChatBriefLogsCarryIDsOnly` (a debug-level hook over the failure paths of a
+  short brief, a long brief and a verdict: provider errors including a rejected key and a 429, a refusal, a blank answer, a refused
+  send, a blocked private chat, no Staff Group, an unreadable link, a Staff Group that refuses the verdict and a Redis fault; no line
+  holds a member's text or first name, the provider's message, a key value, a reply or the Staff Group's title),
+  `TestChatBriefRequestIsMinimal` (the real Anthropic and Gemini bodies of a verdict to a Staff Group and a short brief, through the
+  `httptest` stand-in of `TestChatProvidersRequest`, carry no user ID, username, chat ID, Staff Group ID or title and no key value),
+  `TestShutdownEndsChatBriefs` and `TestChatBriefInertWithoutRedis` (no Redis client: the log stores nothing and the three commands
+  answer nothing and ask no provider); `xenobot/i18n` adds `TestChatHelpFitsOneMessage` and `TestChatKeyLiteralsExist` (every
+  `brief_`, `judge_`, `chat_` reply and Conversations page key literal of the Chat module's Go files exists in all 8 locale files,
+  because `make check-translations` cannot see a key handed to a helper).
 - Assert observable behavior (reply sent, row persisted, cache invalidated, gate enforced). Never assert literals,
   source substrings, or test-double internals.
 - The Turnstile page's script test is `node --test scripts/captcha-page/*.test.mjs` (the directory form does not work on
