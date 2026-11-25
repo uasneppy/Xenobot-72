@@ -17,7 +17,9 @@ import (
 // every control and action refuses a press from a group menu again before any read or write.
 // Every control declares settingsRightOwner, judged on the press's own live getChatMember record.
 // Turning conversations on takes two taps through the shared confirm card, whose text is the data
-// notice; turning them off takes one. There is no command to compare with.
+// notice; turning them off takes one. The Message log switch (control l) is separate: one tap each
+// way, because the page's notice already says what is kept and what is sent. There is no command to
+// compare with.
 
 const (
 	// settingsPageChat is the p value of the page.
@@ -28,6 +30,10 @@ const (
 	settingsChatControlProvider = "m"
 	// settingsChatControlAudience is the audience choice (st only, v e or a).
 	settingsChatControlAudience = "w"
+	// settingsChatControlLog is the Message log toggle (tg only, v 0 or 1).
+	settingsChatControlLog = "l"
+	// settingsChatControlJudge is the /judge verdict destination choice (st only, v g, p or s).
+	settingsChatControlJudge = "j"
 	// settingsActChatYes is the On card's Yes (fields: e).
 	settingsActChatYes = "py"
 )
@@ -37,6 +43,26 @@ var settingsChatProviderCodes = map[string]string{"a": chatconv.ProviderAnthropi
 
 // settingsChatAudienceCodes maps a button's v to the stored audience.
 var settingsChatAudienceCodes = map[string]int{"e": chatconv.AudienceEveryone, "a": chatconv.AudienceAdminsApproved}
+
+// settingsChatJudgeCodes maps a button's v to the stored /judge destination: the group, the admin's
+// private chat and the linked Staff Group.
+var settingsChatJudgeCodes = map[string]int{"g": chatconv.JudgeToGroup, "p": chatconv.JudgeToPrivate, "s": chatconv.JudgeToStaff}
+
+// settingsChatJudgeKeys is the name key of each destination, for the body line and the buttons.
+var settingsChatJudgeKeys = map[int]string{
+	chatconv.JudgeToGroup:   "settings_btn_chat_judge_group",
+	chatconv.JudgeToPrivate: "settings_btn_chat_judge_pm",
+	chatconv.JudgeToStaff:   "settings_btn_chat_judge_staff",
+}
+
+// settingsChatJudgeKey is the name key of a stored destination; a value outside the stored ones
+// reads as the group, as the command reads it.
+func settingsChatJudgeKey(to int) string {
+	if key, ok := settingsChatJudgeKeys[to]; ok {
+		return key
+	}
+	return settingsChatJudgeKeys[chatconv.JudgeToGroup]
+}
 
 // settingsChatRead reads the setting fresh; a variable only so a test can make it fail.
 var settingsChatRead = chatconv.GetFresh
@@ -63,6 +89,14 @@ func init() {
 			settingsChatControlAudience: {
 				Right: settingsRightOwner, Set: settingsChatSetAudience,
 				Actions: []string{settingsActSet}, Validate: func(v string) bool { _, ok := settingsChatAudienceCodes[v]; return ok },
+			},
+			settingsChatControlLog: {
+				Right: settingsRightOwner, Set: settingsChatSetLog,
+				Actions: []string{settingsActToggle}, Validate: settingsEditSwitchValue,
+			},
+			settingsChatControlJudge: {
+				Right: settingsRightOwner, Set: settingsChatSetJudge,
+				Actions: []string{settingsActSet}, Validate: func(v string) bool { _, ok := settingsChatJudgeCodes[v]; return ok },
 			},
 		},
 		Actions: map[string]settingsPageAction{
@@ -126,6 +160,9 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 		settingsText(v.Tr, "settings_chat_provider_line", i18n.TranslationParams{"provider": chatProviderName(stored.Provider)}),
 		settingsText(v.Tr, "settings_chat_audience_line", i18n.TranslationParams{"audience": settingsText(v.Tr, audienceKey)}),
 	}
+	logState := settingsStateWord(v.Tr, stored.LogEnabled)
+	body = append(body, settingsText(v.Tr, "settings_chat_log_status", i18n.TranslationParams{"state": logState}),
+		settingsText(v.Tr, "settings_chat_judge_line", i18n.TranslationParams{"target": settingsText(v.Tr, settingsChatJudgeKey(stored.JudgeTo))}))
 	anyConfigured := chatAnyProviderConfigured()
 	switch {
 	case !anyConfigured:
@@ -133,7 +170,8 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 	case !chatProviderConfigured(stored.Provider):
 		body = append(body, "🚫 "+settingsText(v.Tr, "settings_chat_provider_missing"))
 	}
-	body = append(body, "", settingsText(v.Tr, "settings_chat_hint"), "", settingsChatDataNotice(v.Tr, stored.Provider))
+	body = append(body, "", settingsText(v.Tr, "settings_chat_hint"), "", settingsChatDataNotice(v.Tr, stored.Provider),
+		"", settingsText(v.Tr, "settings_chat_log_notice", i18n.TranslationParams{"provider": chatProviderName(stored.Provider)}))
 
 	k := newSettingsKeyboard(v)
 	if anyConfigured || stored.Enabled {
@@ -166,8 +204,30 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 		}
 	}
 	k.row(audience...)
+	if anyConfigured || stored.LogEnabled {
+		label := settingsText(v.Tr, "settings_btn_chat_log", i18n.TranslationParams{"state": logState})
+		k.row(settingsToggleButton(k, settingsPageChat, settingsChatControlLog, label, stored.LogEnabled)...)
+	}
+	k.row(settingsChatJudgeRow(k, stored.JudgeTo)...)
 	k.navRow(false)
 	return k.screen(settingsCompose(v, "settings_page_chat", body, notice, false))
+}
+
+// settingsChatJudgeRow is the /judge destination choice: one row of three buttons, the stored one
+// marked. It names no Staff Group: the third label is the feature's name only.
+func settingsChatJudgeRow(k *settingsKeyboard, stored int) []gotgbot.InlineKeyboardButton {
+	var row []gotgbot.InlineKeyboardButton
+	for _, code := range []string{"g", "p", "s"} {
+		to := settingsChatJudgeCodes[code]
+		label := settingsText(k.view.Tr, settingsChatJudgeKeys[to])
+		if to == stored {
+			label = settingsSelectedPrefix + label
+		}
+		if button, ok := k.button(label, map[string]string{"a": settingsActSet, "p": settingsPageChat, "t": settingsChatControlJudge, "v": code}); ok {
+			row = append(row, button)
+		}
+	}
+	return row
 }
 
 // renderSettingsChatCard draws the On card: the question, the data notice and [Yes | No].
@@ -310,20 +370,68 @@ func settingsChatSetProvider(p *settingsPress, value string) *settingsScreen {
 
 // settingsChatSetAudience stores who may talk to the bot; the stored value writes nothing.
 func settingsChatSetAudience(p *settingsPress, value string) *settingsScreen {
+	audience := settingsChatAudienceCodes[value]
+	return settingsChatSetStored(p, func(stored chatconv.Settings) bool { return stored.Audience == audience },
+		func(ctx context.Context) chatApplyResult {
+			return applyChatAudience(ctx, p.group.Id, audience, p.query.From.Id)
+		})
+}
+
+// settingsChatSetStored is the shared body of a choice that needs no provider: a group menu is
+// refused first, a press of the stored value redraws with no write, and anything else is written
+// through apply and redrawn from the read-back.
+func settingsChatSetStored(p *settingsPress, same func(chatconv.Settings) bool, apply func(context.Context) chatApplyResult) *settingsScreen {
 	if settingsChatGroupRefused(p) {
 		return nil
 	}
-	audience := settingsChatAudienceCodes[value]
 	stored, err := settingsChatReadSettings(p.group.Id)
 	if err != nil {
 		p.cannotOpen()
 		return nil
 	}
-	if stored.Audience == audience {
+	if same(stored) {
 		screen := renderSettingsChat(p.view(), stored, "")
 		return &screen
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
 	defer cancel()
-	return settingsChatFromResult(p, applyChatAudience(ctx, p.group.Id, audience, p.query.From.Id))
+	return settingsChatFromResult(p, apply(ctx))
+}
+
+// settingsChatSetLog serves the Message log toggle. 0 writes off at once and deletes the log; 1 is
+// one tap with no card (the page's notice discloses what is kept and sent): it is refused when the
+// stored provider cannot run here, redraws without a write when the log is already on, and
+// otherwise writes on.
+func settingsChatSetLog(p *settingsPress, value string) *settingsScreen {
+	if settingsChatGroupRefused(p) {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
+	defer cancel()
+	if value == "0" {
+		return settingsChatFromResult(p, applyChatLog(ctx, p.group.Id, false, p.query.From.Id))
+	}
+	stored, err := settingsChatReadSettings(p.group.Id)
+	if err != nil {
+		p.cannotOpen()
+		return nil
+	}
+	if !chatProviderConfigured(stored.Provider) {
+		return settingsChatUnavailable(p)
+	}
+	if stored.LogEnabled {
+		screen := renderSettingsChat(p.view(), stored, "")
+		return &screen
+	}
+	return settingsChatFromResult(p, applyChatLog(ctx, p.group.Id, true, p.query.From.Id))
+}
+
+// settingsChatSetJudge stores where a /judge verdict goes by default; the stored value writes
+// nothing. It needs no provider.
+func settingsChatSetJudge(p *settingsPress, value string) *settingsScreen {
+	to := settingsChatJudgeCodes[value]
+	return settingsChatSetStored(p, func(stored chatconv.Settings) bool { return stored.JudgeTo == to },
+		func(ctx context.Context) chatApplyResult {
+			return applyChatJudgeTo(ctx, p.group.Id, to, p.query.From.Id)
+		})
 }

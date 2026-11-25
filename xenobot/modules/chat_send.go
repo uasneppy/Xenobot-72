@@ -57,14 +57,20 @@ var (
 	chatHandlePattern = regexp.MustCompile(`@([A-Za-z0-9_])`)
 )
 
-// chatFilterReply makes a provider's text safe to post: link-like tokens are replaced, every @
-// that starts a username is followed by a zero-width space so nobody is pinged, and the text is
-// cut to chatReplyMaxRunes at the last sentence end before the cap. It returns "" for a text that
-// is blank after filtering, which is never sent.
-func chatFilterReply(text string) string {
+// chatSanitizeText makes a provider's text safe to post: link-like tokens are replaced and every @
+// that starts a username is followed by a zero-width space so nobody is pinged. The result is
+// trimmed and is "" for a text that is blank.
+func chatSanitizeText(text string) string {
 	text = chatLinkPattern.ReplaceAllString(text, chatLinkRemoved)
 	text = chatHandlePattern.ReplaceAllString(text, "@\u200b$1")
-	text = strings.TrimSpace(text)
+	return strings.TrimSpace(text)
+}
+
+// chatFilterReply makes a conversation reply safe to post: the text is sanitized and cut to
+// chatReplyMaxRunes at the last sentence end before the cap. It returns "" for a text that is
+// blank after filtering, which is never sent.
+func chatFilterReply(text string) string {
+	text = chatSanitizeText(text)
 	if utf8.RuneCountInString(text) <= chatReplyMaxRunes {
 		return text
 	}
@@ -83,7 +89,8 @@ func chatFilterReply(text string) string {
 }
 
 // chatSendReply posts text as a plain reply to the addressed message: no parse mode, link
-// previews off. It is never sent without its reply: a message that aispam, antiflood, a lock or the
+// previews off. A conversation reply is never sent without its reply target (a brief, whose
+// command the command deletion removes after the handler, sets job.allowMissingReply): a message that aispam, antiflood, a lock or the
 // blacklist deleted (they delete and pass the update on, so it still reaches the watcher), or that
 // its sender deleted, makes Telegram refuse the reply, and the bot then stays silent
 // (chatReplyTargetGone).
@@ -95,7 +102,7 @@ func chatSendReply(ctx context.Context, b *gotgbot.Bot, job chatJob, text string
 			LinkPreviewOptions: &gotgbot.LinkPreviewOptions{IsDisabled: true},
 			ReplyParameters: &gotgbot.ReplyParameters{
 				MessageId:                job.messageID,
-				AllowSendingWithoutReply: false,
+				AllowSendingWithoutReply: job.allowMissingReply,
 			},
 		})
 		sent = msg

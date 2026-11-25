@@ -370,14 +370,105 @@ func TestSettingsDriftChat(t *testing.T) {
 	if err := chatconv.SetAudience(ctx, env.chat.Id, chatconv.AudienceAdminsApproved, 1); err != nil {
 		t.Fatal(err)
 	}
+	if err := chatconv.SetLogEnabled(ctx, env.chat.Id, true, 1); err != nil {
+		t.Fatal(err)
+	}
 	env.pressPrivate(owner, msgID, env.privateFields(env.chat.Id, "a", "op", "p", settingsPageChat))
 	text, keyboard := env.lastEdit(owner.Id, msgID)
+	if logOff, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlLog }); !ok || settingsButtonFields(t, logOff)["v"] != "0" {
+		t.Errorf("a log stored on is not drawn with an Off toggle: %+v", logOff)
+	}
 	if !strings.Contains(text, "Google (Gemini)") || !strings.Contains(text, staffMarker("settings_chat_audience_admins")) {
 		t.Errorf("the page %q does not draw the stored provider and audience", text)
 	}
 	selected, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlProvider && f["v"] == "g" })
 	if !ok || !strings.HasPrefix(selected.Text, settingsSelectedPrefix) {
 		t.Errorf("the stored provider is not marked: %+v", selected)
+	}
+	if err := chatconv.SetJudgeTo(ctx, env.chat.Id, chatconv.JudgeToStaff, 1); err != nil {
+		t.Fatal(err)
+	}
+	env.pressPrivate(owner, msgID, env.privateFields(env.chat.Id, "a", "op", "p", settingsPageChat))
+	text, keyboard = env.lastEdit(owner.Id, msgID)
+	if !strings.Contains(text, staffMarker("settings_chat_judge_line")) || !strings.Contains(text, staffMarker("settings_btn_chat_judge_staff")) {
+		t.Errorf("the page %q does not draw the stored judge destination", text)
+	}
+	if staffButton, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlJudge && f["v"] == "s" }); !ok || !strings.HasPrefix(staffButton.Text, settingsSelectedPrefix) {
+		t.Errorf("the stored judge destination is not marked: %+v", staffButton)
+	}
+}
+
+// TestSettingsChatJudge drives the /judge destination choice: the owner's three presses store each
+// value, a press of the stored value writes nothing, and a group menu, a forged value, an
+// administrator and a member are refused with nothing written.
+func TestSettingsChatJudge(t *testing.T) {
+	withChatProviders(t, true, true, true)
+	env := settingsChatEnv(t)
+	owner := env.newOwner(env.chat)
+	private := settingsPrivateChat(owner)
+	msgID := settingsChatOpenPrivate(t, env, owner)
+	text, keyboard := env.lastEdit(owner.Id, msgID)
+	if !strings.Contains(text, staffMarker("settings_chat_judge_line")) {
+		t.Fatalf("the page %q has no judge line", text)
+	}
+	group, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlJudge && f["v"] == "g" })
+	if !ok || !strings.HasPrefix(group.Text, settingsSelectedPrefix) {
+		t.Fatalf("the group destination is not drawn as stored: %+v", keyboard)
+	}
+	for _, want := range []struct {
+		code string
+		to   int
+	}{{"p", chatconv.JudgeToPrivate}, {"s", chatconv.JudgeToStaff}, {"g", chatconv.JudgeToGroup}} {
+		_, keyboard = env.lastEdit(owner.Id, msgID)
+		button, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlJudge && f["v"] == want.code })
+		if !ok || settingsButtonFields(t, button)["a"] != "st" {
+			t.Fatalf("no st button for %s: %+v", want.code, keyboard)
+		}
+		env.pressRaw(private, owner, msgID, button.CallbackData)
+		if got := settingsChatStored(t, env.chat.Id); got.JudgeTo != want.to || got.Enabled || got.LogEnabled {
+			t.Fatalf("after %s: %+v", want.code, got)
+		}
+		_, keyboard = env.lastEdit(owner.Id, msgID)
+		if marked, _ := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlJudge && f["v"] == want.code }); !strings.HasPrefix(marked.Text, settingsSelectedPrefix) {
+			t.Errorf("after %s the stored destination is not marked", want.code)
+		}
+	}
+
+	lookups := func() int { return len(env.fake.callsFor("getChatMember")) }
+	before := lookups()
+	for _, fields := range []map[string]string{
+		env.privateFields(env.chat.Id, "a", "st", "p", settingsPageChat, "t", settingsChatControlJudge, "v", "x"),
+		env.privateFields(env.chat.Id, "a", "tg", "p", settingsPageChat, "t", settingsChatControlJudge, "v", "s"),
+	} {
+		env.pressPrivate(owner, msgID, fields)
+		if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("common_callback_invalid_request")) {
+			t.Errorf("a forged press %v answered %q (alert %v)", fields, answer, alert)
+		}
+	}
+	if n := lookups() - before; n != 0 {
+		t.Errorf("forged presses made %d member lookups, want none (refused in step 1)", n)
+	}
+	// A group menu's press is refused like every control of the page: the invalid-request alert,
+	// nothing written.
+	groupMsg := env.openMenu(owner)
+	env.press(owner, groupMsg, env.groupFields(owner, "a", "st", "p", settingsPageChat, "t", settingsChatControlJudge, "v", "s"))
+	if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("common_callback_invalid_request")) {
+		t.Errorf("a group press answered %q (alert %v)", answer, alert)
+	}
+
+	env.setAdminsAllowed(env.chat.Id, true)
+	env.pressPrivate(env.admin, 77, env.privateFields(env.chat.Id, "a", "st", "p", settingsPageChat, "t", settingsChatControlJudge, "v", "s"))
+	if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("settings_access_owner_only")) {
+		t.Errorf("an administrator's press answered %q (alert %v)", answer, alert)
+	}
+	member := gotgbot.User{Id: uniqueLinkOwnerID() + 8_000_000, FirstName: "Member"}
+	env.fake.setMember(env.chat.Id, member.Id, staffFakeMember{Status: gotgbot.ChatMemberStatusMember})
+	env.pressPrivate(member, 79, env.privateFields(env.chat.Id, "a", "st", "p", settingsPageChat, "t", settingsChatControlJudge, "v", "s"))
+	if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("settings_not_admin")) {
+		t.Errorf("a member's press answered %q (alert %v)", answer, alert)
+	}
+	if got := settingsChatStored(t, env.chat.Id); got.JudgeTo != chatconv.JudgeToGroup {
+		t.Fatalf("a refused press changed the destination: %+v", got)
 	}
 }
 
@@ -388,7 +479,10 @@ func TestSettingsChatCallbackBytes(t *testing.T) {
 	screens := map[string]settingsScreen{"card": renderSettingsChatCard(view, chatconv.ProviderGoogle)}
 	for _, on := range []bool{false, true} {
 		for _, provider := range chatProviders {
-			screens[fmt.Sprintf("page %t %s", on, provider)] = renderSettingsChat(view, chatconv.Settings{Enabled: on, Provider: provider, Audience: 1}, "")
+			for _, to := range []int{chatconv.JudgeToGroup, chatconv.JudgeToPrivate, chatconv.JudgeToStaff} {
+				stored := chatconv.Settings{Enabled: on, Provider: provider, Audience: 1, LogEnabled: on, JudgeTo: to}
+				screens[fmt.Sprintf("page %t %s %d", on, provider, to)] = renderSettingsChat(view, stored, "")
+			}
 		}
 	}
 	for label, screen := range screens {
@@ -412,10 +506,15 @@ func TestSettingsChatPageFitsEveryLocale(t *testing.T) {
 			tr := i18n.MustNewTranslator(code)
 			notice := settingsNoticeWarn(settingsText(tr, "common_settings_save_failed"))
 			view := settingsView{Tr: tr, Private: true, OwnerKey: "c", OwnerValue: "-1001234567890", GroupID: -1001234567890, GroupTitle: title, OpenerName: "N", Owner: true}
-			for _, screen := range []settingsScreen{
-				renderSettingsChatCard(view, chatconv.ProviderAnthropic),
-				renderSettingsChat(view, chatconv.Settings{Enabled: true, Provider: chatconv.ProviderGoogle, Audience: 1}, notice),
-			} {
+			screens := []settingsScreen{renderSettingsChatCard(view, chatconv.ProviderAnthropic)}
+			for _, to := range []int{chatconv.JudgeToGroup, chatconv.JudgeToPrivate, chatconv.JudgeToStaff} {
+				stored := chatconv.Settings{Enabled: true, Provider: chatconv.ProviderGoogle, Audience: 1, LogEnabled: true, JudgeTo: to}
+				screens = append(screens, renderSettingsChat(view, stored, notice))
+			}
+			for _, screen := range screens {
+				if rows := len(screen.Keyboard.InlineKeyboard); rows > 8 {
+					t.Errorf("the page has %d rows, want at most 8", rows)
+				}
 				if got := panelUTF16Len(screen.Text); got > 3800 {
 					t.Errorf("a screen is %d UTF-16 units, want at most 3800", got)
 				}
@@ -427,4 +526,101 @@ func TestSettingsChatPageFitsEveryLocale(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSettingsChatLog drives the Message log switch: one tap On, one tap Off that deletes the stored
+// log, forged and refused presses, and the provider check.
+func TestSettingsChatLog(t *testing.T) {
+	withChatProviders(t, true, true, true)
+
+	t.Run("owner flow: one tap on, one tap off that deletes the log", func(t *testing.T) {
+		env := settingsChatEnv(t)
+		mr, _ := withChatRedis(t)
+		owner := env.newOwner(env.chat)
+		private := settingsPrivateChat(owner)
+		msgID := settingsChatOpenPrivate(t, env, owner)
+		text, keyboard := env.lastEdit(owner.Id, msgID)
+		for _, want := range []string{"settings_chat_log_status", "settings_chat_log_notice"} {
+			if !strings.Contains(text, staffMarker(want)) {
+				t.Fatalf("the page %q lacks %s", text, want)
+			}
+		}
+		if !strings.Contains(text, "Anthropic (Claude)") {
+			t.Errorf("the page does not name the provider: %q", text)
+		}
+		if settingsChatRows(t, env.chat.Id) != 0 {
+			t.Fatal("opening the page created a row")
+		}
+		on, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["a"] == "tg" && f["t"] == settingsChatControlLog })
+		if !ok || settingsButtonFields(t, on)["v"] != "1" {
+			t.Fatalf("no log toggle with v=1: %+v", keyboard)
+		}
+		env.pressRaw(private, owner, msgID, on.CallbackData)
+		if got := settingsChatStored(t, env.chat.Id); !got.LogEnabled || got.Enabled {
+			t.Fatalf("one tap stored %+v, want the log on and conversations untouched", got)
+		}
+		_ = mr.Set(chatLogKey(env.chat.Id), "ring")
+		_, keyboard = env.lastEdit(owner.Id, msgID)
+		off, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["a"] == "tg" && f["t"] == settingsChatControlLog })
+		if !ok || settingsButtonFields(t, off)["v"] != "0" {
+			t.Fatal("the on toggle does not send v=0")
+		}
+		// A press of the stored value writes nothing and keeps the log.
+		env.pressRaw(private, owner, msgID, on.CallbackData)
+		if !mr.Exists(chatLogKey(env.chat.Id)) {
+			t.Error("a press of the stored value deleted the log")
+		}
+		env.pressRaw(private, owner, msgID, off.CallbackData)
+		if settingsChatStored(t, env.chat.Id).LogEnabled {
+			t.Fatal("one tap did not turn the log off")
+		}
+		if mr.Exists(chatLogKey(env.chat.Id)) {
+			t.Error("Off left the stored log behind")
+		}
+	})
+
+	t.Run("a group menu, an administrator and a plain press are refused and write nothing", func(t *testing.T) {
+		env := settingsChatEnv(t)
+		owner := env.newOwner(env.chat)
+		env.setAdminsAllowed(env.chat.Id, true)
+		msgID := env.openMenu(owner)
+		env.press(owner, msgID, env.groupFields(owner, "a", "tg", "p", settingsPageChat, "t", settingsChatControlLog, "v", "1"))
+		if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("common_callback_invalid_request")) {
+			t.Errorf("a group press answered %q (alert %v)", answer, alert)
+		}
+		env.pressPrivate(env.admin, 77, env.privateFields(env.chat.Id, "a", "tg", "p", settingsPageChat, "t", settingsChatControlLog, "v", "1"))
+		if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("settings_access_owner_only")) {
+			t.Errorf("an administrator's press answered %q (alert %v)", answer, alert)
+		}
+		env.pressPrivate(owner, 78, env.privateFields(env.chat.Id, "a", "st", "p", settingsPageChat, "t", settingsChatControlLog, "v", "1"))
+		if _, alert := env.lastAnswer(); !alert {
+			t.Error("an st press of the toggle was not refused")
+		}
+		if settingsChatRows(t, env.chat.Id) != 0 {
+			t.Fatal("a refused press wrote a row")
+		}
+	})
+
+	t.Run("a stored provider the server cannot run refuses On but not Off", func(t *testing.T) {
+		withChatProviders(t, true, false, true)
+		env := settingsChatEnv(t)
+		mr, _ := withChatRedis(t)
+		owner := env.newOwner(env.chat)
+		msgID := settingsChatOpenPrivate(t, env, owner)
+		env.pressPrivate(owner, msgID, env.privateFields(env.chat.Id, "a", "tg", "p", settingsPageChat, "t", settingsChatControlLog, "v", "1"))
+		if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("settings_chat_provider_missing")) {
+			t.Errorf("a forged On answered %q (alert %v)", answer, alert)
+		}
+		if settingsChatRows(t, env.chat.Id) != 0 {
+			t.Fatal("a refused On wrote a row")
+		}
+		if err := chatconv.SetLogEnabled(context.Background(), env.chat.Id, true, owner.Id); err != nil {
+			t.Fatal(err)
+		}
+		_ = mr.Set(chatLogKey(env.chat.Id), "ring")
+		env.pressPrivate(owner, msgID, env.privateFields(env.chat.Id, "a", "tg", "p", settingsPageChat, "t", settingsChatControlLog, "v", "0"))
+		if settingsChatStored(t, env.chat.Id).LogEnabled || mr.Exists(chatLogKey(env.chat.Id)) {
+			t.Fatal("Off did not turn the log off and delete it")
+		}
+	})
 }

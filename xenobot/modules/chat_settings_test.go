@@ -118,3 +118,81 @@ func TestApplyChatSettings(t *testing.T) {
 		}
 	})
 }
+
+func TestApplyChatLog(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("on writes and keeps the log, off writes and deletes it", func(t *testing.T) {
+		chatID := uniqueModuleChatID()
+		chatConvCleanup(t, chatID)
+		mr, _ := withChatRedis(t)
+		_ = mr.Set(chatLogKey(chatID), "ring")
+		_ = mr.Set(chatLogKey(chatID-1), "another chat")
+
+		if r := applyChatLog(ctx, chatID, true, 5); r.Outcome != chatApplied || r.Settings == nil || !r.Settings.LogEnabled {
+			t.Fatalf("on: %+v", r)
+		}
+		if !mr.Exists(chatLogKey(chatID)) {
+			t.Error("on deleted the log")
+		}
+		r := applyChatLog(ctx, chatID, false, 5)
+		if r.Outcome != chatApplied || r.Settings == nil || r.Settings.LogEnabled {
+			t.Fatalf("off: %+v", r)
+		}
+		if mr.Exists(chatLogKey(chatID)) {
+			t.Error("off left the log behind")
+		}
+		if !mr.Exists(chatLogKey(chatID - 1)) {
+			t.Error("off deleted another chat's log")
+		}
+		if got, _ := chatconv.Get(ctx, chatID); got.LogEnabled {
+			t.Error("the cached setting still reads on")
+		}
+	})
+
+	t.Run("a failed write keeps the log and reports the failure", func(t *testing.T) {
+		chatID := uniqueModuleChatID()
+		chatConvCleanup(t, chatID)
+		mr, _ := withChatRedis(t)
+		_ = mr.Set(chatLogKey(chatID), "ring")
+		previous := chatConvWrites.LogEnabled
+		chatConvWrites.LogEnabled = func(context.Context, int64, bool, int64) error { return errors.New("db down") }
+		t.Cleanup(func() { chatConvWrites.LogEnabled = previous })
+
+		if r := applyChatLog(ctx, chatID, false, 5); r.Outcome != chatSaveFailed || r.Err == nil {
+			t.Fatalf("result %+v", r)
+		}
+		if !mr.Exists(chatLogKey(chatID)) {
+			t.Error("a failed write deleted the log")
+		}
+	})
+}
+
+func TestApplyChatJudgeTo(t *testing.T) {
+	ctx := context.Background()
+	chatID := uniqueModuleChatID()
+	chatConvCleanup(t, chatID)
+
+	for _, to := range []int{chatconv.JudgeToStaff, chatconv.JudgeToPrivate, chatconv.JudgeToGroup} {
+		if r := applyChatJudgeTo(ctx, chatID, to, 5); r.Outcome != chatApplied || r.Settings == nil || r.Settings.JudgeTo != to {
+			t.Fatalf("judge destination %d: %+v", to, r)
+		}
+	}
+	// A value outside the stored ones writes nothing; the stored one stays.
+	if r := applyChatJudgeTo(ctx, chatID, chatconv.JudgeToPrivate, 5); r.Outcome != chatApplied {
+		t.Fatalf("private: %+v", r)
+	}
+	if r := applyChatJudgeTo(ctx, chatID, 3, 5); r.Outcome != chatInvalidValue {
+		t.Errorf("an invalid destination: %+v", r)
+	}
+	if got, _ := chatconv.GetFresh(ctx, chatID); got.JudgeTo != chatconv.JudgeToPrivate {
+		t.Errorf("an invalid value changed the stored destination: %+v", got)
+	}
+	// A failed write reports the failure.
+	previous := chatConvWrites.JudgeTo
+	chatConvWrites.JudgeTo = func(context.Context, int64, int, int64) error { return errors.New("db down") }
+	t.Cleanup(func() { chatConvWrites.JudgeTo = previous })
+	if r := applyChatJudgeTo(ctx, chatID, chatconv.JudgeToStaff, 5); r.Outcome != chatSaveFailed || r.Err == nil {
+		t.Fatalf("a failed write: %+v", r)
+	}
+}

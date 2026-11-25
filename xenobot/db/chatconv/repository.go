@@ -24,13 +24,19 @@ const (
 	AudienceEveryone       = 0
 	AudienceAdminsApproved = 1
 
+	// JudgeToGroup, JudgeToPrivate and JudgeToStaff are the stored destinations of a /judge verdict:
+	// the group, the admin's own private chat and the linked Staff Group.
+	JudgeToGroup   = 0
+	JudgeToPrivate = 1
+	JudgeToStaff   = 2
+
 	cacheTTL = cache.DefaultCacheTTL
 )
 
 var (
 	errNoDatabase = errors.New("database not initialized")
-	// ErrInvalidValue is returned, before any write, for a provider or audience outside the
-	// stored values.
+	// ErrInvalidValue is returned, before any write, for a provider, audience or /judge
+	// destination outside the stored values.
 	ErrInvalidValue = errors.New("chatconv: invalid value")
 )
 
@@ -39,6 +45,12 @@ type Settings struct {
 	Enabled  bool   `msgpack:"e"`
 	Provider string `msgpack:"p"`
 	Audience int    `msgpack:"a"`
+	// LogEnabled is the owner's Message log switch. A value an older build cached has no field
+	// and decodes to off.
+	LogEnabled bool `msgpack:"l"`
+	// JudgeTo is where a /judge verdict goes by default (JudgeToGroup, JudgeToPrivate or
+	// JudgeToStaff). A value an older build cached has no field and decodes to the group.
+	JudgeTo int `msgpack:"j"`
 }
 
 // Defaults is the setting of a chat with no row: off, Anthropic, everyone.
@@ -54,6 +66,11 @@ func ValidProvider(p string) bool {
 // ValidAudience reports whether a is a stored audience value.
 func ValidAudience(a int) bool {
 	return a == AudienceEveryone || a == AudienceAdminsApproved
+}
+
+// ValidJudgeTo reports whether to is a stored /judge destination.
+func ValidJudgeTo(to int) bool {
+	return to >= JudgeToGroup && to <= JudgeToStaff
 }
 
 // CacheKey is the cache key of a chat's setting. Its prefix is listed in skipLocal.
@@ -82,7 +99,7 @@ func GetFresh(ctx context.Context, chatID int64) (Settings, error) {
 	if err != nil {
 		return Settings{}, xenoerrors.Wrapf(err, "read the conversation setting of chat %d", chatID)
 	}
-	return Settings{Enabled: row.Enabled, Provider: row.Provider, Audience: int(row.Audience)}, nil
+	return Settings{Enabled: row.Enabled, Provider: row.Provider, Audience: int(row.Audience), LogEnabled: row.LogEnabled, JudgeTo: int(row.JudgeTo)}, nil
 }
 
 // SetEnabled writes the on/off switch with one column-targeted upsert and drops the key.
@@ -110,6 +127,24 @@ func SetAudience(ctx context.Context, chatID int64, audience int, by int64) erro
 	row := defaultRow(chatID, by)
 	row.Audience = int16(audience) // #nosec G115 -- validated as 0 or 1
 	return upsert(ctx, row, "audience")
+}
+
+// SetLogEnabled writes the Message log switch with one column-targeted upsert and drops the key.
+func SetLogEnabled(ctx context.Context, chatID int64, on bool, by int64) error {
+	row := defaultRow(chatID, by)
+	row.LogEnabled = on
+	return upsert(ctx, row, "log_enabled")
+}
+
+// SetJudgeTo writes the default destination of a /judge verdict, refusing a value outside the
+// stored ones before any write.
+func SetJudgeTo(ctx context.Context, chatID int64, to int, by int64) error {
+	if !ValidJudgeTo(to) {
+		return ErrInvalidValue
+	}
+	row := defaultRow(chatID, by)
+	row.JudgeTo = int16(to) // #nosec G115 -- validated as 0 to 2
+	return upsert(ctx, row, "judge_to")
 }
 
 func defaultRow(chatID, by int64) *models.ChatConversation {

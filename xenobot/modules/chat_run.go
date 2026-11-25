@@ -61,6 +61,10 @@ type chatJob struct {
 	provider  string
 	turn      chatprompt.Turn
 	quoted    *chatprompt.Turn
+	// allowMissingReply sends the reply even when the message it answers is gone. The zero value
+	// keeps a conversation reply silent for a deleted message; a brief sets it because the
+	// command it answers is deleted right after the handler returns.
+	allowMissingReply bool
 }
 
 var (
@@ -133,7 +137,7 @@ func chatStatsSection() string {
 	return fmt.Sprintf(
 		"\n    <b>Conversations:</b> answered %d, refused %d, failed %d, shed %d, capped %d",
 		chatAnsweredCount.Load(), chatRefusedCount.Load(), chatFailedCount.Load(), chatShedCount.Load(), chatCappedCount.Load(),
-	)
+	) + chatBriefStatsSection()
 }
 
 func chatEnsureWorkers() {
@@ -143,6 +147,7 @@ func chatEnsureWorkers() {
 		for range chatWorkerCount {
 			go chatWorker()
 		}
+		chatBriefEnsureWorkers()
 	})
 }
 
@@ -190,9 +195,14 @@ func chatCooldownKey(chatID, userID int64) string {
 // chatTakeCooldown claims the member's cooldown. A member inside it, and a Redis error, get no
 // reply.
 func chatTakeCooldown(ctx context.Context, client *redis.Client, chatID, userID int64) bool {
+	return chatClaimCooldown(ctx, client, chatCooldownKey(chatID, userID), chatCooldown)
+}
+
+// chatClaimCooldown claims one cooldown key for the span; a Redis error is no claim.
+func chatClaimCooldown(ctx context.Context, client *redis.Client, key string, span time.Duration) bool {
 	ctx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
 	defer cancel()
-	won, err := client.SetNX(ctx, chatCooldownKey(chatID, userID), "1", chatCooldown).Result()
+	won, err := client.SetNX(ctx, key, "1", span).Result()
 	return err == nil && won
 }
 
@@ -208,15 +218,21 @@ const (
 // chatReserve takes the member's unit first, then the group's, then the fleet's, and stops at the
 // first refusal or error, so a member over their own allowance spends neither shared unit.
 func chatReserve(client *redis.Client, chatID, userID int64) chatBudgetResult {
+	return chatReserveWith(client, chatID, userID, "b", chatUserHourlyBudget, chatChatHourlyBudget, chatGlobalHourlyBudget)
+}
+
+// chatReserveWith is chatReserve for one family of budgets (b for conversations, brief:b for
+// briefs) with its own limits.
+func chatReserveWith(client *redis.Client, chatID, userID int64, family string, userLimit, chatLimit, globalLimit int64) chatBudgetResult {
 	stamp := raidAIHourStamp(raidNow())
 	chat := strconv.FormatInt(chatID, 10)
 	steps := [...]struct {
 		key   string
 		limit int64
 	}{
-		{chatKeyPrefix + "b:u:" + chat + ":" + strconv.FormatInt(userID, 10) + ":" + stamp, chatUserHourlyBudget},
-		{chatKeyPrefix + "b:c:" + chat + ":" + stamp, chatChatHourlyBudget},
-		{chatKeyPrefix + "b:g:" + stamp, chatGlobalHourlyBudget},
+		{chatKeyPrefix + family + ":u:" + chat + ":" + strconv.FormatInt(userID, 10) + ":" + stamp, userLimit},
+		{chatKeyPrefix + family + ":c:" + chat + ":" + stamp, chatLimit},
+		{chatKeyPrefix + family + ":g:" + stamp, globalLimit},
 	}
 	for _, step := range steps {
 		allowed, err := raidAIBudgetTake(client, step.key, step.limit)
