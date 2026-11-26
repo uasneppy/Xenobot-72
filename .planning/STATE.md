@@ -1,21 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v1.2
-status: Awaiting next milestone
-stopped_at: Phase 30 complete, ready to verify Phase 21
-last_updated: "2026-11-24T21:04:51.049Z"
-last_activity: 2026-11-24
-last_activity_desc: "Quick task 261124-l1n: fix CI lint findings after the rebrand"
-state_head: dfe7bfccd42a6f5680e7174b20454e9ca6d34843
-milestone_name: Conversations, Custom Messages and Tuning
-current_phase: 30
-current_phase_name: Backup Page and Custom Messages in Backups
+milestone: v1.3
+milestone_name: Interactive Presence
+status: planning
+last_updated: "2026-11-26T19:12:10.125Z"
+last_activity: 2026-11-26
 progress:
-  total_phases: 11
-  completed_phases: 11
-  total_plans: 87
-  completed_plans: 87
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +24,11 @@ See: .planning/PROJECT.md (updated 2026-11-24)
 
 ## Current Position
 
-Phase: Milestone v1.2 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-11-24 -- Quick task 261124-l1n: fix CI lint findings after the rebrand
+Status: Defining requirements
+Last activity: 2026-11-26 — Milestone v1.3 started
+
 
 ## Performance Metrics
 
