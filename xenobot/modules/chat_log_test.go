@@ -343,3 +343,122 @@ func TestChatLogWatcherGroupReached(t *testing.T) {
 		}
 	}
 }
+
+func TestChatLogRecentThread(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("nil client and non-positive limit return nil", func(t *testing.T) {
+		_, client := withChatRedis(t)
+		chatID := uniqueModuleChatID()
+		if got, err := chatLogRecentThread(ctx, nil, chatID, 0, 100, 5); err != nil || got != nil {
+			t.Fatalf("nil client: got (%v, %v), want (nil, nil)", got, err)
+		}
+		if got, err := chatLogRecentThread(ctx, client, chatID, 0, 100, 0); err != nil || got != nil {
+			t.Fatalf("limit 0: got (%v, %v), want (nil, nil)", got, err)
+		}
+		if got, err := chatLogRecentThread(ctx, client, chatID, 0, 100, -3); err != nil || got != nil {
+			t.Fatalf("limit -3: got (%v, %v), want (nil, nil)", got, err)
+		}
+	})
+
+	t.Run("topic isolation, beforeMsgID filter, oldest-first cap, and malformed JSON skip", func(t *testing.T) {
+		_, client := withChatRedis(t)
+		chatID := uniqueModuleChatID()
+
+		record := func(id, thread int64, text string) {
+			t.Helper()
+			e := chatLogEntry{MessageID: id, UserID: 5, Name: "Ann", Text: text, Thread: thread}
+			if err := chatLogRecord(client, chatID, e); err != nil {
+				t.Fatalf("chatLogRecord(%d): %v", id, err)
+			}
+		}
+
+		// Seed 8 entries in thread 10 (IDs 1..8), interleaved with thread 20 and thread 0,
+		// plus triggering message (ID 100) and newer message (ID 101) in thread 10.
+		for id := int64(1); id <= 8; id++ {
+			record(id, 10, "t10-"+strconv.FormatInt(id, 10))
+		}
+		record(20, 20, "t20-a")
+		record(21, 20, "t20-b")
+		record(30, 0, "general-a")
+		record(31, 0, "general-b")
+		record(100, 10, "trigger")
+		record(101, 10, "newer")
+
+		// Inject a malformed JSON member inside the newest scores to ensure it is skipped cleanly.
+		if err := client.ZAdd(ctx, chatLogKey(chatID), redis.Z{Score: 99, Member: "{not-valid-json"}).Err(); err != nil {
+			t.Fatalf("ZAdd malformed: %v", err)
+		}
+
+		got10, err := chatLogRecentThread(ctx, client, chatID, 10, 100, 5)
+		if err != nil {
+			t.Fatalf("chatLogRecentThread(thread=10): %v", err)
+		}
+		ids10 := make([]int64, len(got10))
+		for i, e := range got10 {
+			ids10[i] = e.MessageID
+			if e.Thread != 10 {
+				t.Errorf("thread 10 read leaked entry from thread %d: %+v", e.Thread, e)
+			}
+		}
+		chatLogWantIDs(t, ids10, 4, 5, 6, 7, 8)
+
+		got20, err := chatLogRecentThread(ctx, client, chatID, 20, 100, 5)
+		if err != nil {
+			t.Fatalf("chatLogRecentThread(thread=20): %v", err)
+		}
+		ids20 := make([]int64, len(got20))
+		for i, e := range got20 {
+			ids20[i] = e.MessageID
+		}
+		chatLogWantIDs(t, ids20, 20, 21)
+
+		got0, err := chatLogRecentThread(ctx, client, chatID, 0, 100, 5)
+		if err != nil {
+			t.Fatalf("chatLogRecentThread(thread=0): %v", err)
+		}
+		ids0 := make([]int64, len(got0))
+		for i, e := range got0 {
+			ids0[i] = e.MessageID
+		}
+		chatLogWantIDs(t, ids0, 30, 31)
+
+		// Thread with no matching entries returns (nil, nil).
+		gotNone, err := chatLogRecentThread(ctx, client, chatID, 999, 100, 5)
+		if err != nil || gotNone != nil {
+			t.Fatalf("no matches: got (%v, %v), want (nil, nil)", gotNone, err)
+		}
+	})
+
+	t.Run("bounded reverse scan stops at chatLogRecentScanLimit", func(t *testing.T) {
+		_, client := withChatRedis(t)
+		chatID := uniqueModuleChatID()
+
+		// Old matching entry at score 1 in thread 77, followed by chatLogRecentScanLimit entries in thread 0.
+		if err := chatLogRecord(client, chatID, chatLogEntry{MessageID: 1, UserID: 5, Name: "Ann", Text: "old", Thread: 77}); err != nil {
+			t.Fatal(err)
+		}
+		for i := int64(2); i < 2+chatLogRecentScanLimit; i++ {
+			if err := chatLogRecord(client, chatID, chatLogEntry{MessageID: i, UserID: 5, Name: "Ann", Text: "noise", Thread: 0}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// With 1 old + 50 newer entries, entry 1 is rank 50 (outside 0..49), so scan skips it.
+		got, err := chatLogRecentThread(ctx, client, chatID, 77, 1000, 5)
+		if err != nil || got != nil {
+			t.Fatalf("beyond scan cap: got (%v, %v), want (nil, nil)", got, err)
+		}
+	})
+
+	t.Run("redis error propagates", func(t *testing.T) {
+		mr, client := withChatRedis(t)
+		chatID := uniqueModuleChatID()
+		mr.Close()
+
+		got, err := chatLogRecentThread(ctx, client, chatID, 0, 100, 5)
+		if err == nil || got != nil {
+			t.Fatalf("closed redis: got (%v, %v), want (nil, error)", got, err)
+		}
+	})
+}

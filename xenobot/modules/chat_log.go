@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -35,6 +36,8 @@ const (
 	chatLogTextRunes = 400
 	// chatLogReadTimeout bounds the read of a stretch (up to a ring's worth of entries).
 	chatLogReadTimeout = 2 * time.Second
+	// chatLogRecentScanLimit bounds the reverse scan used for background AI reaction context.
+	chatLogRecentScanLimit = 50
 )
 
 // chatLogMax is how many messages the ring keeps; a variable only so a test can shrink it.
@@ -135,6 +138,41 @@ func chatLogSince(ctx context.Context, client *redis.Client, chatID, fromID int6
 		}
 		entries = append(entries, entry)
 	}
+	return entries, nil
+}
+
+// chatLogRecentThread performs a bounded reverse scan of the newest chatLogRecentScanLimit entries
+// in chatID's log ring, strictly filtering to entry.Thread == threadID && entry.MessageID < beforeMsgID
+// so forum topics never bleed and the triggering message is never duplicated. It returns up to limit
+// matching entries ordered oldest-first, or (nil, nil) when none match.
+func chatLogRecentThread(ctx context.Context, client *redis.Client, chatID, threadID, beforeMsgID int64, limit int) ([]chatLogEntry, error) {
+	if client == nil || limit <= 0 {
+		return nil, nil
+	}
+	rCtx, cancel := context.WithTimeout(ctx, chatLogReadTimeout)
+	defer cancel()
+	raw, err := client.ZRevRange(rCtx, chatLogKey(chatID), 0, chatLogRecentScanLimit-1).Result()
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]chatLogEntry, 0, min(limit, len(raw)))
+	for _, item := range raw {
+		var entry chatLogEntry
+		if json.Unmarshal([]byte(item), &entry) != nil {
+			continue
+		}
+		if entry.Thread != threadID || entry.MessageID >= beforeMsgID {
+			continue
+		}
+		entries = append(entries, entry)
+		if len(entries) == limit {
+			break
+		}
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	slices.Reverse(entries)
 	return entries, nil
 }
 
