@@ -61,6 +61,35 @@ func assertChatBreakersClean(t *testing.T) {
 	}
 }
 
+func decodeTelegramWireParams(r *http.Request) (map[string]string, error) {
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			return nil, err
+		}
+		out := make(map[string]string, len(r.MultipartForm.Value))
+		for k, vals := range r.MultipartForm.Value {
+			if len(vals) > 0 {
+				out[k] = vals[0]
+			}
+		}
+		return out, nil
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(raw))
+	for k, v := range raw {
+		out[k] = string(v)
+	}
+	return out, nil
+}
+
 func TestPresenceClearReactionWireJSON(t *testing.T) {
 	withFastPresencePacer(t)
 	chatSwap(t, &chatBreakers, map[string]*memberReqAIBreaker{
@@ -75,17 +104,19 @@ func TestPresenceClearReactionWireJSON(t *testing.T) {
 	)
 
 	var (
-		mu       sync.Mutex
-		gotPath  string
-		gotBody  string
-		gotCount int
+		mu        sync.Mutex
+		gotPaths  []string
+		gotParams []map[string]string
+		parseErr  error
 	)
 	bot := newWireTestBot(t, func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
+		params, err := decodeTelegramWireParams(r)
 		mu.Lock()
-		gotPath = r.URL.Path
-		gotBody = string(body)
-		gotCount++
+		if err != nil && parseErr == nil {
+			parseErr = err
+		}
+		gotPaths = append(gotPaths, r.URL.Path)
+		gotParams = append(gotParams, params)
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
@@ -96,26 +127,47 @@ func TestPresenceClearReactionWireJSON(t *testing.T) {
 		t.Fatal("presenceClearReaction() = false, want true")
 	}
 
+	// Negative control: nil Reaction slice omits "reaction" on the wire in gotgbot/v2.
+	if _, err := bot.SetMessageReactionWithContext(context.Background(), chatID, msgID, &gotgbot.SetMessageReactionOpts{
+		Reaction: nil,
+	}); err != nil {
+		t.Fatalf("nil-reaction control call failed: %v", err)
+	}
+
 	mu.Lock()
-	path, body, count := gotPath, gotBody, gotCount
+	err := parseErr
+	paths := append([]string(nil), gotPaths...)
+	params := append([]map[string]string(nil), gotParams...)
 	mu.Unlock()
 
-	if count != 1 {
-		t.Fatalf("HTTP request count = %d, want 1", count)
+	if err != nil {
+		t.Fatalf("decodeTelegramWireParams failed: %v", err)
 	}
-	if path != "/bottest/setMessageReaction" {
-		t.Fatalf("HTTP path = %q, want /bottest/setMessageReaction", path)
+	if len(paths) != 2 {
+		t.Fatalf("HTTP request count = %d, want 2", len(paths))
 	}
-	if !strings.Contains(body, `"reaction":[]`) {
-		t.Fatalf("wire body = %s, want explicit \"reaction\":[] (never omitted)", body)
+	if paths[0] != "/bottest/setMessageReaction" {
+		t.Fatalf("HTTP path = %q, want /bottest/setMessageReaction", paths[0])
 	}
 
-	var decoded map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(body), &decoded); err != nil {
-		t.Fatalf("wire body is not valid JSON (%s): %v", body, err)
+	clearParams := params[0]
+	reactionRaw, present := clearParams["reaction"]
+	if !present {
+		t.Fatalf("clear wire params = %v, missing explicit \"reaction\" field", clearParams)
 	}
-	if string(decoded["reaction"]) != "[]" {
-		t.Fatalf("decoded reaction = %s, want []", string(decoded["reaction"]))
+	if reactionRaw != "[]" {
+		t.Fatalf("clear wire \"reaction\" = %q, want \"[]\"", reactionRaw)
+	}
+	wireJSON, err := json.Marshal(map[string]json.RawMessage{"reaction": json.RawMessage(reactionRaw)})
+	if err != nil || !strings.Contains(string(wireJSON), `"reaction":[]`) {
+		t.Fatalf("serialized wire reaction = %s (err=%v), want \"reaction\":[]", string(wireJSON), err)
+	}
+	if clearParams["chat_id"] != "-100777001" || clearParams["message_id"] != "42" {
+		t.Errorf("clear wire chat_id/message_id = (%q, %q), want (-100777001, 42)", clearParams["chat_id"], clearParams["message_id"])
+	}
+
+	if _, nilPresent := params[1]["reaction"]; nilPresent {
+		t.Fatalf("negative control (Reaction: nil) unexpectedly sent \"reaction\"=%q", params[1]["reaction"])
 	}
 	assertChatBreakersClean(t)
 }
@@ -134,11 +186,11 @@ func TestPresenceReactAPI(t *testing.T) {
 
 		var (
 			mu          sync.Mutex
-			setBodies   []string
+			setParams   []map[string]string
+			parseErr    error
 			getChatHits int
 		)
 		bot := newWireTestBot(t, func(w http.ResponseWriter, r *http.Request) {
-			body, _ := io.ReadAll(r.Body)
 			w.Header().Set("Content-Type", "application/json")
 			switch r.URL.Path {
 			case "/bottest/getChat":
@@ -147,8 +199,12 @@ func TestPresenceReactAPI(t *testing.T) {
 				mu.Unlock()
 				_, _ = w.Write([]byte(`{"ok":true,"result":{"id":-100777010,"type":"supergroup"}}`))
 			case "/bottest/setMessageReaction":
+				params, err := decodeTelegramWireParams(r)
 				mu.Lock()
-				setBodies = append(setBodies, string(body))
+				if err != nil && parseErr == nil {
+					parseErr = err
+				}
+				setParams = append(setParams, params)
 				mu.Unlock()
 				_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
 			default:
@@ -162,39 +218,40 @@ func TestPresenceReactAPI(t *testing.T) {
 		}
 
 		mu.Lock()
+		err := parseErr
 		hits := getChatHits
-		bodies := append([]string(nil), setBodies...)
+		captured := append([]map[string]string(nil), setParams...)
 		mu.Unlock()
 
+		if err != nil {
+			t.Fatalf("decodeTelegramWireParams failed: %v", err)
+		}
 		if hits != 1 {
 			t.Fatalf("getChat calls = %d, want 1", hits)
 		}
-		if len(bodies) != 1 {
-			t.Fatalf("setMessageReaction calls = %d, want 1", len(bodies))
+		if len(captured) != 1 {
+			t.Fatalf("setMessageReaction calls = %d, want 1", len(captured))
 		}
-		if strings.Contains(bodies[0], "\ufe0f") {
-			t.Fatalf("wire body still contains U+FE0F: %s", bodies[0])
+		params := captured[0]
+		if params["chat_id"] != "-100777010" || params["message_id"] != "101" {
+			t.Errorf("chat_id/message_id = (%q, %q), want (-100777010, 101)", params["chat_id"], params["message_id"])
 		}
-		var payload struct {
-			ChatID    int64 `json:"chat_id"`
-			MessageID int64 `json:"message_id"`
-			IsBig     bool  `json:"is_big"`
-			Reaction  []struct {
-				Type  string `json:"type"`
-				Emoji string `json:"emoji"`
-			} `json:"reaction"`
+		if isBig, set := params["is_big"]; set && isBig != "false" {
+			t.Errorf("is_big = %q, want absent or false", isBig)
 		}
-		if err := json.Unmarshal([]byte(bodies[0]), &payload); err != nil {
-			t.Fatalf("decode wire body %s: %v", bodies[0], err)
+		reactionRaw := params["reaction"]
+		if strings.Contains(reactionRaw, "\ufe0f") {
+			t.Fatalf("wire reaction still contains U+FE0F: %s", reactionRaw)
 		}
-		if payload.ChatID != chatID || payload.MessageID != msgID {
-			t.Errorf("chat_id/message_id = (%d, %d), want (%d, %d)", payload.ChatID, payload.MessageID, chatID, msgID)
+		var reactions []struct {
+			Type  string `json:"type"`
+			Emoji string `json:"emoji"`
 		}
-		if payload.IsBig {
-			t.Errorf("is_big = true, want false")
+		if err := json.Unmarshal([]byte(reactionRaw), &reactions); err != nil {
+			t.Fatalf("decode wire reaction %q: %v", reactionRaw, err)
 		}
-		if len(payload.Reaction) != 1 || payload.Reaction[0].Type != "emoji" || payload.Reaction[0].Emoji != "❤" {
-			t.Errorf("reaction = %+v, want [{Type:emoji Emoji:❤}]", payload.Reaction)
+		if len(reactions) != 1 || reactions[0].Type != "emoji" || reactions[0].Emoji != "❤" {
+			t.Errorf("reaction = %+v, want [{Type:emoji Emoji:❤}]", reactions)
 		}
 
 		key := presenceBotReactKey(chatID, msgID)
