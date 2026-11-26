@@ -12,6 +12,7 @@ import (
 	"github.com/uasneppy/Xenobot-72/xenobot/db"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/cache"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
+	utilsCache "github.com/uasneppy/Xenobot-72/xenobot/utils/cache"
 )
 
 var testChatSeq atomic.Int64
@@ -159,6 +160,7 @@ func TestChatPresenceSettings(t *testing.T) {
 	})
 
 	t.Run("cache invalidation on writes and DB CHECK constraint enforcement", func(t *testing.T) {
+		utilsCache.SetupTestMemoryMarshaler(t)
 		chatID := newChat(t)
 		// Prime cache with defaults.
 		if got, err := Get(ctx, chatID); err != nil || got != Defaults() {
