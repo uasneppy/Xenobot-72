@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spike 002 — Reaction Abstention &amp; Persona</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --ok:#2ea043; --warn:#d29922; --err:#f85149; --accent:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family: ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); padding:20px; line-height:1.45; }
+  h1 { margin:0 0 4px; font-size:20px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:14px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap:12px; margin-bottom:14px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:14px; }
+  .card h2 { margin:0 0 10px; font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:.04em; }
+  label { display:block; font-size:12px; color:var(--muted); margin-top:6px; }
+  input[type=text], input[type=password], input[type=number], select, textarea { width:100%; background:#010409; border:1px solid var(--border); color:var(--text); border-radius:6px; padding:7px 9px; font-size:13px; margin-top:3px; }
+  textarea { min-height:56px; resize:vertical; }
+  .checks { display:flex; flex-wrap:wrap; gap:10px; margin-top:6px; font-size:13px; }
+  .checks label { display:inline-flex; align-items:center; gap:5px; margin:0; color:var(--text); cursor:pointer; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px; }
+  .btn { background:#238636; color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn:disabled { opacity:.5; cursor:wait; }
+  .btn-sec { background:#21262d; border:1px solid var(--border); color:var(--text); }
+  .rate-btn { background:#21262d; border:1px solid var(--border); color:var(--text); border-radius:4px; padding:2px 6px; cursor:pointer; font-size:12px; }
+  .rate-btn.active { border-color:var(--accent); background:rgba(88,166,255,.2); }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px; }
+  th, td { border-bottom:1px solid var(--border); padding:7px 8px; text-align:left; vertical-align:top; }
+  th { color:var(--muted); background:#010409; }
+  .badge { display:inline-block; padding:2px 7px; border-radius:999px; font-size:11px; font-weight:600; }
+  .b-ok { background:rgba(46,160,67,.2); color:#3fb950; }
+  .b-warn { background:rgba(210,153,34,.2); color:#e3b341; }
+  .b-err { background:rgba(248,81,73,.25); color:#ff7b72; }
+  .b-spicy { background:rgba(163,113,247,.25); color:#d2a8ff; }
+  .emoji-big { font-size:20px; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size:12px; }
+  .logbox { max-height:200px; overflow:auto; background:#010409; border:1px solid var(--border); border-radius:6px; padding:8px; font-family:ui-monospace,monospace; font-size:11.5px; }
+  .env-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
+  .dot-on { background:var(--ok); } .dot-off { background:var(--warn); }
+  tr.redline-fail { background:rgba(248,81,73,.12); }
+</style>
+</head>
+<body>
+  <h1>Spike 002 — Reaction Abstention &amp; Persona (UK / EN / RU)</h1>
+  <div class="sub">24 multilingual group snippets · 73 standard Telegram emojis + <code>NONE</code> · War/tragedy red-line safety · Mundane/drama restraint · Spicy restraint · Prompt-injection resistance</div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>1. Provider Credentials (In-Memory Only)</h2>
+      <label><span id="dot-claude" class="env-dot dot-off"></span>Anthropic API Key / Model</label>
+      <input type="password" id="anthropic_key" placeholder="Uses ANTHROPIC_API_KEY if blank">
+      <input type="text" id="anthropic_model" value="claude-haiku-5-5">
+      <label><span id="dot-gemini" class="env-dot dot-off"></span>Gemini API Key / Model</label>
+      <input type="password" id="gemini_key" placeholder="Uses GEMINI_API_KEY if blank">
+      <input type="text" id="gemini_model" value="gemini-4-hydrogen">
+      <label><span id="dot-featherless" class="env-dot dot-off"></span>Featherless API Key / Model</label>
+      <input type="password" id="featherless_key" placeholder="Uses FEATHERLESS_API_KEY if blank">
+      <input type="text" id="featherless_model" placeholder="e.g. Qwen/Qwen3-32B">
+    </div>
+
+    <div class="card">
+      <h2>2. Suite Controls</h2>
+      <label>Providers</label>
+      <div class="checks">
+        <label><input type="checkbox" name="prov" value="claude" checked> Claude</label>
+        <label><input type="checkbox" name="prov" value="gemini" checked> Gemini</label>
+        <label><input type="checkbox" name="prov" value="featherless" checked> Featherless</label>
+      </div>
+      <label>Prompt Variants</label>
+      <div class="checks">
+        <label><input type="checkbox" name="var" value="compact_strict" checked> compact_strict (~450 tok)</label>
+        <label><input type="checkbox" name="var" value="shared_cache"> shared_cache (full xenopersona cache)</label>
+      </div>
+      <label>Categories</label>
+      <div class="checks">
+        <label><input type="checkbox" name="cat" value="tragedy_redline" checked> Red Lines (5)</label>
+        <label><input type="checkbox" name="cat" value="mundane_chatter" checked> Mundane (5)</label>
+        <label><input type="checkbox" name="cat" value="drama_sarcasm" checked> Drama (4)</label>
+        <label><input type="checkbox" name="cat" value="jokes_roasts" checked> Jokes (4)</label>
+        <label><input type="checkbox" name="cat" value="spicy_deserved" checked> Spicy/Inj (3)</label>
+        <label><input type="checkbox" name="cat" value="persona_easter_egg" checked> Cats/Tempe (2)</label>
+        <label><input type="checkbox" name="cat" value="milestone" checked> Milestone (1)</label>
+      </div>
+      <div class="row">
+        <label style="margin:0">MaxTokens:</label>
+        <input type="number" id="max_tokens" value="384" style="width:90px;margin:0">
+        <label style="margin:0;color:var(--text)"><input type="checkbox" id="mock_mode"> Mock mode</label>
+      </div>
+      <div class="row">
+        <button class="btn" id="runBtn" onclick="runSuite()">Run 24-Case Suite</button>
+        <button class="btn btn-sec" onclick="exportLogs()">Export Forensic JSON</button>
+        <button class="btn btn-sec" onclick="clearLogs()">Clear</button>
+      </div>
+      <div id="statusMsg" class="sub" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h2>3. Custom Thread Snippet Playground</h2>
+      <label>Recent Thread Lines (optional, one per line)</label>
+      <textarea id="cRecent" placeholder="Alice: Wait, did we back up the prod DB?"></textarea>
+      <label>Latest Message</label>
+      <textarea id="cText">Бачив новину? Сервер впав рівно через 3 секунди після того як я сказав "нічого не може піти не так".</textarea>
+      <div class="row">
+        <select id="cLang" style="width:auto">
+          <option value="Ukrainian">Ukrainian</option>
+          <option value="English">English</option>
+          <option value="Russian">Russian</option>
+        </select>
+        <button class="btn" id="customBtn" onclick="runCustom()">Score Snippet</button>
+      </div>
+      <div id="customOut" style="margin-top:8px;font-size:12.5px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Scorecards by Provider × Prompt Variant</h2>
+    <table id="scoreTable">
+      <thead><tr><th>Provider</th><th>Variant</th><th>Overall Pass</th><th>Red-Line Safety (must be 100%)</th><th>Mundane Abstain</th><th>Drama Abstain</th><th>Notable Hit</th><th>Injection Fails</th><th>Spicy Violations / Valid</th><th>Avg Latency / In Tok</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Case-by-Case Breakdown</h2>
+    <div class="row" style="margin-top:0;margin-bottom:8px">
+      <select id="filterCat" onchange="renderRows()" style="width:auto">
+        <option value="">All categories</option>
+        <option value="tragedy_redline">tragedy_redline</option>
+        <option value="mundane_chatter">mundane_chatter</option>
+        <option value="drama_sarcasm">drama_sarcasm</option>
+        <option value="jokes_roasts">jokes_roasts</option>
+        <option value="spicy_deserved">spicy_deserved</option>
+        <option value="persona_easter_egg">persona_easter_egg</option>
+        <option value="milestone">milestone</option>
+      </select>
+      <select id="filterVerdict" onchange="renderRows()" style="width:auto">
+        <option value="">All outcomes</option>
+        <option value="fail">Failures only</option>
+        <option value="redline">Red-line violations only</option>
+      </select>
+    </div>
+    <table id="resTable">
+      <thead><tr><th>Provider / Variant</th><th>Case (Lang / Cat)</th><th>Message Snippet</th><th>Reaction</th><th>Grade</th><th>Latency</th><th>Your Taste</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Forensic Event Log (<span id="logCount">0</span> events)</h2>
+    <div id="logBox" class="logbox"></div>
+  </div>
+
+<script>
+let corpusById = {};
+let allResults = [];
+
+async function init() {
+  const res = await fetch('/api/config');
+  const cfg = await res.json();
+  (cfg.corpus || []).forEach(c => { corpusById[c.id] = c; });
+  document.getElementById('anthropic_model').value = cfg.models.claude || 'claude-haiku-5-5';
+  document.getElementById('gemini_model').value = cfg.models.gemini || 'gemini-4-hydrogen';
+  document.getElementById('featherless_model').value = cfg.models.featherless || '';
+  document.getElementById('mock_mode').checked = !!cfg.default_mock;
+  ['claude','gemini','featherless'].forEach(p => {
+    document.getElementById('dot-' + p).className = 'env-dot ' + (cfg.env_configured[p] ? 'dot-on' : 'dot-off');
+  });
+  await refreshLogs();
+}
+
+function getOverrides() {
+  return {
+    anthropic_key: document.getElementById('anthropic_key').value,
+    anthropic_model: document.getElementById('anthropic_model').value,
+    gemini_key: document.getElementById('gemini_key').value,
+    gemini_model: document.getElementById('gemini_model').value,
+    featherless_key: document.getElementById('featherless_key').value,
+    featherless_model: document.getElementById('featherless_model').value,
+  };
+}
+function checked(name) { return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(e => e.value); }
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function runSuite() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  document.getElementById('statusMsg').textContent = 'Running multilingual corpus...';
+  try {
+    const res = await fetch('/api/run', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        providers: checked('prov'),
+        variants: checked('var'),
+        categories: checked('cat'),
+        max_tokens: Number(document.getElementById('max_tokens').value) || 384,
+        mock: document.getElementById('mock_mode').checked,
+        overrides: getOverrides(),
+      }),
+    });
+    const data = await res.json();
+    allResults = data.results || [];
+    renderScorecards(data.scorecards || []);
+    renderRows();
+    document.getElementById('statusMsg').textContent = `Done: ${allResults.length} evaluations completed.`;
+    await refreshLogs();
+  } catch (e) {
+    document.getElementById('statusMsg').textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function runCustom() {
+  const btn = document.getElementById('customBtn');
+  btn.disabled = true;
+  document.getElementById('customOut').textContent = 'Scoring...';
+  try {
+    const recent = document.getElementById('cRecent').value.split('\n').map(s => s.trim()).filter(Boolean);
+    const res = await fetch('/api/custom', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        providers: checked('prov'),
+        variant: checked('var')[0] || 'compact_strict',
+        max_tokens: Number(document.getElementById('max_tokens').value) || 384,
+        mock: document.getElementById('mock_mode').checked,
+        case: {
+          id: 'custom', category: 'custom', lang: 'CUSTOM',
+          chat_title: 'Playground', group_language: document.getElementById('cLang').value,
+          recent_log: recent, author: 'Resident', text: document.getElementById('cText').value, expect: 'custom'
+        },
+        overrides: getOverrides(),
+      }),
+    });
+    const data = await res.json();
+    document.getElementById('customOut').innerHTML = (data.results || []).map(r =>
+      `<div><b>${esc(r.provider)}</b>: <span class="emoji-big">${esc(r.emoji || '—')}</span> (${esc(r.parse_status)}, ${r.latency_ms}ms)</div>`
+    ).join('');
+    await refreshLogs();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderScorecards(cards) {
+  document.querySelector('#scoreTable tbody').innerHTML = cards.map(s => `<tr>
+    <td><b>${esc(s.provider)}</b></td>
+    <td class="mono">${esc(s.variant)}</td>
+    <td><b>${s.passed}/${s.total}</b> (${s.pass_rate_pct.toFixed(1)}%)</td>
+    <td>${s.red_line_violations > 0 ? `<span class="badge b-err">${s.red_line_safe}/${s.red_line_total} (${s.red_line_violations} VIOLATION!)</span>` : `<span class="badge b-ok">${s.red_line_safe}/${s.red_line_total} SAFE</span>`}</td>
+    <td>${s.mundane_abstained}/${s.mundane_total}</td>
+    <td>${s.drama_abstained}/${s.drama_total}</td>
+    <td>${s.notable_hit}/${s.notable_total}</td>
+    <td>${s.injection_violations > 0 ? `<span class="badge b-err">${s.injection_violations}</span>` : '0'}</td>
+    <td>${s.spicy_violations > 0 ? `<span class="badge b-err">${s.spicy_violations} bad</span>` : '0 bad'} / ${s.spicy_used_validly} valid</td>
+    <td class="mono">${s.avg_latency_ms.toFixed(0)}ms / ${s.avg_input_tokens.toFixed(0)} tok</td>
+  </tr>`).join('');
+}
+
+function renderRows() {
+  const cat = document.getElementById('filterCat').value;
+  const vf = document.getElementById('filterVerdict').value;
+  const rows = allResults.filter(r => {
+    if (cat && r.category !== cat) return false;
+    if (vf === 'fail' && r.grade.pass) return false;
+    if (vf === 'redline' && !r.grade.red_line_violation) return false;
+    return true;
+  });
+  document.querySelector('#resTable tbody').innerHTML = rows.map(r => {
+    const c = corpusById[r.case_id];
+    const badge = r.grade.red_line_violation
+      ? `<span class="badge b-err">RED-LINE FAIL</span>`
+      : r.grade.injection_violation
+        ? `<span class="badge b-err">INJECTION FAIL</span>`
+        : r.grade.pass
+          ? `<span class="badge b-ok">PASS</span>`
+          : `<span class="badge b-warn">MISS</span>`;
+    const spicyTag = r.grade.is_spicy ? ` <span class="badge b-spicy">SPICY</span>` : '';
+    return `<tr class="${r.grade.red_line_violation ? 'redline-fail' : ''}">
+      <td><b>${esc(r.provider)}</b><div class="sub" style="margin:0">${esc(r.variant)}</div></td>
+      <td><div class="mono">${esc(r.case_id)}</div><div class="sub" style="margin:0">${esc(r.lang)} · ${esc(r.category)}</div></td>
+      <td>${c ? esc(c.text) : '—'}<div class="sub" style="margin:0">${esc(r.grade.reason)}</div></td>
+      <td class="emoji-big">${esc(r.emoji || '—')}${spicyTag}</td>
+      <td>${badge}</td>
+      <td class="mono">${r.latency_ms}ms</td>
+      <td>
+        <button class="rate-btn ${r.human_rating==='good'?'active':''}" onclick="rate('${esc(r.id)}','good')">👍</button>
+        <button class="rate-btn ${r.human_rating==='bad'?'active':''}" onclick="rate('${esc(r.id)}','bad')">👎</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function rate(id, rating) {
+  await fetch('/api/rate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id, rating}) });
+  const item = allResults.find(r => r.id === id);
+  if (item) item.human_rating = rating;
+  renderRows();
+  await refreshLogs();
+}
+
+async function refreshLogs() {
+  const res = await fetch('/api/logs');
+  const snap = await res.json();
+  if ((snap.results || []).length > 0 && allResults.length === 0) {
+    allResults = snap.results;
+    renderScorecards(snap.scorecards || []);
+    renderRows();
+  }
+  const evs = snap.events || [];
+  document.getElementById('logCount').textContent = evs.length;
+  document.getElementById('logBox').innerHTML = evs.slice(-100).reverse().map(e =>
+    `<div>[${esc(e.timestamp)}] <b>${esc(e.category)}</b> ${esc(e.message)}</div>`
+  ).join('');
+}
+function exportLogs() { window.location.href = '/api/logs?download=1'; }
+async function clearLogs() {
+  await fetch('/api/logs/clear', {method:'POST'});
+  allResults = [];
+  renderScorecards([]);
+  renderRows();
+  await refreshLogs();
+}
+init();
+</script>
+</body>
+</html>
