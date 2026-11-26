@@ -942,6 +942,15 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_btn_pr_consensus":  {30, 34},
 	"settings_btn_pr_retract":    {28, 34},
 	"settings_btn_chat_presence": {24, 30},
+
+	// Presence contextual AI reactions (Phase 32, PRES-04, REACT-01): status line, Owner-lock
+	// note, plain-text refusal alert, and 3-wide segmented mode buttons.
+	"settings_pr_ai_line":        {40, 56},
+	"settings_pr_ai_locked_note": {100, 150},
+	"settings_pr_ai_need_owner":  {90, 140},
+	"settings_btn_pr_ai_off":     {10, 14},
+	"settings_btn_pr_ai_low":     {10, 14},
+	"settings_btn_pr_ai_medium":  {10, 14},
 }
 
 // settingsAlertKeys are shown as answerCallbackQuery alerts: plain text, no tag, at most
@@ -974,6 +983,8 @@ var settingsAlertKeys = []string{
 	"settings_mreq_here_ai",
 	// The Staff Group creator's refusal of the Blocked sources page's writes, the command's own text (plain, at most 200).
 	"staff_fwdblock_owner_only",
+	// Presence AI reactions Owner-lock refusal alert (Phase 32, PRES-04).
+	"settings_pr_ai_need_owner",
 }
 
 // settingsAlertMaxRunes is the length Telegram allows an alert.
@@ -1550,6 +1561,15 @@ func TestSettingsLabelLengths(t *testing.T) {
 				label := "✅ " + settingsLocaleString(t, lang, data, key)
 				if runes := utf8.RuneCountInString(label); runes > choiceMax {
 					t.Errorf("%s: choice button %q (%s) has %d characters, ceiling %d", lang, label, key, runes, choiceMax)
+				}
+			}
+
+			// Presence AI reaction 3-wide segmented row (Phase 32, REACT-01): each mode label
+			// with the selected "✓ " prefix must stay <= 16 code points so all 3 buttons fit on one row.
+			for _, key := range []string{"settings_btn_pr_ai_off", "settings_btn_pr_ai_low", "settings_btn_pr_ai_medium"} {
+				label := "✓ " + settingsLocaleString(t, lang, data, key)
+				if runes := utf8.RuneCountInString(label); runes > 16 {
+					t.Errorf("%s: presence AI segmented button %q (%s) has %d characters, ceiling 16", lang, label, key, runes)
 				}
 			}
 		})
