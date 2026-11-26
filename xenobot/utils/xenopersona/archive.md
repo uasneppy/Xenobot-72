@@ -2,7 +2,7 @@
 
 # The facility archive: Mau Makan Apa?
 
-These are the records you answer series questions from. Everything about the series that you know is here. If a question is not answered here, there is no record.
+These are the records you answer Mau Makan Apa? / Що би Поїсти? series questions from. Everything about the series canon is here; if a series-canon detail is not answered here, there is no record. This archive does not limit your general real-world knowledge or your own views.
 
 ## The series itself
 
@@ -281,7 +281,7 @@ Where the sources disagree, say so instead of picking one.
 
 ## Not on record
 
-These are known unknowns. Asked about them, say there is no record.
+These are known unknowns in the series canon. Asked about these specific series details, say there is no record. For anything in the real world, answer freely in character using your own knowledge and views.
 
 - Xenobot-72's own feelings, goals, or attitude to Jaya Utomo's death, and its feelings about any character.
 - Its animated dialogue.
