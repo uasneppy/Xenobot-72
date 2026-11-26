@@ -10,7 +10,7 @@ Requirements for Milestone v1.3 Interactive Presence. Each maps to roadmap phase
 
 ### Reaction Foundation & Settings
 
-- [ ] **PRES-01**: Bot subscribes to `"message_reaction"` updates in `AllowedUpdates` and processes reaction and poll events safely across replicas under `StopChat` with zero new shutdown drains
+- [x] **PRES-01**: Bot subscribes to `"message_reaction"` updates in `AllowedUpdates` and processes reaction and poll events safely across replicas under `StopChat` with zero new shutdown drains
 - [x] **PRES-02**: Every ambient interactive path enforces a shared safety gate skipping private chats, Staff Groups (`staff.GetStaffGroup`), active lockdowns (`lockdown.GetActiveFresh`), bots, anonymous channels, and slash commands
 - [ ] **PRES-03**: Group admin can configure v1.3 interactive settings from a private-only `Presence` Settings page (`pr`, hidden in Staff Groups, 8 locales), linked from Conversations page `p` (keeping page `p` <= 8 rows and Main grid at 17 rows)
 - [ ] **PRES-04**: AI-backed interactive features are double-gated at runtime (Owner-enabled `chat_conversations` with 2-tap data notice AND admin per-feature toggles); zero-AI features are admin-configurable independently
@@ -21,8 +21,8 @@ Requirements for Milestone v1.3 Interactive Presence. Each maps to roadmap phase
 - [ ] **REACT-01**: Group admin can enable Contextual Random AI Emoji Reactions (`Off / Low / Medium`) gated before any AI call by cross-replica Redis message-gap (15–30 msgs), per-chat cooldown, per-user cooldown, probability roll, and dedicated hourly budget (`react:b`)
 - [ ] **REACT-02**: Contextual AI reaction picker uses prompt-instructed JSON (`{"emoji":"..."}` / `{"emoji":"NONE"}`) with `MaxTokens = 512` across Claude, Gemini, and Featherless, offers all 73 standard emojis (intersected with `AvailableReactions`), warns against non-Telegram lookalikes (`😂`, `🐱`/`😹`/`😻`/`😼`), defaults to `NONE` on mundane/drama/tragedies, and silently sheds parse/network/400 errors without tripping shared conversation breakers
 - [ ] **REACT-03**: Contextual AI reactions inspect recent same-thread context (`chat_log` when enabled, plus `ReplyTarget`/`Quote`) and include photos and sticker thumbnails on vision-capable providers via `chat_media.go`, degrading cleanly to text/caption/sticker-emoji on text-only Featherless models
-- [ ] **REACT-04**: Zero-AI Emoji Consensus lets the bot occasionally mirror a non-hostile standard emoji when >= 3 distinct members react with it (tracked via Redis Lua `SADD`/`SREM` diffs, with chat cooldown and once-only latch)
-- [ ] **REACT-05**: Zero-AI `👎` Retraction silently clears the bot's reaction (sending explicit `[]gotgbot.ReactionType{}`) and extends that user's cooldown when the message author or a group admin reacts `👎`
+- [x] **REACT-04**: Zero-AI Emoji Consensus lets the bot occasionally mirror a non-hostile standard emoji when >= 3 distinct members react with it (tracked via Redis Lua `SADD`/`SREM` diffs, with chat cooldown and once-only latch)
+- [x] **REACT-05**: Zero-AI `👎` Retraction silently clears the bot's reaction (sending explicit `[]gotgbot.ReactionType{}`) and extends that user's cooldown when the message author or a group admin reacts `👎`
 
 ### Smarter Static Reactions & Highlights Archive
 
@@ -76,7 +76,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PRES-01 | Phase 31 | Pending |
+| PRES-01 | Phase 31 | Complete |
 | PRES-02 | Phase 31 | Complete |
 | PRES-03 | Phase 31 | Pending |
 | PRES-04 | Phase 32 | Pending |
@@ -84,8 +84,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REACT-01 | Phase 32 | Pending |
 | REACT-02 | Phase 32 | Pending |
 | REACT-03 | Phase 32 | Pending |
-| REACT-04 | Phase 31 | Pending |
-| REACT-05 | Phase 31 | Pending |
+| REACT-04 | Phase 31 | Complete |
+| REACT-05 | Phase 31 | Complete |
 | COMM-01 | Phase 33 | Pending |
 | COMM-02 | Phase 33 | Pending |
 | COMM-03 | Phase 33 | Pending |

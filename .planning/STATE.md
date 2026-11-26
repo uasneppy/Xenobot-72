@@ -5,16 +5,16 @@ milestone_name: Interactive Presence
 current_phase: 31
 current_phase_name: Presence Foundation, Settings Page and Zero-AI Social Reactions
 status: executing
-stopped_at: Completed 31-03-PLAN.md
-last_updated: "2026-11-26T22:04:17.521Z"
+stopped_at: Completed 31-04-PLAN.md
+last_updated: "2026-11-26T23:11:25.461Z"
 last_activity: 2026-11-26
 last_activity_desc: Created v1.3 Interactive Presence roadmap (Phases 31–35, 23/23 requirements mapped)
-state_head: 817af85447beeda43d6c6afe04646e873ed50371
+state_head: d42b05556ebce724c9a28db3192043a03a879040
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -31,7 +31,7 @@ See: .planning/ROADMAP.md (v1.3 Interactive Presence — Phases 31–35)
 ## Current Position
 
 Phase: 31 of 35 (Presence Foundation, Settings Page and Zero-AI Social Reactions)
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-11-26 — Completed 31-01-PLAN.md (Presence config, chat_presence schema & repository)
 
@@ -226,6 +226,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 31 P01 | 4 min | 3 tasks | 11 files |
 | Phase 31 P02 | 8 min | 2 tasks | 4 files |
 | Phase 31 P03 | 4 min | 3 tasks | 9 files |
+| Phase 31 P04 | 16 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -374,6 +375,7 @@ Recent decisions affecting current work:
 - [Phase 31]: 31-01: Subscribed message_reaction (excluding message_reaction_count) in AllowedUpdates, added dedicated chat_presence table with no GORM default: tags on booleans, registered chat_presence:<chat> in skipLocal, and implemented column-targeted upserts in xenobot/db/presence
 - [Phase 31]: 31-02: Shared PRES-02 safety gate in presence.go leaves lockdown.GetActiveFresh lazy (fail-closed), isolates operational keys under xenobot:presence:{<chat>}:*, and verifies reaction=[] wire serialization via httptest multipart decoder
 - [Phase 31]: 31-03: Added all 11 Presence Settings page (pr) and Conversations shortcut keys across 8 locales, registered ceilings in settingsLocaleLimits, and added Main grid (<= 20 runes) plus toggle/shortcut (<= 40 runes) length guards in TestSettingsLabelLengths
+- [Phase 31]: 31-04: LoadPresence registers handlers.NewReaction at group 0 without SetModuleEnabled, joins StopChat (chatJobs+chatDraining+chatContext) with zero new shutdown drains, checks bot_react before Telegram calls on 👎 retraction, and tracks Emoji Consensus via Cluster-safe Redis Lua sets with lazy fail-closed lockdown checks
 
 ### Pending Todos
 
@@ -519,8 +521,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-26T22:04:17.499Z
-Stopped at: Completed 31-03-PLAN.md
+Last session: 2026-11-26T23:11:25.439Z
+Stopped at: Completed 31-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
