@@ -363,6 +363,17 @@ func TestSkipLocalChatAdvancedThresholdsKey(t *testing.T) {
 	}
 }
 
+// TestSkipLocalChatPresenceKey pins the exact key the presence repository reads and
+// invalidates for Interactive Presence settings (cache.CacheKey("chat_presence", chat)).
+func TestSkipLocalChatPresenceKey(t *testing.T) {
+	if !skipLocal(CacheKey("chat_presence", int64(-100123))) {
+		t.Error("the presence key is served from the local layer")
+	}
+	if skipLocal(CacheKey("chat_presencex", int64(1))) {
+		t.Error("a key that only starts with chat_presence is excluded from the local layer")
+	}
+}
+
 func TestSwappingBackingStoreDropsLocalEntries(t *testing.T) {
 	setupLocalRedis(t, 10)
 	ctx := context.Background()

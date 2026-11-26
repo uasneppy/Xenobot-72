@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -132,6 +133,12 @@ func TestLoadConfig(t *testing.T) {
 		}
 		if len(cfg.AllowedUpdates) == 0 {
 			t.Errorf("AllowedUpdates: expected non-empty slice")
+		}
+		if !slices.Contains(cfg.AllowedUpdates, "message_reaction") {
+			t.Errorf("AllowedUpdates: missing %q in %v", "message_reaction", cfg.AllowedUpdates)
+		}
+		if slices.Contains(cfg.AllowedUpdates, "message_reaction_count") {
+			t.Errorf("AllowedUpdates: must not include %q in %v", "message_reaction_count", cfg.AllowedUpdates)
 		}
 		if len(cfg.ValidLangCodes) != 8 || cfg.ValidLangCodes[0] != "uk" {
 			t.Errorf("ValidLangCodes: got %v, want uk first and all 8 languages", cfg.ValidLangCodes)
