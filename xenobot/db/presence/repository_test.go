@@ -45,6 +45,7 @@ func TestChatPresenceSettings(t *testing.T) {
 			ConsensusEnabled:   false,
 			ConsensusThreshold: DefaultConsensusThreshold,
 			RetractEnabled:     true,
+			AIReactMode:        AIReactModeOff,
 		}
 		if Defaults() != want {
 			t.Fatalf("Defaults() = %+v, want %+v", Defaults(), want)
@@ -71,7 +72,7 @@ func TestChatPresenceSettings(t *testing.T) {
 		if err := SetConsensusEnabled(ctx, chatID, true, 7); err != nil {
 			t.Fatal(err)
 		}
-		want := Settings{ConsensusEnabled: true, ConsensusThreshold: 3, RetractEnabled: true}
+		want := Settings{ConsensusEnabled: true, ConsensusThreshold: 3, RetractEnabled: true, AIReactMode: AIReactModeOff}
 		if got, err := Get(ctx, chatID); err != nil || got != want {
 			t.Fatalf("after SetConsensusEnabled(true): %+v, %v, want %+v", got, err, want)
 		}
@@ -112,7 +113,7 @@ func TestChatPresenceSettings(t *testing.T) {
 		if err := SetRetractEnabled(ctx, brandNewChat, false, 11); err != nil {
 			t.Fatal(err)
 		}
-		wantNew := Settings{ConsensusEnabled: false, ConsensusThreshold: 3, RetractEnabled: false}
+		wantNew := Settings{ConsensusEnabled: false, ConsensusThreshold: 3, RetractEnabled: false, AIReactMode: AIReactModeOff}
 		if got, err := Get(ctx, brandNewChat); err != nil || got != wantNew {
 			t.Fatalf("brand-new SetRetractEnabled(false) Get = %+v, %v, want %+v", got, err, wantNew)
 		}
@@ -149,7 +150,7 @@ func TestChatPresenceSettings(t *testing.T) {
 			if err := SetConsensusThreshold(ctx, chatID, v, 6); err != nil {
 				t.Fatalf("SetConsensusThreshold(%d): %v", v, err)
 			}
-			want := Settings{ConsensusEnabled: true, ConsensusThreshold: v, RetractEnabled: false}
+			want := Settings{ConsensusEnabled: true, ConsensusThreshold: v, RetractEnabled: false, AIReactMode: AIReactModeOff}
 			if got, err := Get(ctx, chatID); err != nil || got != want {
 				t.Fatalf("after SetConsensusThreshold(%d): Get = %+v, %v, want %+v", v, got, err, want)
 			}
@@ -186,13 +187,117 @@ func TestChatPresenceSettings(t *testing.T) {
 		}
 
 		// Raw DB insert with out-of-range consensus_threshold must be rejected by CHECK constraint.
-		badLow := &models.ChatPresence{ChatID: newChat(t), ConsensusThreshold: 1, RetractEnabled: true}
+		badLow := &models.ChatPresence{ChatID: newChat(t), ConsensusThreshold: 1, RetractEnabled: true, AIReactMode: AIReactModeOff}
 		if err := db.DB.Create(badLow).Error; err == nil {
 			t.Error("threshold 1 bypassed chk_chat_presence_consensus_threshold")
 		}
-		badHigh := &models.ChatPresence{ChatID: newChat(t), ConsensusThreshold: 21, RetractEnabled: true}
+		badHigh := &models.ChatPresence{ChatID: newChat(t), ConsensusThreshold: 21, RetractEnabled: true, AIReactMode: AIReactModeOff}
 		if err := db.DB.Create(badHigh).Error; err == nil {
 			t.Error("threshold 21 bypassed chk_chat_presence_consensus_threshold")
+		}
+	})
+
+	t.Run("ai_react_mode validation, column-targeted upsert, rolling-deploy cache normalization, and CHECK constraint", func(t *testing.T) {
+		utilsCache.SetupTestMemoryMarshaler(t)
+
+		// Validation rejects invalid modes before any DB write.
+		badChat := newChat(t)
+		for _, bad := range []string{"", "high", "OFF", "medium "} {
+			if ValidAIReactMode(bad) {
+				t.Errorf("ValidAIReactMode(%q) = true, want false", bad)
+			}
+			if err := SetAIReactMode(ctx, badChat, bad, 1); !errors.Is(err, ErrInvalidValue) {
+				t.Errorf("SetAIReactMode(%q) = %v, want ErrInvalidValue", bad, err)
+			}
+		}
+		if rowCount(t, badChat) != 0 {
+			t.Fatal("an invalid ai_react_mode inserted a row")
+		}
+
+		// Column-targeted upserts preserve ConsensusEnabled, ConsensusThreshold, RetractEnabled and invalidate cache.
+		chatID := newChat(t)
+		if err := SetConsensusEnabled(ctx, chatID, true, 12); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetConsensusThreshold(ctx, chatID, 7, 12); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetRetractEnabled(ctx, chatID, false, 12); err != nil {
+			t.Fatal(err)
+		}
+		// Warm cache before updating ai_react_mode.
+		want := Settings{ConsensusEnabled: true, ConsensusThreshold: 7, RetractEnabled: false, AIReactMode: AIReactModeOff}
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("warm Get = %+v, %v, want %+v", got, err, want)
+		}
+		for _, mode := range []string{AIReactModeLow, AIReactModeMedium, AIReactModeOff} {
+			if !ValidAIReactMode(mode) {
+				t.Errorf("ValidAIReactMode(%q) = false, want true", mode)
+			}
+			if err := SetAIReactMode(ctx, chatID, mode, 13); err != nil {
+				t.Fatalf("SetAIReactMode(%q): %v", mode, err)
+			}
+			want.AIReactMode = mode
+			if got, err := Get(ctx, chatID); err != nil || got != want {
+				t.Fatalf("after SetAIReactMode(%q): Get = %+v, %v, want %+v", mode, got, err, want)
+			}
+			if fresh, err := GetFresh(ctx, chatID); err != nil || fresh != want {
+				t.Fatalf("after SetAIReactMode(%q): GetFresh = %+v, %v, want %+v", mode, fresh, err, want)
+			}
+		}
+
+		// Brand-new chat upsert preserves defaults for other columns.
+		freshChat := newChat(t)
+		if err := SetAIReactMode(ctx, freshChat, AIReactModeLow, 14); err != nil {
+			t.Fatal(err)
+		}
+		wantFresh := Settings{ConsensusEnabled: false, ConsensusThreshold: DefaultConsensusThreshold, RetractEnabled: true, AIReactMode: AIReactModeLow}
+		if got, err := Get(ctx, freshChat); err != nil || got != wantFresh {
+			t.Fatalf("brand-new SetAIReactMode(low): Get = %+v, %v, want %+v", got, err, wantFresh)
+		}
+
+		// Rolling-deploy cache safety: legacy Phase 31 payload without "ar" tag decodes "" and normalizes to "off".
+		type legacySettings struct {
+			ConsensusEnabled   bool `msgpack:"ce"`
+			ConsensusThreshold int  `msgpack:"ct"`
+			RetractEnabled     bool `msgpack:"re"`
+		}
+		legacyChat := newChat(t)
+		if err := utilsCache.GetMarshal().Set(ctx, CacheKey(legacyChat), legacySettings{
+			ConsensusEnabled:   true,
+			ConsensusThreshold: 5,
+			RetractEnabled:     false,
+		}); err != nil {
+			t.Fatalf("seed legacy cache entry: %v", err)
+		}
+		wantLegacy := Settings{ConsensusEnabled: true, ConsensusThreshold: 5, RetractEnabled: false, AIReactMode: AIReactModeOff}
+		if got, err := Get(ctx, legacyChat); err != nil || got != wantLegacy {
+			t.Fatalf("rolling-deploy legacy Get = %+v, %v, want %+v", got, err, wantLegacy)
+		}
+
+		// Explicit empty AIReactMode in cache also normalizes safely to AIReactModeOff.
+		emptyCacheChat := newChat(t)
+		if err := utilsCache.GetMarshal().Set(ctx, CacheKey(emptyCacheChat), Settings{
+			ConsensusEnabled:   false,
+			ConsensusThreshold: 4,
+			RetractEnabled:     true,
+			AIReactMode:        "",
+		}); err != nil {
+			t.Fatalf("seed empty ai_react_mode cache entry: %v", err)
+		}
+		wantEmpty := Settings{ConsensusEnabled: false, ConsensusThreshold: 4, RetractEnabled: true, AIReactMode: AIReactModeOff}
+		if got, err := Get(ctx, emptyCacheChat); err != nil || got != wantEmpty {
+			t.Fatalf("empty-mode cached Get = %+v, %v, want %+v", got, err, wantEmpty)
+		}
+
+		// Raw DB inserts with invalid ai_react_mode must be rejected by chk_chat_presence_ai_react_mode.
+		badHigh := &models.ChatPresence{ChatID: newChat(t), ConsensusThreshold: 3, RetractEnabled: true, AIReactMode: "high"}
+		if err := db.DB.Create(badHigh).Error; err == nil {
+			t.Error("ai_react_mode \"high\" bypassed chk_chat_presence_ai_react_mode")
+		}
+		badEmpty := &models.ChatPresence{ChatID: newChat(t), ConsensusThreshold: 3, RetractEnabled: true, AIReactMode: ""}
+		if err := db.DB.Create(badEmpty).Error; err == nil {
+			t.Error("ai_react_mode \"\" bypassed chk_chat_presence_ai_react_mode")
 		}
 	})
 }
