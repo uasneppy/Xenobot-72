@@ -5,16 +5,16 @@ milestone_name: Interactive Presence
 current_phase: 31
 current_phase_name: Presence Foundation, Settings Page and Zero-AI Social Reactions
 status: executing
-stopped_at: Completed 31-01-PLAN.md
-last_updated: "2026-11-26T21:49:39.334Z"
+stopped_at: Completed 31-02-PLAN.md
+last_updated: "2026-11-26T21:58:53.986Z"
 last_activity: 2026-11-26
 last_activity_desc: Created v1.3 Interactive Presence roadmap (Phases 31–35, 23/23 requirements mapped)
-state_head: 9091f518feb11aa49b5dc09a5e9a7c737e99af4d
+state_head: cca3502f0da8f0b9cad665e59c8e5aa2198fa341
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -31,7 +31,7 @@ See: .planning/ROADMAP.md (v1.3 Interactive Presence — Phases 31–35)
 ## Current Position
 
 Phase: 31 of 35 (Presence Foundation, Settings Page and Zero-AI Social Reactions)
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-11-26 — Completed 31-01-PLAN.md (Presence config, chat_presence schema & repository)
 
@@ -224,6 +224,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 30 P04 | 19min | 3 tasks | 16 files |
 | Phase 30-backup-page-and-custom-messages-in-backups P05 | 29min | 3 tasks | 3 files |
 | Phase 31 P01 | 4 min | 3 tasks | 11 files |
+| Phase 31 P02 | 8 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -370,6 +371,7 @@ Recent decisions affecting current work:
 - [Phase 30]: Checked settingsLockRows alongside settingsCoreActions and all 30 settingsPages in TestPhase30Codes to guard against lock-row code collisions
 - [Phase 30]: Documented Phase 30 invariants and provisional decisions P30-01..P30-04 in AGENTS.md with zero new goroutines, handler groups, or shutdown drains
 - [Phase 31]: 31-01: Subscribed message_reaction (excluding message_reaction_count) in AllowedUpdates, added dedicated chat_presence table with no GORM default: tags on booleans, registered chat_presence:<chat> in skipLocal, and implemented column-targeted upserts in xenobot/db/presence
+- [Phase 31]: 31-02: Shared PRES-02 safety gate in presence.go leaves lockdown.GetActiveFresh lazy (fail-closed), isolates operational keys under xenobot:presence:{<chat>}:*, and verifies reaction=[] wire serialization via httptest multipart decoder
 
 ### Pending Todos
 
@@ -515,8 +517,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-26T21:49:09.708Z
-Stopped at: Completed 31-01-PLAN.md
+Last session: 2026-11-26T21:58:53.966Z
+Stopped at: Completed 31-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
