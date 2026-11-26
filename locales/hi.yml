@@ -3537,3 +3537,16 @@ settings_bkp_import_need_file: "सादा टेक्स्ट या मी
 settings_bkp_import_file_too_large: "यह बैकअप फाइल सेटिंग्स मेनू के लिए बहुत बड़ी है (अधिकतम 2 MB)। छोटी फाइल भेजें या केवल कुछ मॉड्यूल इम्पोर्ट करें।"
 settings_btn_bkp_import_yes: "✅ इम्पोर्ट करें"
 settings_btn_bkp_reset_yes: "⚠️ रीसेट करें"
+
+# Presence settings page (Phase 31)
+settings_page_presence: "उपस्थिति"
+settings_state_presence_on: "{n} चालू"
+settings_pr_group_note: "उपस्थिति सेटिंग्स केवल मेरी निजी चैट में प्रबंधित होती हैं, ताकि इस समूह के सदस्य उन्हें न देखें। नीचे निजी चैट में खोलें पर टैप करें।"
+settings_pr_intro: "नियंत्रित करें कि Xenobot-72 इस समूह में सदस्यों के साथ कैसे प्रतिक्रिया देता है। इन सामाजिक प्रतिक्रियाओं के लिए AI प्रदाता की जरूरत नहीं है, और प्रतिक्रियाएँ देखने के लिए मुझे एडमिन होना चाहिए।"
+settings_pr_consensus_line: "इमोजी सहमति: {state}"
+settings_pr_threshold_line: "सहमति सीमा: {count} सदस्य"
+settings_pr_retract_line: "👎 प्रतिक्रिया हटाना: {state}"
+settings_pr_hint: "जब संदेश का लेखक या समूह का एडमिन मेरी प्रतिक्रिया पर 👎 देता है, तो मैं उसे चुपचाप हटा देता हूँ और उस सदस्य के लिए प्रतिक्रियाएँ रोक देता हूँ।"
+settings_btn_pr_consensus: "इमोजी सहमति: {state}"
+settings_btn_pr_retract: "👎 हटाना: {state}"
+settings_btn_chat_presence: "✨ उपस्थिति →"

@@ -3805,3 +3805,16 @@ settings_bkp_import_need_file: "Envie um arquivo de backup <code>.json</code> co
 settings_bkp_import_file_too_large: "O arquivo de backup é grande demais para o menu de configurações (máximo 2 MB). Envie um arquivo menor ou importe apenas alguns módulos."
 settings_btn_bkp_import_yes: "✅ Confirmar"
 settings_btn_bkp_reset_yes: "⚠️ Confirmar"
+
+# Presence settings page (Phase 31)
+settings_page_presence: "Presença"
+settings_state_presence_on: "{n} ativos"
+settings_pr_group_note: "As configurações de presença são gerenciadas apenas no meu chat privado para que os membros deste grupo não as vejam. Toque em Abrir no privado abaixo."
+settings_pr_intro: "Controle como o Xenobot-72 reage junto com os membros neste grupo. Essas reações sociais não exigem provedor de IA, e preciso ser admin no grupo para ver as reações."
+settings_pr_consensus_line: "Consenso de emojis: {state}"
+settings_pr_threshold_line: "Limite de consenso: {count} membros"
+settings_pr_retract_line: "Retirada com 👎: {state}"
+settings_pr_hint: "Quando o autor da mensagem ou um admin do grupo reage com 👎 à minha reação, eu a removo em silêncio e pauso as reações para esse membro."
+settings_btn_pr_consensus: "Consenso de emojis: {state}"
+settings_btn_pr_retract: "Retirada 👎: {state}"
+settings_btn_chat_presence: "✨ Presença →"

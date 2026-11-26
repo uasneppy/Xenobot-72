@@ -3814,3 +3814,16 @@ settings_bkp_import_need_file: "Kirim file cadangan <code>.json</code> sebagai d
 settings_bkp_import_file_too_large: "File cadangan terlalu besar untuk menu pengaturan (maksimal 2 MB). Kirim file yang lebih kecil atau impor modul tertentu saja."
 settings_btn_bkp_import_yes: "✅ Konfirmasi impor"
 settings_btn_bkp_reset_yes: "⚠️ Konfirmasi reset"
+
+# Presence settings page (Phase 31)
+settings_page_presence: "Kehadiran"
+settings_state_presence_on: "{n} aktif"
+settings_pr_group_note: "Pengaturan kehadiran hanya dikelola di chat pribadi saya agar anggota grup ini tidak melihatnya. Ketuk Buka di chat pribadi di bawah."
+settings_pr_intro: "Atur cara Xenobot-72 bereaksi bersama anggota di grup ini. Reaksi sosial ini tidak perlu penyedia AI, dan saya harus menjadi admin di grup untuk melihat reaksi."
+settings_pr_consensus_line: "Konsensus emoji: {state}"
+settings_pr_threshold_line: "Batas konsensus: {count} anggota"
+settings_pr_retract_line: "Tarik reaksi 👎: {state}"
+settings_pr_hint: "Saat penulis pesan atau admin grup memberi reaksi 👎 pada reaksi saya, saya menghapusnya diam-diam dan menjeda reaksi untuk anggota tersebut."
+settings_btn_pr_consensus: "Konsensus emoji: {state}"
+settings_btn_pr_retract: "Tarik 👎: {state}"
+settings_btn_chat_presence: "✨ Kehadiran →"
