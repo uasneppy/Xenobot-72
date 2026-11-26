@@ -75,7 +75,7 @@ Every phase is implemented, security-audited with no open threat, code-reviewed 
 - Integer phases (31–35): Planned milestone work, continuing from v1.2's Phase 30.
 - Decimal phases (31.1, 31.2): Urgent insertions (marked with INSERTED).
 
-- [ ] **Phase 31: Presence Foundation, Settings Page and Zero-AI Social Reactions** - `"message_reaction"` subscription, `chat_presence` storage, shared Staff/lockdown safety gate, private `Presence` Settings page (`pr`), validated `AvailableReactions`-safe reaction API + `bot_react` tracking, zero-AI Emoji Consensus, and `👎` Retraction
+- [x] **Phase 31: Presence Foundation, Settings Page and Zero-AI Social Reactions** - `"message_reaction"` subscription, `chat_presence` storage, shared Staff/lockdown safety gate, private `Presence` Settings page (`pr`), validated `AvailableReactions`-safe reaction API + `bot_react` tracking, zero-AI Emoji Consensus, and `👎` Retraction (completed 2026-11-27)
 - [ ] **Phase 32: Contextual AI Emoji Reactions** - Owner×Admin runtime double-gating, `chatPresenceQueue` worker lane under `StopChat`, cross-replica Redis throttle/budget gate, 3-provider JSON picker (`MaxTokens = 512`) over all 73 standard emojis ∩ `AvailableReactions`, vision support via `chat_media.go` with text-only Featherless fallback, and non-tripping error shedding
 - [ ] **Phase 33: Smarter Static Reactions, Highlights Archive and Backup Parity** - Unicode word-boundary/caption/chance/cooldown static reactions with `ctx.Data` AI handoff, zero-AI cat-sticker micro-triggers, Crowd-Picked Highlights ("Facility Archive") with `/setarchive` proof and durable PostgreSQL dedup, and `BackupModulePresence` / `BackupModuleReactions` parity
 - [ ] **Phase 34: Room-Aware Conversations and Frictionless Catch-Up** - Timestamped `chat_log` (`At: msg.Date`) with thread-isolated query helpers, Ambient Room Context injected into Conversations, opt-in vocative name-addressing, reply-free `/unrollshort`/`/unrolllong <N|me|2h> [pm]`, and silent `✍` react-to-brief in PM
@@ -107,7 +107,7 @@ Every phase is implemented, security-audited with no open threat, code-reviewed 
   3. When the message's author or a group admin reacts `👎` to a message the bot reacted to, the bot silently clears its reaction (sending explicit `[]gotgbot.ReactionType{}`) and extends that user's cooldown with zero group messages posted; a non-author regular member reacting `👎` changes nothing.
   4. Every outgoing bot reaction is normalized (`U+FE0F`-stripped), sent with `IsBig: false`, restricted to standard emojis allowed by the chat's cached `AvailableReactions`, and tracked with 24-hour `bot_react` metadata; reaction processing runs under `StopChat` with zero new shutdown drains.
   5. Private chats, Staff Groups, groups under active lockdown, bots, anonymous channels, and slash commands never trigger ambient interactive presence paths.
-**Plans:** 5/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 - [x] 31-01-PLAN.md — AllowedUpdates `"message_reaction"`, `chat_presence` migration/model/`skipLocal` cache & repository
@@ -190,7 +190,7 @@ Phases execute in numeric order: 31 → 32 → 33 → 34 → 35
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 31. Presence Foundation, Settings Page and Zero-AI Social Reactions | v1.3 | 5/5 | In Progress | - |
+| 31. Presence Foundation, Settings Page and Zero-AI Social Reactions | v1.3 | 5/5 | Complete    | 2026-11-27 |
 | 32. Contextual AI Emoji Reactions | v1.3 | 0/TBD | Not started | - |
 | 33. Smarter Static Reactions, Highlights Archive and Backup Parity | v1.3 | 0/TBD | Not started | - |
 | 34. Room-Aware Conversations and Frictionless Catch-Up | v1.3 | 0/TBD | Not started | - |
