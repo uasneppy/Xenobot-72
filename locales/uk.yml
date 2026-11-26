@@ -2543,3 +2543,16 @@ settings_bkp_import_need_file: "Надішліть файл резервної �
 settings_bkp_import_file_too_large: "Файл резервної копії завеликий для меню налаштувань (максимум 2 МБ). Надішліть менший файл або імпортуйте лише частину модулів."
 settings_btn_bkp_import_yes: "✅ Імпортувати"
 settings_btn_bkp_reset_yes: "⚠️ Скинути"
+
+# Presence settings page (Phase 31)
+settings_page_presence: "Присутність"
+settings_state_presence_on: "увімк.: {n}"
+settings_pr_group_note: "Налаштування присутності доступні лише в моєму приватному чаті, тож учасники цієї групи їх не бачать. Натисніть «Відкрити в приватному чаті» нижче."
+settings_pr_intro: "Керуйте тим, як Xenobot-72 реагує разом з учасниками в цій групі. Ці соціальні реакції не потребують постачальника ШІ, але я маю бути адміном у групі, щоб бачити реакції."
+settings_pr_consensus_line: "Консенсус емодзі: {state}"
+settings_pr_threshold_line: "Поріг консенсусу: {count} учасників"
+settings_pr_retract_line: "Відкликання 👎: {state}"
+settings_pr_hint: "Коли автор повідомлення або адмін групи ставить 👎 на мою реакцію, я тихо прибираю її та ставлю на паузу реакції для цього учасника."
+settings_btn_pr_consensus: "Консенсус емодзі: {state}"
+settings_btn_pr_retract: "Відкликання 👎: {state}"
+settings_btn_chat_presence: "✨ Присутність →"
