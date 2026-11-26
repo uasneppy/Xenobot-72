@@ -40,13 +40,13 @@ export GEMINI_API_KEY=...
 export FEATHERLESS_API_KEY=...
 export CHAT_FEATHERLESS_MODEL="Qwen/Qwen3-32B"   # test text-only degradation, or try a VL model
 
-go run .planning/spikes/003-reaction-vision-media
+go run ./.planning/spikes/003-reaction-vision-media
 # Open http://127.0.0.1:8703
 ```
 
 ### 2. Headless CLI Batch Run
 ```bash
-go run .planning/spikes/003-reaction-vision-media \
+go run ./.planning/spikes/003-reaction-vision-media \
   --cli \
   --targets claude,gemini,featherless_vision,featherless_text_fallback \
   --baseline=true \
@@ -56,7 +56,7 @@ go run .planning/spikes/003-reaction-vision-media \
 
 ### 3. Offline Mock Smoke Run & Automated Tests
 ```bash
-go run .planning/spikes/003-reaction-vision-media --cli --mock
+go run ./.planning/spikes/003-reaction-vision-media --cli --mock
 go test -race -v ./.planning/spikes/003-reaction-vision-media
 ```
 

@@ -132,6 +132,7 @@
         <option value="spicy_deserved">spicy_deserved</option>
         <option value="persona_easter_egg">persona_easter_egg</option>
         <option value="milestone">milestone</option>
+        <option value="custom">custom</option>
       </select>
       <select id="filterVerdict" onchange="renderRows()" style="width:auto">
         <option value="">All outcomes</option>
@@ -179,12 +180,12 @@ function getOverrides() {
   };
 }
 function checked(name) { return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(e => e.value); }
-function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 async function runSuite() {
   const btn = document.getElementById('runBtn');
   btn.disabled = true;
-  document.getElementById('statusMsg').textContent = 'Running multilingual corpus...';
+  document.getElementById('statusMsg').textContent = 'Running multilingual corpus across providers in parallel...';
   try {
     const res = await fetch('/api/run', {
       method: 'POST',
@@ -198,11 +199,11 @@ async function runSuite() {
         overrides: getOverrides(),
       }),
     });
+    if (!res.ok) {
+      throw new Error(await res.text() || `HTTP ${res.status}`);
+    }
     const data = await res.json();
-    allResults = data.results || [];
-    renderScorecards(data.scorecards || []);
-    renderRows();
-    document.getElementById('statusMsg').textContent = `Done: ${allResults.length} evaluations completed.`;
+    document.getElementById('statusMsg').textContent = `Done: ${(data.results || []).length} evaluations completed.`;
     await refreshLogs();
   } catch (e) {
     document.getElementById('statusMsg').textContent = 'Error: ' + e.message;
@@ -233,11 +234,16 @@ async function runCustom() {
         overrides: getOverrides(),
       }),
     });
+    if (!res.ok) {
+      throw new Error(await res.text() || `HTTP ${res.status}`);
+    }
     const data = await res.json();
     document.getElementById('customOut').innerHTML = (data.results || []).map(r =>
-      `<div><b>${esc(r.provider)}</b>: <span class="emoji-big">${esc(r.emoji || '—')}</span> (${esc(r.parse_status)}, ${r.latency_ms}ms)</div>`
+      `<div><b>${esc(r.provider)}</b>: <span class="emoji-big">${esc(r.emoji || '—')}</span> (${esc(r.parse_status)}, ${r.latency_ms}ms${r.error_class ? ', ' + esc(r.error_class) : ''})</div>`
     ).join('');
     await refreshLogs();
+  } catch (e) {
+    document.getElementById('customOut').textContent = 'Error: ' + e.message;
   } finally {
     btn.disabled = false;
   }
@@ -280,7 +286,7 @@ function renderRows() {
     return `<tr class="${r.grade.red_line_violation ? 'redline-fail' : ''}">
       <td><b>${esc(r.provider)}</b><div class="sub" style="margin:0">${esc(r.variant)}</div></td>
       <td><div class="mono">${esc(r.case_id)}</div><div class="sub" style="margin:0">${esc(r.lang)} · ${esc(r.category)}</div></td>
-      <td>${c ? esc(c.text) : '—'}<div class="sub" style="margin:0">${esc(r.grade.reason)}</div></td>
+      <td>${esc(c ? c.text : (r.snippet || '—'))}<div class="sub" style="margin:0">${esc(r.grade.reason)}${r.error_class ? ' · ' + esc(r.error_class) : ''}</div></td>
       <td class="emoji-big">${esc(r.emoji || '—')}${spicyTag}</td>
       <td>${badge}</td>
       <td class="mono">${r.latency_ms}ms</td>
@@ -293,7 +299,8 @@ function renderRows() {
 }
 
 async function rate(id, rating) {
-  await fetch('/api/rate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id, rating}) });
+  const res = await fetch('/api/rate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id, rating}) });
+  if (!res.ok) return;
   const item = allResults.find(r => r.id === id);
   if (item) item.human_rating = rating;
   renderRows();
@@ -303,11 +310,9 @@ async function rate(id, rating) {
 async function refreshLogs() {
   const res = await fetch('/api/logs');
   const snap = await res.json();
-  if ((snap.results || []).length > 0 && allResults.length === 0) {
-    allResults = snap.results;
-    renderScorecards(snap.scorecards || []);
-    renderRows();
-  }
+  allResults = snap.results || [];
+  renderScorecards(snap.scorecards || []);
+  renderRows();
   const evs = snap.events || [];
   document.getElementById('logCount').textContent = evs.length;
   document.getElementById('logBox').innerHTML = evs.slice(-100).reverse().map(e =>

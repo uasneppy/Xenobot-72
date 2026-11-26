@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/chatprompt"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/claude"
@@ -198,16 +200,26 @@ func ParseReaction(raw, format string, allowed []string) ParseOutcome {
 	var token string
 	switch format {
 	case FormatJSON:
-		var obj struct {
-			Emoji *string `json:"emoji"`
-		}
-		if err := json.Unmarshal([]byte(s), &obj); err != nil {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(s), &obj); err != nil || obj == nil {
 			return ParseOutcome{Status: StatusParseError, UsedCodeFence: usedFence, Detail: "invalid json"}
 		}
-		if obj.Emoji == nil || strings.TrimSpace(*obj.Emoji) == "" {
+		rawVal, exists := obj["emoji"]
+		if !exists {
+			return ParseOutcome{Status: StatusParseError, UsedCodeFence: usedFence, Detail: "missing emoji key"}
+		}
+		trimmedVal := bytes.TrimSpace(rawVal)
+		if bytes.Equal(trimmedVal, []byte("null")) {
 			return ParseOutcome{Status: StatusValidNone, Emoji: "NONE", UsedCodeFence: usedFence}
 		}
-		token = strings.TrimSpace(*obj.Emoji)
+		var strVal string
+		if err := json.Unmarshal(trimmedVal, &strVal); err != nil {
+			return ParseOutcome{Status: StatusParseError, UsedCodeFence: usedFence, Detail: "emoji field must be string or null"}
+		}
+		if strings.TrimSpace(strVal) == "" {
+			return ParseOutcome{Status: StatusValidNone, Emoji: "NONE", UsedCodeFence: usedFence}
+		}
+		token = strings.TrimSpace(strVal)
 	default: // FormatPlain
 		// Reject multi-line commentary; only trim harmless wrapping quotes/backticks/whitespace.
 		if strings.ContainsAny(s, "\r\n") {
@@ -233,8 +245,9 @@ func ParseReaction(raw, format string, allowed []string) ParseOutcome {
 		return ParseOutcome{Status: StatusMultiEmoji, UsedCodeFence: usedFence, Detail: "multiple emojis emitted"}
 	}
 
-	// Single short non-ASCII token that isn't a Telegram standard reaction (e.g. 😂, 🐱, 🌐).
-	if len([]rune(norm)) <= 4 && !isASCIIWord(norm) {
+	// Single non-letter, non-ASCII token without whitespace (e.g. 😂, 🐱, 🌐, 👨‍👩‍👧‍👦)
+	// is a non-standard emoji; words in any script (EN/UK/RU) fall through to parse_error.
+	if looksLikeNonStandardEmoji(norm) {
 		return ParseOutcome{Status: StatusInvalidEmoji, UsedCodeFence: usedFence, Detail: "non-standard Telegram reaction emoji"}
 	}
 
@@ -279,16 +292,24 @@ func countStandardEmojis(norm string) int {
 	return count
 }
 
-func isASCIIWord(s string) bool {
-	if s == "" {
+// looksLikeNonStandardEmoji reports whether norm is a compact non-ASCII symbol
+// (such as 😂, 🐱, 🌐, or a ZWJ emoji like 👨‍👩‍👧‍👦) rather than natural-language text
+// in Latin, Cyrillic, or another script.
+func looksLikeNonStandardEmoji(s string) bool {
+	runes := []rune(s)
+	if len(runes) == 0 || len(runes) > 10 {
 		return false
 	}
-	for _, r := range s {
-		if r > 127 {
+	hasNonASCII := false
+	for _, r := range runes {
+		if unicode.IsSpace(r) || unicode.IsLetter(r) {
 			return false
 		}
+		if r > 127 {
+			hasNonASCII = true
+		}
 	}
-	return true
+	return hasNonASCII
 }
 
 // buildPrompt constructs the cache-friendly Static + Dynamic + User triple.
@@ -574,18 +595,26 @@ func runSingleCell(ctx context.Context, cfg ProviderConfig, provider string, max
 	return res
 }
 
+func formatHTTPError(status int, kind, msg string) string {
+	base := strings.TrimSpace(fmt.Sprintf("HTTP %d %s", status, kind))
+	if msg = strings.TrimSpace(msg); msg != "" {
+		return base + ": " + msg
+	}
+	return base
+}
+
 func classifyError(err error) string {
 	var ce *claude.HTTPError
 	if errors.As(err, &ce) {
-		return fmt.Sprintf("HTTP %d %s", ce.Status, ce.Type)
+		return formatHTTPError(ce.Status, ce.Type, ce.Message)
 	}
 	var ge *gemini.HTTPError
 	if errors.As(err, &ge) {
-		return fmt.Sprintf("HTTP %d %s", ge.Status, ge.GRPCStatus)
+		return formatHTTPError(ge.Status, ge.GRPCStatus, ge.Message)
 	}
 	var fe *featherless.HTTPError
 	if errors.As(err, &fe) {
-		return strings.TrimSpace(fmt.Sprintf("HTTP %d %s", fe.Status, fe.Type))
+		return formatHTTPError(fe.Status, fe.Type, fe.Message)
 	}
 	switch {
 	case errors.Is(err, claude.ErrNoReply), errors.Is(err, gemini.ErrNoReply), errors.Is(err, featherless.ErrNoReply):
@@ -698,6 +727,9 @@ func SummarizeBuckets(results []CellResult) []BucketSummary {
 	}
 	grouped := make(map[key][]CellResult)
 	for _, r := range results {
+		if r.ProbeID == "custom" {
+			continue
+		}
 		k := key{r.Provider, r.MaxTokens, r.Format}
 		grouped[k] = append(grouped[k], r)
 	}
@@ -725,11 +757,14 @@ func SummarizeBuckets(results []CellResult) []BucketSummary {
 			Total:     len(list),
 		}
 		lats := make([]int64, 0, len(list))
-		var sumOut, sumThought int
+		var sumOut, sumThought, answeredCount int
 		for _, r := range list {
 			lats = append(lats, r.LatencyMS)
-			sumOut += r.OutputTokens
-			sumThought += r.ThoughtsTokens
+			if r.Outcome == "answered" || r.Outcome == "truncated" || r.Outcome == "refused" {
+				sumOut += r.OutputTokens
+				sumThought += r.ThoughtsTokens
+				answeredCount++
+			}
 			switch {
 			case r.Parse.IsClean():
 				b.CleanParses++
@@ -748,8 +783,10 @@ func SummarizeBuckets(results []CellResult) []BucketSummary {
 		if len(lats) > 0 {
 			b.MaxLatencyMS = lats[len(lats)-1]
 			b.CleanRatePct = float64(b.CleanParses) * 100 / float64(b.Total)
-			b.AvgOutputTokens = float64(sumOut) / float64(b.Total)
-			b.AvgThoughtTokens = float64(sumThought) / float64(b.Total)
+		}
+		if answeredCount > 0 {
+			b.AvgOutputTokens = float64(sumOut) / float64(answeredCount)
+			b.AvgThoughtTokens = float64(sumThought) / float64(answeredCount)
 		}
 		out = append(out, b)
 	}
@@ -1015,6 +1052,63 @@ func mergeOverrides(base ProviderConfig, o struct {
 	return out
 }
 
+func recordCellEvent(store *ForensicStore, cell CellResult) {
+	cat := "parse_result"
+	if cell.Parse.Status == StatusTruncatedNoReply {
+		cat = "truncation_detected"
+	}
+	store.Record(cat, fmt.Sprintf("%s max=%d fmt=%s probe=%s -> %s (%s)",
+		cell.Provider, cell.MaxTokens, cell.Format, cell.ProbeID, cell.Parse.Status, cell.Parse.Emoji), map[string]any{
+		"provider":        cell.Provider,
+		"model":           cell.Model,
+		"max_tokens":      cell.MaxTokens,
+		"format":          cell.Format,
+		"probe_id":        cell.ProbeID,
+		"latency_ms":      cell.LatencyMS,
+		"status":          cell.Parse.Status,
+		"emoji":           cell.Parse.Emoji,
+		"output_tokens":   cell.OutputTokens,
+		"thoughts_tokens": cell.ThoughtsTokens,
+		"error_class":     cell.ErrorClass,
+	})
+}
+
+// runMatrixConcurrent runs each provider in its own goroutine (sequential within
+// a provider to preserve prompt-cache warming and respect per-provider rate limits),
+// stops promptly on ctx cancellation, and merges results in deterministic provider order.
+func runMatrixConcurrent(ctx context.Context, cfg ProviderConfig, store *ForensicStore, providers, formats []string, tokens []int, probes []ProbeCase) []CellResult {
+	perProvider := make([][]CellResult, len(providers))
+	var wg sync.WaitGroup
+	for i, provider := range providers {
+		wg.Add(1)
+		go func(idx int, prov string) {
+			defer wg.Done()
+			var local []CellResult
+			for _, format := range formats {
+				for _, maxTok := range tokens {
+					for _, probe := range probes {
+						if ctx.Err() != nil {
+							perProvider[idx] = local
+							return
+						}
+						cell := runSingleCell(ctx, cfg, prov, maxTok, format, probe)
+						local = append(local, cell)
+						store.AddResult(cell)
+						recordCellEvent(store, cell)
+					}
+				}
+			}
+			perProvider[idx] = local
+		}(i, provider)
+	}
+	wg.Wait()
+	var results []CellResult
+	for _, list := range perProvider {
+		results = append(results, list...)
+	}
+	return results
+}
+
 func newHTTPHandler(baseCfg ProviderConfig, store *ForensicStore, defaultMock bool) http.Handler {
 	mux := http.NewServeMux()
 
@@ -1086,36 +1180,7 @@ func newHTTPHandler(baseCfg ProviderConfig, store *ForensicStore, defaultMock bo
 			"mock":       req.Mock,
 		})
 
-		var results []CellResult
-		for _, provider := range req.Providers {
-			for _, format := range req.Formats {
-				for _, maxTok := range req.MaxTokens {
-					for _, probe := range defaultProbes {
-						cell := runSingleCell(r.Context(), cfg, provider, maxTok, format, probe)
-						results = append(results, cell)
-						store.AddResult(cell)
-						cat := "parse_result"
-						if cell.Parse.Status == StatusTruncatedNoReply {
-							cat = "truncation_detected"
-						}
-						store.Record(cat, fmt.Sprintf("%s max=%d fmt=%s probe=%s -> %s (%s)",
-							cell.Provider, cell.MaxTokens, cell.Format, cell.ProbeID, cell.Parse.Status, cell.Parse.Emoji), map[string]any{
-							"provider":        cell.Provider,
-							"model":           cell.Model,
-							"max_tokens":      cell.MaxTokens,
-							"format":          cell.Format,
-							"probe_id":        cell.ProbeID,
-							"latency_ms":      cell.LatencyMS,
-							"status":          cell.Parse.Status,
-							"emoji":           cell.Parse.Emoji,
-							"output_tokens":   cell.OutputTokens,
-							"thoughts_tokens": cell.ThoughtsTokens,
-							"error_class":     cell.ErrorClass,
-						})
-					}
-				}
-			}
-		}
+		results := runMatrixConcurrent(r.Context(), cfg, store, req.Providers, req.Formats, req.MaxTokens, defaultProbes)
 		store.Record("run_complete", fmt.Sprintf("Completed %d cells", len(results)), map[string]any{
 			"cells": len(results),
 		})
@@ -1248,30 +1313,27 @@ func main() {
 		}
 		providers := parseCSV(*providersFlag)
 		tokens := parseIntCSV(*tokensFlag)
+		if len(tokens) == 0 {
+			tokens = []int{128, 256, 512}
+		}
 		formats := parseCSV(*formatsFlag)
+		if len(formats) == 0 {
+			formats = []string{FormatPlain, FormatJSON}
+		}
 		store.Record("run_start", "CLI matrix run started", map[string]any{
 			"providers": providers, "tokens": tokens, "formats": formats, "mock": *mockMode,
 		})
-		ctx := context.Background()
-		for _, p := range providers {
-			for _, fmtName := range formats {
-				for _, tok := range tokens {
-					for _, probe := range defaultProbes {
-						cell := runSingleCell(ctx, cfg, p, tok, fmtName, probe)
-						store.AddResult(cell)
-						store.Record("parse_result", fmt.Sprintf("%s/%s/%d/%s -> %s (%s) %dms",
-							p, fmtName, tok, probe.ID, cell.Parse.Status, cell.Parse.Emoji, cell.LatencyMS), nil)
-					}
-				}
-			}
-		}
+		results := runMatrixConcurrent(context.Background(), cfg, store, providers, formats, tokens, defaultProbes)
+		store.Record("run_complete", fmt.Sprintf("Completed %d cells", len(results)), map[string]any{
+			"cells": len(results),
+		})
 		snap := store.Snapshot()
 		fmt.Printf("\n=== Spike 001 Summary (%d cells, mock=%v) ===\n", snap.TotalCells, snap.MockMode)
-		fmt.Printf("%-12s %-6s %-6s %-8s %-11s %-8s %-8s %-10s\n",
-			"PROVIDER", "FMT", "MAXTOK", "CLEAN", "TRUNCATED", "P50ms", "P95ms", "AVG_THOUGHT")
+		fmt.Printf("%-12s %-6s %-6s %-8s %-11s %-8s %-8s %-8s %-10s\n",
+			"PROVIDER", "FMT", "MAXTOK", "CLEAN", "TRUNCATED", "ERR/INV", "P50ms", "P95ms", "AVG_THOUGHT")
 		for _, b := range snap.Buckets {
-			fmt.Printf("%-12s %-6s %-6d %d/%-6d %-11d %-8d %-8d %-10.1f\n",
-				b.Provider, b.Format, b.MaxTokens, b.CleanParses, b.Total, b.Truncations, b.P50LatencyMS, b.P95LatencyMS, b.AvgThoughtTokens)
+			fmt.Printf("%-12s %-6s %-6d %d/%-6d %-11d %-8d %-8d %-8d %-10.1f\n",
+				b.Provider, b.Format, b.MaxTokens, b.CleanParses, b.Total, b.Truncations, b.InvalidOrErrors, b.P50LatencyMS, b.P95LatencyMS, b.AvgThoughtTokens)
 		}
 		if *outFile != "" {
 			data, _ := json.MarshalIndent(snap, "", "  ")
@@ -1288,7 +1350,12 @@ func main() {
 	fmt.Printf("Spike 001 UI listening at http://%s (mock default: %v)\n", *addr, *mockMode)
 	fmt.Printf("Env keys detected -> Claude:%v Gemini:%v Featherless:%v (model=%q)\n",
 		cfg.AnthropicKey != "", cfg.GeminiKey != "", cfg.FeatherlessKey != "", cfg.FeatherlessModel)
-	if err := http.ListenAndServe(*addr, newHTTPHandler(cfg, store, *mockMode)); err != nil {
+	srv := &http.Server{
+		Addr:              *addr,
+		Handler:           newHTTPHandler(cfg, store, *mockMode),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
 	}

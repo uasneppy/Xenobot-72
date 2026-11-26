@@ -160,12 +160,19 @@ async function init() {
 function previewFile() {
   const file = document.getElementById('fileInput').files[0];
   if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    uploadedDataURL = '';
+    document.getElementById('uploadPreview').style.display = 'none';
+    document.getElementById('upOut').textContent = 'File exceeds 5 MiB limit (matches chat_media.go MaxImageBytes).';
+    return;
+  }
   const reader = new FileReader();
   reader.onload = () => {
     uploadedDataURL = reader.result;
     const img = document.getElementById('uploadPreview');
     img.src = uploadedDataURL;
     img.style.display = 'block';
+    document.getElementById('upOut').textContent = '';
   };
   reader.readAsDataURL(file);
 }
@@ -181,12 +188,12 @@ function getOverrides() {
   };
 }
 function checked(name) { return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(e => e.value); }
-function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 async function runSuite() {
   const btn = document.getElementById('runBtn');
   btn.disabled = true;
-  document.getElementById('statusMsg').textContent = 'Running multimodal suite across targets...';
+  document.getElementById('statusMsg').textContent = 'Running multimodal suite across provider lanes in parallel...';
   try {
     const res = await fetch('/api/run', {
       method: 'POST',
@@ -200,8 +207,10 @@ async function runSuite() {
         overrides: getOverrides(),
       }),
     });
+    if (!res.ok) {
+      throw new Error(await res.text() || `HTTP ${res.status}`);
+    }
     const data = await res.json();
-    renderTables(data.summaries || [], data.results || []);
     document.getElementById('statusMsg').textContent = `Done: ${(data.results||[]).length} evaluations completed.`;
     await refreshLogs();
   } catch (e) {
@@ -246,6 +255,8 @@ async function runUpload() {
       `<div><b>${esc(r.provider)}</b> (${esc(r.mode)}): <span class="emoji-big">${esc(r.emoji || '—')}</span> · ${r.latency_ms}ms · ${r.input_tokens} tok (+${r.image_token_overhead || 0} img) ${r.error_class ? '· ' + esc(r.error_class) : ''}</div>`
     ).join('');
     await refreshLogs();
+  } catch (e) {
+    document.getElementById('upOut').textContent = 'Error: ' + e.message;
   } finally {
     btn.disabled = false;
   }
@@ -265,9 +276,11 @@ function renderTables(summaries, results) {
   document.querySelector('#resTable tbody').innerHTML = results.map(r => {
     const modeBadge = r.degraded_from_http_400
       ? `<span class="badge b-warn">400 → text_fallback</span>`
-      : r.mode === 'text_fallback'
-        ? `<span class="badge b-info">text_fallback</span>`
-        : `<span class="badge b-ok">vision</span>`;
+      : r.mode === 'vision_and_fallback_failed'
+        ? `<span class="badge b-err">vision+fb failed</span>`
+        : r.mode === 'text_fallback'
+          ? `<span class="badge b-info">text_fallback</span>`
+          : `<span class="badge b-ok">vision</span>`;
     const stBadge = (r.parse_status === 'valid_emoji' || r.parse_status === 'valid_none')
       ? `<span class="badge b-ok">${esc(r.parse_status)}</span>`
       : `<span class="badge b-err">${esc(r.parse_status)}</span>`;
@@ -287,9 +300,7 @@ function renderTables(summaries, results) {
 async function refreshLogs() {
   const res = await fetch('/api/logs');
   const snap = await res.json();
-  if ((snap.results || []).length > 0 && document.querySelector('#resTable tbody').children.length === 0) {
-    renderTables(snap.summaries || [], snap.results || []);
-  }
+  renderTables(snap.summaries || [], snap.results || []);
   const evs = snap.events || [];
   document.getElementById('logCount').textContent = evs.length;
   document.getElementById('logBox').innerHTML = evs.slice(-100).reverse().map(e =>

@@ -183,12 +183,12 @@ function statusBadge(st) {
   if (st === 'thinking_truncation' || st === 'disallowed_by_chat' || st === 'invalid_emoji') return `<span class="badge b-err">${st}</span>`;
   return `<span class="badge b-warn">${st}</span>`;
 }
-function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 async function runMatrix() {
   const btn = document.getElementById('runBtn');
   btn.disabled = true;
-  document.getElementById('statusMsg').textContent = 'Running matrix across providers...';
+  document.getElementById('statusMsg').textContent = 'Running matrix across providers in parallel...';
   try {
     const res = await fetch('/api/run', {
       method: 'POST',
@@ -201,8 +201,10 @@ async function runMatrix() {
         overrides: getOverrides(),
       }),
     });
+    if (!res.ok) {
+      throw new Error(await res.text() || `HTTP ${res.status}`);
+    }
     const data = await res.json();
-    renderResults(data.buckets || [], data.results || []);
     document.getElementById('statusMsg').textContent = `Done: ${(data.results||[]).length} cells completed.`;
     await refreshLogs();
   } catch (e) {
@@ -234,11 +236,16 @@ async function runSingle() {
         overrides: getOverrides(),
       }),
     });
+    if (!res.ok) {
+      throw new Error(await res.text() || `HTTP ${res.status}`);
+    }
     const data = await res.json();
     document.getElementById('singleOut').innerHTML = (data.results||[]).map(r =>
       `<div><b>${esc(r.provider)}</b> (${esc(r.model)}): <span class="emoji-big">${esc(r.parse.emoji || '—')}</span> ${statusBadge(r.parse.status)} · ${r.latency_ms}ms · raw: <span class="mono">${esc(r.raw_text || r.error_class)}</span></div>`
     ).join('');
     await refreshLogs();
+  } catch (e) {
+    document.getElementById('singleOut').textContent = 'Error: ' + e.message;
   } finally {
     btn.disabled = false;
   }
@@ -282,9 +289,7 @@ function renderResults(buckets, results) {
 async function refreshLogs() {
   const res = await fetch('/api/logs');
   const snap = await res.json();
-  if ((snap.results || []).length > 0 && document.querySelector('#cellTable tbody').children.length === 0) {
-    renderResults(snap.buckets || [], snap.results || []);
-  }
+  renderResults(snap.buckets || [], snap.results || []);
   const evs = snap.events || [];
   document.getElementById('logCount').textContent = evs.length;
   document.getElementById('logBox').innerHTML = evs.slice(-100).reverse().map(e =>

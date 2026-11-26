@@ -13,9 +13,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/chatprompt"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/claude"
@@ -40,8 +42,46 @@ func NormaliseEmoji(raw string) string {
 	return strings.ReplaceAll(strings.TrimSpace(raw), "\ufe0f", "")
 }
 
+func stripCodeFence(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "```") {
+		return s
+	}
+	rest := s[3:]
+	if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+		rest = rest[nl+1:]
+	}
+	if end := strings.LastIndex(rest, "```"); end >= 0 {
+		rest = rest[:end]
+	}
+	return strings.TrimSpace(rest)
+}
+
+func looksLikeNonStandardEmoji(s string) bool {
+	runes := []rune(s)
+	if len(runes) == 0 || len(runes) > 10 {
+		return false
+	}
+	hasNonASCII := false
+	for _, r := range runes {
+		if unicode.IsSpace(r) || unicode.IsLetter(r) {
+			return false
+		}
+		if r > 127 {
+			hasNonASCII = true
+		}
+	}
+	return hasNonASCII
+}
+
 func parsePlainReaction(raw string) (status, emoji string) {
 	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "parse_error", ""
+	}
+	if strings.HasPrefix(s, "```") {
+		s = stripCodeFence(s)
+	}
 	if s == "" || strings.ContainsAny(s, "\r\n") {
 		return "parse_error", ""
 	}
@@ -53,7 +93,10 @@ func parsePlainReaction(raw string) (status, emoji string) {
 	if slices.Contains(supportedReactionEmoji, norm) {
 		return "valid_emoji", norm
 	}
-	return "invalid_emoji", norm
+	if looksLikeNonStandardEmoji(norm) {
+		return "invalid_emoji", ""
+	}
+	return "parse_error", ""
 }
 
 // mediaLabel mirrors xenobot/modules/chat_media.go's chatMediaLabel.
@@ -114,13 +157,9 @@ Rules:
 	u.WriteString(chatprompt.Name(f.Author))
 	u.WriteString(": ")
 	label := mediaLabel(f)
-	capClean := chatprompt.Clean(f.Caption, chatprompt.MaxMessageRunes)
-	switch {
-	case capClean != "" && f.Kind == "sticker":
+	if capClean := chatprompt.Clean(f.Caption, chatprompt.MaxMessageRunes); capClean != "" {
 		u.WriteString(label + " " + capClean)
-	case capClean != "":
-		u.WriteString(label + " " + capClean)
-	default:
+	} else {
 		u.WriteString(label)
 	}
 	if attachImage {
@@ -175,7 +214,7 @@ func configFromEnv() ProviderConfig {
 // image token overhead against a text-only baseline when measured.
 type MediaResult struct {
 	Provider            string `json:"provider"`
-	Mode                string `json:"mode"` // "vision", "text_fallback", "auto_degraded_from_400"
+	Mode                string `json:"mode"` // "vision", "text_fallback", "auto_degraded_from_400", "vision_and_fallback_failed"
 	Model               string `json:"model"`
 	FixtureID           string `json:"fixture_id"`
 	FixtureLabel        string `json:"fixture_label"`
@@ -184,6 +223,7 @@ type MediaResult struct {
 	ImageBytes          int    `json:"image_bytes"`
 	ImageMIME           string `json:"image_mime,omitempty"`
 	DegradedFromHTTP400 bool   `json:"degraded_from_http_400,omitempty"`
+	DegradeTrigger      string `json:"degrade_trigger,omitempty"`
 	RawText             string `json:"raw_text,omitempty"`
 	ParseStatus         string `json:"parse_status"`
 	Emoji               string `json:"emoji,omitempty"`
@@ -292,6 +332,7 @@ func evaluateFixture(ctx context.Context, cfg ProviderConfig, target string, max
 		res.ImageSent = mimeOK
 		expect = f.ExpectVision
 		raw, inTok, outTok, thoughtTok, model, refused, err = callOnce(target, mimeOK)
+		res.LatencyMS = time.Since(start).Milliseconds()
 		if err == nil && measureBaseline && mimeOK {
 			_, baseIn, _, _, _, _, baseErr := callOnce(target, false)
 			if baseErr == nil && baseIn > 0 {
@@ -306,18 +347,28 @@ func evaluateFixture(ctx context.Context, cfg ProviderConfig, target string, max
 		expect = f.ExpectVision
 		raw, inTok, outTok, thoughtTok, model, refused, err = callOnce("featherless", mimeOK)
 		var fe *featherless.HTTPError
-		if err != nil && autoFallback && errors.As(err, &fe) && (fe.Status == http.StatusBadRequest || fe.Status == http.StatusUnprocessableEntity) {
+		if err != nil && autoFallback && errors.As(err, &fe) && !fe.KeyRejected() &&
+			(fe.Status == http.StatusBadRequest || fe.Status == http.StatusUnprocessableEntity) {
 			// Graceful degradation: text-only Featherless model rejected image_url.
-			res.Mode = "auto_degraded_from_400"
+			res.DegradeTrigger = classifyError(err)
 			res.ImageSent = false
-			res.DegradedFromHTTP400 = true
 			expect = f.ExpectTextFB
 			raw, inTok, outTok, thoughtTok, model, refused, err = callOnce("featherless", false)
-		} else if err == nil && measureBaseline && mimeOK {
-			_, baseIn, _, _, _, _, baseErr := callOnce("featherless", false)
-			if baseErr == nil && baseIn > 0 {
-				res.BaselineInputTokens = baseIn
-				res.ImageTokenOverhead = inTok - baseIn
+			res.LatencyMS = time.Since(start).Milliseconds()
+			if err == nil {
+				res.Mode = "auto_degraded_from_400"
+				res.DegradedFromHTTP400 = true
+			} else {
+				res.Mode = "vision_and_fallback_failed"
+			}
+		} else {
+			res.LatencyMS = time.Since(start).Milliseconds()
+			if err == nil && measureBaseline && mimeOK {
+				_, baseIn, _, _, _, _, baseErr := callOnce("featherless", false)
+				if baseErr == nil && baseIn > 0 {
+					res.BaselineInputTokens = baseIn
+					res.ImageTokenOverhead = inTok - baseIn
+				}
 			}
 		}
 
@@ -326,12 +377,13 @@ func evaluateFixture(ctx context.Context, cfg ProviderConfig, target string, max
 		res.ImageSent = false
 		expect = f.ExpectTextFB
 		raw, inTok, outTok, thoughtTok, model, refused, err = callOnce("featherless", false)
+		res.LatencyMS = time.Since(start).Milliseconds()
 
 	default:
 		err = fmt.Errorf("unknown target %q", target)
+		res.LatencyMS = time.Since(start).Milliseconds()
 	}
 
-	res.LatencyMS = time.Since(start).Milliseconds()
 	res.Model = model
 	res.RawText = raw
 	res.InputTokens = inTok
@@ -367,18 +419,26 @@ func evaluateFixture(ctx context.Context, cfg ProviderConfig, target string, max
 	return res
 }
 
+func formatHTTPError(status int, kind, msg string) string {
+	base := strings.TrimSpace(fmt.Sprintf("HTTP %d %s", status, kind))
+	if msg = strings.TrimSpace(msg); msg != "" {
+		return base + ": " + msg
+	}
+	return base
+}
+
 func classifyError(err error) string {
 	var ce *claude.HTTPError
 	if errors.As(err, &ce) {
-		return fmt.Sprintf("HTTP %d %s", ce.Status, ce.Type)
+		return formatHTTPError(ce.Status, ce.Type, ce.Message)
 	}
 	var ge *gemini.HTTPError
 	if errors.As(err, &ge) {
-		return fmt.Sprintf("HTTP %d %s", ge.Status, ge.GRPCStatus)
+		return formatHTTPError(ge.Status, ge.GRPCStatus, ge.Message)
 	}
 	var fe *featherless.HTTPError
 	if errors.As(err, &fe) {
-		return strings.TrimSpace(fmt.Sprintf("HTTP %d %s", fe.Status, fe.Type))
+		return formatHTTPError(fe.Status, fe.Type, fe.Message)
 	}
 	return err.Error()
 }
@@ -392,14 +452,15 @@ type ForensicEvent struct {
 }
 
 type ProviderMediaSummary struct {
-	Target             string  `json:"target"`
-	Total              int     `json:"total"`
-	CleanParses        int     `json:"clean_parses"`
-	ExpectMatches      int     `json:"expect_matches"`
-	DegradedCount      int     `json:"degraded_count"`
-	AvgLatencyMS       float64 `json:"avg_latency_ms"`
-	AvgInputTokens     float64 `json:"avg_input_tokens"`
-	AvgImageOverhead   float64 `json:"avg_image_overhead"`
+	Target           string  `json:"target"`
+	Total            int     `json:"total"`
+	CleanParses      int     `json:"clean_parses"`
+	ExpectMatches    int     `json:"expect_matches"`
+	Errors           int     `json:"errors"`
+	DegradedCount    int     `json:"degraded_count"`
+	AvgLatencyMS     float64 `json:"avg_latency_ms"`
+	AvgInputTokens   float64 `json:"avg_input_tokens"`
+	AvgImageOverhead float64 `json:"avg_image_overhead"`
 }
 
 type ForensicReport struct {
@@ -456,15 +517,21 @@ func SummarizeMedia(results []MediaResult) []ProviderMediaSummary {
 		}
 		grouped[r.Provider] = append(grouped[r.Provider], r)
 	}
+	sort.Strings(order)
 	out := make([]ProviderMediaSummary, 0, len(order))
 	for _, p := range order {
 		list := grouped[p]
 		s := ProviderMediaSummary{Target: p, Total: len(list)}
 		var sumLat int64
-		var sumIn, sumOver, overCount int
+		var sumIn, answeredCount, sumOver, overCount int
 		for _, r := range list {
 			sumLat += r.LatencyMS
-			sumIn += r.InputTokens
+			if r.ErrorClass != "" || r.ParseStatus == "provider_error" || r.ParseStatus == "thinking_truncation" {
+				s.Errors++
+			} else {
+				sumIn += r.InputTokens
+				answeredCount++
+			}
 			if r.ImageTokenOverhead > 0 {
 				sumOver += r.ImageTokenOverhead
 				overCount++
@@ -481,7 +548,9 @@ func SummarizeMedia(results []MediaResult) []ProviderMediaSummary {
 		}
 		if s.Total > 0 {
 			s.AvgLatencyMS = float64(sumLat) / float64(s.Total)
-			s.AvgInputTokens = float64(sumIn) / float64(s.Total)
+		}
+		if answeredCount > 0 {
+			s.AvgInputTokens = float64(sumIn) / float64(answeredCount)
 		}
 		if overCount > 0 {
 			s.AvgImageOverhead = float64(sumOver) / float64(overCount)
@@ -698,6 +767,88 @@ func mergeOverrides(base ProviderConfig, o overridesPayload) ProviderConfig {
 	return out
 }
 
+func recordMediaEvent(store *ForensicStore, res MediaResult) {
+	cat := "media_eval"
+	if res.DegradedFromHTTP400 {
+		cat = "featherless_degraded"
+	}
+	meta := map[string]any{
+		"provider": res.Provider, "mode": res.Mode, "fixture_id": res.FixtureID,
+		"emoji": res.Emoji, "parse_status": res.ParseStatus, "image_sent": res.ImageSent,
+		"degraded": res.DegradedFromHTTP400, "input_tokens": res.InputTokens,
+		"image_token_overhead": res.ImageTokenOverhead, "latency_ms": res.LatencyMS,
+		"error_class": res.ErrorClass,
+	}
+	if res.DegradeTrigger != "" {
+		meta["degrade_trigger"] = res.DegradeTrigger
+	}
+	store.Record(cat, fmt.Sprintf("%s (%s) on %s -> %s (in=%d, +%d img tok, %dms)",
+		res.Provider, res.Mode, res.FixtureID, res.Emoji, res.InputTokens, res.ImageTokenOverhead, res.LatencyMS), meta)
+}
+
+func targetLane(target string) string {
+	if strings.HasPrefix(target, "featherless") {
+		return "featherless"
+	}
+	return target
+}
+
+// runMediaConcurrent runs independent provider lanes (claude, gemini, featherless)
+// concurrently while staying sequential inside each provider lane to respect rate limits,
+// and reassembles results in fixture x target order.
+func runMediaConcurrent(ctx context.Context, cfg ProviderConfig, store *ForensicStore, fixtures []MediaFixture, targets []string, maxTokens int, measureBaseline, autoFallback bool) []MediaResult {
+	slots := make([][]MediaResult, len(fixtures))
+	for fi := range fixtures {
+		slots[fi] = make([]MediaResult, len(targets))
+	}
+	hasVal := make([][]bool, len(fixtures))
+	for fi := range fixtures {
+		hasVal[fi] = make([]bool, len(targets))
+	}
+
+	laneOrder := []string{}
+	laneTargets := map[string][]int{}
+	for ti, t := range targets {
+		lane := targetLane(t)
+		if _, ok := laneTargets[lane]; !ok {
+			laneOrder = append(laneOrder, lane)
+		}
+		laneTargets[lane] = append(laneTargets[lane], ti)
+	}
+
+	var wg sync.WaitGroup
+	for _, lane := range laneOrder {
+		tIndices := laneTargets[lane]
+		wg.Add(1)
+		go func(indices []int) {
+			defer wg.Done()
+			for fi, f := range fixtures {
+				for _, ti := range indices {
+					if ctx.Err() != nil {
+						return
+					}
+					res := evaluateFixture(ctx, cfg, targets[ti], maxTokens, f, measureBaseline, autoFallback)
+					slots[fi][ti] = res
+					hasVal[fi][ti] = true
+					store.AddResult(res)
+					recordMediaEvent(store, res)
+				}
+			}
+		}(tIndices)
+	}
+	wg.Wait()
+
+	var results []MediaResult
+	for fi := range fixtures {
+		for ti := range targets {
+			if hasVal[fi][ti] {
+				results = append(results, slots[fi][ti])
+			}
+		}
+	}
+	return results
+}
+
 func newHTTPHandler(baseCfg ProviderConfig, store *ForensicStore, fixtures []MediaFixture, defaultMock bool) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -768,29 +919,14 @@ func newHTTPHandler(baseCfg ProviderConfig, store *ForensicStore, fixtures []Med
 		store.Record("run_start", "Starting Spike 003 vision & media suite", map[string]any{
 			"targets": req.Targets, "measure_baseline": req.MeasureBaseline, "auto_fallback": req.AutoFallback, "mock": req.Mock,
 		})
-		var results []MediaResult
+		var selected []MediaFixture
 		for _, f := range fixtures {
-			if len(wantID) > 0 && !wantID[f.ID] {
-				continue
-			}
-			for _, t := range req.Targets {
-				res := evaluateFixture(r.Context(), cfg, t, req.MaxTokens, f, req.MeasureBaseline, req.AutoFallback)
-				results = append(results, res)
-				store.AddResult(res)
-				cat := "media_eval"
-				if res.DegradedFromHTTP400 {
-					cat = "featherless_degraded"
-				}
-				store.Record(cat, fmt.Sprintf("%s (%s) on %s -> %s (in=%d, +%d img tok, %dms)",
-					res.Provider, res.Mode, f.ID, res.Emoji, res.InputTokens, res.ImageTokenOverhead, res.LatencyMS), map[string]any{
-					"provider": res.Provider, "mode": res.Mode, "fixture_id": f.ID,
-					"emoji": res.Emoji, "image_sent": res.ImageSent, "degraded": res.DegradedFromHTTP400,
-					"input_tokens": res.InputTokens, "image_token_overhead": res.ImageTokenOverhead,
-					"latency_ms": res.LatencyMS, "error_class": res.ErrorClass,
-				})
+			if len(wantID) == 0 || wantID[f.ID] {
+				selected = append(selected, f)
 			}
 		}
-		store.Record("run_complete", fmt.Sprintf("Completed %d media evaluations", len(results)), nil)
+		results := runMediaConcurrent(r.Context(), cfg, store, selected, req.Targets, req.MaxTokens, req.MeasureBaseline, req.AutoFallback)
+		store.Record("run_complete", fmt.Sprintf("Completed %d media evaluations", len(results)), map[string]any{"count": len(results)})
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"results":   results,
@@ -817,7 +953,7 @@ func newHTTPHandler(baseCfg ProviderConfig, store *ForensicStore, fixtures []Med
 			ImageBase64     string           `json:"image_base64"`
 			Overrides       overridesPayload `json:"overrides"`
 		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 8<<20)).Decode(&req); err != nil {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 10<<20)).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
@@ -935,23 +1071,23 @@ func main() {
 			defer cleanup()
 		}
 		targets := parseCSV(*targetsFlag)
-		store.Record("run_start", "CLI vision/media eval started", map[string]any{"targets": targets, "mock": *mockMode})
-		ctx := context.Background()
-		for _, f := range fixtures {
-			for _, t := range targets {
-				res := evaluateFixture(ctx, cfg, t, *maxTokensFlag, f, *baselineFlag, *autoFallbackFlag)
-				store.AddResult(res)
-				store.Record("media_eval", fmt.Sprintf("%s (%s) on %s -> %s (+%d tok)",
-					res.Provider, res.Mode, f.ID, res.Emoji, res.ImageTokenOverhead), nil)
-			}
+		if len(targets) == 0 {
+			targets = []string{"claude", "gemini", "featherless_vision", "featherless_text_fallback"}
 		}
+		maxTok := *maxTokensFlag
+		if maxTok <= 0 {
+			maxTok = 384
+		}
+		store.Record("run_start", "CLI vision/media eval started", map[string]any{"targets": targets, "max_tokens": maxTok, "mock": *mockMode})
+		results := runMediaConcurrent(context.Background(), cfg, store, fixtures, targets, maxTok, *baselineFlag, *autoFallbackFlag)
+		store.Record("run_complete", fmt.Sprintf("Completed %d media evaluations", len(results)), map[string]any{"count": len(results)})
 		snap := store.Snapshot()
 		fmt.Printf("\n=== Spike 003 Vision & Media Summary (%d fixtures, mock=%v) ===\n", len(fixtures), snap.MockMode)
-		fmt.Printf("%-26s %-7s %-7s %-9s %-9s %-10s %-12s\n",
-			"TARGET", "CLEAN", "MATCH", "DEGRADED", "AVG_MS", "AVG_IN", "AVG_IMG_OVR")
+		fmt.Printf("%-26s %-7s %-7s %-6s %-9s %-9s %-10s %-12s\n",
+			"TARGET", "CLEAN", "MATCH", "ERR", "DEGRADED", "AVG_MS", "AVG_IN", "AVG_IMG_OVR")
 		for _, s := range snap.Summaries {
-			fmt.Printf("%-26s %d/%-5d %d/%-5d %-9d %-9.1f %-10.1f +%-11.1f\n",
-				s.Target, s.CleanParses, s.Total, s.ExpectMatches, s.Total, s.DegradedCount, s.AvgLatencyMS, s.AvgInputTokens, s.AvgImageOverhead)
+			fmt.Printf("%-26s %d/%-5d %d/%-5d %-6d %-9d %-9.1f %-10.1f +%-11.1f\n",
+				s.Target, s.CleanParses, s.Total, s.ExpectMatches, s.Total, s.Errors, s.DegradedCount, s.AvgLatencyMS, s.AvgInputTokens, s.AvgImageOverhead)
 		}
 		if *outFile != "" {
 			data, _ := json.MarshalIndent(snap, "", "  ")
@@ -968,7 +1104,12 @@ func main() {
 	fmt.Printf("Spike 003 UI listening at http://%s (mock default: %v)\n", *addr, *mockMode)
 	fmt.Printf("Env keys detected -> Claude:%v Gemini:%v Featherless:%v (model=%q)\n",
 		cfg.AnthropicKey != "", cfg.GeminiKey != "", cfg.FeatherlessKey != "", cfg.FeatherlessModel)
-	if err := http.ListenAndServe(*addr, newHTTPHandler(cfg, store, fixtures, *mockMode)); err != nil {
+	srv := &http.Server{
+		Addr:              *addr,
+		Handler:           newHTTPHandler(cfg, store, fixtures, *mockMode),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)
 	}

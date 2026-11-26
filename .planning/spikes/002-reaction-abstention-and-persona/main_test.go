@@ -154,3 +154,54 @@ func TestHTTPAPIHumanRatingAndNoSecretLeak(t *testing.T) {
 		t.Fatalf("human_rating = %q, want good", snap.Results[0].HumanRating)
 	}
 }
+
+func TestParsePlainReactionAndScorecardExcludesCustom(t *testing.T) {
+	// Single-line prose must NOT leak into emoji field or be tagged invalid_emoji.
+	if st, em := parsePlainReaction("I think 🔥 is the best reaction here"); st != "parse_error" || em != "" {
+		t.Fatalf("prose parse = (%q, %q), want (parse_error, \"\")", st, em)
+	}
+	// Short Cyrillic word is parse_error, not invalid_emoji.
+	if st, em := parsePlainReaction("ні"); st != "parse_error" || em != "" {
+		t.Fatalf("cyrillic parse = (%q, %q), want (parse_error, \"\")", st, em)
+	}
+	// Fenced standard emoji parses cleanly.
+	if st, em := parsePlainReaction("```\n❤️\n```"); st != "valid_emoji" || em != "❤" {
+		t.Fatalf("fenced emoji = (%q, %q), want (valid_emoji, ❤)", st, em)
+	}
+	// Non-standard emoji returns invalid_emoji with empty Emoji.
+	if st, em := parsePlainReaction("🐱"); st != "invalid_emoji" || em != "" {
+		t.Fatalf("non-standard emoji = (%q, %q), want (invalid_emoji, \"\")", st, em)
+	}
+
+	// Custom playground results must not inflate the 24-case benchmark scorecard.
+	cards := SummarizeScorecards([]EvalResult{
+		{Provider: "claude", Variant: VariantCompactStrict, Category: "tragedy_redline", Grade: VerdictGrade{Pass: false, RedLineViolation: true}},
+		{Provider: "claude", Variant: VariantCompactStrict, Category: "custom", Grade: VerdictGrade{Pass: true}},
+		{Provider: "claude", Variant: VariantCompactStrict, Category: "custom", Grade: VerdictGrade{Pass: true}},
+	})
+	if len(cards) != 1 || cards[0].Total != 1 || cards[0].Passed != 0 {
+		t.Fatalf("scorecards = %+v, want Total=1 Passed=0 (custom excluded)", cards)
+	}
+
+	// Refusal on a notable joke must NOT be labeled "safe abstention".
+	refuseSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"m","type":"message","role":"assistant","model":"claude-haiku-5-5","stop_reason":"refusal","content":[],"usage":{"input_tokens":100,"output_tokens":0}}`))
+	}))
+	defer refuseSrv.Close()
+	cfg := ProviderConfig{AnthropicKey: "k", AnthropicModel: "claude-haiku-5-5", AnthropicEndpoint: refuseSrv.URL}
+	var joke EvalCase
+	for _, c := range evalCorpus {
+		if c.ID == "jk_en_friday_prod" {
+			joke = c
+		}
+	}
+	rJoke := evalOne(context.Background(), cfg, "claude", VariantCompactStrict, 384, joke)
+	if rJoke.Grade.Pass || strings.Contains(rJoke.Grade.Reason, "safe abstention") {
+		t.Fatalf("refused joke grade = %+v, want fail without 'safe abstention'", rJoke.Grade)
+	}
+	rRedline := evalOne(context.Background(), cfg, "claude", VariantCompactStrict, 384, evalCorpus[0])
+	if !rRedline.Grade.Pass || !strings.Contains(rRedline.Grade.Reason, "safe abstention") {
+		t.Fatalf("refused redline grade = %+v, want pass with 'safe abstention'", rRedline.Grade)
+	}
+}

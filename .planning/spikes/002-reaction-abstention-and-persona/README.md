@@ -36,13 +36,13 @@ export GEMINI_API_KEY=...
 export FEATHERLESS_API_KEY=...
 export CHAT_FEATHERLESS_MODEL="Qwen/Qwen3-32B"
 
-go run .planning/spikes/002-reaction-abstention-and-persona
+go run ./.planning/spikes/002-reaction-abstention-and-persona
 # Open http://127.0.0.1:8702
 ```
 
 ### 2. Headless CLI Batch Run
 ```bash
-go run .planning/spikes/002-reaction-abstention-and-persona \
+go run ./.planning/spikes/002-reaction-abstention-and-persona \
   --cli \
   --providers claude,gemini,featherless \
   --variants compact_strict,shared_cache \
@@ -52,7 +52,7 @@ go run .planning/spikes/002-reaction-abstention-and-persona \
 
 ### 3. Offline Mock Smoke Run & Automated Tests
 ```bash
-go run .planning/spikes/002-reaction-abstention-and-persona --cli --mock
+go run ./.planning/spikes/002-reaction-abstention-and-persona --cli --mock
 go test -race -v ./.planning/spikes/002-reaction-abstention-and-persona
 ```
 

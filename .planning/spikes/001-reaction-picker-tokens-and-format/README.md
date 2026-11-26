@@ -39,14 +39,14 @@ export GEMINI_API_KEY=...
 export FEATHERLESS_API_KEY=...
 export CHAT_FEATHERLESS_MODEL="Qwen/Qwen3-32B"   # or your preferred Featherless model
 
-go run .planning/spikes/001-reaction-picker-tokens-and-format
+go run ./.planning/spikes/001-reaction-picker-tokens-and-format
 # Open http://127.0.0.1:8701
 ```
 You can also leave env vars unset and paste keys into the local-only (`127.0.0.1`) UI session (stored in memory only, never persisted or logged).
 
 ### 2. Headless CLI Batch Run (with Forensic JSON export)
 ```bash
-go run .planning/spikes/001-reaction-picker-tokens-and-format \
+go run ./.planning/spikes/001-reaction-picker-tokens-and-format \
   --cli \
   --providers claude,gemini,featherless \
   --tokens 128,256,512 \
@@ -56,7 +56,7 @@ go run .planning/spikes/001-reaction-picker-tokens-and-format \
 
 ### 3. Offline Smoke Run (Mock Providers) & Automated Tests
 ```bash
-go run .planning/spikes/001-reaction-picker-tokens-and-format --cli --mock
+go run ./.planning/spikes/001-reaction-picker-tokens-and-format --cli --mock
 go test -race -v ./.planning/spikes/001-reaction-picker-tokens-and-format
 ```
 

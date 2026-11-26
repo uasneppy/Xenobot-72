@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFixturesValidBytesAndSniffedMIME(t *testing.T) {
@@ -114,5 +115,102 @@ func TestHTTPUploadAndForensicLogNoSecretLeak(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/logs", nil))
 	if strings.Contains(rec.Body.String(), secret) {
 		t.Fatal("API secret leaked in /api/logs")
+	}
+}
+
+func TestWebPSniffingBaselineLatencyExclusionAndFallbackFailure(t *testing.T) {
+	// 1. Minimal valid RIFF WEBP header bytes (Telegram sticker format) must sniff as image/webp
+	// and pass /api/upload cleanly.
+	minimalWebP := []byte{
+		'R', 'I', 'F', 'F', 0x1a, 0x00, 0x00, 0x00,
+		'W', 'E', 'B', 'P', 'V', 'P', '8', ' ',
+		0x0e, 0x00, 0x00, 0x00, 0x30, 0x01, 0x00, 0x9d,
+		0x01, 0x2a, 0x01, 0x00, 0x01, 0x00, 0x00, 0x34,
+		0x25, 0x9f,
+	}
+	if mime, ok := sniffImageMIME(minimalWebP); !ok || mime != "image/webp" {
+		t.Fatalf("sniffImageMIME(webp) = (%q, %v), want (image/webp, true)", mime, ok)
+	}
+	store := &ForensicStore{}
+	h := newHTTPHandler(ProviderConfig{}, store, buildFixtures(), true)
+	upPayload, _ := json.Marshal(map[string]any{
+		"targets":          []string{"claude"},
+		"kind":             "sticker",
+		"sticker_emoji":    "😼",
+		"image_base64":     "data:image/webp;base64," + base64.StdEncoding.EncodeToString(minimalWebP),
+		"mock":             true,
+		"measure_baseline": false,
+	})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/upload", bytes.NewReader(upPayload)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("webp /api/upload status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// 2. LatencyMS must reflect ONLY the vision call, NOT the optional measureBaseline text probe.
+	slowBaseSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b struct {
+			Messages []struct {
+				Content []struct{ Type string } `json:"content"`
+			} `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		hasImg := false
+		if len(b.Messages) > 0 {
+			for _, p := range b.Messages[0].Content {
+				if p.Type == "image" {
+					hasImg = true
+				}
+			}
+		}
+		if !hasImg {
+			// Slow text-only baseline call (150ms) should NOT inflate vision LatencyMS.
+			time.Sleep(150 * time.Millisecond)
+		}
+		inTok := 400
+		if hasImg {
+			inTok = 720
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "m", "type": "message", "role": "assistant", "model": "claude-haiku-5-5",
+			"stop_reason": "end_turn",
+			"content":     []any{map[string]any{"type": "text", "text": "❤"}},
+			"usage":       map[string]any{"input_tokens": inTok, "output_tokens": 5},
+		})
+	}))
+	defer slowBaseSrv.Close()
+	fixtures := buildFixtures()
+	vRes := evaluateFixture(context.Background(), ProviderConfig{
+		AnthropicKey: "k", AnthropicModel: "claude-haiku-5-5", AnthropicEndpoint: slowBaseSrv.URL,
+	}, "claude", 384, fixtures[0], true, true)
+	if vRes.ImageTokenOverhead != 320 {
+		t.Fatalf("ImageTokenOverhead = %d, want 320", vRes.ImageTokenOverhead)
+	}
+	if vRes.LatencyMS >= 120 {
+		t.Fatalf("LatencyMS = %d ms, appears to include 150ms baseline probe!", vRes.LatencyMS)
+	}
+
+	// 3. If Featherless returns HTTP 400 on BOTH image_url AND text-only retry (e.g. broken model),
+	// DegradedFromHTTP400 must be false, Mode must be vision_and_fallback_failed, and secret must not leak.
+	secret := "rc_SECRET_ECHO_400"
+	always400 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","message":"bad model for key ` + secret + `"}}`))
+	}))
+	defer always400.Close()
+	failRes := evaluateFixture(context.Background(), ProviderConfig{
+		FeatherlessKey: secret, FeatherlessModel: "Qwen/Broken", FeatherlessEndpoint: always400.URL,
+	}, "featherless_vision", 384, fixtures[5], false, true)
+	if failRes.DegradedFromHTTP400 || failRes.Mode != "vision_and_fallback_failed" {
+		t.Fatalf("double-400 result = %+v, want DegradedFromHTTP400=false Mode=vision_and_fallback_failed", failRes)
+	}
+	if failRes.DegradeTrigger == "" || strings.Contains(failRes.DegradeTrigger, secret) || strings.Contains(failRes.ErrorClass, secret) {
+		t.Fatalf("bad trigger/redaction: trigger=%q err=%q", failRes.DegradeTrigger, failRes.ErrorClass)
+	}
+
+	// 4. Prose does not leak into Emoji field.
+	if st, em := parsePlainReaction("This meme is hilarious 🔥"); st != "parse_error" || em != "" {
+		t.Fatalf("prose parse = (%q, %q), want (parse_error, \"\")", st, em)
 	}
 }

@@ -55,8 +55,15 @@ func TestParseReactionEdgeCases(t *testing.T) {
 		{"json_fenced", "```json\n{\"emoji\":\"❤️\"}\n```", FormatJSON, nil, StatusValidEmoji, "❤"},
 		{"json_none", `{"emoji":"NONE"}`, FormatJSON, nil, StatusValidNone, "NONE"},
 		{"json_null", `{"emoji":null}`, FormatJSON, nil, StatusValidNone, "NONE"},
+		{"json_missing_key_empty_obj", `{}`, FormatJSON, nil, StatusParseError, ""},
+		{"json_wrong_key", `{"reaction":"🔥"}`, FormatJSON, nil, StatusParseError, ""},
+		{"json_top_null", `null`, FormatJSON, nil, StatusParseError, ""},
+		{"json_non_string_emoji", `{"emoji":123}`, FormatJSON, nil, StatusParseError, ""},
 		{"non_standard_cat", "🐱", FormatPlain, nil, StatusInvalidEmoji, ""},
 		{"non_standard_joy", "😂", FormatPlain, nil, StatusInvalidEmoji, ""},
+		{"non_standard_zwj_family", "👨‍👩‍👧‍👦", FormatPlain, nil, StatusInvalidEmoji, ""},
+		{"cyrillic_word_uk", "ні", FormatPlain, nil, StatusParseError, ""},
+		{"cyrillic_word_ru", "нет", FormatPlain, nil, StatusParseError, ""},
 		{"multi_emoji", "🔥👏", FormatPlain, nil, StatusMultiEmoji, ""},
 		{"chatty_multiline", "Sure!\n🔥", FormatPlain, nil, StatusParseError, ""},
 		{"chat_restricted_ok", "🔥", FormatPlain, restrictedPalette, StatusValidEmoji, "🔥"},
@@ -164,5 +171,55 @@ func TestHTTPAPIAndNoSecretLeakInForensicLog(t *testing.T) {
 	}
 	if snap.TotalCells != len(runResp.Results) || snap.EventCount == 0 {
 		t.Fatalf("unexpected forensic snapshot: cells=%d events=%d", snap.TotalCells, snap.EventCount)
+	}
+}
+
+func TestSummarizeBucketsAndErrorRedaction(t *testing.T) {
+	// 1. SummarizeBuckets excludes custom probes and averages tokens over answered cells only.
+	results := []CellResult{
+		{Provider: "gemini", MaxTokens: 128, Format: FormatPlain, ProbeID: "p1", Outcome: "answered", ThoughtsTokens: 96, OutputTokens: 6, Parse: ParseOutcome{Status: StatusValidEmoji, Emoji: "🔥"}},
+		{Provider: "gemini", MaxTokens: 128, Format: FormatPlain, ProbeID: "p2", Outcome: "no_reply", ThoughtsTokens: 0, OutputTokens: 0, Parse: ParseOutcome{Status: StatusTruncatedNoReply}},
+		{Provider: "gemini", MaxTokens: 128, Format: FormatPlain, ProbeID: "custom", Outcome: "answered", ThoughtsTokens: 50, OutputTokens: 5, Parse: ParseOutcome{Status: StatusValidNone, Emoji: "NONE"}},
+	}
+	buckets := SummarizeBuckets(results)
+	if len(buckets) != 1 {
+		t.Fatalf("buckets = %d, want 1", len(buckets))
+	}
+	if buckets[0].Total != 2 {
+		t.Fatalf("bucket total = %d, want 2 (custom excluded)", buckets[0].Total)
+	}
+	if buckets[0].AvgThoughtTokens != 96 {
+		t.Fatalf("AvgThoughtTokens = %.1f, want 96.0 (answered-only average)", buckets[0].AvgThoughtTokens)
+	}
+
+	// 2. Scrubbed HTTP 400 error message is surfaced in ErrorClass without leaking the API key.
+	secret := "sk-ant-ECHOED-BY-UPSTREAM-400"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"bad key ` + secret + ` rejected"}}`))
+	}))
+	defer srv.Close()
+
+	cfg := ProviderConfig{AnthropicKey: secret, AnthropicModel: "claude-haiku-5-5", AnthropicEndpoint: srv.URL}
+	cell := runSingleCell(context.Background(), cfg, "claude", 256, FormatPlain, defaultProbes[0])
+	if cell.Parse.Status != StatusHTTPError {
+		t.Fatalf("status = %s, want %s", cell.Parse.Status, StatusHTTPError)
+	}
+	if strings.Contains(cell.ErrorClass, secret) {
+		t.Fatalf("API secret leaked in ErrorClass: %q", cell.ErrorClass)
+	}
+	if !strings.Contains(cell.ErrorClass, "invalid_request_error") || !strings.Contains(cell.ErrorClass, "[REDACTED]") {
+		t.Fatalf("ErrorClass = %q, want scrubbed message with [REDACTED]", cell.ErrorClass)
+	}
+
+	// 3. Cancelled context stops runMatrixConcurrent immediately without hanging.
+	mCfg, cleanup := startMockProviders()
+	defer cleanup()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	store := &ForensicStore{mockMode: true}
+	got := runMatrixConcurrent(ctx, mCfg, store, []string{"claude", "gemini"}, []string{FormatPlain}, []int{256}, defaultProbes)
+	if len(got) != 0 {
+		t.Fatalf("cancelled matrix ran %d cells, want 0", len(got))
 	}
 }
