@@ -112,7 +112,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   case and `stop_grace_period: 75s` are unchanged. The message log watcher starts no job and needs no stop. `TestShutdownEndsChat`
   proves it: a job inside a hung provider call is ended inside the wait, sends nothing, writes no memory, and a later message starts
   no job; `TestShutdownEndsChatBriefs` proves the same for a brief (and that a later `/unrollshort` starts no job and spends no
-  budget); a test that runs the stop restores the pool with `restoreChatPool`.
+  budget); a test that runs the stop restores the pool with `restoreChatPool`. Phase 31's reaction handler (`LoadPresence`,
+  `handleReaction`) joins `StopChat` the same way — tracked in `chatJobs`, refused while `chatDraining`, and bounded by a 3 s context
+  derived from `chatContext()` — adding zero shutdown drains and keeping the 70 s webhook worst case and `stop_grace_period: 75s`
+  unchanged (`TestShutdownEndsPresenceReaction`).
 - `StopRaidAI` is a drain registered after DB-close as well, through `RegisterRaidAIDrain` (`raidAIStopWait`, 1 s, plus
   grace), in `main.go` right after `RegisterRaidPostsDrain`. Shutdown is LIFO, so it runs after `DrainAISpamChecks`
   (whose verdicts can start lockdowns) and before `StopRaidPosts` (a start can post a notice) and the database close. It
@@ -199,7 +202,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - Group numbers are execution order: `-10` captcha sweeper · `-9` forward blocklist watcher (the only handler of the group, never ends an update; see the `StaffForwardBlock` bullet) · `-8` member deletion (two handlers: the edit handler and the self-destruct watcher, a `handlers.NewMessage(message.All, ...)` with no setter; neither ends an update, see the `MemberDeletion` bullet) · `-7` lockdown join guard (it also counts the join surge
   before it reads the lockdown) · `-6` fed-ban · `-5` service message deletion watcher (the only handler of the group, never ends an update, `SetAllowBot`; a deletable service type is deleted now or queued by the group's stored rule) · `-4` raid flood counter (counts everything but slash-prefixed texts, never ends an update; there is no
   antiraid handler any more) · `-3` staff watchers (chat-migration re-key; later ownership and bot health) · `-2` admin-cache (`my_chat_member` only) and the member requirements watcher (supergroup messages only, the only message handler of the group, `ext.ContinueGroups` on every path; never add another message handler to group -2) ·
-  `-1` users tracker (records real users only: no `sender_chat`, no non-positive ID, no Telegram service account, `trackableUser`) · `0` commands/help/greetings · `1` settings typed-reply door (private messages only;
+  `-1` users tracker (records real users only: no `sender_chat`, no non-positive ID, no Telegram service account, `trackableUser`) · `0` commands/help/greetings and `LoadPresence`'s `handlers.NewReaction(reaction.All, presenceModule.handleReaction)` (non-message update; does not contend with message handlers and `CommandDeletionProcessor` returns immediately when `ctx.Message == nil`; `"message_reaction"` is subscribed in `config.AppConfig.AllowedUpdates`, rolling deploys must terminate all v1.2 replicas before final `getWebhookInfo` verification, and `"message_reaction_count"` must never be added) · `1` settings typed-reply door (private messages only;
   `ext.ContinueGroups` for anyone with no wait and no marker, consumes and ends the update otherwise) · `2` raid AI candidate watcher (hands a new member's suspicious
   item to the raid AI pool, never ends an update) · `3` aispam · `4` antiflood · `5`/`6` locks · `7` blacklists ·
   `8` reports+reactions (the `@admin` watcher, `reportWatch`, returns `nil` after reporting so groups 9 to 12 still run) · `9` filters · `10` pins · `11` log-channel · `12` late raid flood counter (slash-prefixed texts only; keep it
@@ -1506,6 +1509,25 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `applyBackupReset`, `formatBackupResetSuccess`) and share `BackupRateLimiter`. With `ba` registered at `Order` 83, Main has 30
   registered pages total (`settingsMainOwnerRows = 17`, Staff Group Main hides `ba` too so `staffOwnerRows = settingsMainOwnerRows - 4`
   and Staff Group Main state lines = `len(settingsMainTitleKeys) - 7`).
+- **Presence** (`presence.go`, `presence_react_api.go`, `presence_reactions.go`, `settings_presence.go`, Phase 31, PRES-01..03, PRES-05,
+  REACT-04..05): admin-configurable social reaction settings live in `chat_presence` (migration `20261127120000_add_chat_presence.sql`,
+  `xenobot/db/presence/`, `skipLocal` cache key `chat_presence:<chat>`, no GORM `default:` tags on booleans so Go `false` always persists
+  explicitly, column-targeted upserts, strictly separate from Owner-only AI consent in `chat_conversations`). Operational Redis state
+  lives under `xenobot:presence:{<chat>}:*` outside `xenobot:cache:` (`bot_react:<msgID>` 24 h JSON, `cons:u:<msgID>:<emoji_hex>` 48 h
+  distinct-member SETs, `cons:cd` chat cooldown, `cons:done:<msgID>` 48 h once-only latch, `cd:u:<userID>` 24 h user cooldown), while
+  per-chat `AvailableReactions` is cached 20 min under `xenobot:cache:avail_react:<chat>`. Setting reactions uses `IsBig: false` on a
+  dedicated `presenceReactionPacer` (never `chatPacer`, never tripping `chatBreakers` on Telegram `400`s); clearing a reaction on `👎`
+  retraction MUST send explicit non-nil `[]gotgbot.ReactionType{}` (`"reaction":[]` on the wire). `👎` retraction checks `bot_react` in
+  Redis before any Telegram call, authorizes the message author, a live group admin, or an anonymous group admin (`mru.User == nil &&
+  mru.ActorChat.Id == mru.Chat.Id`), clears silently, and extends the user cooldown; Emoji Consensus counts real non-anonymous members
+  only (`mru.User != nil`), excludes hostile emojis, checks `lockdown.GetActiveFresh` lazily fail-closed at threshold crossing before
+  claiming `cons:cd` + `cons:done:<msgID>` atomically, and never runs in Staff Groups, private chats, or channels. `LoadPresence`
+  registers without `SetModuleEnabled` so `/help` stays unchanged. Private Settings page `pr` (`Order` 91, icon `✨`,
+  `settings_page_presence`, `OwnerOnly: false`, `PrivateOnly: true`, `PrivateNoteKey: settings_pr_group_note`, `Hidden` + fail-closed
+  Staff Group gate without naming Staff Group, controls `c`/`ct`/`r` under `settingsRightChangeInfo`) pairs `y|pr` on Main keeping
+  `settingsMainOwnerRows = 17` across 31 registered pages (`staffOwnerRows = settingsMainOwnerRows - 4`, Staff Group Main state lines =
+  `len(settingsMainTitleKeys) - 8`), and is linked by one shortcut row (`settings_btn_chat_presence`, `a=op&p=pr`) from Owner-only
+  Conversations page `p` (staying `<= 8` rows across all 8 locales with all 3 providers configured).
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
