@@ -244,7 +244,7 @@ func TestSettingsBackupPage(t *testing.T) {
 			t.Error("Export button missing m=fffff")
 		}
 
-		// 3. Staff Group hides ba from Main (staffOwnerRows = settingsMainOwnerRows - 4, state lines = len(settingsMainTitleKeys) - 7)
+		// 3. Staff Group hides ba from Main (staffOwnerRows = settingsMainOwnerRows - 4, state lines = len(settingsMainTitleKeys) - 8)
 		//    and refuses op, bv, be, bi, bl, bj, br, bu with common_callback_invalid_request.
 		staffChat := env.addChat()
 		cleanupBackupPageChat(t, staffChat.Id)
@@ -264,8 +264,8 @@ func TestSettingsBackupPage(t *testing.T) {
 		if got := len(staffMainKB); got != settingsMainOwnerRows-4 {
 			t.Errorf("Staff Group Main rows = %d, want %d", got, settingsMainOwnerRows-4)
 		}
-		if got := len(settingsMainLines(staffMainText)); got != len(settingsMainTitleKeys)-7 {
-			t.Errorf("Staff Group Main state lines = %d, want %d", got, len(settingsMainTitleKeys)-7)
+		if got := len(settingsMainLines(staffMainText)); got != len(settingsMainTitleKeys)-8 {
+			t.Errorf("Staff Group Main state lines = %d, want %d", got, len(settingsMainTitleKeys)-8)
 		}
 
 		for _, fields := range []map[string]string{
