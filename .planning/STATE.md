@@ -3,10 +3,10 @@ gsd_state_version: "1.0"
 milestone: v1.3
 milestone_name: Interactive Presence
 status: planning
-last_updated: "2026-11-26T19:12:10.125Z"
+last_updated: "2026-11-26T19:27:00.000Z"
 last_activity: 2026-11-26
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,18 +17,20 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-24)
+See: .planning/PROJECT.md (updated 2026-11-26)
+See: .planning/ROADMAP.md (v1.3 Interactive Presence — Phases 31–35)
 
 **Core value:** My trusted staff can protect every one of my communities from one place. We act on a bad actor across all groups at once, and the bot never lets anyone act in a group where they aren't an admin.
-**Current focus:** Planning next milestone (v1.2 shipped 2026-11-24)
+**Current focus:** Milestone v1.3 Interactive Presence — Phase 31 (Presence Foundation, Settings Page and Zero-AI Social Reactions)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-11-26 — Milestone v1.3 started
+Phase: 31 of 35 (Presence Foundation, Settings Page and Zero-AI Social Reactions)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-26 — Created v1.3 Interactive Presence roadmap (Phases 31–35, 23/23 requirements mapped)
 
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -224,6 +226,10 @@ Last activity: 2026-11-26 — Milestone v1.3 started
 Decisions are logged in the PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [v1.3 Roadmap]: Five focused phases (31–35) calibrated for `granularity: "fine"` across 23 requirements: Presence Foundation, Settings Page & Zero-AI Social Reactions (31), Contextual AI Emoji Reactions (32), Smarter Static Reactions, Highlights Archive & Backup Parity (33), Room-Aware Conversations & Frictionless Catch-Up (34), and Interactive Group Toys (35).
+- [v1.3 Roadmap]: Zero new external Go dependencies, zero new message handler groups, and zero new shutdown drains (`chatPresenceQueue` joins `StopChat` under `chatJobs`/`chatContext()`, keeping the 70 s worst case and `stop_grace_period: 75s` unchanged).
+- [v1.3 Roadmap]: `PRES-04` (Owner×Admin runtime double-gating) sits in Phase 32 where the first AI interactive feature ships, while Phase 31 delivers the `chat_presence` schema, `pr` private Settings page, `AvailableReactions`-safe reaction API, and zero-AI Emoji Consensus + `👎` Retraction independently verifiable without AI keys.
+- [v1.3 Roadmap]: `/referendum` and `/inspect` are isolated into Phase 35 so multi-field JSON prompt validation (`MaxTokens >= 512` / `768`) stays scoped cleanly without delaying Room-Aware Conversations and Catch-Up (Phase 34).
 - [v1.1 Roadmap]: Ten phases, 10-19, in the owner's priority order, which is also the dependency order: hub and owner gate (10), message editor (11), rules media, media under text and greet once (12), member requirements with local rules and "I fixed it" (13), photo and channel lookups (14), AI spam-name check (15), service and bot message deletion with the durable queue (16), command, edit and self-destruct deletion (17), remaining settings pages (18), blacklist, filter and note pages (19).
 - [v1.1 Roadmap]: PLAT-05 (8 locales) is mapped to Phase 10 and PLAT-06 (shared rate budgets, crash recovery, shutdown drain for new background work) to Phase 14, where each first matters. Both apply to every later phase (ROADMAP Cross-Cutting Constraints), as PLAT-01..03 did in v1.0.
 - [v1.1 Roadmap]: MREQ-15 (requirement notices deleted automatically) sits in Phase 16 with the bot-message timer it needs. MREQ-10 is in Phase 14, and its "AI not configured" status line lands with the AI rule in Phase 15. The AI name check is its own one-requirement phase so it can be spiked and deferred on its own.
@@ -364,6 +370,7 @@ None yet.
 
 ### Blockers/Concerns
 
+- [v1.3 Roadmap]: Planning items to settle per phase: (a) Phase 31 — confirm whether anonymous group admins (`mru.User == nil && mru.ActorChat.Id == mru.Chat.Id`) can trigger `👎` retraction, and note rolling-deploy webhook rule (all v1.2 replicas must stop before final `getWebhookInfo` verification of `"message_reaction"`); (b) Phase 33 — confirm Highlights delivery default (`CopyMessage` with `t.me/c/` jump button vs `ForwardMessage` toggle on sub-page `ph`); (c) Phase 35 — validate whether `MaxTokens = 512` or `768` is safer for multi-field localized `/referendum` & `/inspect` JSON across Claude, Gemini, and Featherless reasoning models.
 - [v1.2 Roadmap]: Open owner questions: (a) does a lift from a settings menu opened in the group also post the custom lifted message, or does it keep redrawing the menu only (Phase 25, EVT-08); (b) does `{percent}` join the placeholder set for the flood trigger (Phase 25, EVT-07); (c) which automatic sources join the escalation ladder, and where offence counts live (Phase 26); (d) which commands "reason required" covers, and whether the silent and delete-first variants get the default duration (Phase 27); (e) whether an empty source entry clears the target's custom message on copy (Phase 29); (f) whether `/reset` of all modules clears custom messages once they are a backup module, and whether tuning values join the backup (Phase 30).
 - [v1.2 Roadmap]: Technical risks to settle in discussion: how an event, a destination and a part fit the editor's wait hash and the 64-byte callbacks (21); the Details button's short-lived record and deep link (22); `warns_users` has no time per warn, so warn expiry needs a migration (26); hot-path reads and Lua script windows for the Advanced thresholds (28); the command's pending import and reset live in one replica's memory, so the page's cards need another home (30). No research was run for v1.2; `research/SUMMARY.md` is stale v1.1 research.
 - [v1.1 Roadmap]: Live Telegram spikes the owner runs before the phase that needs them is planned (Gaps to Address in `research/SUMMARY.md`): caption placement with `show_caption_above_media` (Phase 12); the per-group message rate limit for notices during a raid (Phase 13); `getUserProfilePhotos` for a hidden photo and `getChatMember` on a channel whose admin the bot is not (Phase 14); a Claude Haiku name accuracy, latency and cost run with the owner's key (Phase 15); `deleteMessages` with one undeletable ID in a batch (Phase 16); how often link previews and caption touches arrive as edits (Phase 17).
@@ -501,12 +508,11 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T22:00:31.915Z
-Stopped at: Phase 30 complete, ready to verify Phase 21
+Last session: 2026-11-26T19:27:00.000Z
+Stopped at: Created v1.3 Interactive Presence roadmap (Phases 31–35), ready to plan Phase 31
 Resume file: None
 
 ## Operator Next Steps
 
-
-
-- Start the next milestone with /gsd-new-milestone
+- Review and approve `.planning/ROADMAP.md` for v1.3 Interactive Presence
+- Plan Phase 31 with `/gsd-plan-phase 31`

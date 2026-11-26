@@ -5,6 +5,7 @@
 - ✅ **v1.0 Staff Group, Raid Protection, Web Captcha & Settings Menu** - Phases 1-9 (shipped 2026-11-02, archived in `milestones/v1.0-ROADMAP.md`)
 - ✅ **v1.1 PM Settings Hub & Member Screening** - Phases 10-19 (shipped 2026-11-13, archived in `milestones/v1.1-ROADMAP.md`; the owner's live Telegram checks are deferred, see `STATE.md` Deferred Items)
 - ✅ **v1.2 Conversations, Custom Messages and Tuning** - Phases 20-30 (shipped 2026-11-24, archived in `milestones/v1.2-ROADMAP.md`; live Telegram checks for Phases 21-27 deferred, see `STATE.md` Deferred Items)
+- 🚧 **v1.3 Interactive Presence** - Phases 31-35 (in progress)
 
 ## Phases
 
@@ -65,3 +66,125 @@ Every phase is implemented, security-audited with no open threat, code-reviewed 
 - [x] **Phase 30: Backup Page and Custom Messages in Backups** - 5/5 plans (completed 2026-11-24)
 
 </details>
+
+### 🚧 v1.3 Interactive Presence (In Progress)
+
+**Milestone Goal:** Make Xenobot-72 feel alive, witty, and context-aware in groups through restrained emoji reactions, room-aware replies, and opt-in community toys—without ever becoming annoying, noisy, or out of character.
+
+**Phase Numbering:**
+- Integer phases (31–35): Planned milestone work, continuing from v1.2's Phase 30.
+- Decimal phases (31.1, 31.2): Urgent insertions (marked with INSERTED).
+
+- [ ] **Phase 31: Presence Foundation, Settings Page and Zero-AI Social Reactions** - `"message_reaction"` subscription, `chat_presence` storage, shared Staff/lockdown safety gate, private `Presence` Settings page (`pr`), validated `AvailableReactions`-safe reaction API + `bot_react` tracking, zero-AI Emoji Consensus, and `👎` Retraction
+- [ ] **Phase 32: Contextual AI Emoji Reactions** - Owner×Admin runtime double-gating, `chatPresenceQueue` worker lane under `StopChat`, cross-replica Redis throttle/budget gate, 3-provider JSON picker (`MaxTokens = 512`) over all 73 standard emojis ∩ `AvailableReactions`, vision support via `chat_media.go` with text-only Featherless fallback, and non-tripping error shedding
+- [ ] **Phase 33: Smarter Static Reactions, Highlights Archive and Backup Parity** - Unicode word-boundary/caption/chance/cooldown static reactions with `ctx.Data` AI handoff, zero-AI cat-sticker micro-triggers, Crowd-Picked Highlights ("Facility Archive") with `/setarchive` proof and durable PostgreSQL dedup, and `BackupModulePresence` / `BackupModuleReactions` parity
+- [ ] **Phase 34: Room-Aware Conversations and Frictionless Catch-Up** - Timestamped `chat_log` (`At: msg.Date`) with thread-isolated query helpers, Ambient Room Context injected into Conversations, opt-in vocative name-addressing, reply-free `/unrollshort`/`/unrolllong <N|me|2h> [pm]`, and silent `✍` react-to-brief in PM
+- [ ] **Phase 35: Interactive Group Toys** - AI-drafted native polls (`/referendum`) with dedicated `toy:b` budget and `handlers.NewPoll` deadpan tie-breaker, plus playful `/inspect` vision verdicts paired with validated reaction emojis
+
+### Cross-Cutting Constraints
+
+- **Zero new external Go dependencies and zero new shutdown drains.** Every asynchronous interactive job joins `StopChat` (`chatJobs` + `chatContext()`), keeping the 70 s webhook worst-case shutdown sum and `stop_grace_period: 75s` unchanged.
+- **No new message handler groups.** Message hooks reuse existing groups (`8` static reactions/cat stickers, `13` conversation/vocative/AI-reaction watcher, `14` message log); `handlers.NewReaction` and `handlers.NewPoll` sit at group `0` (non-message updates).
+- **Owner×Admin consent boundary.** `chat_conversations` stays strictly Owner-only (2-tap data notice) and permanently excluded from Backup/Copy Settings; admin toggles live in `chat_presence` (`skipLocal`), and every AI interactive feature is double-gated at runtime (`conv.Enabled && featureToggle`).
+- **Silent degradation and Staff/Lockdown safety.** Ambient and reaction paths skip private chats, Staff Groups, active lockdowns, bots, anonymous channels, and slash commands, and never post error spam into groups.
+- **Repo and CI discipline (`AGENTS.md`).** Append-only idempotent SQL migrations strictly after `20261126120000_allow_featherless_chat_provider.sql`, no GORM `default:` tags on booleans, cache invalidation on writes, 8-locale parity following `locale-style.md`, 64-byte callback caps, and light millisecond unit tests so `xenobot/modules` stays inside its CI budget.
+
+## Phase Details
+
+### Phase 31: Presence Foundation, Settings Page and Zero-AI Social Reactions
+**Goal**: Group admins can configure Interactive Presence from the bot's private chat while groups gain safe, reaction-aware zero-AI presence (Emoji Consensus and `👎` Retraction) without adding any shutdown drain or touching Staff Groups or locked-down chats.
+**Depends on**: Phase 30 (v1.2 settings framework, Conversations page `p`, and `StopChat` runtime)
+**Requirements**: PRES-01, PRES-02, PRES-03, PRES-05, REACT-04, REACT-05
+**Planning notes**:
+- Enable `"message_reaction"` in `config.AppConfig.AllowedUpdates` (rolling deploy note: all v1.2 replicas must stop before final `getWebhookInfo` verification).
+- Clear reactions by passing explicit non-nil `[]gotgbot.ReactionType{}` (`gotgbot/v2` omits `"reaction"` when `nil`; assert wire JSON in `httptest`).
+- Settle `ActorChat` policy for anonymous group admins (`mru.User == nil && mru.ActorChat.Id == mru.Chat.Id`) on `👎` retraction while keeping anonymous/channel actors excluded from Consensus and user-scoped flows.
+- Operational Redis keys (cooldowns, `bot_react`, distinct-reactor sets) must live outside `xenobot:cache:` so `CLEAR_CACHE_ON_STARTUP` never wipes them; `AvailableReactions` (20 min TTL) and `chat_presence` (`skipLocal`) stay in cache.
+- Pair `pr` with `y` on Main (keeping `settingsMainOwnerRows = 17`) and add one shortcut row on page `p` (keeping page `p` <= 8 rows).
+**Success Criteria** (what must be TRUE):
+  1. In the bot's private `/settings` menu, a group admin opens the new `Presence` page (`pr`, also linked from Conversations page `p`, with page `p` <= 8 rows and Main at 17 rows), views and changes zero-AI presence settings in all 8 locales, and sees the page hidden in Staff Groups and refused with "open in private" in group menus.
+  2. When three or more distinct members react to a group message with the same non-hostile standard emoji (with Emoji Consensus enabled), the bot mirrors that emoji at most once per message after respecting the chat cooldown, never double-counting one member toggling reactions or a Premium user stacking emojis.
+  3. When the message's author or a group admin reacts `👎` to a message the bot reacted to, the bot silently clears its reaction (sending explicit `[]gotgbot.ReactionType{}`) and extends that user's cooldown with zero group messages posted; a non-author regular member reacting `👎` changes nothing.
+  4. Every outgoing bot reaction is normalized (`U+FE0F`-stripped), sent with `IsBig: false`, restricted to standard emojis allowed by the chat's cached `AvailableReactions`, and tracked with 24-hour `bot_react` metadata; reaction processing runs under `StopChat` with zero new shutdown drains.
+  5. Private chats, Staff Groups, groups under active lockdown, bots, anonymous channels, and slash commands never trigger ambient interactive presence paths.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 32: Contextual AI Emoji Reactions
+**Goal**: Once a group owner enables Conversations, admins can turn on restrained, context- and vision-aware AI emoji reactions that feel dry and observant without spamming chats, starving human replies, or tripping shared conversation breakers.
+**Depends on**: Phase 31
+**Requirements**: PRES-04, REACT-01, REACT-02, REACT-03
+**Planning notes**:
+- Add a bounded `chatPresenceQueue` lane inside `chatEnsureWorkers()` counted in `chatJobs` and derived from `chatContext()` so background reactions never starve the 3-worker `chatQueue` for `/ask` and shutdown still needs zero new drains.
+- Enforce `MaxTokens = 512` (hard floor empirically validated in Spikes 001–003 for Gemini 4 thinking tokens and Featherless reasoning prose) and explicit prompt warnings against non-Telegram lookalikes (`😂`, `🐱`/`😹`/`😻`/`😼`).
+- Background reaction parse/network/`400`/`422`/empty errors must shed silently and never trip `chatBreakers[provider]`; cache Featherless `text_only` vision fallback on `400`/`422`.
+**Success Criteria** (what must be TRUE):
+  1. A group admin can toggle Contextual AI Reactions (`Off / Low / Medium`) on the Presence page, yet no AI reaction call ever fires unless the group owner has also enabled Conversations (with its 2-tap data notice); disabling either switch immediately stops AI reactions while zero-AI features keep working independently.
+  2. Ordinary group traffic is filtered before any AI call by cross-replica Redis message-gap (15–30 messages), per-chat cooldown, per-user cooldown, probability roll, and a dedicated hourly reaction budget (`react:b`).
+  3. On eligible messages, the AI picker across Claude, Gemini, and Featherless uses prompt-instructed JSON (`MaxTokens = 512`) over all 73 standard emojis intersected with `AvailableReactions`, rejects non-Telegram lookalikes, defaults to `NONE` on mundane chatter, drama, or tragedies, and silently sheds parse, network, or `400` errors without tripping shared conversation breakers.
+  4. Eligible replies, quoted messages, photos, and stickers pass recent same-thread `chat_log` context (when enabled) and visual thumbnails on vision-capable providers via `chat_media.go`, degrading cleanly to text, caption, or sticker emoji on text-only Featherless models.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 33: Smarter Static Reactions, Highlights Archive and Backup Parity
+**Goal**: Groups get sharper, spam-safe static reactions, playful zero-AI cat-sticker micro-triggers, a crowd-picked Facility Archive for standout messages, and safe Backup/Restore portability for presence and reaction rules.
+**Depends on**: Phase 32
+**Requirements**: COMM-01, COMM-02, COMM-03, COMM-04, COMM-05
+**Planning notes**:
+- Use pure Go Unicode rune boundaries (`unicode.IsLetter`/`unicode.IsDigit`) for word-boundary matching—never Go RE2 `\b`, which is ASCII-only and silently breaks Ukrainian/Russian Cyrillic.
+- Set `ctx.Data[presenceStaticReactedKey]` in group `8` when a static rule or cat-sticker trigger reacts so group `13` AI reactions never overwrite it.
+- Model `/setarchive` / `/unsetarchive` 2-step proof on `/setlog` (rejecting Staff Groups as source or destination); default Highlights delivery to `CopyMessage` with supergroup-guarded inline `t.me/c/` jump button (with `ForwardMessage` as the alternative mode on sub-page `ph`).
+- Back Highlights deduplication with a durable PostgreSQL `(chat_id, message_id)` unique table (`chat_presence_archived`) so Redis restarts or viral posts never re-archive.
+**Success Criteria** (what must be TRUE):
+  1. Static reaction rules support optional pure Unicode word-boundary matching (Ukrainian, Russian, and English safe), media caption matching, trigger chance %, per-rule/chat cooldowns, and Staff/lockdown guards; whenever a static rule or cat-sticker trigger reacts, group `13` AI reactions never overwrite that reaction.
+  2. When cat-sticker micro-triggers are enabled, sending a sticker carrying a cat glyph on `msg.Sticker.Emoji` occasionally receives an allowed `👀` or `❤` reaction behind cooldown with zero AI calls.
+  3. A group admin can link or unlink a Highlights Archive channel or forum topic via 2-step `/setarchive` / `/unsetarchive` proof (with Staff Groups refused as both source and destination) and configure the distinct-member threshold, emoji filter (`Positive only` / `All standard`), and delivery mode (`CopyMessage` with `t.me/c/` jump button default, or `ForwardMessage`) from the Presence page.
+  4. When a group message reaches the configured threshold of distinct non-author member reactions (excluding hostile emojis), the bot archives it into the linked destination exactly once across restarts and replicas.
+  5. `/export` and `/import` include `BackupModulePresence` (`"presence"`) and extended `BackupModuleReactions` (normalizing legacy `chance == 0` to `100`), strip `archive_chat_id`/`archive_thread_id` on import (`ArchiveChannelSkipped`), keep `chat_conversations` permanently excluded from Backup, and leave Copy Settings untouched.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 34: Room-Aware Conversations and Frictionless Catch-Up
+**Goal**: Conversations replies understand what the room was just talking about, members can address Xenobot naturally by name when opted in, and catching up on missed threads works via reply-free `/unroll*` arguments or a silent `✍` reaction straight to PM.
+**Depends on**: Phase 32
+**Requirements**: CHAT-01, CHAT-02, CHAT-03, CHAT-04, CHAT-05
+**Planning notes**:
+- Populate `chatLogEntry.At` from `msg.Date` (never `time.Now().Unix()`) and preserve original `At` on edits; treat `At == 0` legacy Redis entries gracefully.
+- Filter every `chat_log` query (`Recent`, `SinceUser`, `SinceTime`) strictly by `entry.Thread == threadID` so forum topics never bleed into each other, and deduplicate ambient entries against `chatReadHistory` and the triggering message.
+- Extract a silent PM delivery path (`silent: true`) for `✍` PM briefs instead of calling `chatJudgeDeliverPrivate`, guaranteeing zero group replies on both success and `403`.
+**Success Criteria** (what must be TRUE):
+  1. Logged group messages store backward-compatible original timestamps (`At: msg.Date`) that are not corrupted by message edits, and `Recent`, `SinceUser`, and `SinceTime` query helpers return only entries from the same forum thread.
+  2. When Ambient Room Context and Message Log are enabled, Conversations replies incorporate the last 6–10 same-thread `chat_log` entries without duplicating turns already in `chatReadHistory` or repeating the triggering message.
+  3. When Vocative Name-Addressing is enabled, a member starting a non-forwarded message with Xenobot's name (`"Xenobot, ..."` / `"Кзенобот, ..."`) triggers a Conversations reply without `@mention` or Reply, and that message does not also trigger an ambient AI reaction.
+  4. Members can run `/unrollshort` and `/unrolllong` without replying by passing a count (`50`), self-anchor (`me`), or duration (`2h`), plus optional `pm` delivery.
+  5. When `✍` PM Briefs and Message Log are enabled, reacting `✍` to a logged message delivers a private `/unrollshort` starting from that message to the reactor's PM and posts zero group messages whether PM delivery succeeds or fails with `403`.
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 35: Interactive Group Toys
+**Goal**: Permitted group members can spark in-character participation through AI-drafted native polls with automatic deadpan tie-breakers (`/referendum`) and vision-capable "Facility Inspection" verdicts with matching emoji reactions (`/inspect`).
+**Depends on**: Phase 34
+**Requirements**: TOYS-01, TOYS-02, TOYS-03
+**Planning notes**:
+- Targeted prompt validation during planning: validate multi-field JSON output (`question` + 2–5 bounded `options` for `/referendum`; `verdict` + validated `emoji` for `/inspect`) across Claude, Gemini, and Featherless at `MaxTokens >= 512` (consider `768` for localized Ukrainian/Russian `/referendum` options so thinking/reasoning tokens never truncate options).
+- Store `xenobot:chat:poll:<poll_id> -> {chat, msg, thread, lang}` with TTL strictly longer than `OpenPeriod` so closed-poll `handlers.NewPoll` updates (which omit `chat_id`) always resolve back to the right chat and forum topic.
+- Guard tie-breaker delivery with `IsClosed && TotalVoterCount > 0 && topTie >= 2` plus an atomic cross-replica Redis claim so 0-vote polls or redelivered updates never post.
+**Success Criteria** (what must be TRUE):
+  1. When `/referendum` is enabled (and Owner Conversations is on), a permitted member (following `Audience`) runs `/referendum` from recent same-thread context or a replied debate and gets a validated, sanitized native Telegram poll (`SendPoll`) bounded by the dedicated `toy:b` hourly budget.
+  2. When a bot-created `/referendum` poll closes in a tie with at least one vote (`TotalVoterCount > 0`), the bot claims it once-only across replicas and posts one deadpan Facility Tie-Breaker verdict in the original chat and forum topic; zero-vote or non-tied polls post nothing.
+  3. When `/inspect` is enabled (and Owner Conversations is on), a permitted member replying `/inspect` to a text message, photo, or sticker receives a crisp 2–3 line deadpan "Facility Inspection" verdict (with vision via `chat_media.go` when available) plus a validated matching reaction emoji recorded in `bot_react` so `👎` retraction clears it.
+**Plans**: TBD
+**UI hint**: yes
+
+## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 31 → 32 → 33 → 34 → 35
+
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 31. Presence Foundation, Settings Page and Zero-AI Social Reactions | v1.3 | 0/TBD | Not started | - |
+| 32. Contextual AI Emoji Reactions | v1.3 | 0/TBD | Not started | - |
+| 33. Smarter Static Reactions, Highlights Archive and Backup Parity | v1.3 | 0/TBD | Not started | - |
+| 34. Room-Aware Conversations and Frictionless Catch-Up | v1.3 | 0/TBD | Not started | - |
+| 35. Interactive Group Toys | v1.3 | 0/TBD | Not started | - |

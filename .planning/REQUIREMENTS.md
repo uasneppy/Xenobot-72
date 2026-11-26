@@ -76,35 +76,35 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PRES-01 | Pending | Pending |
-| PRES-02 | Pending | Pending |
-| PRES-03 | Pending | Pending |
-| PRES-04 | Pending | Pending |
-| PRES-05 | Pending | Pending |
-| REACT-01 | Pending | Pending |
-| REACT-02 | Pending | Pending |
-| REACT-03 | Pending | Pending |
-| REACT-04 | Pending | Pending |
-| REACT-05 | Pending | Pending |
-| COMM-01 | Pending | Pending |
-| COMM-02 | Pending | Pending |
-| COMM-03 | Pending | Pending |
-| COMM-04 | Pending | Pending |
-| COMM-05 | Pending | Pending |
-| CHAT-01 | Pending | Pending |
-| CHAT-02 | Pending | Pending |
-| CHAT-03 | Pending | Pending |
-| CHAT-04 | Pending | Pending |
-| CHAT-05 | Pending | Pending |
-| TOYS-01 | Pending | Pending |
-| TOYS-02 | Pending | Pending |
-| TOYS-03 | Pending | Pending |
+| PRES-01 | Phase 31 | Pending |
+| PRES-02 | Phase 31 | Pending |
+| PRES-03 | Phase 31 | Pending |
+| PRES-04 | Phase 32 | Pending |
+| PRES-05 | Phase 31 | Pending |
+| REACT-01 | Phase 32 | Pending |
+| REACT-02 | Phase 32 | Pending |
+| REACT-03 | Phase 32 | Pending |
+| REACT-04 | Phase 31 | Pending |
+| REACT-05 | Phase 31 | Pending |
+| COMM-01 | Phase 33 | Pending |
+| COMM-02 | Phase 33 | Pending |
+| COMM-03 | Phase 33 | Pending |
+| COMM-04 | Phase 33 | Pending |
+| COMM-05 | Phase 33 | Pending |
+| CHAT-01 | Phase 34 | Pending |
+| CHAT-02 | Phase 34 | Pending |
+| CHAT-03 | Phase 34 | Pending |
+| CHAT-04 | Phase 34 | Pending |
+| CHAT-05 | Phase 34 | Pending |
+| TOYS-01 | Phase 35 | Pending |
+| TOYS-02 | Phase 35 | Pending |
+| TOYS-03 | Phase 35 | Pending |
 
 **Coverage:**
 - v1.3 requirements: 23 total
-- Mapped to phases: 0
-- Unmapped: 23
+- Mapped to phases: 23
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-11-26*
-*Last updated: 2026-11-26 after initial v1.3 definition*
+*Last updated: 2026-11-26 after v1.3 roadmap creation*
