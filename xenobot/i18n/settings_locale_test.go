@@ -928,6 +928,20 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_bkp_import_file_too_large": {140, 200},
 	"settings_btn_bkp_import_yes":        {20, 20},
 	"settings_btn_bkp_reset_yes":         {20, 20},
+
+	// The Presence page (Phase 31, PRES-03): private-only page title, Main state, group note,
+	// intro, status lines, hint, toggle buttons, and Conversations page shortcut button.
+	"settings_page_presence":     {14, 17},
+	"settings_state_presence_on": {10, 16},
+	"settings_pr_group_note":     {160, 220},
+	"settings_pr_intro":          {200, 260},
+	"settings_pr_consensus_line": {36, 48},
+	"settings_pr_threshold_line": {48, 60},
+	"settings_pr_retract_line":   {40, 52},
+	"settings_pr_hint":           {170, 220},
+	"settings_btn_pr_consensus":  {30, 34},
+	"settings_btn_pr_retract":    {28, 34},
+	"settings_btn_chat_presence": {24, 30},
 }
 
 // settingsAlertKeys are shown as answerCallbackQuery alerts: plain text, no tag, at most
@@ -1167,6 +1181,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 		{"📨", "settings_page_msgs"},
 		{"🕒", "settings_page_tz"},
 		{"🗨", "settings_page_chat"},
+		{"✨", "settings_page_presence"},
 	}
 	options := []string{
 		"settings_opt_math", "settings_opt_text", "settings_opt_turnstile",
@@ -1224,9 +1239,13 @@ func TestSettingsLabelLengths(t *testing.T) {
 		"settings_log_cat_settings", "settings_log_cat_admin", "settings_log_cat_user",
 		"settings_log_cat_reports",
 	}
-	// The full-width toggles of the Switches and Anonymous admins pages (Phase 18): each is
-	// rendered with the check or cross icon and the language's longer On or Off word.
-	phase18Toggles := []string{"settings_btn_sw_reports", "settings_btn_sw_aispam", "settings_btn_sw_approve", "settings_btn_anon_toggle", "settings_btn_moddef_reason"}
+	// The full-width toggles of the Switches, Anonymous admins, Manual defaults, and Presence pages:
+	// each is rendered with the check or cross icon and the language's longer On or Off word.
+	phase18Toggles := []string{
+		"settings_btn_sw_reports", "settings_btn_sw_aispam", "settings_btn_sw_approve",
+		"settings_btn_anon_toggle", "settings_btn_moddef_reason",
+		"settings_btn_pr_consensus", "settings_btn_pr_retract",
+	}
 	// The full-width toggles that carry the state icon alone in place of {state} (Phase 21, plan 21-07: an event
 	// screen's Silent switch).
 	iconToggles := []string{
@@ -1238,7 +1257,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 	}
 	// The full-width buttons whose label is the whole button (Phase 22, plan 22-04: the event screen's row that
 	// opens the private copy), at most 40 code points.
-	fullWidthLabels := []string{"settings_btn_msg_pm_open", "settings_btn_moddef_dur_off"}
+	fullWidthLabels := []string{"settings_btn_msg_pm_open", "settings_btn_moddef_dur_off", "settings_btn_chat_presence"}
 	// The editor's two-column buttons (UI-SPEC rows 28 to 38): at most 20 code points as
 	// written, icon included.
 	editorButtons := []string{
