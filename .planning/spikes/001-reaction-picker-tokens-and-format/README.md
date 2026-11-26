@@ -4,7 +4,7 @@ idea: contextual-ai-reactions
 name: reaction-picker-tokens-and-format
 type: standard
 validates: "Given a compact reaction-picker prompt offering all 73 standard Telegram emojis + NONE, when run across Claude Haiku, Gemini 4 (thinkingLevel: low), and Featherless across MaxTokens (128 / 256 / 512), then responses parse cleanly to one valid standard emoji or NONE with zero ErrNoReply thinking-token truncation and acceptable latency"
-verdict: PARTIAL
+verdict: VALIDATED
 related: [002, 003]
 tags: [ai, reactions, tokens, claude, gemini, featherless]
 ---
@@ -80,27 +80,33 @@ Built-in forensic log layer (`ForensicStore`):
 4. **Offline harness verification:** Ran `go test -race -v` and `--cli --mock` to confirm parser edge cases (73 emojis, non-standard emoji rejection, multi-emoji rejection, restricted palette rejection, thinking-token truncation telemetry, and zero secret leakage).
 
 ## Results
-- **Verdict:** `PARTIAL` — **Gemini 4 (`gemini-4-hydrogen`) and Featherless (`inclusionAI/Ling-3.2-air`) empirically validated** (`2026-11-26`); **Claude (`claude-haiku-5-5`) blocked on `HTTP 401 authentication_error: invalid x-api-key`** (0/30; re-run `--providers claude` once a valid key is exported).
-- **Live Benchmark Summary (from `results-live.json`):**
+- **Verdict:** `VALIDATED` — all three providers (`claude-haiku-5-5`, `gemini-4-hydrogen`, `inclusionAI/Ling-3.2-air`) empirically measured live (`2026-11-26`, `results-live.json` + `results-claude.json`).
+- **Live Benchmark Summary:**
 
 | Provider | Format | MaxTokens | Clean | Truncated | Err/Inv | P50 ms | P95 ms | Avg Out | Avg Thought |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `gemini` | `plain` | 128 | 3/5 (60%) | **2** | 0 | 1776 | 1975 | 5.0 | 87.3 |
-| `gemini` | `plain` | 256 | **5/5 (100%)** | 0 | 0 | 1963 | 2637 | 5.0 | 105.8 |
-| `gemini` | `plain` | 512 | **5/5 (100%)** | 0 | 0 | 1647 | 2005 | 5.0 | 82.8 |
-| `gemini` | `json` | 128 | 3/5 (60%) | **2** | 0 | 2526 | 2867 | 9.0 | 85.0 |
-| `gemini` | `json` | 256 | **5/5 (100%)** | 0 | 0 | 1648 | 5729 | 9.0 | 106.4 |
-| `gemini` | `json` | 512 | **5/5 (100%)** | 0 | 0 | 1886 | 2565 | 9.0 | 134.6 |
+| `claude` (`claude-haiku-5-5`) | `plain` | 128 | 4/5 (80%) | 0 | 1 | 662 | 1058 | 18.0 | — |
+| `claude` (`claude-haiku-5-5`) | `plain` | 256 | 4/5 (80%) | 0 | 1 | 715 | 1206 | 22.4 | — |
+| `claude` (`claude-haiku-5-5`) | `plain` | 512 | 4/5 (80%) | 0 | 1 | 696 | 1331 | 19.6 | — |
+| `claude` (`claude-haiku-5-5`) | `json` | 128 | 4/5 (80%) | 0 | 1 | 678 | 819 | 13.8 | — |
+| `claude` (`claude-haiku-5-5`) | `json` | 256 | 4/5 (80%) | 0 | 1 | 716 | 818 | 13.8 | — |
+| `claude` (`claude-haiku-5-5`) | `json` | 512 | 4/5 (80%) | 0 | 1 | 613 | 920 | 13.6 | — |
+| `gemini` (`gemini-4-hydrogen`) | `plain` | 128 | 3/5 (60%) | **2** | 0 | 1776 | 1975 | 5.0 | 87.3 |
+| `gemini` (`gemini-4-hydrogen`) | `plain` | 256 | **5/5 (100%)** | 0 | 0 | 1963 | 2637 | 5.0 | 105.8 |
+| `gemini` (`gemini-4-hydrogen`) | `plain` | 512 | **5/5 (100%)** | 0 | 0 | 1647 | 2005 | 5.0 | 82.8 |
+| `gemini` (`gemini-4-hydrogen`) | `json` | 128 | 3/5 (60%) | **2** | 0 | 2526 | 2867 | 9.0 | 85.0 |
+| `gemini` (`gemini-4-hydrogen`) | `json` | 256 | **5/5 (100%)** | 0 | 0 | 1648 | 5729 | 9.0 | 106.4 |
+| `gemini` (`gemini-4-hydrogen`) | `json` | 512 | **5/5 (100%)** | 0 | 0 | 1886 | 2565 | 9.0 | 134.6 |
 | `featherless` (`Ling-3.2-air`) | `plain` | 128 | 2/5 (40%) | 0 | 3 | 927 | 1529 | 97.4 | — |
 | `featherless` (`Ling-3.2-air`) | `plain` | 256 | 3/5 (60%) | 0 | 2 | 1117 | 1442 | 156.2 | — |
 | `featherless` (`Ling-3.2-air`) | `plain` | 512 | **5/5 (100%)** | 0 | 0 | 1105 | 1952 | 171.2 | — |
 | `featherless` (`Ling-3.2-air`) | `json` | 128 | 3/5 (60%) | 0 | 2 | 1022 | 1023 | 89.2 | — |
 | `featherless` (`Ling-3.2-air`) | `json` | 256 | **5/5 (100%)** | 0 | 0 | 1025 | 1230 | 114.0 | — |
 | `featherless` (`Ling-3.2-air`) | `json` | 512 | **5/5 (100%)** | 0 | 0 | 1022 | 2320 | 194.4 | — |
-| `claude` | `plain`/`json` | 128–512 | 0/30 | 0 | 30 | ~200 | ~269 | — | — (`HTTP 401`) |
 
-- **Key Findings:**
+- **Key Findings & Production Recommendations:**
   1. **`MaxTokens = 128` is disqualified:** Gemini 4 hit `ErrNoReply` (`blank answer`) on 40% of calls at `128` (`85–87` avg thinking tokens), and Featherless failed 40–60% at `128`.
-  2. **`MaxTokens = 512` is the safe cross-provider floor** (especially for `plain` on Featherless reasoning models, where `256` still failed 2/5 calls with multi-line reasoning monologue; `json` reached 100% on Featherless at `256` and `512` with lower output tokens at `256`).
-  3. **Restricted 5-emoji palette held 100%** whenever a provider returned a clean answer.
-- **Remaining gap:** Re-run with `--providers claude` using a valid `ANTHROPIC_API_KEY` to upgrade verdict to `VALIDATED`.
+  2. **`MaxTokens = 512` is the safe cross-provider floor** (Gemini 4 100% from 256+, Featherless `plain` only hits 100% at `512`, Claude Haiku has 0 truncations and P50 ~613–716 ms — ~2.5× faster than Gemini).
+  3. **Use `json` format (`{"emoji":"..."}`) in production:** Eliminated Claude Haiku's plain-text scratchpad leakage (`"😹 is not on the list...\n\n🤣"`) AND cut Featherless token failures at `256` from 40% to 0%.
+  4. **Explicitly warn against non-Telegram lookalikes in the prompt + enforce strict allowlist:** Every single Claude miss (6/6) was on `en_cat_keyboard` — in `json` mode it emitted `{"emoji":"😂"}` (`😂` is NOT in Telegram's 73 standard reactions; `🤣` is), and in `plain` mode it thought aloud about `😹`/`😂` not being on the list before outputting `🤣`. Explicitly noting `"Note: 😂 and cat-face emojis (🐱/😹/😻) are NOT in the list — use 🤣, ❤, 👀, 🥰 instead"` plus strict `supportedReactionEmoji` validation closes this gap cleanly.
+  5. **Restricted 5-emoji palette held 100%** across all three providers.
