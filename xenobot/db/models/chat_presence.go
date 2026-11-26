@@ -4,8 +4,8 @@ import "time"
 
 // ChatPresence is one chat's admin-configurable Interactive Presence settings, separate from
 // Owner-only ChatConversation. A chat without a row means ConsensusEnabled=false,
-// ConsensusThreshold=3, and RetractEnabled=true. It is read through the skipLocal cache key
-// chat_presence:<chat> (see xenobot/db/presence).
+// ConsensusThreshold=3, RetractEnabled=true, and AIReactMode="off". It is read through the
+// skipLocal cache key chat_presence:<chat> (see xenobot/db/presence).
 // Both booleans carry NO GORM default: tag so a Go false is always written explicitly on
 // Create and Save.
 type ChatPresence struct {
@@ -13,6 +13,7 @@ type ChatPresence struct {
 	ConsensusEnabled   bool      `gorm:"column:consensus_enabled;not null" json:"consensus_enabled"`
 	ConsensusThreshold int16     `gorm:"column:consensus_threshold;not null;check:chk_chat_presence_consensus_threshold,consensus_threshold BETWEEN 2 AND 20" json:"consensus_threshold"`
 	RetractEnabled     bool      `gorm:"column:retract_enabled;not null" json:"retract_enabled"`
+	AIReactMode        string    `gorm:"column:ai_react_mode;not null;size:16;check:chk_chat_presence_ai_react_mode,ai_react_mode IN ('off', 'low', 'medium')" json:"ai_react_mode"`
 	UpdatedBy          int64     `gorm:"column:updated_by;not null" json:"updated_by"`
 	UpdatedAt          time.Time `gorm:"column:updated_at" json:"updated_at,omitempty"`
 }
