@@ -85,13 +85,14 @@ type presenceAvailReactions struct {
 	Allowed []string `msgpack:"e"`
 }
 
-// presenceAllowedEmoji reports whether normalized emoji is allowed in chatID by intersecting
-// supportedReactionEmoji with the chat's cached AvailableReactions (20m TTL). An empty/nil
-// AvailableReactions means all 73 standard emojis are allowed; a custom-only list rejects every
-// standard emoji. On getChat errors it fails closed (false) and logs error class at Debug.
-func presenceAllowedEmoji(ctx context.Context, b *gotgbot.Bot, chatID int64, emoji string) bool {
-	if b == nil || emoji == "" {
-		return false
+// presenceAllowedPalette returns a cloned slice of normalized standard emojis allowed in chatID by
+// intersecting supportedReactionEmoji with the chat's cached AvailableReactions (20m TTL). An
+// empty/nil AvailableReactions means all 73 standard emojis are allowed; a custom-only list returns
+// (nil, false) so callers skip AI reaction calls completely. On nil bot or getChat errors it fails
+// closed (nil, false) and logs error class at Debug without touching chatBreakers.
+func presenceAllowedPalette(ctx context.Context, b *gotgbot.Bot, chatID int64) ([]string, bool) {
+	if b == nil {
+		return nil, false
 	}
 	avail, err := cache.GetFromCacheOrLoad(ctx, presenceAvailReactKey(chatID), presenceAvailReactTTL, func(loadCtx context.Context) (presenceAvailReactions, error) {
 		var info *gotgbot.ChatFullInfo
@@ -113,12 +114,25 @@ func presenceAllowedEmoji(ctx context.Context, b *gotgbot.Bot, chatID int64, emo
 	})
 	if err != nil {
 		log.WithField("chat_id", chatID).Debugf("[Presence] getChat for available reactions failed: %s", chatSendErrClass(err))
-		return false
+		return nil, false
 	}
 	if avail.All {
-		return true
+		return slices.Clone(supportedReactionEmoji), true
 	}
-	return slices.Contains(avail.Allowed, emoji)
+	if len(avail.Allowed) == 0 {
+		return nil, false
+	}
+	return slices.Clone(avail.Allowed), true
+}
+
+// presenceAllowedEmoji reports whether normalized emoji is allowed in chatID by delegating to
+// presenceAllowedPalette.
+func presenceAllowedEmoji(ctx context.Context, b *gotgbot.Bot, chatID int64, emoji string) bool {
+	if emoji == "" {
+		return false
+	}
+	palette, ok := presenceAllowedPalette(ctx, b, chatID)
+	return ok && slices.Contains(palette, emoji)
 }
 
 // presenceBotReact is the compact 24h metadata stored outside xenobot:cache: whenever the bot sets

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -550,4 +551,134 @@ func TestPresenceBotReact(t *testing.T) {
 	if ttl := mr.TTL(cdKey); ttl < 23*time.Hour || ttl > 24*time.Hour {
 		t.Errorf("cooldown TTL = %v, want ~24h", ttl)
 	}
+}
+
+func TestPresenceAllowedPalette(t *testing.T) {
+	t.Run("nil bot fails closed", func(t *testing.T) {
+		palette, ok := presenceAllowedPalette(context.Background(), nil, -100777040)
+		if ok || palette != nil {
+			t.Fatalf("presenceAllowedPalette(nil bot) = (%v, %v), want (nil, false)", palette, ok)
+		}
+	})
+
+	t.Run("empty available_reactions returns all 73 emojis and caches for 20m", func(t *testing.T) {
+		withFastPresencePacer(t)
+		utilsCache.SetupTestMemoryMarshaler(t)
+		withChatRedis(t)
+
+		const chatID int64 = -100777041
+		var getChatCalls atomic.Int32
+		bot := newWireTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Path == "/bottest/getChat" {
+				getChatCalls.Add(1)
+				_, _ = w.Write([]byte(`{"ok":true,"result":{"id":-100777041,"type":"supergroup"}}`))
+				return
+			}
+			http.NotFound(w, r)
+		})
+
+		first, ok := presenceAllowedPalette(context.Background(), bot, chatID)
+		if !ok {
+			t.Fatal("1st presenceAllowedPalette() ok = false, want true")
+		}
+		if len(first) != 73 || !slices.Equal(first, supportedReactionEmoji) {
+			t.Fatalf("1st palette len=%d equal=%v, want all 73 supportedReactionEmoji", len(first), slices.Equal(first, supportedReactionEmoji))
+		}
+		// Mutating the returned slice must never corrupt supportedReactionEmoji or cache.
+		first[0] = "MUTATED"
+
+		second, ok := presenceAllowedPalette(context.Background(), bot, chatID)
+		if !ok {
+			t.Fatal("2nd presenceAllowedPalette() ok = false, want true")
+		}
+		if !slices.Equal(second, supportedReactionEmoji) {
+			t.Fatalf("2nd palette was mutated or drifted: first=%q want=%q", second[0], supportedReactionEmoji[0])
+		}
+		if got := getChatCalls.Load(); got != 1 {
+			t.Fatalf("getChat calls = %d, want 1 (2nd call must hit 20m cache)", got)
+		}
+	})
+
+	t.Run("restricted standard and custom list returns only normalized standard emojis", func(t *testing.T) {
+		withFastPresencePacer(t)
+		utilsCache.SetupTestMemoryMarshaler(t)
+		withChatRedis(t)
+
+		const chatID int64 = -100777042
+		var getChatCalls atomic.Int32
+		bot := newWireTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Path == "/bottest/getChat" {
+				getChatCalls.Add(1)
+				_, _ = w.Write([]byte(`{"ok":true,"result":{"id":-100777042,"type":"supergroup","available_reactions":[{"type":"emoji","emoji":"❤️"},{"type":"emoji","emoji":"🔥"},{"type":"emoji","emoji":"😂"},{"type":"custom_emoji","custom_emoji_id":"999"},{"type":"emoji","emoji":"❤"}]}}`))
+				return
+			}
+			http.NotFound(w, r)
+		})
+
+		palette, ok := presenceAllowedPalette(context.Background(), bot, chatID)
+		want := []string{"❤", "🔥"}
+		if !ok || !slices.Equal(palette, want) {
+			t.Fatalf("presenceAllowedPalette() = (%v, %v), want (%v, true)", palette, ok, want)
+		}
+		// Mutating returned slice must not pollute cached Allowed slice.
+		palette[0] = "MUTATED"
+		cached, ok := presenceAllowedPalette(context.Background(), bot, chatID)
+		if !ok || !slices.Equal(cached, want) {
+			t.Fatalf("cached presenceAllowedPalette() = (%v, %v), want (%v, true)", cached, ok, want)
+		}
+		if got := getChatCalls.Load(); got != 1 {
+			t.Fatalf("getChat calls = %d, want 1", got)
+		}
+	})
+
+	t.Run("custom-only available_reactions returns nil and false", func(t *testing.T) {
+		withFastPresencePacer(t)
+		utilsCache.SetupTestMemoryMarshaler(t)
+		withChatRedis(t)
+
+		const chatID int64 = -100777043
+		bot := newWireTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Path == "/bottest/getChat" {
+				_, _ = w.Write([]byte(`{"ok":true,"result":{"id":-100777043,"type":"supergroup","available_reactions":[{"type":"custom_emoji","custom_emoji_id":"12345"}]}}`))
+				return
+			}
+			http.NotFound(w, r)
+		})
+
+		palette, ok := presenceAllowedPalette(context.Background(), bot, chatID)
+		if ok || palette != nil {
+			t.Fatalf("custom-only presenceAllowedPalette() = (%v, %v), want (nil, false)", palette, ok)
+		}
+	})
+
+	t.Run("getChat HTTP 500 error fails closed without touching chatBreakers", func(t *testing.T) {
+		withFastPresencePacer(t)
+		utilsCache.SetupTestMemoryMarshaler(t)
+		withChatRedis(t)
+		chatSwap(t, &chatBreakers, map[string]*memberReqAIBreaker{
+			chatconv.ProviderAnthropic:   newMemberReqAIBreaker(),
+			chatconv.ProviderGoogle:      newMemberReqAIBreaker(),
+			chatconv.ProviderFeatherless: newMemberReqAIBreaker(),
+		})
+
+		const chatID int64 = -100777044
+		bot := newWireTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if r.URL.Path == "/bottest/getChat" {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"ok":false,"error_code":500,"description":"Internal Server Error"}`))
+				return
+			}
+			http.NotFound(w, r)
+		})
+
+		palette, ok := presenceAllowedPalette(context.Background(), bot, chatID)
+		if ok || palette != nil {
+			t.Fatalf("getChat error presenceAllowedPalette() = (%v, %v), want (nil, false)", palette, ok)
+		}
+		assertChatBreakersClean(t)
+	})
 }
