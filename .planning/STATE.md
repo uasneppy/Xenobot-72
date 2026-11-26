@@ -2,14 +2,19 @@
 gsd_state_version: "1.0"
 milestone: v1.3
 milestone_name: Interactive Presence
-status: planning
-last_updated: "2026-11-26T19:27:00.000Z"
+current_phase: 31
+current_phase_name: Presence Foundation, Settings Page and Zero-AI Social Reactions
+status: executing
+stopped_at: Completed 31-01-PLAN.md
+last_updated: "2026-11-26T21:49:39.334Z"
 last_activity: 2026-11-26
+last_activity_desc: Created v1.3 Interactive Presence roadmap (Phases 31–35, 23/23 requirements mapped)
+state_head: 9091f518feb11aa49b5dc09a5e9a7c737e99af4d
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 5
+  completed_plans: 1
   percent: 0
 ---
 
@@ -26,9 +31,9 @@ See: .planning/ROADMAP.md (v1.3 Interactive Presence — Phases 31–35)
 ## Current Position
 
 Phase: 31 of 35 (Presence Foundation, Settings Page and Zero-AI Social Reactions)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-11-26 — Created v1.3 Interactive Presence roadmap (Phases 31–35, 23/23 requirements mapped)
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-11-26 — Completed 31-01-PLAN.md (Presence config, chat_presence schema & repository)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -218,6 +223,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 30 P03 | 9min | 2 tasks | 2 files |
 | Phase 30 P04 | 19min | 3 tasks | 16 files |
 | Phase 30-backup-page-and-custom-messages-in-backups P05 | 29min | 3 tasks | 3 files |
+| Phase 31 P01 | 4 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -363,6 +369,7 @@ Recent decisions affecting current work:
 - [Phase 30]: Implemented private-only Backup settings page ba (Order 83, actions bv/be/bi/bl/bj/br/bu, stateless 20-bit hex mask m=0..fffff, settingsTypedPages[settingsPageBackup] document wait, peek-before-consume Lua GET+DEL two-tap cards, shared BackupRateLimiter and apply helpers) with 8-locale UI and TestSettingsBackupPage
 - [Phase 30]: Checked settingsLockRows alongside settingsCoreActions and all 30 settingsPages in TestPhase30Codes to guard against lock-row code collisions
 - [Phase 30]: Documented Phase 30 invariants and provisional decisions P30-01..P30-04 in AGENTS.md with zero new goroutines, handler groups, or shutdown drains
+- [Phase 31]: 31-01: Subscribed message_reaction (excluding message_reaction_count) in AllowedUpdates, added dedicated chat_presence table with no GORM default: tags on booleans, registered chat_presence:<chat> in skipLocal, and implemented column-targeted upserts in xenobot/db/presence
 
 ### Pending Todos
 
@@ -508,8 +515,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-26T19:27:00.000Z
-Stopped at: Created v1.3 Interactive Presence roadmap (Phases 31–35), ready to plan Phase 31
+Last session: 2026-11-26T21:49:09.708Z
+Stopped at: Completed 31-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

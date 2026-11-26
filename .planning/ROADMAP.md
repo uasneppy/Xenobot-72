@@ -107,10 +107,10 @@ Every phase is implemented, security-audited with no open threat, code-reviewed 
   3. When the message's author or a group admin reacts `👎` to a message the bot reacted to, the bot silently clears its reaction (sending explicit `[]gotgbot.ReactionType{}`) and extends that user's cooldown with zero group messages posted; a non-author regular member reacting `👎` changes nothing.
   4. Every outgoing bot reaction is normalized (`U+FE0F`-stripped), sent with `IsBig: false`, restricted to standard emojis allowed by the chat's cached `AvailableReactions`, and tracked with 24-hour `bot_react` metadata; reaction processing runs under `StopChat` with zero new shutdown drains.
   5. Private chats, Staff Groups, groups under active lockdown, bots, anonymous channels, and slash commands never trigger ambient interactive presence paths.
-**Plans:** 5 plans
+**Plans:** 1/5 plans executed
 
 Plans:
-- [ ] 31-01-PLAN.md — AllowedUpdates `"message_reaction"`, `chat_presence` migration/model/`skipLocal` cache & repository
+- [x] 31-01-PLAN.md — AllowedUpdates `"message_reaction"`, `chat_presence` migration/model/`skipLocal` cache & repository
 - [ ] 31-02-PLAN.md — Shared Staff/Lockdown/actor safety gate, apply layer, safe reaction API, 20m `AvailableReactions` cache & 24h `bot_react` tracking
 - [ ] 31-03-PLAN.md — 8-locale translations and `settings_locale_test.go` ceilings/20-rune grid cap for Presence page `pr`
 - [ ] 31-04-PLAN.md — Group 0 `LoadPresence` reaction router under `StopChat`, `👎` Retraction & Redis Lua Emoji Consensus
@@ -190,7 +190,7 @@ Phases execute in numeric order: 31 → 32 → 33 → 34 → 35
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 31. Presence Foundation, Settings Page and Zero-AI Social Reactions | v1.3 | 0/5 | Planned | - |
+| 31. Presence Foundation, Settings Page and Zero-AI Social Reactions | v1.3 | 1/5 | In Progress | - |
 | 32. Contextual AI Emoji Reactions | v1.3 | 0/TBD | Not started | - |
 | 33. Smarter Static Reactions, Highlights Archive and Backup Parity | v1.3 | 0/TBD | Not started | - |
 | 34. Room-Aware Conversations and Frictionless Catch-Up | v1.3 | 0/TBD | Not started | - |
