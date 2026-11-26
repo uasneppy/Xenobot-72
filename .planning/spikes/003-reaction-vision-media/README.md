@@ -4,7 +4,7 @@ idea: contextual-ai-reactions
 name: reaction-vision-media
 type: standard
 validates: "Given sample photos/memes and sticker thumbnails via the multimodal provider path, when evaluated on vision-capable providers (Claude / Gemini), then reactions match image context within acceptable token cost and degrade cleanly to caption/sticker-emoji on text-only Featherless models"
-verdict: PENDING
+verdict: PARTIAL
 related: [001, 002]
 tags: [ai, reactions, vision, multimodal, stickers, featherless]
 ---
@@ -79,6 +79,20 @@ Built-in `ForensicStore`:
 3. **Offline verification:** Passed `go test -race -v` verifying byte sniffing, image token overhead math, automatic HTTP 400→text-only degradation on Featherless, invalid-upload HTTP 400 rejection, and zero secret leakage.
 
 ## Results
-- **Verdict:** `PENDING` (awaiting live run with user's Anthropic, Gemini, and Featherless API keys; harness + offline mock verification passing).
-- **Offline verification evidence:** All unit + HTTP integration tests pass under `-race`; `--cli --mock` validates image token overhead tracking and Featherless HTTP 400 auto-degradation.
-- **Next step:** Run live via `http://127.0.0.1:8703` across both the 6 built-in fixtures and 2-3 real memes/stickers uploaded from your machine, record actual Claude/Gemini image token costs and Featherless degradation behavior, and update this section + `MANIFEST.md`.
+- **Verdict:** `PARTIAL` — **Gemini 4 (`6/6`, 100%) empirically validated** and **Featherless (`inclusionAI/Ling-3.2-air`) vision + fallback behaviors measured** (`2026-11-26`); **Claude blocked on `HTTP 401 authentication_error: invalid x-api-key`** (0/6).
+- **Live Media Summary (`MaxTokens = 384`, from `results-live.json`):**
+
+| Target | Clean | Match | Errors | Degraded | Avg ms | Avg In Tok | Avg Image Overhead |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `gemini` (`gemini-4-hydrogen`) | **6/6** | **6/6** | 0 | 0 | 2342 | 1522 | **+1056.5** |
+| `featherless_vision` (`Ling-3.2-air`) | 3/6 | 3/6 | 1 | 0 | 4614 | 553 | +61.3 |
+| `featherless_text_fallback` (`Ling-3.2-air`) | 4/6 | 4/6 | 0 | 6 | 2369 | 510 | +0.0 |
+| `claude` (`claude-haiku-5-5`) | 0/6 | 0/6 | 6 | 0 | 135 | — | — (`HTTP 401`) |
+
+- **Key Findings:**
+  1. **Gemini 4 Vision was 6/6 (`100%`)**: Cat photo → `❤`, Friday deploy meme → `🔥`, prod crash screenshot → `🫡`, mundane invoice → `NONE`, smug cat sticker → `👀`, clown sticker roast → `🤡` (`thoughts_tokens = 111–169`, consistent **+1,039 to +1,067 input token** image overhead, ~2.34 s latency).
+  2. **Featherless (`inclusionAI/Ling-3.2-air`) findings:**
+     - Model actually accepted `image_url` (no HTTP 400; only +54–73 input tokens) and got `photo_cat_portrait` (`❤`), `meme_friday_deploy` (`🔥`), and `photo_mundane_invoice` (`NONE`) right — **but** overflowed `MaxTokens = 384` with untagged prose reasoning on 2 fixtures (`photo_prod_crash`, `sticker_smug_cat`) and returned `featherless: no reply: no choices` after 12.9 s on `sticker_clown_roast`.
+     - On `featherless_text_fallback` for `sticker_smug_cat`, it echoed `😼` (which is **not** in Telegram's 73 standard reaction emojis) — proving strict `supportedReactionEmoji` validation is mandatory before calling `SetMessageReaction`.
+     - Text-only Featherless HTTP 400 auto-degradation was not triggered because `inclusionAI/Ling-3.2-air` accepted `image_url`; production should still keep both text-only fallback and silent `no choices` / parse-error shedding.
+- **Remaining gap:** Re-run with `--targets claude` using a valid `ANTHROPIC_API_KEY` (and optionally test a known text-only Featherless model + real `.webp` uploads) to upgrade verdict to `VALIDATED`.
