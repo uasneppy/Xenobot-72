@@ -273,6 +273,18 @@ func TestPresenceKeys(t *testing.T) {
 			got:  presenceConsensusDoneKey(chatID, msgID),
 			want: "xenobot:presence:{-1001234567890}:cons:done:456",
 		},
+		"ai_react_gap": {
+			got:  presenceAIReactGapKey(chatID),
+			want: "xenobot:presence:{-1001234567890}:ai:gap",
+		},
+		"ai_react_chat_cooldown": {
+			got:  presenceAIReactChatCooldownKey(chatID),
+			want: "xenobot:presence:{-1001234567890}:ai:cd:chat",
+		},
+	}
+
+	if presenceStaticReactedKey != "presence.static_reacted" {
+		t.Errorf("presenceStaticReactedKey = %q, want %q", presenceStaticReactedKey, "presence.static_reacted")
 	}
 
 	for name, tc := range keys {
@@ -312,6 +324,32 @@ func TestPresenceApply(t *testing.T) {
 		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.RetractEnabled || r.Settings.ConsensusThreshold != 7 {
 			t.Fatalf("RetractEnabled false: got %+v", r)
 		}
+
+		r = applyPresenceAIReactMode(ctx, chatID, presence.AIReactModeMedium, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.AIReactMode != presence.AIReactModeMedium || r.Settings.ConsensusThreshold != 7 || r.Settings.RetractEnabled {
+			t.Fatalf("AIReactMode medium: got %+v", r)
+		}
+	})
+
+	t.Run("invalid ai react mode writes nothing", func(t *testing.T) {
+		chatID := uniqueModuleChatID()
+		presenceCleanup(t, chatID)
+
+		writeCalls := 0
+		chatSwap(t, &presenceWrites.AIReactMode, func(ctx context.Context, id int64, mode string, by int64) error {
+			writeCalls++
+			return presence.SetAIReactMode(ctx, id, mode, by)
+		})
+
+		for _, bad := range []string{"", "high", "OFF", "Low"} {
+			r := applyPresenceAIReactMode(ctx, chatID, bad, 10)
+			if r.Outcome != presenceInvalidValue || r.Settings != nil || r.Err != nil {
+				t.Errorf("mode %q: got %+v, want presenceInvalidValue", bad, r)
+			}
+		}
+		if writeCalls != 0 {
+			t.Errorf("writer called %d times for invalid modes, want 0", writeCalls)
+		}
 	})
 
 	t.Run("invalid threshold writes nothing", func(t *testing.T) {
@@ -343,6 +381,7 @@ func TestPresenceApply(t *testing.T) {
 		chatSwap(t, &presenceWrites.ConsensusEnabled, func(context.Context, int64, bool, int64) error { return boom })
 		chatSwap(t, &presenceWrites.ConsensusThreshold, func(context.Context, int64, int, int64) error { return boom })
 		chatSwap(t, &presenceWrites.RetractEnabled, func(context.Context, int64, bool, int64) error { return boom })
+		chatSwap(t, &presenceWrites.AIReactMode, func(context.Context, int64, string, int64) error { return boom })
 
 		if r := applyPresenceConsensusEnabled(ctx, chatID, true, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
 			t.Errorf("ConsensusEnabled failure: got %+v", r)
@@ -352,6 +391,9 @@ func TestPresenceApply(t *testing.T) {
 		}
 		if r := applyPresenceRetractEnabled(ctx, chatID, false, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
 			t.Errorf("RetractEnabled failure: got %+v", r)
+		}
+		if r := applyPresenceAIReactMode(ctx, chatID, presence.AIReactModeLow, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("AIReactMode failure: got %+v", r)
 		}
 	})
 

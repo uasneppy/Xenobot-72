@@ -20,8 +20,13 @@ var presenceModule = moduleStruct{moduleName: "Presence"}
 
 // presenceKeyPrefix is the operational Redis namespace for Interactive Presence. It sits strictly
 // outside xenobot:cache: so CLEAR_CACHE_ON_STARTUP never wipes bot_react retraction records,
-// per-user cooldowns, or Emoji Consensus sets and latches.
+// per-user cooldowns, AI reaction cooldowns/gap counters, or Emoji Consensus sets and latches.
 const presenceKeyPrefix = "xenobot:presence:"
+
+// presenceStaticReactedKey is the ctx.Data boolean handoff key set by group 8 static/cat-sticker
+// reactions (Phase 33) and respected by group 13 contextual AI reactions so AI reactions never
+// overwrite a static reaction.
+const presenceStaticReactedKey = "presence.static_reacted"
 
 // presenceRedisClient returns the Redis client shared with the conversation feature, or nil when
 // Redis is unavailable. Swapped automatically in tests via withChatRedis (or directly via chatSwap).
@@ -57,6 +62,18 @@ func presenceConsensusCooldownKey(chatID int64) string {
 // presenceConsensusDoneKey is the once-only per-message Emoji Consensus latch.
 func presenceConsensusDoneKey(chatID, msgID int64) string {
 	return presenceChatTag(chatID) + "cons:done:" + strconv.FormatInt(msgID, 10)
+}
+
+// presenceAIReactGapKey holds the per-chat non-slash member message counter between AI reactions.
+// It shares the {<chatID>} Redis Cluster hash tag with presenceAIReactChatCooldownKey and
+// presenceUserCooldownKey so one Lua script checks and updates all three atomically.
+func presenceAIReactGapKey(chatID int64) string {
+	return presenceChatTag(chatID) + "ai:gap"
+}
+
+// presenceAIReactChatCooldownKey gates per-chat Contextual AI Emoji Reactions across replicas.
+func presenceAIReactChatCooldownKey(chatID int64) string {
+	return presenceChatTag(chatID) + "ai:cd:chat"
 }
 
 // Shared safety gate seams (PRES-02). Package variables only so tests can inject fixtures/errors.
@@ -129,10 +146,12 @@ var presenceWrites = struct {
 	ConsensusEnabled   func(ctx context.Context, chatID int64, enabled bool, by int64) error
 	ConsensusThreshold func(ctx context.Context, chatID int64, threshold int, by int64) error
 	RetractEnabled     func(ctx context.Context, chatID int64, enabled bool, by int64) error
+	AIReactMode        func(ctx context.Context, chatID int64, mode string, by int64) error
 }{
 	ConsensusEnabled:   presence.SetConsensusEnabled,
 	ConsensusThreshold: presence.SetConsensusThreshold,
 	RetractEnabled:     presence.SetRetractEnabled,
+	AIReactMode:        presence.SetAIReactMode,
 }
 
 // presenceReadFresh reads a chat's Interactive Presence settings straight from PostgreSQL after a
@@ -186,6 +205,19 @@ func applyPresenceConsensusThreshold(ctx context.Context, chatID int64, threshol
 func applyPresenceRetractEnabled(ctx context.Context, chatID int64, enabled bool, by int64) presenceApplyResult {
 	if err := presenceWrites.RetractEnabled(ctx, chatID, enabled, by); err != nil {
 		log.WithField("chat_id", chatID).Warn("[Presence] saving retract_enabled failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceAIReactMode stores the Contextual AI Emoji Reactions mode ('off', 'low', 'medium')
+// for chatID, rejecting invalid values with zero database calls.
+func applyPresenceAIReactMode(ctx context.Context, chatID int64, mode string, by int64) presenceApplyResult {
+	if !presence.ValidAIReactMode(mode) {
+		return presenceApplyResult{Outcome: presenceInvalidValue}
+	}
+	if err := presenceWrites.AIReactMode(ctx, chatID, mode, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving ai_react_mode failed")
 		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
 	}
 	return presenceReadBack(ctx, chatID)
