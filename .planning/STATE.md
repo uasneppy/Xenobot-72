@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Interactive Presence
 current_phase: 32
 current_phase_name: Contextual AI Emoji Reactions
-status: planning
-stopped_at: Phase 31 complete, ready to plan Phase 32
-last_updated: "2026-11-26T23:27:05.553Z"
+status: executing
+stopped_at: Completed 32-01-PLAN.md
+last_updated: "2026-11-26T23:45:55.104Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 31 complete, transitioned to Phase 32
-state_head: 4c96a54be3d392692173312c8ed9225c6e60d634
+state_head: edc7eba42feb7220cbe91da91c0149afcf04661a
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 11
+  completed_plans: 6
   percent: 20
 ---
 
@@ -26,14 +26,14 @@ See: .planning/PROJECT.md (updated 2026-11-26)
 See: .planning/ROADMAP.md (v1.3 Interactive Presence — Phases 31–35)
 
 **Core value:** My trusted staff can protect every one of my communities from one place. We act on a bad actor across all groups at once, and the bot never lets anyone act in a group where they aren't an admin.
-**Current focus:** Milestone v1.3 Interactive Presence — Phase 31 (Presence Foundation, Settings Page and Zero-AI Social Reactions)
+**Current focus:** Milestone v1.3 Interactive Presence — Phase 32 (Contextual AI Emoji Reactions)
 
 ## Current Position
 
 Phase: 32 of 35 (Contextual AI Emoji Reactions)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-11-27 — Phase 31 complete, transitioned to Phase 32
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-11-27 — Completed Plan 32-01 (AI react mode persistence & rolling-deploy cache safety)
 
 Progress: [██░░░░░░░░] 20%
 
@@ -229,6 +229,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 31 P03 | 4 min | 3 tasks | 9 files |
 | Phase 31 P04 | 16 min | 2 tasks | 2 files |
 | Phase 31 P05 | 9 min | 3 tasks | 11 files |
+| Phase 32 P01 | 4 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -379,6 +380,7 @@ Recent decisions affecting current work:
 - [Phase 31]: 31-03: Added all 11 Presence Settings page (pr) and Conversations shortcut keys across 8 locales, registered ceilings in settingsLocaleLimits, and added Main grid (<= 20 runes) plus toggle/shortcut (<= 40 runes) length guards in TestSettingsLabelLengths
 - [Phase 31]: 31-04: LoadPresence registers handlers.NewReaction at group 0 without SetModuleEnabled, joins StopChat (chatJobs+chatDraining+chatContext) with zero new shutdown drains, checks bot_react before Telegram calls on 👎 retraction, and tracks Emoji Consensus via Cluster-safe Redis Lua sets with lazy fail-closed lockdown checks
 - [Phase 31]: 31-05: Registered private-only Presence Settings page pr (Order 91, paired y|pr at 17 Main rows across 31 pages, hidden/fail-closed in Staff Groups, settingsRightChangeInfo) and ✨ Presence → shortcut on Owner-only Conversations page p (<= 8 rows); documented Phase 31 invariants in AGENTS.md
+- [Phase 32]: 32-01: Added append-only chat_presence.ai_react_mode migration with inline chk_chat_presence_ai_react_mode CHECK constraint, zero GORM default tags on booleans, column-targeted SetAIReactMode upsert, and rolling-deploy empty-mode normalization to "off" in presence.Get/GetFresh
 
 ### Pending Todos
 
@@ -524,8 +526,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-26T23:21:52.877Z
-Stopped at: Phase 31 complete, ready to plan Phase 32
+Last session: 2026-11-26T23:45:30.254Z
+Stopped at: Completed 32-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
