@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Interactive Presence
 current_phase: 31
 current_phase_name: Presence Foundation, Settings Page and Zero-AI Social Reactions
-status: executing
-stopped_at: Completed 31-04-PLAN.md
-last_updated: "2026-11-26T23:11:25.461Z"
+status: verifying
+stopped_at: Completed 31-05-PLAN.md
+last_updated: "2026-11-26T23:21:52.898Z"
 last_activity: 2026-11-26
 last_activity_desc: Created v1.3 Interactive Presence roadmap (Phases 31–35, 23/23 requirements mapped)
-state_head: d42b05556ebce724c9a28db3192043a03a879040
+state_head: 374124e61cbbbc3af5a77816f5d48541a603eeef
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -32,7 +32,7 @@ See: .planning/ROADMAP.md (v1.3 Interactive Presence — Phases 31–35)
 
 Phase: 31 of 35 (Presence Foundation, Settings Page and Zero-AI Social Reactions)
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-26 — Completed 31-01-PLAN.md (Presence config, chat_presence schema & repository)
 
 Progress: [░░░░░░░░░░] 0%
@@ -227,6 +227,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 31 P02 | 8 min | 2 tasks | 4 files |
 | Phase 31 P03 | 4 min | 3 tasks | 9 files |
 | Phase 31 P04 | 16 min | 2 tasks | 2 files |
+| Phase 31 P05 | 9 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -376,6 +377,7 @@ Recent decisions affecting current work:
 - [Phase 31]: 31-02: Shared PRES-02 safety gate in presence.go leaves lockdown.GetActiveFresh lazy (fail-closed), isolates operational keys under xenobot:presence:{<chat>}:*, and verifies reaction=[] wire serialization via httptest multipart decoder
 - [Phase 31]: 31-03: Added all 11 Presence Settings page (pr) and Conversations shortcut keys across 8 locales, registered ceilings in settingsLocaleLimits, and added Main grid (<= 20 runes) plus toggle/shortcut (<= 40 runes) length guards in TestSettingsLabelLengths
 - [Phase 31]: 31-04: LoadPresence registers handlers.NewReaction at group 0 without SetModuleEnabled, joins StopChat (chatJobs+chatDraining+chatContext) with zero new shutdown drains, checks bot_react before Telegram calls on 👎 retraction, and tracks Emoji Consensus via Cluster-safe Redis Lua sets with lazy fail-closed lockdown checks
+- [Phase 31]: 31-05: Registered private-only Presence Settings page pr (Order 91, paired y|pr at 17 Main rows across 31 pages, hidden/fail-closed in Staff Groups, settingsRightChangeInfo) and ✨ Presence → shortcut on Owner-only Conversations page p (<= 8 rows); documented Phase 31 invariants in AGENTS.md
 
 ### Pending Todos
 
@@ -521,8 +523,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-26T23:11:25.439Z
-Stopped at: Completed 31-04-PLAN.md
+Last session: 2026-11-26T23:21:52.877Z
+Stopped at: Completed 31-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
