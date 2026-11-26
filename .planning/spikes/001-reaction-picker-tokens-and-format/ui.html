@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spike 001 — Reaction Picker Tokens &amp; Format</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --ok:#2ea043; --warn:#d29922; --err:#f85149; --accent:#58a6ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background:var(--bg); color:var(--text); padding:20px; line-height:1.45; }
+  h1 { margin:0 0 4px; font-size:20px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:16px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:12px; margin-bottom:16px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px; }
+  .card h2 { margin:0 0 10px; font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:.04em; }
+  label { display:block; font-size:12px; color:var(--muted); margin-top:6px; }
+  input[type=text], input[type=password], select, textarea { width:100%; background:#010409; border:1px solid var(--border); color:var(--text); border-radius:6px; padding:7px 9px; font-size:13px; margin-top:3px; }
+  textarea { min-height:64px; resize:vertical; }
+  .checks { display:flex; flex-wrap:wrap; gap:10px; margin-top:6px; font-size:13px; }
+  .checks label { display:inline-flex; align-items:center; gap:5px; margin:0; color:var(--text); cursor:pointer; }
+  .btn { background:#238636; color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn:disabled { opacity:.5; cursor:wait; }
+  .btn-sec { background:#21262d; border:1px solid var(--border); color:var(--text); }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px; }
+  .kpis { display:grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap:10px; margin-bottom:14px; }
+  .kpi { background:#010409; border:1px solid var(--border); border-radius:6px; padding:10px; }
+  .kpi .v { font-size:22px; font-weight:700; }
+  .kpi .l { font-size:11px; color:var(--muted); text-transform:uppercase; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px; }
+  th, td { border-bottom:1px solid var(--border); padding:7px 8px; text-align:left; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; background:#010409; }
+  .badge { display:inline-block; padding:2px 7px; border-radius:999px; font-size:11px; font-weight:600; }
+  .b-ok { background:rgba(46,160,67,.2); color:#3fb950; }
+  .b-warn { background:rgba(210,153,34,.2); color:#e3b341; }
+  .b-err { background:rgba(248,81,73,.2); color:#ff7b72; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+  .emoji-big { font-size:18px; }
+  .logbox { max-height:220px; overflow:auto; background:#010409; border:1px solid var(--border); border-radius:6px; padding:8px; font-family:ui-monospace,monospace; font-size:11.5px; }
+  .env-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
+  .dot-on { background:var(--ok); } .dot-off { background:var(--warn); }
+</style>
+</head>
+<body>
+  <h1>Spike 001 — Reaction Picker Tokens &amp; Format</h1>
+  <div class="sub">73 standard Telegram emojis + <code>NONE</code> · Claude Haiku / Gemini 4 (<code>thinkingLevel: "low"</code>) / Featherless · MaxTokens 128 / 256 / 512 · Plain vs JSON</div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>1. Provider Credentials (In-Memory Only)</h2>
+      <div class="sub" style="margin-bottom:6px">Leave blank to use shell env vars. Keys stay in memory, never logged or exported.</div>
+      <label><span id="dot-claude" class="env-dot dot-off"></span>Anthropic API Key</label>
+      <input type="password" id="anthropic_key" placeholder="Uses ANTHROPIC_API_KEY from env if blank">
+      <label>Claude Model</label>
+      <input type="text" id="anthropic_model" value="claude-haiku-5-5">
+
+      <label><span id="dot-gemini" class="env-dot dot-off"></span>Gemini API Key</label>
+      <input type="password" id="gemini_key" placeholder="Uses GEMINI_API_KEY from env if blank">
+      <label>Gemini Model (thinkingLevel: low)</label>
+      <input type="text" id="gemini_model" value="gemini-4-hydrogen">
+
+      <label><span id="dot-featherless" class="env-dot dot-off"></span>Featherless API Key</label>
+      <input type="password" id="featherless_key" placeholder="Uses FEATHERLESS_API_KEY from env if blank">
+      <label>Featherless Model (owner/model)</label>
+      <input type="text" id="featherless_model" placeholder="e.g. Qwen/Qwen3-32B">
+    </div>
+
+    <div class="card">
+      <h2>2. Matrix Controls</h2>
+      <label>Providers</label>
+      <div class="checks">
+        <label><input type="checkbox" name="prov" value="claude" checked> Claude</label>
+        <label><input type="checkbox" name="prov" value="gemini" checked> Gemini</label>
+        <label><input type="checkbox" name="prov" value="featherless" checked> Featherless</label>
+      </div>
+      <label>MaxTokens Sweep</label>
+      <div class="checks">
+        <label><input type="checkbox" name="tok" value="128" checked> 128</label>
+        <label><input type="checkbox" name="tok" value="256" checked> 256</label>
+        <label><input type="checkbox" name="tok" value="512" checked> 512</label>
+      </div>
+      <label>Output Formats</label>
+      <div class="checks">
+        <label><input type="checkbox" name="fmt" value="plain" checked> plain (bare emoji / NONE)</label>
+        <label><input type="checkbox" name="fmt" value="json" checked> json ({"emoji":...})</label>
+      </div>
+      <div class="checks" style="margin-top:10px">
+        <label><input type="checkbox" id="mock_mode"> Mock mode (offline httptest stubs)</label>
+      </div>
+      <div class="row">
+        <button class="btn" id="runBtn" onclick="runMatrix()">Run Full Matrix</button>
+        <button class="btn btn-sec" onclick="exportLogs()">Export Forensic JSON</button>
+        <button class="btn btn-sec" onclick="clearLogs()">Clear Log</button>
+      </div>
+      <div id="statusMsg" class="sub" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h2>3. Live Single-Message Playground</h2>
+      <label>Member Message</label>
+      <textarea id="customText">Just dropped the staging database right before demo. Everything is fine.</textarea>
+      <div class="row">
+        <select id="customMax" style="width:auto">
+          <option value="128">MaxTokens: 128</option>
+          <option value="256" selected>MaxTokens: 256</option>
+          <option value="512">MaxTokens: 512</option>
+        </select>
+        <select id="customFmt" style="width:auto">
+          <option value="plain" selected>plain</option>
+          <option value="json">json</option>
+        </select>
+        <select id="customPalette" style="width:auto">
+          <option value="all" selected>All 73 Emojis</option>
+          <option value="restricted">Restricted (5 Emojis)</option>
+        </select>
+      </div>
+      <div class="row">
+        <button class="btn" id="singleBtn" onclick="runSingle()">Test Message</button>
+      </div>
+      <div id="singleOut" style="margin-top:8px;font-size:12.5px"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <h2>Summary by Provider × Format × MaxTokens</h2>
+    <div class="kpis">
+      <div class="kpi"><div class="v" id="kTotal">0</div><div class="l">Total Calls</div></div>
+      <div class="kpi"><div class="v" id="kClean">-</div><div class="l">Clean Parse Rate</div></div>
+      <div class="kpi"><div class="v" id="kTrunc">0</div><div class="l">ErrNoReply Truncations</div></div>
+      <div class="kpi"><div class="v" id="kP95">-</div><div class="l">Worst P95 Latency</div></div>
+    </div>
+    <table id="bucketTable">
+      <thead><tr><th>Provider</th><th>Format</th><th>MaxTokens</th><th>Clean</th><th>ErrNoReply Trunc</th><th>Invalid/Err</th><th>Expect Match</th><th>P50 / P95 / Max</th><th>Avg Out / Thought Tok</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <h2>Per-Probe Cell Results</h2>
+    <table id="cellTable">
+      <thead><tr><th>Provider / Model</th><th>Fmt</th><th>Max</th><th>Probe</th><th>Parsed</th><th>Status</th><th>Raw Output</th><th>Latency</th><th>Tokens (in / out / thought / cache)</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Forensic Event Log (<span id="logCount">0</span> events)</h2>
+    <div id="logBox" class="logbox"></div>
+  </div>
+
+<script>
+let restrictedList = [];
+
+async function init() {
+  const res = await fetch('/api/config');
+  const cfg = await res.json();
+  restrictedList = cfg.restricted || [];
+  document.getElementById('anthropic_model').value = cfg.models.claude || 'claude-haiku-5-5';
+  document.getElementById('gemini_model').value = cfg.models.gemini || 'gemini-4-hydrogen';
+  document.getElementById('featherless_model').value = cfg.models.featherless || '';
+  document.getElementById('mock_mode').checked = !!cfg.default_mock;
+  ['claude','gemini','featherless'].forEach(p => {
+    document.getElementById('dot-' + p).className = 'env-dot ' + (cfg.env_configured[p] ? 'dot-on' : 'dot-off');
+  });
+  await refreshLogs();
+}
+
+function getOverrides() {
+  return {
+    anthropic_key: document.getElementById('anthropic_key').value,
+    anthropic_model: document.getElementById('anthropic_model').value,
+    gemini_key: document.getElementById('gemini_key').value,
+    gemini_model: document.getElementById('gemini_model').value,
+    featherless_key: document.getElementById('featherless_key').value,
+    featherless_model: document.getElementById('featherless_model').value,
+  };
+}
+function checkedValues(name) {
+  return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(el => el.value);
+}
+
+function statusBadge(st) {
+  if (st === 'valid_emoji' || st === 'valid_none') return `<span class="badge b-ok">${st}</span>`;
+  if (st === 'thinking_truncation' || st === 'disallowed_by_chat' || st === 'invalid_emoji') return `<span class="badge b-err">${st}</span>`;
+  return `<span class="badge b-warn">${st}</span>`;
+}
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function runMatrix() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  document.getElementById('statusMsg').textContent = 'Running matrix across providers...';
+  try {
+    const res = await fetch('/api/run', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        providers: checkedValues('prov'),
+        max_tokens: checkedValues('tok').map(Number),
+        formats: checkedValues('fmt'),
+        mock: document.getElementById('mock_mode').checked,
+        overrides: getOverrides(),
+      }),
+    });
+    const data = await res.json();
+    renderResults(data.buckets || [], data.results || []);
+    document.getElementById('statusMsg').textContent = `Done: ${(data.results||[]).length} cells completed.`;
+    await refreshLogs();
+  } catch (e) {
+    document.getElementById('statusMsg').textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function runSingle() {
+  const btn = document.getElementById('singleBtn');
+  btn.disabled = true;
+  document.getElementById('singleOut').textContent = 'Calling providers...';
+  try {
+    const res = await fetch('/api/single', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        providers: checkedValues('prov'),
+        max_tokens: Number(document.getElementById('customMax').value),
+        format: document.getElementById('customFmt').value,
+        mock: document.getElementById('mock_mode').checked,
+        probe: {
+          id: 'custom',
+          label: 'Custom',
+          text: document.getElementById('customText').value,
+          allowed: document.getElementById('customPalette').value === 'restricted' ? restrictedList : [],
+        },
+        overrides: getOverrides(),
+      }),
+    });
+    const data = await res.json();
+    document.getElementById('singleOut').innerHTML = (data.results||[]).map(r =>
+      `<div><b>${esc(r.provider)}</b> (${esc(r.model)}): <span class="emoji-big">${esc(r.parse.emoji || '—')}</span> ${statusBadge(r.parse.status)} · ${r.latency_ms}ms · raw: <span class="mono">${esc(r.raw_text || r.error_class)}</span></div>`
+    ).join('');
+    await refreshLogs();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderResults(buckets, results) {
+  const total = results.length;
+  const clean = results.filter(r => r.parse.status === 'valid_emoji' || r.parse.status === 'valid_none').length;
+  const trunc = results.filter(r => r.parse.status === 'thinking_truncation').length;
+  const worstP95 = buckets.reduce((m, b) => Math.max(m, b.p95_latency_ms || 0), 0);
+  document.getElementById('kTotal').textContent = total;
+  document.getElementById('kClean').textContent = total ? (clean * 100 / total).toFixed(1) + '%' : '-';
+  document.getElementById('kTrunc').textContent = trunc;
+  document.getElementById('kP95').textContent = total ? worstP95 + ' ms' : '-';
+
+  document.querySelector('#bucketTable tbody').innerHTML = buckets.map(b => `<tr>
+    <td><b>${esc(b.provider)}</b></td>
+    <td class="mono">${esc(b.format)}</td>
+    <td class="mono">${b.max_tokens}</td>
+    <td>${b.clean_parses}/${b.total} (${b.clean_rate_pct.toFixed(0)}%)</td>
+    <td>${b.truncations > 0 ? `<span class="badge b-err">${b.truncations}</span>` : '0'}</td>
+    <td>${b.invalid_or_errors}</td>
+    <td>${b.expect_matches}/${b.total}</td>
+    <td class="mono">${b.p50_latency_ms} / ${b.p95_latency_ms} / ${b.max_latency_ms} ms</td>
+    <td class="mono">${b.avg_output_tokens.toFixed(1)} / ${b.avg_thought_tokens.toFixed(1)}</td>
+  </tr>`).join('');
+
+  document.querySelector('#cellTable tbody').innerHTML = results.map(r => `<tr>
+    <td><b>${esc(r.provider)}</b><div class="sub" style="margin:0">${esc(r.model)}</div></td>
+    <td class="mono">${esc(r.format)}</td>
+    <td class="mono">${r.max_tokens}</td>
+    <td>${esc(r.probe_label)}</td>
+    <td class="emoji-big">${esc(r.parse.emoji || '—')}</td>
+    <td>${statusBadge(r.parse.status)}</td>
+    <td class="mono">${esc(r.raw_text || r.parse.detail || r.error_class)}</td>
+    <td class="mono">${r.latency_ms}ms</td>
+    <td class="mono">${r.input_tokens} / ${r.output_tokens} / ${r.thoughts_tokens || 0} / ${r.cache_read_tokens || 0}</td>
+  </tr>`).join('');
+}
+
+async function refreshLogs() {
+  const res = await fetch('/api/logs');
+  const snap = await res.json();
+  if ((snap.results || []).length > 0 && document.querySelector('#cellTable tbody').children.length === 0) {
+    renderResults(snap.buckets || [], snap.results || []);
+  }
+  const evs = snap.events || [];
+  document.getElementById('logCount').textContent = evs.length;
+  document.getElementById('logBox').innerHTML = evs.slice(-100).reverse().map(e =>
+    `<div>[${esc(e.timestamp)}] <b>${esc(e.category)}</b> ${esc(e.message)}</div>`
+  ).join('');
+}
+
+function exportLogs() { window.location.href = '/api/logs?download=1'; }
+async function clearLogs() {
+  await fetch('/api/logs/clear', {method:'POST'});
+  renderResults([], []);
+  await refreshLogs();
+}
+init();
+</script>
+</body>
+</html>
