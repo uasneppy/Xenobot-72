@@ -22,6 +22,11 @@ const (
 	MinConsensusThreshold = 2
 	MaxConsensusThreshold = 20
 
+	// AIReactModeOff, AIReactModeLow, and AIReactModeMedium are the stored values for ai_react_mode.
+	AIReactModeOff    = "off"
+	AIReactModeLow    = "low"
+	AIReactModeMedium = "medium"
+
 	cacheTTL = cache.DefaultCacheTTL
 )
 
@@ -33,24 +38,38 @@ var (
 
 // Settings is a chat's Interactive Presence settings.
 type Settings struct {
-	ConsensusEnabled   bool `msgpack:"ce"`
-	ConsensusThreshold int  `msgpack:"ct"`
-	RetractEnabled     bool `msgpack:"re"`
+	ConsensusEnabled   bool   `msgpack:"ce"`
+	ConsensusThreshold int    `msgpack:"ct"`
+	RetractEnabled     bool   `msgpack:"re"`
+	AIReactMode        string `msgpack:"ar"`
 }
 
 // Defaults returns the settings of a chat with no row: Emoji Consensus off with threshold 3,
-// and thumbs-down retraction on.
+// thumbs-down retraction on, and Contextual AI Emoji Reactions off.
 func Defaults() Settings {
 	return Settings{
 		ConsensusEnabled:   false,
 		ConsensusThreshold: DefaultConsensusThreshold,
 		RetractEnabled:     true,
+		AIReactMode:        AIReactModeOff,
 	}
 }
 
 // ValidConsensusThreshold reports whether n is within [MinConsensusThreshold, MaxConsensusThreshold].
 func ValidConsensusThreshold(n int) bool {
 	return n >= MinConsensusThreshold && n <= MaxConsensusThreshold
+}
+
+// ValidAIReactMode reports whether mode is one of the allowed ai_react_mode values.
+func ValidAIReactMode(mode string) bool {
+	return mode == AIReactModeOff || mode == AIReactModeLow || mode == AIReactModeMedium
+}
+
+func normalizeAIReactMode(mode string) string {
+	if ValidAIReactMode(mode) {
+		return mode
+	}
+	return AIReactModeOff
 }
 
 // CacheKey returns the skipLocal cache key of a chat's presence settings.
@@ -61,9 +80,14 @@ func CacheKey(chatID int64) string {
 // Get returns the chat's settings through the cache, or Defaults for a chat with no row. It
 // creates no row and returns its error.
 func Get(ctx context.Context, chatID int64) (Settings, error) {
-	return cache.GetFromCacheOrLoad(ctx, CacheKey(chatID), cacheTTL, func(ctx context.Context) (Settings, error) {
+	s, err := cache.GetFromCacheOrLoad(ctx, CacheKey(chatID), cacheTTL, func(ctx context.Context) (Settings, error) {
 		return GetFresh(ctx, chatID)
 	})
+	if err != nil {
+		return Settings{}, err
+	}
+	s.AIReactMode = normalizeAIReactMode(s.AIReactMode)
+	return s, nil
 }
 
 // GetFresh is Get without the cache.
@@ -83,6 +107,7 @@ func GetFresh(ctx context.Context, chatID int64) (Settings, error) {
 		ConsensusEnabled:   row.ConsensusEnabled,
 		ConsensusThreshold: int(row.ConsensusThreshold),
 		RetractEnabled:     row.RetractEnabled,
+		AIReactMode:        normalizeAIReactMode(row.AIReactMode),
 	}, nil
 }
 
@@ -110,6 +135,16 @@ func SetRetractEnabled(ctx context.Context, chatID int64, enabled bool, by int64
 	return upsert(ctx, row, "retract_enabled")
 }
 
+// SetAIReactMode writes ai_react_mode, refusing values outside ('off', 'low', 'medium') before any write.
+func SetAIReactMode(ctx context.Context, chatID int64, mode string, by int64) error {
+	if !ValidAIReactMode(mode) {
+		return ErrInvalidValue
+	}
+	row := defaultRow(chatID, by)
+	row.AIReactMode = mode
+	return upsert(ctx, row, "ai_react_mode")
+}
+
 func defaultRow(chatID, by int64) *models.ChatPresence {
 	d := Defaults()
 	return &models.ChatPresence{
@@ -117,6 +152,7 @@ func defaultRow(chatID, by int64) *models.ChatPresence {
 		ConsensusEnabled:   d.ConsensusEnabled,
 		ConsensusThreshold: int16(d.ConsensusThreshold), // #nosec G115 -- DefaultConsensusThreshold is 3
 		RetractEnabled:     d.RetractEnabled,
+		AIReactMode:        d.AIReactMode,
 		UpdatedBy:          by,
 		UpdatedAt:          time.Now(),
 	}
