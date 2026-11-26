@@ -19,7 +19,7 @@ A lockdown stops a raid in this group: everyone but the admins is muted until an
 I lock the group on my own when a raid starts:
 - join surge — 15 people join within 60 seconds;
 - flood — 30 messages, photos, GIFs or stickers arrive within 30 seconds, at least 60% of them from at least 3 members who joined in the last 24 hours;
-- AI — suspicious text from members who joined in the last 24 hours is checked by TypeSafe, their photos, GIFs, stickers and video thumbnails by Anthropic Claude (if set up). With /aispam on, every message it deletes counts too, from any member. 5 spam verdicts from 3 accounts within 120 s lock the group; one verdict never does.
+- AI — suspicious text from members who joined in the last 24 hours is checked by TypeSafe, their photos, image files, GIFs, stickers and video thumbnails by the configured vision AI (if set up). With /aispam on, every message it deletes counts too, from any member. 5 spam verdicts from 3 accounts within 120 s lock the group; one verdict never does.
 Those numbers are the defaults; `/autolockdown` shows this group's own. Join surge and flood are on by default. Admins, approved members and commands I handle never count, so approving trusted newcomers keeps them out of it. I post a short notice when I lock the group, and the alert says which trigger fired. For 10 minutes after a lift I do not lock again on my own. If I see a raid but cannot lock, I warn the Staff Group and the log channel, at most once a day.
 
 **Alert buttons**

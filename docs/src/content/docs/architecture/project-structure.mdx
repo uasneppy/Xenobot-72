@@ -62,8 +62,8 @@ This document explains the directory structure of Xenobot-72, helping developers
     - raid_flood.go Message flood counter (group -4) and the flood alert snapshot
     - raid_ai.go Raid AI candidate watcher (group 2) and the shared raid AI pool
     - raid_ai_count.go AI burst counter (verdict items and accounts) and the AI alert snapshot
-    - raid_ai_media.go Picks the image a new member's photo, GIF, sticker or video is judged by
-    - raid_ai_image.go Claude image check: album gate, verdict cache, hourly budgets
+    - raid_ai_media.go Picks the image a new member's photo, image document, GIF, sticker or video is judged by
+    - raid_ai_image.go Vision AI image check (Anthropic Claude or Featherless AI): album gate, verdict cache, hourly budgets
     - raid_ai_breaker.go Image-provider failure breakers (per chat and provider-wide)
     - raid_trigger.go Fires an automatic lockdown: latch, quiet period, public notice, cannot-lock warning
     - lockdown_start.go Shared start path of /lockdown and the automatic triggers
@@ -110,7 +110,9 @@ This document explains the directory structure of Xenobot-72, helping developers
     - error_handling/ Panic recovery and logging
     - errors/ Custom error types with stack traces
     - extraction/ User/text extraction
-    - claude/ Claude image-check client (standard library only, so the spike tool can use it without the database connection)
+    - claude/ Anthropic Claude client (image/name moderation & multimodal conversations, standard library only)
+    - featherless/ Featherless AI client (OpenAI-compatible multimodal conversations & image/name moderation, standard library only)
+    - gemini/ Google Gemini client (multimodal conversations, standard library only)
     - helpers/ General helper functions and decorators
       - command_pipeline.go Declarative command pipeline
       - decorators.go Command aliases and disableable registration

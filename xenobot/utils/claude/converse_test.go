@@ -304,3 +304,45 @@ func TestConverseErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestConverseAttachments(t *testing.T) {
+	server, rec := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, converseAnswer("end_turn", `{"type":"text","text":"Seen."}`))
+	})
+	in := converseRequest()
+	in.Attachments = []ConverseAttachment{
+		{MIMEType: "image/webp", Data: []byte("RIFF\x10\x00\x00\x00WEBPVP8 sticker")},
+		{MIMEType: "application/pdf", Data: []byte("%PDF-1.4\nbody")},
+	}
+	reply, err := testClient(server, testConverseModel).Converse(context.Background(), in)
+	if err != nil || reply.Text != "Seen." {
+		t.Fatalf("reply = %+v err = %v", reply, err)
+	}
+	var body struct {
+		Messages []struct {
+			Content []struct {
+				Type   string `json:"type"`
+				Text   string `json:"text"`
+				Source *struct {
+					Type      string `json:"type"`
+					MediaType string `json:"media_type"`
+					Data      string `json:"data"`
+				} `json:"source"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.all()[0].Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	blocks := body.Messages[0].Content
+	if len(blocks) != 3 || blocks[0].Type != "text" || blocks[1].Type != "image" || blocks[1].Source.MediaType != "image/webp" ||
+		blocks[2].Type != "document" || blocks[2].Source.MediaType != "application/pdf" {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+
+	bad := converseRequest()
+	bad.Attachments = []ConverseAttachment{{MIMEType: "image/gif", Data: []byte("GIF89a")}}
+	if _, err := testClient(server, testConverseModel).Converse(context.Background(), bad); !errors.Is(err, ErrUnsupportedImage) {
+		t.Errorf("unsupported attachment err = %v, want ErrUnsupportedImage", err)
+	}
+}

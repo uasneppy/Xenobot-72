@@ -99,6 +99,7 @@ func newChatEnvFor(t *testing.T, chatID int64) *chatEnv {
 	withRealLocales(t)
 	mr, rc := withChatRedis(t)
 	withChatProviders(t, true, true, true)
+	withChatFeatherless(t, "chat-test-featherless-value", "Qwen/Qwen3-32B")
 	withChatRuntime(t)
 
 	env := &chatEnv{t: t, mr: mr, rc: rc, client: newModuleBotClient(), provider: &chatFakeProvider{}, nextUpdate: 1, nextMsg: 500}
@@ -126,8 +127,9 @@ func withChatRuntime(t *testing.T) {
 		Interval: time.Millisecond, MaxRetries: 1, MaxWait: time.Second, RetryAfterUnit: 5 * time.Millisecond,
 	}))
 	chatSwap(t, &chatBreakers, map[string]*memberReqAIBreaker{
-		chatconv.ProviderAnthropic: newMemberReqAIBreaker(),
-		chatconv.ProviderGoogle:    newMemberReqAIBreaker(),
+		chatconv.ProviderAnthropic:   newMemberReqAIBreaker(),
+		chatconv.ProviderGoogle:      newMemberReqAIBreaker(),
+		chatconv.ProviderFeatherless: newMemberReqAIBreaker(),
 	})
 	chatSwap(t, &chatCooldown, chatCooldown)
 	chatSwap(t, &chatUserHourlyBudget, chatUserHourlyBudget)

@@ -16,6 +16,7 @@ import (
 	"github.com/uasneppy/Xenobot-72/xenobot/config"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/cache"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/claude"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/featherless"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/logredact"
 )
 
@@ -72,6 +73,10 @@ var (
 	// raidAIClaudeHTTP is the transport of the provider calls; nil is the client's own, which
 	// has the call timeout and follows no redirect. A variable only for tests.
 	raidAIClaudeHTTP *http.Client
+	// raidAIFeatherlessEndpoint and raidAIFeatherlessHTTP are the Featherless API host and
+	// transport for raid image checks; variables only for tests.
+	raidAIFeatherlessEndpoint = featherless.DefaultEndpoint
+	raidAIFeatherlessHTTP     *http.Client
 
 	// raidAIBlocked counts the image checks the provider refused to judge (a refusal stop).
 	raidAIBlocked atomic.Int64
@@ -101,6 +106,63 @@ func raidAIClaudeClient() *claude.Client {
 		Model:    config.AppConfig.AnthropicModel,
 		HTTP:     raidAIClaudeHTTP,
 	}
+}
+
+// raidAIFeatherlessClient builds the Featherless client of one raid image job from the
+// configured key and explicit moderation model. It returns nil when either is unset.
+func raidAIFeatherlessClient() *featherless.Client {
+	key := config.AppConfig.FeatherlessAPIKey
+	model := config.AppConfig.FeatherlessModel
+	if key == "" || model == "" {
+		return nil
+	}
+	return &featherless.Client{
+		Endpoint: raidAIFeatherlessEndpoint,
+		APIKey:   key,
+		Model:    model,
+		HTTP:     raidAIFeatherlessHTTP,
+	}
+}
+
+type raidAIImageCaller struct {
+	apiKey   string
+	classify func(ctx context.Context, img claude.Image) (float64, error)
+}
+
+func raidAIImageCallerFor() *raidAIImageCaller {
+	switch moderationAIProvider() {
+	case "anthropic":
+		client := raidAIClaudeClient()
+		if client == nil {
+			return nil
+		}
+		return &raidAIImageCaller{
+			apiKey: client.APIKey,
+			classify: func(ctx context.Context, img claude.Image) (float64, error) {
+				verdict, err := client.Classify(ctx, img)
+				if err != nil {
+					return 0, err
+				}
+				return verdict.SpamProbability, nil
+			},
+		}
+	case "featherless":
+		client := raidAIFeatherlessClient()
+		if client == nil {
+			return nil
+		}
+		return &raidAIImageCaller{
+			apiKey: client.APIKey,
+			classify: func(ctx context.Context, img claude.Image) (float64, error) {
+				verdict, err := client.Classify(ctx, featherless.Image{MIMEType: img.MIMEType, Data: img.Data})
+				if err != nil {
+					return 0, err
+				}
+				return verdict.SpamProbability, nil
+			},
+		}
+	}
+	return nil
 }
 
 // raidAIScrub replaces every secret in text, the last line of defence for an error the
@@ -139,8 +201,8 @@ func raidAIProcessImage(ctx context.Context, job raidAIJob) {
 	if job.media == nil || !raidAIImageConfigured() {
 		return
 	}
-	client := raidAIClaudeClient()
-	if client == nil {
+	caller := raidAIImageCallerFor()
+	if caller == nil {
 		return
 	}
 	redisClient := raidRedis()
@@ -171,7 +233,7 @@ func raidAIProcessImage(ctx context.Context, job raidAIJob) {
 		flightKey := strconv.FormatInt(job.chat.Id, 10) + ":" + uid
 		answer, _, _ := raidAIImageFlight.Do(flightKey, func() (any, error) {
 			leader = true
-			return raidAIImageVerdict(ctx, client, redisClient, job, fields), nil
+			return raidAIImageVerdict(ctx, caller, redisClient, job, fields), nil
 		})
 		result, _ = answer.(raidAIImageResult)
 		if !leader {
@@ -179,7 +241,7 @@ func raidAIProcessImage(ctx context.Context, job raidAIJob) {
 			result.cached = true
 		}
 	} else {
-		result = raidAIImageVerdict(ctx, client, redisClient, job, fields)
+		result = raidAIImageVerdict(ctx, caller, redisClient, job, fields)
 	}
 	if !result.ok {
 		if result.refused {
@@ -343,7 +405,7 @@ func raidAIReserveBudget(client *redis.Client, chatID, userID int64) bool {
 // the download and the provider call. It counts every outcome and returns the probability when
 // there is a verdict.
 func raidAIImageVerdict(
-	ctx context.Context, client *claude.Client, redisClient *redis.Client, job raidAIJob, fields log.Fields,
+	ctx context.Context, caller *raidAIImageCaller, redisClient *redis.Client, job raidAIJob, fields log.Fields,
 ) raidAIImageResult {
 	uid := job.media.FileUniqueID
 	if uid != "" {
@@ -379,17 +441,17 @@ func raidAIImageVerdict(
 		}
 		raidAIFailed.Add(1)
 		log.WithFields(fields).Warnf("[RaidDetection] AI image download failed, no verdict: %s",
-			raidAIScrub(err.Error(), token, client.APIKey))
+			raidAIScrub(err.Error(), token, caller.apiKey))
 		return raidAIImageResult{}
 	}
 
-	verdict, err := client.Classify(ctx, image)
+	probability, err := caller.classify(ctx, image)
 	if err != nil {
 		switch {
 		case ctx.Err() != nil:
 			// Cut off by the shutdown drain: no verdict, and not the provider's failure.
 			raidAIShed.Add(1)
-		case errors.Is(err, claude.ErrBlocked):
+		case errors.Is(err, claude.ErrBlocked), errors.Is(err, featherless.ErrBlocked):
 			// The provider answered: a refusal to judge this image is not an outage.
 			raidAIImageRecordSuccess(job.chat.Id)
 			raidAIBlocked.Add(1)
@@ -398,19 +460,23 @@ func raidAIImageVerdict(
 			raidAIImageRecordFailure(job.chat.Id, err)
 			raidAIFailed.Add(1)
 			entry := log.WithFields(fields)
-			var httpErr *claude.HTTPError
-			if errors.As(err, &httpErr) {
-				entry = entry.WithField("status", httpErr.Status).WithField("error_type", httpErr.Type)
+			var claudeErr *claude.HTTPError
+			var featherlessErr *featherless.HTTPError
+			switch {
+			case errors.As(err, &claudeErr):
+				entry = entry.WithField("status", claudeErr.Status).WithField("error_type", claudeErr.Type)
+			case errors.As(err, &featherlessErr):
+				entry = entry.WithField("status", featherlessErr.Status).WithField("error_type", featherlessErr.Type)
 			}
 			entry.Warnf("[RaidDetection] AI image check failed, no verdict: %s",
-				raidAIScrub(err.Error(), token, client.APIKey))
+				raidAIScrub(err.Error(), token, caller.apiKey))
 		}
 		return raidAIImageResult{}
 	}
 	raidAIImageRecordSuccess(job.chat.Id)
 	raidAIChecked.Add(1)
 	if uid != "" {
-		raidAIStoreVerdict(redisClient, uid, verdict.SpamProbability)
+		raidAIStoreVerdict(redisClient, uid, probability)
 	}
-	return raidAIImageResult{probability: verdict.SpamProbability, ok: true}
+	return raidAIImageResult{probability: probability, ok: true}
 }

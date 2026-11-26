@@ -52,7 +52,7 @@ func TestChatBriefLogsCarryIDsOnly(t *testing.T) {
 
 	run := func(from *gotgbot.User, command string, step func(context.Context, chatRequest) (chatAnswer, error)) {
 		chatSwap(t, &chatBreakers, map[string]*memberReqAIBreaker{
-			chatconv.ProviderAnthropic: newMemberReqAIBreaker(), chatconv.ProviderGoogle: newMemberReqAIBreaker(),
+			chatconv.ProviderAnthropic: newMemberReqAIBreaker(), chatconv.ProviderGoogle: newMemberReqAIBreaker(), chatconv.ProviderFeatherless: newMemberReqAIBreaker(),
 		})
 		if step != nil {
 			env.provider.script(step)
@@ -129,10 +129,12 @@ func TestChatBriefRequestIsMinimal(t *testing.T) {
 	chatSwap(t, &chatProviderOf, chatProviderFor)
 	chatSwap(t, &chatAnthropicEndpoint, server.URL)
 	chatSwap(t, &chatGeminiEndpoint, server.URL)
+	chatSwap(t, &chatFeatherlessEndpoint, server.URL)
 	chatSwap(t, &chatProviderHTTP, server.Client())
 	cfg := config.AppConfig
 	chatSwap(t, &cfg.ChatAnthropicModel, "claude-haiku-5-5")
 	chatSwap(t, &cfg.ChatGeminiModel, "gemini-4-hydrogen")
+	chatSwap(t, &cfg.ChatFeatherlessModel, "Qwen/Qwen3-32B")
 	const staffTitle = "Heron-sentinel-staff-title"
 	staffChat, _ := judgeLinkStaff(t, env, staffTitle)
 
@@ -147,20 +149,24 @@ func TestChatBriefRequestIsMinimal(t *testing.T) {
 
 	env.judge(admin, "/judge staff", first)
 	if err := chatconv.SetProvider(context.Background(), env.chatID, chatconv.ProviderGoogle, 1); err != nil {
-		t.Fatalf("SetProvider: %v", err)
+		t.Fatalf("SetProvider google: %v", err)
 	}
 	env.judge(bob, "/unrollshort", first)
-
-	if len(standIn.bodies) != 2 {
-		t.Fatalf("provider bodies = %d, want 2", len(standIn.bodies))
+	if err := chatconv.SetProvider(context.Background(), env.chatID, chatconv.ProviderFeatherless, 1); err != nil {
+		t.Fatalf("SetProvider featherless: %v", err)
 	}
-	if !strings.Contains(standIn.bodies[0], "Alice") || !strings.Contains(standIn.bodies[1], "Bob") {
+	env.judge(alice, "/unrollshort", first)
+
+	if len(standIn.bodies) != 3 {
+		t.Fatalf("provider bodies = %d, want 3", len(standIn.bodies))
+	}
+	if !strings.Contains(standIn.bodies[0], "Alice") || !strings.Contains(standIn.bodies[1], "Bob") || !strings.Contains(standIn.bodies[2], "Alice") {
 		t.Fatal("the bodies hold no first name, so the sweep proves nothing")
 	}
 	forbidden := []string{
 		strconv.FormatInt(alice.Id, 10), strconv.FormatInt(bob.Id, 10), strconv.FormatInt(admin.Id, 10),
 		strconv.FormatInt(env.chatID, 10), strconv.FormatInt(staffChat, 10), staffTitle,
-		alice.Username, bob.Username, admin.Username, cfg.AnthropicAPIKey, cfg.GeminiAPIKey,
+		alice.Username, bob.Username, admin.Username, cfg.AnthropicAPIKey, cfg.GeminiAPIKey, cfg.FeatherlessAPIKey,
 	}
 	for i, body := range standIn.bodies {
 		for _, value := range forbidden {

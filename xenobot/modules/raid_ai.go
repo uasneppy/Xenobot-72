@@ -65,7 +65,39 @@ const (
 var raidAIStopWait = 1 * time.Second
 
 // ENABLE_AISPAM is the global AI kill switch: with it off the raid AI path sends nothing to
-// either provider (TypeSafe for texts, Anthropic Claude for images), whatever keys are set (WR-02).
+// any provider (TypeSafe for texts, Anthropic Claude or Featherless AI for images), whatever
+// keys are set (WR-02).
+
+// moderationAIProvider returns which provider runs AI moderation checks (raid image checks and
+// the AI spam-name rule): "anthropic", "featherless", or "" when inert.
+func moderationAIProvider() string {
+	cfg := config.AppConfig
+	if cfg == nil || !cfg.EnableAISpam {
+		return ""
+	}
+	hasAnthropic := cfg.AnthropicAPIKey != ""
+	hasFeatherless := cfg.FeatherlessAPIKey != "" && cfg.FeatherlessModel != ""
+	switch cfg.AIModerationProvider {
+	case "anthropic":
+		if hasAnthropic {
+			return "anthropic"
+		}
+		return ""
+	case "featherless":
+		if hasFeatherless {
+			return "featherless"
+		}
+		return ""
+	default:
+		if hasAnthropic {
+			return "anthropic"
+		}
+		if hasFeatherless {
+			return "featherless"
+		}
+		return ""
+	}
+}
 
 // raidAITextConfigured reports whether a provider is set up to judge texts: the same
 // TypeSafe configuration /aispam needs, which includes the ENABLE_AISPAM kill switch.
@@ -73,10 +105,10 @@ func raidAITextConfigured() bool {
 	return config.AppConfig.EnableAISpam && config.AppConfig.TypeSafeAPIKey != ""
 }
 
-// raidAIImageConfigured reports whether a provider is set up to judge images: an Anthropic key
-// and the ENABLE_AISPAM kill switch on.
+// raidAIImageConfigured reports whether a provider is set up to judge images: ENABLE_AISPAM on
+// and either Anthropic or Featherless (key + explicit FEATHERLESS_MODEL) configured.
 func raidAIImageConfigured() bool {
-	return config.AppConfig.EnableAISpam && config.AppConfig.AnthropicAPIKey != ""
+	return moderationAIProvider() != ""
 }
 
 // raidAIConfigured reports whether any AI provider of the raid path is set up and not

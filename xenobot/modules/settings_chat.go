@@ -26,7 +26,7 @@ const (
 	settingsPageChat = "p"
 	// settingsChatControlSwitch is the on/off toggle (tg only, v 0 or 1).
 	settingsChatControlSwitch = "e"
-	// settingsChatControlProvider is the provider choice (st only, v a or g).
+	// settingsChatControlProvider is the provider choice (st only, v a, g or f).
 	settingsChatControlProvider = "m"
 	// settingsChatControlAudience is the audience choice (st only, v e or a).
 	settingsChatControlAudience = "w"
@@ -39,7 +39,11 @@ const (
 )
 
 // settingsChatProviderCodes maps a button's v to the stored provider.
-var settingsChatProviderCodes = map[string]string{"a": chatconv.ProviderAnthropic, "g": chatconv.ProviderGoogle}
+var settingsChatProviderCodes = map[string]string{
+	"a": chatconv.ProviderAnthropic,
+	"g": chatconv.ProviderGoogle,
+	"f": chatconv.ProviderFeatherless,
+}
 
 // settingsChatAudienceCodes maps a button's v to the stored audience.
 var settingsChatAudienceCodes = map[string]int{"e": chatconv.AudienceEveryone, "a": chatconv.AudienceAdminsApproved}
@@ -179,7 +183,7 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 		k.row(settingsToggleButton(k, settingsPageChat, settingsChatControlSwitch, label, stored.Enabled)...)
 	}
 	var providers []gotgbot.InlineKeyboardButton
-	for _, code := range []string{"a", "g"} {
+	for _, code := range []string{"a", "g", "f"} {
 		provider := settingsChatProviderCodes[code]
 		if !chatProviderConfigured(provider) {
 			continue
@@ -192,7 +196,11 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 			providers = append(providers, button)
 		}
 	}
-	k.row(providers...)
+	// Put at most two providers on a row so brand names stay readable on narrow screens (still <= 7 rows).
+	for i := 0; i < len(providers); i += 2 {
+		end := min(i+2, len(providers))
+		k.row(providers[i:end]...)
+	}
 	var audience []gotgbot.InlineKeyboardButton
 	for _, choice := range []struct{ code, key string }{{"e", "settings_btn_chat_everyone"}, {"a", "settings_btn_chat_admins"}} {
 		label := settingsText(v.Tr, choice.key)

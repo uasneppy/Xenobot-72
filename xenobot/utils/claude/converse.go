@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,14 +42,32 @@ const (
 	OutcomeTruncated
 )
 
+// ConverseAttachment is one inline image or PDF attached to a conversation turn.
+type ConverseAttachment struct {
+	// MIMEType is image/jpeg, image/png, image/webp or application/pdf.
+	MIMEType string
+	Data     []byte
+}
+
+func converseAttachmentSupported(a ConverseAttachment) bool {
+	switch a.MIMEType {
+	case "image/jpeg", "image/png", "image/webp", "application/pdf":
+	default:
+		return false
+	}
+	return len(a.Data) > 0 && len(a.Data) <= MaxImageBytes
+}
+
 // ConverseRequest is one conversation turn. Static is the cached persona and
 // archive and must be the same bytes for every chat; Dynamic is the short
-// per-chat block after it; User is the one user message.
+// per-chat block after it; User is the one user message; Attachments holds
+// optional inline images or PDFs for the user turn.
 type ConverseRequest struct {
-	Static    string
-	Dynamic   string
-	User      string
-	MaxTokens int
+	Static      string
+	Dynamic     string
+	User        string
+	MaxTokens   int
+	Attachments []ConverseAttachment
 }
 
 // Reply is what the bot reads from a conversation answer.
@@ -99,14 +118,9 @@ type cacheControl struct {
 	Type string `json:"type"`
 }
 
-type converseTextBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
 type converseMessage struct {
-	Role    string              `json:"role"`
-	Content []converseTextBlock `json:"content"`
+	Role    string         `json:"role"`
+	Content []contentBlock `json:"content"`
 }
 
 // converseBody is the conversation request. It carries no thinking field (Opus
@@ -125,6 +139,22 @@ type converseBody struct {
 // carries the cache marker; everything that varies comes after it, so the
 // cached prefix is the same for every chat.
 func buildConverseBody(model string, in ConverseRequest) *converseBody {
+	blocks := make([]contentBlock, 0, 1+len(in.Attachments))
+	blocks = append(blocks, contentBlock{Type: "text", Text: in.User})
+	for _, a := range in.Attachments {
+		kind := "image"
+		if a.MIMEType == "application/pdf" {
+			kind = "document"
+		}
+		blocks = append(blocks, contentBlock{
+			Type: kind,
+			Source: &imageSource{
+				Type:      "base64",
+				MediaType: a.MIMEType,
+				Data:      base64.StdEncoding.EncodeToString(a.Data),
+			},
+		})
+	}
 	body := &converseBody{
 		Model:     model,
 		MaxTokens: in.MaxTokens,
@@ -132,7 +162,7 @@ func buildConverseBody(model string, in ConverseRequest) *converseBody {
 			{Type: "text", Text: in.Static, CacheControl: &cacheControl{Type: "ephemeral"}},
 			{Type: "text", Text: in.Dynamic},
 		},
-		Messages:     []converseMessage{{Role: "user", Content: []converseTextBlock{{Type: "text", Text: in.User}}}},
+		Messages:     []converseMessage{{Role: "user", Content: blocks}},
 		OutputConfig: outputConfig{Effort: ConverseEffort},
 	}
 	if ServerFallback(model) {
@@ -153,6 +183,11 @@ func (c *Client) Converse(ctx context.Context, in ConverseRequest) (*Reply, erro
 	}
 	if in.MaxTokens <= 0 || strings.TrimSpace(in.Static) == "" || strings.TrimSpace(in.User) == "" {
 		return nil, errors.New("claude: incomplete conversation request")
+	}
+	for _, a := range in.Attachments {
+		if !converseAttachmentSupported(a) {
+			return nil, ErrUnsupportedImage
+		}
 	}
 
 	payload, err := json.Marshal(buildConverseBody(c.Model, in))

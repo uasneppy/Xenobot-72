@@ -453,7 +453,7 @@ mirrors, and a control the presser lacks the right for is still drawn and its pr
 | Member requirements: open the page and a rule screen (the profile photo, channel and AI spam-name rules included) | Admin (and the owner gate above) | no command |
 | Member requirements: every punishment choice, the card's Yes, Check on join, Delete messages (the profile photo, channel and AI spam-name rules included) | Creator, or an admin who can restrict members | no command |
 | Member requirements: a punishing value for the channel rule | The same, and the group must have a linked channel (a live check at the press) | no command |
-| Member requirements: a punishing value for the AI spam-name rule | The same, and the bot's AI must be configured (`ENABLE_AISPAM` on and an Anthropic key set; a check of the server, made after the right) | no command |
+| Member requirements: a punishing value for the AI spam-name rule | The same, and the bot's AI must be configured (`ENABLE_AISPAM` on and Anthropic or Featherless AI moderation configured; a check of the server, made after the right) | no command |
 | Deletion: open the hub, a list and a row screen | Admin (and the owner gate above); the page does not exist in a Staff Group | no command |
 | Deletion: every choice (Keep, Off, Delete now, a delay) | Creator, or an admin who can change info | `/cleanservice` (joined and left) |
 | Member messages: open the section, a list and a row screen | Admin (and the owner gate above); the section does not exist in a Staff Group | no command |

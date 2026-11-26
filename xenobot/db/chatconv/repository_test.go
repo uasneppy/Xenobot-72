@@ -55,7 +55,16 @@ func TestChatConversationSettings(t *testing.T) {
 			t.Fatal(err)
 		}
 		if got, _ := Get(ctx, chatID); got.Provider != ProviderGoogle || got.Enabled {
-			t.Fatalf("after SetProvider: %+v", got)
+			t.Fatalf("after SetProvider(google): %+v", got)
+		}
+		if err := SetProvider(ctx, chatID, ProviderFeatherless, 7); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := Get(ctx, chatID); got.Provider != ProviderFeatherless || got.Enabled {
+			t.Fatalf("after SetProvider(featherless): %+v", got)
+		}
+		if err := SetProvider(ctx, chatID, ProviderGoogle, 7); err != nil {
+			t.Fatal(err)
 		}
 		if err := SetEnabled(ctx, chatID, true, 7); err != nil {
 			t.Fatal(err)

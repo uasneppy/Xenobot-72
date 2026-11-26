@@ -18,21 +18,36 @@ import (
 	"github.com/uasneppy/Xenobot-72/xenobot/i18n"
 )
 
-// withChatProviders sets ENABLE_CHAT and the two provider keys for one test and restores them.
+// withChatProviders sets ENABLE_CHAT and the Anthropic and Google keys for one test and clears
+// Featherless so ambient env never leaks into a test; all fields are restored in t.Cleanup.
 // The stand-in key values are named so gosec does not read them as credentials.
 func withChatProviders(t *testing.T, enabled, anthropic, google bool) {
 	t.Helper()
 	cfg := config.AppConfig
 	prevEnabled, prevAnthropic, prevGoogle := cfg.EnableChat, cfg.AnthropicAPIKey, cfg.GeminiAPIKey
-	t.Cleanup(func() { cfg.EnableChat, cfg.AnthropicAPIKey, cfg.GeminiAPIKey = prevEnabled, prevAnthropic, prevGoogle })
+	prevFLKey, prevFLModel := cfg.FeatherlessAPIKey, cfg.ChatFeatherlessModel
+	t.Cleanup(func() {
+		cfg.EnableChat, cfg.AnthropicAPIKey, cfg.GeminiAPIKey = prevEnabled, prevAnthropic, prevGoogle
+		cfg.FeatherlessAPIKey, cfg.ChatFeatherlessModel = prevFLKey, prevFLModel
+	})
 	const anthropicProviderValue, googleProviderValue = "chat-test-anthropic-value", "chat-test-google-value"
 	cfg.EnableChat, cfg.AnthropicAPIKey, cfg.GeminiAPIKey = enabled, "", ""
+	cfg.FeatherlessAPIKey, cfg.ChatFeatherlessModel = "", ""
 	if anthropic {
 		cfg.AnthropicAPIKey = anthropicProviderValue
 	}
 	if google {
 		cfg.GeminiAPIKey = googleProviderValue
 	}
+}
+
+// withChatFeatherless configures Featherless AI for conversations for one test and restores it.
+func withChatFeatherless(t *testing.T, key, model string) {
+	t.Helper()
+	cfg := config.AppConfig
+	prevKey, prevModel := cfg.FeatherlessAPIKey, cfg.ChatFeatherlessModel
+	t.Cleanup(func() { cfg.FeatherlessAPIKey, cfg.ChatFeatherlessModel = prevKey, prevModel })
+	cfg.FeatherlessAPIKey, cfg.ChatFeatherlessModel = key, model
 }
 
 // settingsChatStored reads the conversation setting straight from the database.
@@ -84,6 +99,7 @@ func settingsChatEnv(t *testing.T) *settingsEnv {
 
 func TestSettingsChatOwnerFlow(t *testing.T) {
 	withChatProviders(t, true, true, true)
+	withChatFeatherless(t, "chat-test-featherless-value", "Qwen/Qwen3-32B")
 	env := settingsChatEnv(t)
 	owner := env.newOwner(env.chat)
 	private := settingsPrivateChat(owner)
@@ -132,6 +148,18 @@ func TestSettingsChatOwnerFlow(t *testing.T) {
 	text, keyboard = env.lastEdit(owner.Id, msgID)
 	if !strings.Contains(text, "Google (Gemini)") {
 		t.Errorf("the data notice does not name Google: %q", text)
+	}
+	featherlessBtn, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlProvider && f["v"] == "f" })
+	if !ok {
+		t.Fatalf("no Featherless button: %+v", keyboard)
+	}
+	env.pressRaw(private, owner, msgID, featherlessBtn.CallbackData)
+	if got := settingsChatStored(t, env.chat.Id); got.Provider != chatconv.ProviderFeatherless || !got.Enabled {
+		t.Fatalf("after Featherless: %+v", got)
+	}
+	text, keyboard = env.lastEdit(owner.Id, msgID)
+	if !strings.Contains(text, "Featherless AI") {
+		t.Errorf("the data notice does not name Featherless AI: %q", text)
 	}
 	admins, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlAudience && f["v"] == "a" })
 	if !ok {
@@ -333,6 +361,28 @@ func TestSettingsChatNotConfigured(t *testing.T) {
 		})
 	}
 
+	t.Run("Featherless without explicit model is not offered and refused", func(t *testing.T) {
+		withChatProviders(t, true, false, false)
+		withChatFeatherless(t, "chat-test-featherless-value", "")
+		env := settingsChatEnv(t)
+		owner := env.newOwner(env.chat)
+		msgID := settingsChatOpenPrivate(t, env, owner)
+		text, keyboard := env.lastEdit(owner.Id, msgID)
+		if !strings.Contains(text, "🚫 "+staffMarker("settings_chat_not_set_up")) {
+			t.Errorf("the page %q lacks settings_chat_not_set_up", text)
+		}
+		if _, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool { return f["t"] == settingsChatControlProvider && f["v"] == "f" }); ok {
+			t.Error("Featherless button offered without CHAT_FEATHERLESS_MODEL")
+		}
+		env.pressPrivate(owner, msgID, env.privateFields(env.chat.Id, "a", "st", "p", settingsPageChat, "t", settingsChatControlProvider, "v", "f"))
+		if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("settings_chat_not_set_up")) {
+			t.Errorf("forged Featherless press answered %q (alert %v)", answer, alert)
+		}
+		if settingsChatRows(t, env.chat.Id) != 0 {
+			t.Fatal("a refused press wrote a row")
+		}
+	})
+
 	t.Run("stored on with nothing configured can still be turned off", func(t *testing.T) {
 		withChatProviders(t, false, false, false)
 		env := settingsChatEnv(t)
@@ -474,6 +524,7 @@ func TestSettingsChatJudge(t *testing.T) {
 
 func TestSettingsChatCallbackBytes(t *testing.T) {
 	withChatProviders(t, true, true, true)
+	withChatFeatherless(t, "chat-test-featherless-value", "Qwen/Qwen3-32B")
 	tr := i18n.MustNewTranslator("en")
 	view := settingsView{Tr: tr, Private: true, OwnerKey: "c", OwnerValue: "-1001234567890", GroupID: -1001234567890, GroupTitle: "G", OpenerName: "N", Owner: true}
 	screens := map[string]settingsScreen{"card": renderSettingsChatCard(view, chatconv.ProviderGoogle)}
@@ -499,6 +550,7 @@ func TestSettingsChatCallbackBytes(t *testing.T) {
 
 func TestSettingsChatPageFitsEveryLocale(t *testing.T) {
 	withChatProviders(t, true, true, true)
+	withChatFeatherless(t, "chat-test-featherless-value", "Qwen/Qwen3-32B")
 	withRealLocales(t)
 	title := strings.Repeat("&<ж😀", 16)
 	for _, code := range []string{"uk", "en", "es", "fr", "hi", "id", "pt", "ru"} {

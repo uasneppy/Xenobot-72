@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	// ProviderAnthropic and ProviderGoogle are the stored provider values.
-	ProviderAnthropic = "anthropic"
-	ProviderGoogle    = "google"
+	// ProviderAnthropic, ProviderGoogle and ProviderFeatherless are the stored provider values.
+	ProviderAnthropic   = "anthropic"
+	ProviderGoogle      = "google"
+	ProviderFeatherless = "featherless"
 
 	// AudienceEveryone and AudienceAdminsApproved are the stored audience values.
 	AudienceEveryone       = 0
@@ -60,7 +61,7 @@ func Defaults() Settings {
 
 // ValidProvider reports whether p is a stored provider value.
 func ValidProvider(p string) bool {
-	return p == ProviderAnthropic || p == ProviderGoogle
+	return p == ProviderAnthropic || p == ProviderGoogle || p == ProviderFeatherless
 }
 
 // ValidAudience reports whether a is a stored audience value.

@@ -1,5 +1,26 @@
 package gemini
 
+import "encoding/base64"
+
+// MaxAttachmentBytes is the largest image or PDF sent inline.
+const MaxAttachmentBytes = 5 << 20
+
+// Attachment is one image or PDF sent inline in the user message.
+type Attachment struct {
+	// MIMEType is image/jpeg, image/png, image/webp or application/pdf.
+	MIMEType string
+	Data     []byte
+}
+
+func attachmentSupported(a Attachment) bool {
+	switch a.MIMEType {
+	case "image/jpeg", "image/png", "image/webp", "application/pdf":
+	default:
+		return false
+	}
+	return len(a.Data) > 0 && len(a.Data) <= MaxAttachmentBytes
+}
+
 // safetyThreshold is the threshold of the four classic categories. The source
 // material is black comedy that mentions cannibalism, so a stricter threshold
 // would refuse lore questions; the persona rules and the bot's output filter do
@@ -15,16 +36,32 @@ var safetyCategories = []string{
 
 // Request is one conversation turn. Static is the persona and archive and must
 // be the same bytes for every chat, so the implicit cache can hit; Dynamic is
-// the short per-chat block after it; User is the one user message.
+// the short per-chat block after it; User is the one user message; Attachments
+// holds optional inline images or PDFs for the user turn.
 type Request struct {
-	Static    string
-	Dynamic   string
-	User      string
-	MaxTokens int
+	Static      string
+	Dynamic     string
+	User        string
+	MaxTokens   int
+	Attachments []Attachment
+}
+
+type systemPart struct {
+	Text string `json:"text"`
+}
+
+type systemContent struct {
+	Parts []systemPart `json:"parts"`
+}
+
+type inlineData struct {
+	MIMEType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 
 type part struct {
-	Text string `json:"text"`
+	Text       string      `json:"text,omitempty"`
+	InlineData *inlineData `json:"inlineData,omitempty"`
 }
 
 type content struct {
@@ -50,7 +87,7 @@ type safetySetting struct {
 // temperature, topP, topK, candidateCount or thinkingBudget: Gemini 4 ignores
 // or rejects them.
 type body struct {
-	SystemInstruction content          `json:"systemInstruction"`
+	SystemInstruction systemContent    `json:"systemInstruction"`
 	Contents          []content        `json:"contents"`
 	GenerationConfig  generationConfig `json:"generationConfig"`
 	SafetySettings    []safetySetting  `json:"safetySettings"`
@@ -68,9 +105,19 @@ func buildBody(in Request, opts Options) *body {
 	for _, category := range safetyCategories {
 		settings = append(settings, safetySetting{Category: category, Threshold: safetyThreshold})
 	}
+	userParts := make([]part, 0, 1+len(in.Attachments))
+	userParts = append(userParts, part{Text: in.User})
+	for _, a := range in.Attachments {
+		userParts = append(userParts, part{
+			InlineData: &inlineData{
+				MIMEType: a.MIMEType,
+				Data:     base64.StdEncoding.EncodeToString(a.Data),
+			},
+		})
+	}
 	return &body{
-		SystemInstruction: content{Parts: []part{{Text: in.Static}, {Text: in.Dynamic}}},
-		Contents:          []content{{Role: "user", Parts: []part{{Text: in.User}}}},
+		SystemInstruction: systemContent{Parts: []systemPart{{Text: in.Static}, {Text: in.Dynamic}}},
+		Contents:          []content{{Role: "user", Parts: userParts}},
 		GenerationConfig: generationConfig{
 			MaxOutputTokens: in.MaxTokens,
 			ThinkingConfig:  thinkingConfig{ThinkingLevel: level},

@@ -167,6 +167,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`xenobot:settings:backup:import:<token>` and `xenobot:settings:backup:reset:<token>`), and the private Backup settings page `ba` (reusing
   the existing typed-reply door at group `1`) run synchronously inside the calling handler under bounded contexts, so the 70 s worst
   case and `stop_grace_period: 75s` are unchanged.
+- Featherless AI support (conversations, briefs, `/judge`, raid image checks, AI spam-name rule) and multimodal attachment recognition
+  (`chat_media.go`, image documents in `raid_ai_media.go`) add zero goroutines, zero handler groups, and zero shutdown drains: every
+  provider call and Telegram media download runs inside the existing `StopChat`, `StopRaidAI`, or `StopMemberReqJobs` pool under its
+  derived context, so the 70 s worst case and `stop_grace_period: 75s` are unchanged.
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
 - The Turnstile web captcha is configured in `main` (`registerCaptchaWeb`) when `config.AppConfig.CaptchaWebConfigured()`
   holds: all four of `CAPTCHA_WEB_BASE_URL`, `TELEGRAM_MINI_APP_SHORT_NAME`, `TURNSTILE_SITE_KEY` and
@@ -440,7 +444,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   While the AI spam-name rule is live (`memberReqAILive`: its action is not Off and the process is configured; an
   unconfigured stored value counts as Off there, or every message of every member would start a job for ever) the same
   round also reads `xenobot:memberreq:nv:<verdict key hash>`, `xenobot:memberreq:nm:<chat>:<user>` and `xenobot:memberreq:nu:<chat>:<user>`
-  (`memberReqAIWatchQueue`: the canonical names and the verdict key come from pure Go, with `config.AppConfig.AnthropicModel`),
+  (`memberReqAIWatchQueue`: the canonical names and the verdict key come from pure Go, with the active `memberReqAIModel()`),
   and the AI part is satisfied only when the marker is absent and either the verdict parses and is below the bar or the
   baseline equals the current names hash (`memberReqAIWatchSatisfied`, pure: a miss, an unparsable value, NaN, an infinity
   and any Redis error are not satisfied; a marker holder is never satisfied, so a joiner whose names have a cached pass gets
@@ -492,8 +496,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   a counter error makes no call), one paced typing action, the transcript, the request (`chatBuildRequest`, through the leaf
   `chatprompt`: the static persona and archive, the group's title, language name, today's date in the group's zone and the bot's
   username, then the transcript, the quoted message when the speaker replies to someone else's, and the message with the bot's
-  mention removed; no user ID, username or chat ID, `TestChatProvidersRequest`), the provider call behind `chatProvider` (two
-  adapters, `chatAnthropicProvider` over `claude.Client.Converse` and `chatGeminiProvider` over `gemini.Client.Generate`, so the
+  mention removed, plus any attached photo, static/animated/video sticker, GIF/video thumbnail, image document (`image/jpeg`, `image/png`,
+  `image/webp`), PDF (`application/pdf`, Anthropic and Google only; skipped before download on Featherless), or UTF-8 text/code file
+  (`<= 64 KiB`, inlined as untrusted data via `chatprompt.UserWithFiles`) extracted pure in `chat_media.go` (`chatExtractMediaRef`)
+  and downloaded inside the worker via `chatDownloadMedia` over the shared `downloadTelegramFileBytes` helper and `raidAIFileHTTPClient` with no redirects (failing closed without calling the provider when a turn has no text and zero usable attachments or files survive); no user ID, username or chat
+  ID, `TestChatProvidersRequest`, `TestChatMediaRecognitionAllProviders`), the provider call behind `chatProvider` (three
+  adapters, `chatAnthropicProvider` over `claude.Client.Converse`, `chatGeminiProvider` over `gemini.Client.Generate`, and
+  `chatFeatherlessProvider` over `featherless.Client.Converse`, so the
   runtime never branches on the provider), the output filter (`chatFilterReply`: link-like tokens become `[link removed]`, a
   zero-width space follows every `@` that starts a username, a hard cap of 1,200 runes at the last sentence end; blank is never
   sent), the reply and the record of the exchange. The reply is plain text, link previews off, a reply to the addressed message
@@ -505,7 +514,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `chat_reply_refused` for a refusal (remembered in the `mine` set, so a reply to it is an address); `chat_reply_malfunction` for a
   provider error, a blank answer or a paused breaker, at most once per chat per 5 minutes (`xenobot:chat:{<chat>}:said:malfunction`);
   `chat_reply_allowance` for a used-up allowance, at most once per chat per hour; nothing for a full queue, the cooldown, a counter
-  fault, a deleted target or a shutdown. The breakers are two instances of `memberReqAIBreaker`, one per provider, each of its own
+  fault, a deleted target or a shutdown. The breakers are three instances of `memberReqAIBreaker`, one per provider, each of its own
   state (`chatBreakers`): five provider failures in a group pause that group 5 minutes, a rejected key, a 429 with a retry delay
   over 2 s or Gemini's per-day quota pauses that provider for every group (`chatProviderSpan`); a refusal is an answer and a
   cancelled call neither. The pool is the raid AI pool's shape: 64 queued jobs, 3 workers started once, each recovering from
@@ -1145,7 +1154,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `[Off]` alone, two rows, the choose and actions hints omitted, and a stored non-Off value stays visible and inert
   (`settingsMreqOffOnly`); every other state keeps the three-row shape (the could-not-check state keeps both choice rows).
   The AI line (Phase 15, MREQ-10, D-14, UI-SPEC M15 to M17): `settingsMreqStatus.AINotConfigured` is the process fact that
-  the AI name check cannot run (`memberReqAIConfigured` false: `ENABLE_AISPAM` off or no Anthropic key), read through the
+  the AI name check cannot run (`memberReqAIConfigured` false: `ENABLE_AISPAM` off or no configured moderation AI provider), read through the
   table field `memberReqRule.Configured` from `config.AppConfig` alone, so it makes no Telegram call, no Redis command and
   no network call in any group type, and `settingsMreqReadStatus` sets it at every return (a wrapper over
   `settingsMreqReadChannelStatus`, so the basic-group return and the page-scope return carry it too); its zero value claims
@@ -1943,10 +1952,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   controls: `e` the toggle (`tg` only, `v` 0 or 1): Off writes at once through `applyChatEnabled` (which also deletes the
   chat's transcript and its set of the feature's message IDs), On writes nothing and draws the shared two-tap card
   (`settings_chat_confirm` and the data notice naming the provider), whose Yes is the page action `py` (`e`; the expiry
-  check, then the provider check again, then the write); `m` the provider (`st` only, `v` `a` Anthropic or `g` Google,
-  through `applyChatProvider`); `w` who may talk (`st` only, `v` `e` everyone or `a` administrators and approved members,
+  check, then the provider check again, then the write); `m` the provider (`st` only, `v` `a` Anthropic, `g` Google, or `f` Featherless AI,
+  through `applyChatProvider`; provider buttons wrap up to 2 per row so the page stays within the 8-row private budget); `w` who may talk (`st` only, `v` `e` everyone or `a` administrators and approved members,
   through `applyChatAudience`). A provider this server cannot run (`chatProviderConfigured`: `ENABLE_CHAT` on and
-  `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` set) is refused before any write with the alert `settings_chat_not_set_up` (no
+  `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `FEATHERLESS_API_KEY` + explicit `CHAT_FEATHERLESS_MODEL` set) is refused before any write with the alert `settings_chat_not_set_up` (no
   provider at all) or `settings_chat_provider_missing` and the page is redrawn; a press of the stored value writes nothing.
   The page reads through `chatconv.GetFresh` (a failed read is the cannot-open edit, the unknown mark on Main) and draws
   the switch, the provider, the audience, the data notice of the stored provider and the hint; its button sizes and its
@@ -3443,8 +3452,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   and the brief commands are inert on that replica. The brief commands add the keys `xenobot:chat:brief:cd:{<chat>}:<user>` (the
   cooldown), `xenobot:chat:brief:b:u:...`, `:c:...` and `:g:...` (the hourly budgets) and the canned-line gates
   `xenobot:chat:{<chat>}:said:brief_malfunction` and `:brief_allowance`; all sit outside the cache prefix.
-- `chat_conversations` (migration 20261119120000, Phase 20) is one group's conversation setting: `chat_id` primary key,
-  `enabled` (no `default:` tag in the model, so a Go false is written), `provider` (`anthropic` or `google`,
+- `chat_conversations` (migration 20261119120000, Phase 20; provider constraint widened by migration 20261126120000) is one group's conversation setting: `chat_id` primary key,
+  `enabled` (no `default:` tag in the model, so a Go false is written), `provider` (`anthropic`, `google`, or `featherless`,
   `chk_chat_conversations_provider`), `audience` (0 everyone, 1 admins and approved members,
   `chk_chat_conversations_audience`), `updated_by`, `updated_at`, inline constraints and no foreign key. A chat without a
   row means off, anthropic, everyone. It is read through `cache.GetFromCacheOrLoad` under `cache.CacheKey("chat_conv",
@@ -3770,7 +3779,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   explicit breach; its one production caller is `memberReqFixedJudge` ("I fixed it", with `Fresh` and `Classify`), and the executor's `memberReqLiveViolation` (the executor bullet below) calls the same fold through `memberReqLookupMasks`, which also returns the unknown mask. `memberReqPassValue` fingerprints the eight rule actions. A row's `HintKey` is the hint its settings screen
   shows after the description.
 - Member requirements, the AI spam-name rule (`memberreq_ai.go`): the eighth rule (`ai`, bit 128). It is judged only when
-  `memberReqAIConfigured()` holds: `ENABLE_AISPAM` on and an Anthropic key set, never Redis and never the raid `ai_enabled`
+  `memberReqAIConfigured()` holds: `ENABLE_AISPAM` on and a moderation AI provider configured (Anthropic, or Featherless with `FEATHERLESS_MODEL`), never Redis and never the raid `ai_enabled`
   switch (they are other facts). `memberReqAIRule` runs in this order: no names in the mode is unknown, an AI that is not
   configured is inert, names that are not judgeable (`namecanon.Of`: all empty, or a lone "Deleted Account") are inert, no Redis
   or a Redis read error is unknown (the provider is not asked while the cache cannot be read), a cached probability is the
@@ -5992,15 +6001,25 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `PROHIBITED_CONTENT`, `BLOCKLIST`, `SPII` and `RECITATION` are refused, anything else wraps `gemini.ErrNoReply`. Its
   `HTTPError` is retryable for 408, 5xx and a 429 that names no per-day quota, reads `RetryInfo.retryDelay` (or a
   `retry-after` header) when present and never relies on it, and reports a rejected key for 401, 402, 403 and an
-  `API_KEY_INVALID` 400. Neither package logs; no error carries the key or the URL. Both are tested only against
-  `httptest` servers. The runtime's `chatRequest` carries an optional `MaxTokens` (0 means `chatMaxOutputTokens`, 2000) that both
-  adapters pass as `max_tokens` and `maxOutputTokens`: a conversation turn keeps the default, a brief sets its own cap
-  (`chatBriefMaxTokens`); `TestChatProvidersRequest` proves both reach each stand-in.
+  `API_KEY_INVALID` 400. Both `claude.ConverseRequest` and `gemini.Request` accept optional `Attachments` (`image/jpeg`, `image/png`,
+  `image/webp`, `application/pdf`, `<= 5 MiB`; byte-identical JSON when empty). `xenobot/utils/featherless` (standard library only,
+  `TestFeatherlessPackageIsLeaf`) implements the OpenAI-compatible Featherless AI client (`POST /v1/chat/completions`,
+  `DefaultEndpoint = "https://api.featherless.ai"`, `Authorization: Bearer` header, no redirects, 1 MiB body cap, 1 retry on
+  retryable 408/429/5xx within 2 s (never when `KeyRejected()`, e.g., `429 insufficient_quota`), `ValidModel` enforcing Hugging Face `owner/model` `<= 128` bytes with no built-in default):
+  `Converse` sends a single `system` message `Static + "\n\n" + Dynamic` (preserving KV prefix caching and Jinja templates),
+  `max_completion_tokens`, plain string `user` content or text-before-`image_url` data URLs (`image/jpeg`, `image/png`,
+  `image/webp`, `<= 5 MiB`), ignores `reasoning_content`, strips leading `<think>...</think>` blocks (unclosed `<think>` returns
+  `ErrNoReply`), maps `content_filter`/`refusal` to `OutcomeRefused`, and parses `prompt_tokens_details.cached_tokens`/`cached_tokens`;
+  `Classify` and `ClassifyNames` use `response_format: {"type": "json_object"}` and strictly validate a single
+  `{"spam_probability": <0..1>}` JSON object. None of the three packages logs; no error carries the key or the URL. All are tested only against
+  `httptest` servers. The runtime's `chatRequest` carries an optional `MaxTokens` (0 means `chatMaxOutputTokens`, 2000) that all three
+  adapters pass as `max_tokens`, `maxOutputTokens`, and `max_completion_tokens`: a conversation turn keeps the default, a brief sets its own cap
+  (`chatBriefMaxTokens`); `TestChatProvidersRequest` proves all three reach each stand-in.
 - `xenobot/utils/chatprompt` (Phase 20, the standard library and `xenopersona` only, `TestChatpromptPackageIsLeaf`) is the one
   builder of a conversation request's three strings: `Static` (the persona and archive), `Dynamic` (the group's title cut
   to 64 runes, its language name, the date and the bot's username, each cleaned of control and format characters) and
-  `User` (the recent conversation oldest first, the quoted message when the speaker replies to someone else, the message
-  to answer cut to 1,500 runes, and a closing line that says all of it is members' conversation). Every turn is rendered
+  `User` / `UserWithFiles` (the recent conversation oldest first, the quoted message when the speaker replies to someone else, the message
+  to answer cut to 1,500 runes, any attached UTF-8 text/code files framed as untrusted data after `CleanFileContent` (every body line prefixed with `| ` and closed with `[End of attached file]` so no file line can forge a top-level section label), and a closing line that says all of it is members' conversation). Every turn is rendered
   as one `name: text` line with its newlines collapsed, so no member can forge a section label, and a member whose name
   contains Xenobot-72 is shown as `(member)`. It carries no user ID, username or chat ID.
 - `xenobot/utils/xenopersona` (Phase 20, standard library only, `TestXenopersonaPackageIsLeaf`) embeds `persona.md` and
@@ -6064,10 +6083,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - Defaults that surprise: `ENABLE_CHAT=false` (group conversations are off on the whole server until it is set, and then
   each group's owner still turns them on; it is also the kill switch of the message log and the brief commands, which the owner's
   Message log switch then turns on per group; `CHAT_ANTHROPIC_MODEL` and `CHAT_GEMINI_MODEL` are separate from
-  `ANTHROPIC_MODEL` and fall back to `claude-haiku-5-5` and `gemini-4-hydrogen` with a warning); `DEFAULT_TIMEZONE=Europe/Kyiv` (the zone every group without a choice shows times in; an invalid
+  `ANTHROPIC_MODEL` and fall back to `claude-haiku-5-5` and `gemini-4-hydrogen` with a warning; `CHAT_FEATHERLESS_MODEL` and
+  `FEATHERLESS_MODEL` have **no built-in default** and require a valid Hugging Face `owner/model` ID alongside `FEATHERLESS_API_KEY`,
+  which is registered with `logredact` — invalid values are cleared with a warning without logging the value;
+  `AI_MODERATION_PROVIDER` accepts `""` (auto: Anthropic when `ANTHROPIC_API_KEY` is set, else Featherless when both
+  `FEATHERLESS_API_KEY` and `FEATHERLESS_MODEL` are set), `"anthropic"`, or `"featherless"`, shared by raid image checks — which
+  also inspect uncompressed image documents in `raid_ai_media.go` — and the AI spam-name rule through `moderationAIProvider()`); `DEFAULT_TIMEZONE=Europe/Kyiv` (the zone every group without a choice shows times in; an invalid
   name stops startup; the zone database is embedded through `time/tzdata`, imported in `xenobot/config` so it is ready before
-  the config reads the variable); `REDIS_DB=1`; `ENABLE_AISPAM=true` (the global AI kill switch, text, images and the AI spam-name rule; the text checks are inert without `TYPESAFE_API_KEY`); `ANTHROPIC_API_KEY` empty
-  means no raid image check, no AI name check and no image or name leaves the server, and `ANTHROPIC_MODEL` must be a model that
+  the config reads the variable); `REDIS_DB=1`; `ENABLE_AISPAM=true` (the global AI kill switch, text, images and the AI spam-name rule; the text checks are inert without `TYPESAFE_API_KEY`); when neither Anthropic nor Featherless AI moderation is configured,
+  no raid image check and no AI name check run and no image or name leaves the server, and `ANTHROPIC_MODEL` must be a model that
   accepts a forced tool call (a Haiku-class model: the names request and the image request both force the call) and falls back to `claude.DefaultModel`
   (with a warning) when empty or not a valid model name; because the bot reads the standard `ANTHROPIC_API_KEY` name, a
   key exported for another tool on the same host turns the image checks on, and the AI name check too, wherever the AI rule is
@@ -6083,7 +6107,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - A test never calls `t.Skip` to dodge a case: restructure so the case is not registered (a field on the case table and a
   `continue` in the loop). CI's skip gate (`scripts/check_test_results`) fails any unexpected skip; the only allowed ones are the
   PostgreSQL-only migration tests when no database is configured.
-- No test calls a real AI provider (TypeSafe, Anthropic or Google): the Claude and Gemini clients and the raid AI,
+- No test calls a real AI provider (TypeSafe, Anthropic, Google or Featherless AI): the Claude, Gemini and Featherless clients and the raid AI,
   member-requirement AI and conversation paths are tested against `httptest` servers or a fake transport, with no `t.Skip`,
   so they run in `make test`.
 - The conversation runtime's tests (Phase 20, `xenobot/modules`) run on the toolkit `chat_env_test.go`: `newChatEnv` (a group with

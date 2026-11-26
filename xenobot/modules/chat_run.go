@@ -61,6 +61,8 @@ type chatJob struct {
 	provider  string
 	turn      chatprompt.Turn
 	quoted    *chatprompt.Turn
+	media     []chatMediaRef
+	hasText   bool
 	// allowMissingReply sends the reply even when the message it answers is gone. The zero value
 	// keeps a conversation reply silent for a deleted message; a brief sets it because the
 	// command it answers is deleted right after the handler returns.
@@ -110,8 +112,9 @@ func chatCancel() {
 // that group's conversations on that provider for 5 minutes; a rejected key or account, a long
 // rate limit or Gemini's daily quota pauses the provider for every group.
 var chatBreakers = map[string]*memberReqAIBreaker{
-	chatconv.ProviderAnthropic: newMemberReqAIBreaker(),
-	chatconv.ProviderGoogle:    newMemberReqAIBreaker(),
+	chatconv.ProviderAnthropic:   newMemberReqAIBreaker(),
+	chatconv.ProviderGoogle:      newMemberReqAIBreaker(),
+	chatconv.ProviderFeatherless: newMemberReqAIBreaker(),
 }
 
 // chatBreaker returns a provider's breaker.
@@ -280,7 +283,20 @@ func chatProcessJob(job chatJob) {
 
 	chatSendTyping(ctx, job.bot, job)
 	history := chatReadHistory(ctx, client, job.chatID)
-	request := chatBuildRequest(ctx, job, job.bot.Username, history)
+	var media chatDownloadedMedia
+	if len(job.media) > 0 {
+		media = chatDownloadMedia(ctx, job.bot, job.chatID, job.userID, job.provider, job.media)
+		if root.Err() != nil {
+			chatShedCount.Add(1)
+			return
+		}
+		if !job.hasText && len(media.Attachments) == 0 && len(media.Files) == 0 {
+			chatFailedCount.Add(1)
+			chatSayGated(ctx, job.bot, client, job, chatSaidMalfunction, "chat_reply_malfunction", chatMalfunctionGate)
+			return
+		}
+	}
+	request := chatBuildRequest(ctx, job, job.bot.Username, history, media)
 	answer, err := chatProviderOf(job.provider).converse(ctx, request)
 	if err != nil {
 		if root.Err() != nil || errors.Is(err, context.Canceled) {

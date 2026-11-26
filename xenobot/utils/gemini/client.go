@@ -50,6 +50,8 @@ var (
 	ErrInvalidModel = errors.New("gemini: invalid model name")
 	// ErrNoReply is wrapped by every answer that carries no usable text.
 	ErrNoReply = errors.New("gemini: no reply")
+	// ErrUnsupportedAttachment means an attachment type or size cannot be sent.
+	ErrUnsupportedAttachment = errors.New("gemini: unsupported attachment")
 )
 
 var modelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -118,6 +120,11 @@ func (c *Client) Generate(ctx context.Context, in Request) (*Reply, error) {
 	}
 	if in.MaxTokens <= 0 || strings.TrimSpace(in.Static) == "" || strings.TrimSpace(in.User) == "" {
 		return nil, errors.New("gemini: incomplete request")
+	}
+	for _, a := range in.Attachments {
+		if !attachmentSupported(a) {
+			return nil, ErrUnsupportedAttachment
+		}
 	}
 
 	payload, err := json.Marshal(buildBody(in, c.Options))

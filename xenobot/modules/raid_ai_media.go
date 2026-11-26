@@ -69,8 +69,12 @@ func raidAIMediaRef(msg *gotgbot.Message) (raidAIMedia, bool) {
 		return raidAIThumbnailRef(msg.Animation.Thumbnail, "animation")
 	case msg.Video != nil:
 		return raidAIThumbnailRef(msg.Video.Thumbnail, "video")
+	case msg.Document != nil:
+		if chatIsImageDocument(msg.Document.MimeType, msg.Document.FileName) {
+			return raidAIFrame(msg.Document.FileId, msg.Document.FileUniqueId, msg.Document.FileSize, "document")
+		}
 	}
-	// A video note, a document, a voice note, audio, a poll and the rest have no frame
+	// A video note, a non-image document, a voice note, audio, a poll and the rest have no frame
 	// worth sending.
 	return raidAIMedia{}, false
 }
@@ -130,6 +134,89 @@ func raidAIFrame(fileID, uniqueID string, size int64, kind string) (raidAIMedia,
 	return raidAIMedia{FileID: fileID, FileUniqueID: uniqueID, FileSize: size, Kind: kind}, true
 }
 
+func telegramDownloadCtxErr(ctx context.Context, err error) (string, error) {
+	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		return "cancelled", context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return "timeout", context.DeadlineExceeded
+	}
+	return "", nil
+}
+
+func telegramDownloadDoErr(ctx context.Context, err error) (string, error) {
+	if class, ctxErr := telegramDownloadCtxErr(ctx, err); class != "" {
+		return class, fmt.Errorf("telegram file download: %w", ctxErr)
+	}
+	var ue *url.Error
+	if errors.As(err, &ue) && ue.Err != nil {
+		return "download failed", fmt.Errorf("telegram file download: %w", ue.Err)
+	}
+	return "download failed", errors.New("telegram file download: request failed")
+}
+
+func readTelegramFileBody(ctx context.Context, resp *http.Response, maxBytes int64) ([]byte, string, error) {
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxBytes+1))
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, "bad status", fmt.Errorf("telegram file download: status %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		if class, ctxErr := telegramDownloadCtxErr(ctx, err); class != "" {
+			return nil, class, fmt.Errorf("telegram file download: %w", ctxErr)
+		}
+		return nil, "read failed", errors.New("telegram file download: read failed")
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, "file too large", errors.New("telegram file download: file too large")
+	}
+	if len(data) == 0 {
+		return nil, "empty file", errors.New("telegram file download: empty file")
+	}
+	return data, "", nil
+}
+
+// downloadTelegramFileBytes fetches one Telegram file up to maxBytes using the
+// no-redirect client. Every error is rebuilt so neither the bot token nor the
+// file URL can ever appear in an error or log line.
+func downloadTelegramFileBytes(ctx context.Context, b *gotgbot.Bot, fileID string, maxBytes int64) ([]byte, string, error) {
+	if b == nil || fileID == "" {
+		return nil, "no file", errors.New("telegram file download: no file")
+	}
+	dlCtx, cancel := context.WithTimeout(ctx, raidAIDownloadTimeout)
+	defer cancel()
+
+	// gotgbot sanitises the errors of its own requests.
+	file, err := b.GetFileWithContext(dlCtx, fileID, nil)
+	if err != nil {
+		if class, ctxErr := telegramDownloadCtxErr(dlCtx, err); class != "" {
+			return nil, class, fmt.Errorf("telegram getFile: %w", ctxErr)
+		}
+		return nil, "getFile failed", fmt.Errorf("telegram getFile: %w", err)
+	}
+	if file == nil || file.FilePath == "" || strings.HasPrefix(file.FilePath, "/") {
+		return nil, "no downloadable path", errors.New("telegram file download: no downloadable path")
+	}
+	if file.FileSize > maxBytes {
+		return nil, "file too large", errors.New("telegram file download: file too large")
+	}
+
+	// The request error is not wrapped: it would carry the URL.
+	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, file.URL(b, nil), nil)
+	if err != nil {
+		return nil, "build request", errors.New("telegram file download: build request")
+	}
+	resp, err := raidAIFileHTTPClient.Do(req)
+	if err != nil {
+		class, dlErr := telegramDownloadDoErr(dlCtx, err)
+		return nil, class, dlErr
+	}
+	return readTelegramFileBody(dlCtx, resp, maxBytes)
+}
+
 // raidAIDownload fetches the file fileID with getFile and a plain GET and returns it as a
 // Claude image. It refuses a file that is empty, over claude.MaxImageBytes, or not a JPEG,
 // PNG or WebP by its bytes (the type is sniffed, never taken from a header or a name), a
@@ -137,50 +224,10 @@ func raidAIFrame(fileID, uniqueID string, size int64, kind string) (raidAIMedia,
 // rebuilt: a transport error from its cause, a bad status as the code alone, so neither the
 // bot token nor the URL is in an error, whatever the caller does with it.
 func raidAIDownload(ctx context.Context, b *gotgbot.Bot, fileID string) (claude.Image, error) {
-	if b == nil || fileID == "" {
-		return claude.Image{}, errors.New("telegram file download: no file")
-	}
-	// gotgbot sanitises the errors of its own requests.
-	file, err := b.GetFileWithContext(ctx, fileID, nil)
+	data, _, err := downloadTelegramFileBytes(ctx, b, fileID, claude.MaxImageBytes)
 	if err != nil {
-		return claude.Image{}, fmt.Errorf("telegram getFile: %w", err)
+		return claude.Image{}, err
 	}
-	if file == nil || file.FilePath == "" || strings.HasPrefix(file.FilePath, "/") {
-		return claude.Image{}, errors.New("telegram file download: no downloadable path")
-	}
-	if file.FileSize > claude.MaxImageBytes {
-		return claude.Image{}, errors.New("telegram file download: file too large")
-	}
-
-	// The request error is not wrapped: it would carry the URL.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, file.URL(b, nil), nil)
-	if err != nil {
-		return claude.Image{}, errors.New("telegram file download: build request")
-	}
-	resp, err := raidAIFileHTTPClient.Do(req)
-	if err != nil {
-		var ue *url.Error
-		if errors.As(err, &ue) && ue.Err != nil {
-			return claude.Image{}, fmt.Errorf("telegram file download: %w", ue.Err)
-		}
-		return claude.Image{}, errors.New("telegram file download: request failed")
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return claude.Image{}, fmt.Errorf("telegram file download: status %d", resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, claude.MaxImageBytes+1))
-	if err != nil {
-		return claude.Image{}, errors.New("telegram file download: read failed")
-	}
-	if len(data) > claude.MaxImageBytes {
-		return claude.Image{}, errors.New("telegram file download: file too large")
-	}
-	if len(data) == 0 {
-		return claude.Image{}, errors.New("telegram file download: empty file")
-	}
-
 	mimeType, _, _ := strings.Cut(http.DetectContentType(data), ";")
 	switch mimeType {
 	case "image/jpeg", "image/png", "image/webp":

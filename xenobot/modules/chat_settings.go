@@ -15,11 +15,11 @@ import (
 )
 
 // chatProviders is the order the providers are offered in.
-var chatProviders = []string{chatconv.ProviderAnthropic, chatconv.ProviderGoogle}
+var chatProviders = []string{chatconv.ProviderAnthropic, chatconv.ProviderGoogle, chatconv.ProviderFeatherless}
 
 // chatProviderConfigured reports whether this server can run conversations on provider: the
-// ENABLE_CHAT switch is on and the provider's key is set. It reads config.AppConfig only, so it
-// makes no network call.
+// ENABLE_CHAT switch is on and the provider's credentials (and explicit model for Featherless)
+// are set. It reads config.AppConfig only, so it makes no network call.
 func chatProviderConfigured(provider string) bool {
 	cfg := config.AppConfig
 	if cfg == nil || !cfg.EnableChat {
@@ -30,6 +30,8 @@ func chatProviderConfigured(provider string) bool {
 		return cfg.AnthropicAPIKey != ""
 	case chatconv.ProviderGoogle:
 		return cfg.GeminiAPIKey != ""
+	case chatconv.ProviderFeatherless:
+		return cfg.FeatherlessAPIKey != "" && cfg.ChatFeatherlessModel != ""
 	}
 	return false
 }
@@ -47,18 +49,26 @@ func chatAnyProviderConfigured() bool {
 // chatProviderName is the provider's name as the page and the data notice show it. Brand
 // names are not translated.
 func chatProviderName(provider string) string {
-	if provider == chatconv.ProviderGoogle {
+	switch provider {
+	case chatconv.ProviderGoogle:
 		return "Google (Gemini)"
+	case chatconv.ProviderFeatherless:
+		return "Featherless AI"
+	default:
+		return "Anthropic (Claude)"
 	}
-	return "Anthropic (Claude)"
 }
 
 // chatProviderShortName is the provider's name on the Main line.
 func chatProviderShortName(provider string) string {
-	if provider == chatconv.ProviderGoogle {
+	switch provider {
+	case chatconv.ProviderGoogle:
 		return "Google"
+	case chatconv.ProviderFeatherless:
+		return "Featherless"
+	default:
+		return "Anthropic"
 	}
-	return "Anthropic"
 }
 
 // chatKeyPrefix is the family of every conversation key in Redis. It sits outside the

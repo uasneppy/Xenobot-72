@@ -22,6 +22,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/claude"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/featherless"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/gemini"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/logredact"
 )
@@ -209,28 +210,37 @@ type Config struct {
 	TypeSafeAPIKey string
 
 	// Image checks of the AI raid trigger and the AI spam-name rule of the member
-	// requirements, through the Anthropic API. The feature is inert without
-	// AnthropicAPIKey (with no key no image and no name leaves the server)
-	// and while EnableAISpam is false. The key is a secret and is registered with
-	// logredact.RegisterSecret. AnthropicModel is checked against the claude
-	// package's model-name rule in setDefaults, so a pasted secret or odd value
-	// is replaced by the default and never used.
-	AnthropicAPIKey string
-	AnthropicModel  string
+	// requirements, through the Anthropic API or Featherless AI. The feature is
+	// inert while EnableAISpam is false or when no configured moderation provider
+	// has its credentials (AnthropicAPIKey for Anthropic; FeatherlessAPIKey plus
+	// FeatherlessModel for Featherless). AIModerationProvider (AI_MODERATION_PROVIDER,
+	// optional: "anthropic" or "featherless") picks the moderation provider when
+	// both are configured; empty defaults to Anthropic when set, else Featherless.
+	// Keys are secrets registered with logredact.RegisterSecret. Invalid model
+	// names are rejected in setDefaults without logging the value: AnthropicModel
+	// falls back to claude.DefaultModel, while FeatherlessModel has no built-in
+	// default and stays empty until explicitly set.
+	AnthropicAPIKey      string
+	AnthropicModel       string
+	FeatherlessAPIKey    string
+	FeatherlessModel     string
+	AIModerationProvider string
 
 	// Conversations (Phase 20). EnableChat (ENABLE_CHAT, default false) is the server-wide
 	// switch of the whole feature: an Anthropic key exported for another tool already turns
 	// the image and name checks on, and conversations cost more and speak in public, so they
 	// need their own explicit switch. A provider can serve conversations only with the switch
-	// on and its key set (AnthropicAPIKey, reused, or GeminiAPIKey, a secret registered with
-	// logredact). ChatAnthropicModel (CHAT_ANTHROPIC_MODEL, default claude-haiku-5-5) and
+	// on and its configuration set (AnthropicAPIKey, reused; GeminiAPIKey, a secret registered
+	// with logredact; or FeatherlessAPIKey plus explicit ChatFeatherlessModel, with no built-in
+	// default). ChatAnthropicModel (CHAT_ANTHROPIC_MODEL, default claude-haiku-5-5) and
 	// ChatGeminiModel (CHAT_GEMINI_MODEL, default gemini-4-hydrogen) are separate from
 	// AnthropicModel, which must stay a model that accepts a forced tool call; an invalid name
-	// is replaced by the default with a warning that logs no value.
-	EnableChat         bool
-	GeminiAPIKey       string
-	ChatAnthropicModel string
-	ChatGeminiModel    string
+	// is replaced by the default (or empty for Featherless) with a warning that logs no value.
+	EnableChat           bool
+	GeminiAPIKey         string
+	ChatAnthropicModel   string
+	ChatGeminiModel      string
+	ChatFeatherlessModel string
 
 	// DefaultTimezone is the zone every group without a choice of its own shows times in
 	// (DEFAULT_TIMEZONE, an IANA name, default Europe/Kyiv). DefaultLocation is it loaded; an
@@ -506,13 +516,17 @@ func LoadConfig() (*Config, error) {
 		EnableAISpam:   typeConvertor{str: os.Getenv("ENABLE_AISPAM")}.Bool(),
 		TypeSafeAPIKey: os.Getenv("TYPESAFE_API_KEY"),
 
-		AnthropicAPIKey: os.Getenv("ANTHROPIC_API_KEY"),
-		AnthropicModel:  os.Getenv("ANTHROPIC_MODEL"),
+		AnthropicAPIKey:      os.Getenv("ANTHROPIC_API_KEY"),
+		AnthropicModel:       os.Getenv("ANTHROPIC_MODEL"),
+		FeatherlessAPIKey:    os.Getenv("FEATHERLESS_API_KEY"),
+		FeatherlessModel:     os.Getenv("FEATHERLESS_MODEL"),
+		AIModerationProvider: os.Getenv("AI_MODERATION_PROVIDER"),
 
-		EnableChat:         typeConvertor{str: os.Getenv("ENABLE_CHAT")}.Bool(),
-		GeminiAPIKey:       os.Getenv("GEMINI_API_KEY"),
-		ChatAnthropicModel: os.Getenv("CHAT_ANTHROPIC_MODEL"),
-		ChatGeminiModel:    os.Getenv("CHAT_GEMINI_MODEL"),
+		EnableChat:           typeConvertor{str: os.Getenv("ENABLE_CHAT")}.Bool(),
+		GeminiAPIKey:         os.Getenv("GEMINI_API_KEY"),
+		ChatAnthropicModel:   os.Getenv("CHAT_ANTHROPIC_MODEL"),
+		ChatGeminiModel:      os.Getenv("CHAT_GEMINI_MODEL"),
+		ChatFeatherlessModel: os.Getenv("CHAT_FEATHERLESS_MODEL"),
 
 		DefaultTimezone: strings.TrimSpace(os.Getenv("DEFAULT_TIMEZONE")),
 
@@ -658,6 +672,9 @@ func (cfg *Config) setDefaults() {
 	}
 	cfg.ChatAnthropicModel = validChatModel("CHAT_ANTHROPIC_MODEL", cfg.ChatAnthropicModel, claude.DefaultModel)
 	cfg.ChatGeminiModel = validChatModel("CHAT_GEMINI_MODEL", cfg.ChatGeminiModel, gemini.DefaultModel)
+	cfg.FeatherlessModel = validFeatherlessModel("FEATHERLESS_MODEL", cfg.FeatherlessModel)
+	cfg.ChatFeatherlessModel = validFeatherlessModel("CHAT_FEATHERLESS_MODEL", cfg.ChatFeatherlessModel)
+	cfg.AIModerationProvider = validModerationAIProvider(cfg.AIModerationProvider)
 }
 
 // validChatModel returns value, or def when value is empty or not a plain model id. The
@@ -675,6 +692,35 @@ func validChatModel(name, value, def string) string {
 	return value
 }
 
+// validFeatherlessModel returns value when it is a valid Hugging Face model id (owner/model),
+// else empty (Featherless has no built-in default model). The rejected value is never logged.
+func validFeatherlessModel(name, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if !featherless.ValidModel(value) {
+		log.Warnf("[Config] %s (%d characters) is not a valid Featherless model name (expected owner/model), leaving unset",
+			name, utf8.RuneCountInString(value))
+		return ""
+	}
+	return value
+}
+
+// validModerationAIProvider returns "anthropic", "featherless", or "" (auto). An unknown value
+// is dropped with a warning that logs only its length.
+func validModerationAIProvider(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "", "anthropic", "featherless":
+		return value
+	default:
+		log.Warnf("[Config] AI_MODERATION_PROVIDER (%d characters) is not anthropic or featherless, using auto",
+			utf8.RuneCountInString(value))
+		return ""
+	}
+}
+
 // registerSecrets registers every configured secret with logredact so its exact
 // value is scrubbed from all log output.
 func registerSecrets(cfg *Config) {
@@ -687,6 +733,7 @@ func registerSecrets(cfg *Config) {
 		cfg.TypeSafeAPIKey,
 		cfg.AnthropicAPIKey,
 		cfg.GeminiAPIKey,
+		cfg.FeatherlessAPIKey,
 		cfg.TurnstileSecretKey,
 	)
 }

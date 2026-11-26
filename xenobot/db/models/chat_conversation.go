@@ -11,7 +11,7 @@ import "time"
 type ChatConversation struct {
 	ChatID     int64     `gorm:"column:chat_id;primaryKey;autoIncrement:false" json:"chat_id"`
 	Enabled    bool      `gorm:"column:enabled;not null" json:"enabled"`
-	Provider   string    `gorm:"column:provider;not null;size:16;check:chk_chat_conversations_provider,provider IN ('anthropic', 'google')" json:"provider"`
+	Provider   string    `gorm:"column:provider;not null;size:16;check:chk_chat_conversations_provider,provider IN ('anthropic', 'google', 'featherless')" json:"provider"`
 	Audience   int16     `gorm:"column:audience;not null;check:chk_chat_conversations_audience,audience BETWEEN 0 AND 1" json:"audience"`
 	LogEnabled bool      `gorm:"column:log_enabled;not null" json:"log_enabled"`
 	JudgeTo    int16     `gorm:"column:judge_to;not null;check:chk_chat_conversations_judge_to,judge_to BETWEEN 0 AND 2" json:"judge_to"`

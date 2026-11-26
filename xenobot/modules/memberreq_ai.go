@@ -18,6 +18,7 @@ import (
 	"github.com/uasneppy/Xenobot-72/xenobot/db/memberreq"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/claude"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/featherless"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/namecanon"
 )
 
@@ -120,6 +121,10 @@ var (
 	// memberReqAIHTTP is the transport of the names request; nil is the client's own, which has
 	// the call timeout and follows no redirect. A variable only for tests.
 	memberReqAIHTTP *http.Client
+	// memberReqFeatherlessEndpoint and memberReqFeatherlessHTTP are the Featherless API host
+	// and transport of the names request; variables only for tests.
+	memberReqFeatherlessEndpoint = featherless.DefaultEndpoint
+	memberReqFeatherlessHTTP     *http.Client
 
 	// memberReqAIGate bounds the provider calls that run at once on this replica (D-24). A variable
 	// only so a test can resize it; production code never reassigns it.
@@ -140,13 +145,18 @@ var (
 const memberReqAIGateSize = 4
 
 // memberReqAIConfigured reports whether the AI name check can run: the ENABLE_AISPAM kill
-// switch is on and an Anthropic key is set. It is its own function, not raidAIImageConfigured,
-// because it must never grow a Redis or a raid ai_enabled term: those are other facts (the
-// verdict cache needs Redis and the rule answers unknown without it, and the raid switch is the
-// lockdown trigger's own), and the "AI not configured" status of the settings page is exactly
-// this condition.
+// switch is on and a moderation AI provider (Anthropic, or Featherless with explicit
+// FEATHERLESS_MODEL) is configured. It never grows a Redis or raid ai_enabled term.
 func memberReqAIConfigured() bool {
-	return config.AppConfig.EnableAISpam && config.AppConfig.AnthropicAPIKey != ""
+	return moderationAIProvider() != ""
+}
+
+// memberReqAIModel returns the active moderation model id for verdict cache keying.
+func memberReqAIModel() string {
+	if moderationAIProvider() == "featherless" {
+		return config.AppConfig.FeatherlessModel
+	}
+	return config.AppConfig.AnthropicModel
 }
 
 // memberReqAIClient builds the Claude client of one judgement from the configured key and
@@ -161,6 +171,22 @@ func memberReqAIClient() *claude.Client {
 		APIKey:   key,
 		Model:    config.AppConfig.AnthropicModel,
 		HTTP:     memberReqAIHTTP,
+	}
+}
+
+// memberReqFeatherlessClient builds the Featherless client of one names judgement from the
+// configured key and explicit moderation model. It returns nil when either is unset.
+func memberReqFeatherlessClient() *featherless.Client {
+	key := config.AppConfig.FeatherlessAPIKey
+	model := config.AppConfig.FeatherlessModel
+	if key == "" || model == "" {
+		return nil
+	}
+	return &featherless.Client{
+		Endpoint: memberReqFeatherlessEndpoint,
+		APIKey:   key,
+		Model:    model,
+		HTTP:     memberReqFeatherlessHTTP,
 	}
 }
 
@@ -334,7 +360,7 @@ func memberReqAIPrepareBar(ctx context.Context, chatID, userID int64, mode membe
 	if !ok {
 		return memberReqAIFinal(memberReqInert)
 	}
-	key := memberReqAIVerdictKey(config.AppConfig.AnthropicModel, canon)
+	key := memberReqAIVerdictKey(memberReqAIModel(), canon)
 	state, err := memberReqAIReadState(ctx, key, chatID, userID)
 	if err != nil {
 		return memberReqAIPlan{verdict: memberReqUnknown, done: true, sticky: true}
@@ -541,8 +567,26 @@ func memberReqAIJudge(ctx context.Context, chatID, userID int64, plan memberReqA
 		memberReqAIStats.cached.Add(1)
 		return memberReqAIAnswer{Probability: probability, HasProbability: true}
 	}
-	client := memberReqAIClient()
-	if client == nil {
+	provider := moderationAIProvider()
+	var (
+		apiKey            string
+		claudeClient      *claude.Client
+		featherlessClient *featherless.Client
+	)
+	switch provider {
+	case "featherless":
+		featherlessClient = memberReqFeatherlessClient()
+		if featherlessClient == nil {
+			return memberReqAIAnswer{}
+		}
+		apiKey = featherlessClient.APIKey
+	case "anthropic":
+		claudeClient = memberReqAIClient()
+		if claudeClient == nil {
+			return memberReqAIAnswer{}
+		}
+		apiKey = claudeClient.APIKey
+	default:
 		return memberReqAIAnswer{}
 	}
 	if refusal, ok := memberReqAIAcquire(ctx, chatID); !ok {
@@ -552,16 +596,36 @@ func memberReqAIJudge(ctx context.Context, chatID, userID int64, plan memberReqA
 	if refusal, ok := memberReqAIReserveUnit(chatID, userID); !ok {
 		return refusal
 	}
-	names := claude.Names{First: plan.canon.First, Last: plan.canon.Last, Username: plan.canon.Username}
-	answer, err := memberReqAICall(ctx, client, names)
-	if err != nil {
-		memberReqAIAfterFailure(ctx, chatID, userID, client.APIKey, err)
+	var (
+		spamProbability float64
+		callErr         error
+	)
+	if provider == "featherless" {
+		verdict, err := featherlessClient.ClassifyNames(ctx, featherless.Names{
+			First: plan.canon.First, Last: plan.canon.Last, Username: plan.canon.Username,
+		})
+		if err != nil {
+			callErr = err
+		} else {
+			spamProbability = verdict.SpamProbability
+		}
+	} else {
+		names := claude.Names{First: plan.canon.First, Last: plan.canon.Last, Username: plan.canon.Username}
+		answer, err := memberReqAICall(ctx, claudeClient, names)
+		if err != nil {
+			callErr = err
+		} else {
+			spamProbability = answer.SpamProbability
+		}
+	}
+	if callErr != nil {
+		memberReqAIAfterFailure(ctx, chatID, userID, apiKey, callErr)
 		return memberReqAIAnswer{}
 	}
 	memberReqAIRecordSuccess(chatID)
 	memberReqAIStats.checked.Add(1)
-	memberReqCacheSetValue(ctx, plan.key, strconv.FormatFloat(answer.SpamProbability, 'f', -1, 64), memberReqAIVerdictTTL)
-	return memberReqAIAnswer{Probability: answer.SpamProbability, HasProbability: true, Fresh: true}
+	memberReqCacheSetValue(ctx, plan.key, strconv.FormatFloat(spamProbability, 'f', -1, 64), memberReqAIVerdictTTL)
+	return memberReqAIAnswer{Probability: spamProbability, HasProbability: true, Fresh: true}
 }
 
 // memberReqAIAcquire checks the breaker and takes a gate slot, waiting at most memberReqAIGateWait.
@@ -625,7 +689,7 @@ func memberReqAIAfterFailure(ctx context.Context, chatID, userID int64, key stri
 	switch {
 	case ctx.Err() != nil:
 		memberReqAIStats.shed.Add(1)
-	case errors.Is(err, claude.ErrBlocked):
+	case errors.Is(err, claude.ErrBlocked), errors.Is(err, featherless.ErrBlocked):
 		memberReqAIRecordSuccess(chatID)
 		memberReqAIStats.blocked.Add(1)
 	default:
@@ -645,14 +709,18 @@ func memberReqAILogFailure(ctx context.Context, chatID, userID int64, key string
 		return
 	}
 	fields := log.Fields{"chat_id": chatID, "user_id": userID}
-	if errors.Is(err, claude.ErrBlocked) {
+	if errors.Is(err, claude.ErrBlocked) || errors.Is(err, featherless.ErrBlocked) {
 		log.WithFields(fields).Info("[MemberReq] the AI name check was refused by the provider, so nobody is punished")
 		return
 	}
 	entry := log.WithFields(fields)
-	var httpErr *claude.HTTPError
-	if errors.As(err, &httpErr) {
-		entry = entry.WithField("status", httpErr.Status).WithField("error_type", httpErr.Type)
+	var claudeErr *claude.HTTPError
+	var featherlessErr *featherless.HTTPError
+	switch {
+	case errors.As(err, &claudeErr):
+		entry = entry.WithField("status", claudeErr.Status).WithField("error_type", claudeErr.Type)
+	case errors.As(err, &featherlessErr):
+		entry = entry.WithField("status", featherlessErr.Status).WithField("error_type", featherlessErr.Type)
 	}
 	entry.Warnf("[MemberReq] the AI name check failed, so nobody is punished: %s", raidAIScrub(err.Error(), key))
 }

@@ -48,12 +48,12 @@ Days before marking a chat as inactive
 
 Global kill switch for every AI check. When `false`, no chat runs `/aispam`
 checks regardless of its per-chat setting, and the AI raid trigger sends nothing
-to either provider: no text goes to TypeSafe and no image goes to Anthropic,
-even when `ANTHROPIC_API_KEY` is set. `/autolockdown` then shows the "AI checks are
-not set up" notice. The text checks are inert without `TYPESAFE_API_KEY` either
-way. It also switches off the AI spam-name check of the Member requirements page: with
-`false` no name goes to Anthropic, the rule is inert in every group and its page says
-"AI not configured".
+to any provider: no text goes to TypeSafe and no image goes to Anthropic or
+Featherless AI, even when their API keys are set. `/autolockdown` then shows
+the "AI checks are not set up" notice. The text checks are inert without
+`TYPESAFE_API_KEY` either way. It also switches off the AI spam-name check of
+the Member requirements page: with `false` no name goes to any AI provider, the
+rule is inert in every group and its page says "AI not configured".
 
 | Property | Value |
 |----------|-------|
@@ -74,33 +74,24 @@ chats cannot bring their own. Leaving it empty disables the feature and makes
 
 ### `ANTHROPIC_API_KEY`
 
-Anthropic API key for the image checks of the AI raid trigger. When it is set,
-suspicious photos, GIFs and stickers posted by members who joined in the last 24
-hours are sent to Anthropic to be judged as spam or not. A burst of spam
+Anthropic API key for the image checks of the AI raid trigger, the AI spam-name
+rule of the Member requirements page, and Anthropic conversations. When Anthropic
+is the active moderation provider, suspicious photos, image files, GIFs,
+stickers and video thumbnails posted by members who joined in the last 24 hours
+are sent to Anthropic to be judged as spam or not, and the AI spam-name rule
+sends only a member's first name, last name and username. A burst of spam
 verdicts from several accounts can lock the group; the AI never locks a group on
-its own. When it is unset, no image is sent anywhere and the text checks
-(through `TYPESAFE_API_KEY`) are unchanged. Setting `ENABLE_AISPAM` to `false`
-also stops the image checks.
+its own. When neither Anthropic nor Featherless AI moderation is configured, no
+image or name leaves the server and the text checks (through `TYPESAFE_API_KEY`)
+are unchanged. Setting `ENABLE_AISPAM` to `false` also stops every AI check.
 
-The same key also enables the AI spam-name check of the Member requirements page (the
-AI rule, off in every group until its owner picks a punishment). For that check only a
-member's first name, last name and username are sent to Anthropic, once per distinct
-set of names and never message text, when a new member joins or writes for the first
-time and when any member changes their name; the verdict is cached for 24 hours and
-the calls are capped per account, per group and for the whole bot each hour. Without
-the key, or with `ENABLE_AISPAM` set to `false`, the name check is off and the page
-says "AI not configured". A name check that cannot be answered (an error, a rejected
-key, a rate limit, a spent budget) never punishes anyone.
-
-Every check sends that image to Anthropic under the terms of the owner's API
-account, and so does every name check (a member's first name, last name and
-username are personal data, and retention is that account's, not the bot's), so
-the owner decides before setting the key. The key is a secret: it is
-registered with the log redactor at startup, and any string shaped like an
-Anthropic key (`sk-ant-...`) is scrubbed from log lines even when it was never
-registered. It is sent only in the `x-api-key` request header, never in a URL.
-The bot reads this standard name, so a key exported for another tool on the same
-host turns the checks on.
+Every check sends that image or member's names to Anthropic under the terms of
+the owner's API account, so the owner decides before setting the key. The key is
+a secret: it is registered with the log redactor at startup, and any string
+shaped like an Anthropic key (`sk-ant-...`) is scrubbed from log lines even when
+it was never registered. It is sent only in the `x-api-key` request header,
+never in a URL. The bot reads this standard name, so a key exported for another
+tool on the same host turns the checks on.
 
 | Property | Value |
 |----------|-------|
@@ -123,18 +114,68 @@ request URL.
 | **Required** | No |
 | **Default** | `claude-haiku-5-5` |
 
+### `FEATHERLESS_API_KEY`
+
+Featherless AI API key (`https://featherless.ai`), shared by Featherless AI
+conversations (requires `CHAT_FEATHERLESS_MODEL`) and Featherless AI moderation
+(raid image checks and AI spam-name rule; requires `FEATHERLESS_MODEL`). Sent
+only in the `Authorization: Bearer` header, never in a URL, and registered with
+the log redactor at startup so it is scrubbed from logs.
+
+| Property | Value |
+|----------|-------|
+| **Type** | `string` |
+| **Required** | No |
+
+### `FEATHERLESS_MODEL`
+
+Explicit Featherless AI Hugging Face model ID (`owner/model`, up to 128 bytes)
+used for raid image checks and the AI spam-name rule. There is **no built-in
+default**: Featherless AI moderation remains unavailable until both
+`FEATHERLESS_API_KEY` and a valid `FEATHERLESS_MODEL` are set. Choose a
+vision-capable model so raid image checks can inspect photos, image files, GIFs,
+stickers and video thumbnails. An invalid value is cleared with a warning
+(without logging the value).
+
+| Property | Value |
+|----------|-------|
+| **Type** | `string` |
+| **Required** | No |
+
+### `AI_MODERATION_PROVIDER`
+
+Selects which provider runs AI moderation (raid image checks and the AI
+spam-name rule):
+
+- Empty (default): auto-selects Anthropic when `ANTHROPIC_API_KEY` is set, else
+  Featherless AI when both `FEATHERLESS_API_KEY` and `FEATHERLESS_MODEL` are
+  set.
+- `anthropic`: use Anthropic only.
+- `featherless`: use Featherless AI only.
+
+Any other value is cleared with a warning (falling back to auto).
+
+| Property | Value |
+|----------|-------|
+| **Type** | `string` |
+| **Required** | No |
+
 ## 📂 Conversations configuration
 
 Conversations let a group's owner turn on chat replies of Xenobot-72 in that
 group, from the bot's private chat (`/settings`, Conversations). The bot never
-converses in a private chat. A group's members' messages that address the bot
-are sent to the provider the owner chose, under the terms of your API account.
+converses in a private chat. A group's members' messages (plus attached photos,
+stickers and supported files on addressed or replied-to messages) are sent to
+the provider the owner chose, under the terms of your API account.
 
-Supported conversation models are the 5.x generation of Claude and Gemini 4. Use a paid-tier
-Gemini key: on the free tier Google may use prompts to improve its products and human
-reviewers may read them, and only paid services may serve users in the EEA, Switzerland
-or the UK. The hourly limits are 12 replies per member in a group, 80 per group and 800
-for the whole bot.
+Supported conversation providers are Anthropic Claude (5.x generation), Google
+Gemini (Gemini 4) and Featherless AI (any configured Hugging Face `owner/model`
+ID; pick a vision-capable model to recognize photos, image files, stickers and
+GIF/video thumbnails; raw PDFs are supported on Anthropic and Google). Use a
+paid-tier Gemini key: on the free tier Google may use prompts to improve its
+products and human reviewers may read them, and only paid services may serve
+users in the EEA, Switzerland or the UK. The hourly limits are 12 replies per
+member in a group, 80 per group and 800 for the whole bot.
 
 Rough cost per reply, from the planning estimate of about 10,000 cached system tokens,
 1,500 fresh input tokens and 300 output tokens at list prices on 2026-11-19. These are
@@ -163,7 +204,9 @@ sent to any provider for a conversation.
 
 Google Gemini API key for groups whose owner picks Google as the provider.
 Unset, Google cannot be picked. The key travels in a request header only and is
-scrubbed from logs. Anthropic conversations use `ANTHROPIC_API_KEY`.
+scrubbed from logs. Anthropic conversations use `ANTHROPIC_API_KEY`, and
+Featherless AI conversations use `FEATHERLESS_API_KEY` together with
+`CHAT_FEATHERLESS_MODEL`.
 
 | Property | Value |
 |----------|-------|
@@ -192,6 +235,20 @@ default with a warning.
 | **Type** | `string` |
 | **Required** | No |
 | **Default** | `gemini-4-hydrogen` |
+
+### `CHAT_FEATHERLESS_MODEL`
+
+Explicit Featherless AI Hugging Face model ID (`owner/model`, up to 128 bytes)
+for conversations, message log briefs (`/unrollshort`, `/unrolllong`) and
+`/judge`. There is **no built-in default**: Featherless AI cannot be picked on
+the Conversations settings page until both `FEATHERLESS_API_KEY` and a valid
+`CHAT_FEATHERLESS_MODEL` are set. An invalid value is cleared with a warning
+(without logging the value).
+
+| Property | Value |
+|----------|-------|
+| **Type** | `string` |
+| **Required** | No |
 
 ## 📂 Web captcha configuration
 
@@ -727,12 +784,14 @@ OWNER_ID=
 
 ```bash
 ACTIVITY_CHECK_INTERVAL=# hours between activity checks (default: 1)
-ANTHROPIC_API_KEY=# Anthropic key for the image checks of the AI raid trigger and the AI spam-name check (both off when unset)
-ANTHROPIC_MODEL=# Claude model for those checks, must accept a forced tool call (default: claude-haiku-5-5)
+AI_MODERATION_PROVIDER=# AI moderation provider: empty (auto: anthropic else featherless), anthropic, or featherless
+ANTHROPIC_API_KEY=# Anthropic key for the image checks of the AI raid trigger, the AI spam-name check and Anthropic conversations
+ANTHROPIC_MODEL=# Claude model for moderation checks, must accept a forced tool call (default: claude-haiku-5-5)
 API_SERVER=# custom API server URL (default: https://api.telegram.org)
 AUTO_MIGRATE=# enable automatic database migrations (default: false)
 AUTO_MIGRATE_SILENT_FAIL=# continue even if migrations fail (default: false)
 CHAT_ANTHROPIC_MODEL=# Claude model for conversations (default: claude-haiku-5-5)
+CHAT_FEATHERLESS_MODEL=# explicit Featherless AI Hugging Face owner/model ID for conversations (no default)
 CHAT_GEMINI_MODEL=# Gemini model for conversations (default: gemini-4-hydrogen)
 CAPTCHA_WEB_BASE_URL=# public https address of the bot's HTTP port for the web captcha (all four web captcha variables together or none)
 CAPTCHA_WEB_TRUSTED_PROXIES=# comma-separated IPs or CIDRs of the reverse proxies whose X-Forwarded-For is trusted (empty: header ignored)
@@ -752,6 +811,8 @@ ENABLE_DB_MONITORING=# (default: false)
 ENABLE_PERFORMANCE_MONITORING=# (default: true in prod, false in debug)
 ENABLE_PPROF=# enable pprof endpoints (default: false)
 ENABLED_LOCALES=# comma-separated language codes (default: en)
+FEATHERLESS_API_KEY=# Featherless AI API key (scrubbed from logs; shared by Featherless conversations and moderation)
+FEATHERLESS_MODEL=# explicit Featherless AI Hugging Face owner/model ID for moderation checks (no default)
 GEMINI_API_KEY=# Google Gemini key for conversations (scrubbed from logs; Google not offered when unset)
 HTTP_MAX_IDLE_CONNS=# (default: 100)
 HTTP_MAX_IDLE_CONNS_PER_HOST=# (default: 50)

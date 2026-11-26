@@ -10,6 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/claude"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/featherless"
 )
 
 // The breakers of the raid-only image checks. A failing provider must neither be
@@ -157,19 +158,31 @@ func raidAIImageRecordFailure(chatID int64, err error) {
 // reason (the status and the error type only) and the end of the pause, and does nothing
 // while a pause is already running.
 func raidAIImagePauseProvider(now time.Time, err error) {
-	var httpErr *claude.HTTPError
-	if !errors.As(err, &httpErr) {
+	var (
+		status     int
+		errType    string
+		rejected   bool
+		retryDelay time.Duration
+	)
+	var claudeErr *claude.HTTPError
+	var featherlessErr *featherless.HTTPError
+	switch {
+	case errors.As(err, &claudeErr):
+		status, errType, rejected, retryDelay = claudeErr.Status, claudeErr.Type, claudeErr.KeyRejected(), claudeErr.RetryDelay
+	case errors.As(err, &featherlessErr):
+		status, errType, rejected, retryDelay = featherlessErr.Status, featherlessErr.Type, featherlessErr.KeyRejected(), featherlessErr.RetryDelay
+	default:
 		return
 	}
 	var span time.Duration
 	var reason string
 	switch {
-	case httpErr.KeyRejected():
+	case rejected:
 		span = raidAIImageKeyPause
-		reason = fmt.Sprintf("the key or its account was rejected (HTTP %d %s)", httpErr.Status, httpErr.Type)
-	case httpErr.Status == 429 && httpErr.RetryDelay > raidAIImageLongRateLimit:
-		span = min(httpErr.RetryDelay, raidAIImageMaxPause)
-		reason = fmt.Sprintf("rate limited for %s (HTTP 429 %s)", httpErr.RetryDelay.Round(time.Second), httpErr.Type)
+		reason = fmt.Sprintf("the key or its account was rejected (HTTP %d %s)", status, errType)
+	case status == 429 && retryDelay > raidAIImageLongRateLimit:
+		span = min(retryDelay, raidAIImageMaxPause)
+		reason = fmt.Sprintf("rate limited for %s (HTTP 429 %s)", retryDelay.Round(time.Second), errType)
 	default:
 		return
 	}

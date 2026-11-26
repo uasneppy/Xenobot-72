@@ -9,6 +9,7 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2"
 
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/claude"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/featherless"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/gemini"
 )
 
@@ -29,12 +30,17 @@ func TestChatLogsCarryIDsOnly(t *testing.T) {
 	steps := []func(context.Context, chatRequest) (chatAnswer, error){
 		chatAnswerErr(&claude.HTTPError{Status: 500, Type: "api_error", Message: providerText}),
 		chatAnswerErr(&gemini.HTTPError{Status: 429, GRPCStatus: "RESOURCE_EXHAUSTED", Message: providerText}),
+		chatAnswerErr(&featherless.HTTPError{Status: 503, Type: "server_error", Message: providerText}),
 		chatAnswerErr(errors.New(providerText + " " + keyValue)),
 		chatAnswerErr(&claude.HTTPError{Status: 401, Type: "authentication_error", Message: providerText}),
 	}
 	for _, step := range steps {
 		env.provider.script(step)
-		chatSwap(t, &chatBreakers, map[string]*memberReqAIBreaker{"anthropic": newMemberReqAIBreaker(), "google": newMemberReqAIBreaker()})
+		chatSwap(t, &chatBreakers, map[string]*memberReqAIBreaker{
+			"anthropic":   newMemberReqAIBreaker(),
+			"google":      newMemberReqAIBreaker(),
+			"featherless": newMemberReqAIBreaker(),
+		})
 		env.deliver(env.mention(member(), secretText))
 	}
 	// A refusal, a blank answer, a reply whose target was deleted, a send Telegram refused and a

@@ -191,8 +191,14 @@ func chatMessageText(msg *gotgbot.Message) string {
 }
 
 // chatJobOf builds the job of an addressed message: the speaker's first name, the text with the
-// bot's mention removed, and the message it replies to when that is not the bot's.
+// bot's mention removed, any downloadable image/sticker/file reference on the message or the
+// message it replies to (no download runs here), and the quoted message when it is not the bot's.
 func chatJobOf(b *gotgbot.Bot, msg *gotgbot.Message, userID int64, provider string) chatJob {
+	text := strings.TrimSpace(chatprompt.StripMention(chatMessageText(msg), b.Username))
+	hasText := text != ""
+	if !hasText {
+		text = chatMediaLabel(msg)
+	}
 	job := chatJob{
 		bot:       b,
 		chatID:    msg.Chat.Id,
@@ -200,21 +206,32 @@ func chatJobOf(b *gotgbot.Bot, msg *gotgbot.Message, userID int64, provider stri
 		userID:    userID,
 		messageID: msg.MessageId,
 		provider:  provider,
+		hasText:   hasText,
 		turn: chatprompt.Turn{
 			Name: msg.From.FirstName,
-			Text: strings.TrimSpace(chatprompt.StripMention(chatMessageText(msg), b.Username)),
+			Text: text,
 		},
 	}
 	if msg.IsTopicMessage {
 		job.threadID = msg.MessageThreadId
 	}
+	if ref, ok := chatExtractMediaRef(msg); ok {
+		job.media = append(job.media, ref)
+	}
 	if reply := extraction.ReplyTarget(msg); reply != nil && (reply.From == nil || reply.From.Id != b.Id) {
-		quoted := chatprompt.Turn{Text: chatMessageText(reply)}
+		quotedText := strings.TrimSpace(chatMessageText(reply))
+		if quotedText == "" {
+			quotedText = chatMediaLabel(reply)
+		}
+		quoted := chatprompt.Turn{Text: quotedText}
 		if reply.From != nil {
 			quoted.Name = reply.From.FirstName
 		}
 		if strings.TrimSpace(quoted.Text) != "" {
 			job.quoted = &quoted
+		}
+		if ref, ok := chatExtractMediaRef(reply); ok {
+			job.media = append(job.media, ref)
 		}
 	}
 	return job

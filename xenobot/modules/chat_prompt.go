@@ -14,10 +14,11 @@ import (
 	"github.com/uasneppy/Xenobot-72/xenobot/i18n"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/chatprompt"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/claude"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/featherless"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/gemini"
 )
 
-// The request of one conversation turn and the one interface both providers sit behind, so the
+// The request of one conversation turn and the one interface every provider sits behind, so the
 // runtime never branches on the provider.
 
 // chatMaxOutputTokens is the output cap of a conversation request on both providers. Thinking
@@ -36,13 +37,15 @@ const (
 	chatTruncated
 )
 
-// chatRequest is one turn as both providers take it.
+// chatRequest is one turn as every provider takes it.
 type chatRequest struct {
 	Static  string
 	Dynamic string
 	User    string
 	// MaxTokens is the output cap; 0 means chatMaxOutputTokens.
 	MaxTokens int
+	// Attachments holds validated inline images and PDFs for the user turn.
+	Attachments []chatAttachment
 }
 
 // maxTokens is the request's output cap.
@@ -67,32 +70,43 @@ type chatProvider interface {
 }
 
 var (
-	// chatAnthropicEndpoint and chatGeminiEndpoint are the provider hosts; variables only so a
-	// test can point them at an httptest server.
-	chatAnthropicEndpoint = claude.DefaultEndpoint
-	chatGeminiEndpoint    = gemini.DefaultEndpoint
-	// chatProviderHTTP is the transport of both providers; nil is each client's own.
+	// chatAnthropicEndpoint, chatGeminiEndpoint and chatFeatherlessEndpoint are the provider
+	// hosts; variables only so a test can point them at an httptest server.
+	chatAnthropicEndpoint   = claude.DefaultEndpoint
+	chatGeminiEndpoint      = gemini.DefaultEndpoint
+	chatFeatherlessEndpoint = featherless.DefaultEndpoint
+	// chatProviderHTTP is the transport of every provider; nil is each client's own.
 	chatProviderHTTP *http.Client
 )
 
 // chatProviderFor returns the adapter of a provider with this server's key and model.
 func chatProviderFor(provider string) chatProvider {
 	cfg := config.AppConfig
-	if provider == chatconv.ProviderGoogle {
+	switch provider {
+	case chatconv.ProviderGoogle:
 		return chatGeminiProvider{client: &gemini.Client{
 			Endpoint: chatGeminiEndpoint, APIKey: cfg.GeminiAPIKey, Model: cfg.ChatGeminiModel, HTTP: chatProviderHTTP,
 		}}
+	case chatconv.ProviderFeatherless:
+		return chatFeatherlessProvider{client: &featherless.Client{
+			Endpoint: chatFeatherlessEndpoint, APIKey: cfg.FeatherlessAPIKey, Model: cfg.ChatFeatherlessModel, HTTP: chatProviderHTTP,
+		}}
+	default:
+		return chatAnthropicProvider{client: &claude.Client{
+			Endpoint: chatAnthropicEndpoint, APIKey: cfg.AnthropicAPIKey, Model: cfg.ChatAnthropicModel, HTTP: chatProviderHTTP,
+		}}
 	}
-	return chatAnthropicProvider{client: &claude.Client{
-		Endpoint: chatAnthropicEndpoint, APIKey: cfg.AnthropicAPIKey, Model: cfg.ChatAnthropicModel, HTTP: chatProviderHTTP,
-	}}
 }
 
 type chatAnthropicProvider struct{ client *claude.Client }
 
 func (p chatAnthropicProvider) converse(ctx context.Context, req chatRequest) (chatAnswer, error) {
+	var attachments []claude.ConverseAttachment
+	for _, a := range req.Attachments {
+		attachments = append(attachments, claude.ConverseAttachment{MIMEType: a.MIMEType, Data: a.Data})
+	}
 	reply, err := p.client.Converse(ctx, claude.ConverseRequest{
-		Static: req.Static, Dynamic: req.Dynamic, User: req.User, MaxTokens: req.maxTokens(),
+		Static: req.Static, Dynamic: req.Dynamic, User: req.User, MaxTokens: req.maxTokens(), Attachments: attachments,
 	})
 	if err != nil {
 		return chatAnswer{}, err
@@ -104,13 +118,36 @@ func (p chatAnthropicProvider) converse(ctx context.Context, req chatRequest) (c
 type chatGeminiProvider struct{ client *gemini.Client }
 
 func (p chatGeminiProvider) converse(ctx context.Context, req chatRequest) (chatAnswer, error) {
+	var attachments []gemini.Attachment
+	for _, a := range req.Attachments {
+		attachments = append(attachments, gemini.Attachment{MIMEType: a.MIMEType, Data: a.Data})
+	}
 	reply, err := p.client.Generate(ctx, gemini.Request{
-		Static: req.Static, Dynamic: req.Dynamic, User: req.User, MaxTokens: req.maxTokens(),
+		Static: req.Static, Dynamic: req.Dynamic, User: req.User, MaxTokens: req.maxTokens(), Attachments: attachments,
 	})
 	if err != nil {
 		return chatAnswer{}, err
 	}
 	return chatAnswerOf(reply.Text, reply.Outcome == gemini.OutcomeRefused, reply.Outcome == gemini.OutcomeTruncated,
+		reply.InputTokens, reply.OutputTokens), nil
+}
+
+type chatFeatherlessProvider struct{ client *featherless.Client }
+
+func (p chatFeatherlessProvider) converse(ctx context.Context, req chatRequest) (chatAnswer, error) {
+	var images []featherless.Image
+	for _, a := range req.Attachments {
+		if a.MIMEType == "image/jpeg" || a.MIMEType == "image/png" || a.MIMEType == "image/webp" {
+			images = append(images, featherless.Image{MIMEType: a.MIMEType, Data: a.Data})
+		}
+	}
+	reply, err := p.client.Converse(ctx, featherless.ConverseRequest{
+		Static: req.Static, Dynamic: req.Dynamic, User: req.User, MaxTokens: req.maxTokens(), Images: images,
+	})
+	if err != nil {
+		return chatAnswer{}, err
+	}
+	return chatAnswerOf(reply.Text, reply.Outcome == featherless.OutcomeRefused, reply.Outcome == featherless.OutcomeTruncated,
 		reply.InputTokens, reply.OutputTokens), nil
 }
 
@@ -137,12 +174,16 @@ func chatErrorClass(err error) string {
 	if errors.As(err, &geminiErr) {
 		return "HTTP " + strconv.Itoa(geminiErr.Status) + " " + geminiErr.GRPCStatus
 	}
+	var featherlessErr *featherless.HTTPError
+	if errors.As(err, &featherlessErr) {
+		return strings.TrimSpace("HTTP " + strconv.Itoa(featherlessErr.Status) + " " + featherlessErr.Type)
+	}
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "timeout"
 	case errors.Is(err, context.Canceled):
 		return "cancelled"
-	case errors.Is(err, claude.ErrNoReply), errors.Is(err, gemini.ErrNoReply):
+	case errors.Is(err, claude.ErrNoReply), errors.Is(err, gemini.ErrNoReply), errors.Is(err, featherless.ErrNoReply):
 		return "no reply"
 	}
 	return "transport error"
@@ -175,6 +216,16 @@ func chatProviderSpan(err error) time.Duration {
 				return min(geminiErr.RetryDelay, memberReqAIMaxPause)
 			}
 		}
+		return 0
+	}
+	var featherlessErr *featherless.HTTPError
+	if errors.As(err, &featherlessErr) {
+		if featherlessErr.KeyRejected() {
+			return memberReqAIKeyPause
+		}
+		if featherlessErr.Status == http.StatusTooManyRequests && featherlessErr.RetryDelay > memberReqAILongRateLimit {
+			return min(featherlessErr.RetryDelay, memberReqAIMaxPause)
+		}
 	}
 	return 0
 }
@@ -189,11 +240,12 @@ func chatLanguageName(ctx context.Context, chatID int64) (code, name string) {
 	return code, name
 }
 
-// chatBuildRequest assembles the three strings of a turn. The static text is the same bytes for
-// every chat; the dynamic text holds the group's title, language, today's date in the group's zone
-// and the bot's username; the user text holds the transcript, the quoted message and the message
-// to answer. No user ID, username or chat ID is in any of them.
-func chatBuildRequest(ctx context.Context, job chatJob, botUsername string, history []chatprompt.Turn) chatRequest {
+// chatBuildRequest assembles the three strings and any validated binary attachments of a turn.
+// The static text is the same bytes for every chat; the dynamic text holds the group's title,
+// language, today's date in the group's zone and the bot's username; the user text holds the
+// transcript, the quoted message, the message to answer and any attached text files. No user ID,
+// username or chat ID is in any of them.
+func chatBuildRequest(ctx context.Context, job chatJob, botUsername string, history []chatprompt.Turn, media chatDownloadedMedia) chatRequest {
 	_, language := chatLanguageName(ctx, job.chatID)
 	date := time.Now().In(chatClock(ctx, job.chatID)).Format("2006-01-02")
 	return chatRequest{
@@ -201,6 +253,7 @@ func chatBuildRequest(ctx context.Context, job chatJob, botUsername string, hist
 		Dynamic: chatprompt.Dynamic(chatprompt.Chat{
 			Title: job.chatTitle, Language: language, Date: date, BotUsername: botUsername,
 		}),
-		User: chatprompt.User(history, job.quoted, job.turn),
+		User:        chatprompt.UserWithFiles(history, job.quoted, job.turn, media.Files),
+		Attachments: media.Attachments,
 	}
 }

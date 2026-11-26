@@ -103,7 +103,7 @@ Automatic detection starts the same lockdown. Counters live in Redis, so detecti
 
 - **Join surge.** 15 different accounts joining within 60 seconds.
 - **Message flood.** 30 items (messages, photos, GIFs, stickers) within 30 seconds, with at least 60 percent of them from at least 3 members who joined in the last 24 hours.
-- **AI burst.** 5 spam verdicts from at least 3 accounts within 120 seconds. One verdict never locks a group, and AI never deletes or bans on this path. Suspicious text from members who joined in the last 24 hours is checked by TypeSafe. Their photos, GIFs and stickers are checked by Anthropic Claude. Each check runs only when it is configured, and without the Anthropic key no image leaves the server.
+- **AI burst.** 5 spam verdicts from at least 3 accounts within 120 seconds. One verdict never locks a group, and AI never deletes or bans on this path. Suspicious text from members who joined in the last 24 hours is checked by TypeSafe. Their photos, image files, GIFs, stickers and video thumbnails are checked by the configured vision AI (Anthropic Claude or Featherless AI). Each check runs only when it is configured, and without a configured moderation provider no image leaves the server.
 - All three are on by default, and `/autolockdown` sets each threshold from 3 to 500. Admins, approved users and commands I handle never count. After a lift I do not lock the group again automatically for 10 minutes. When I see a raid but cannot lock the group, I warn the Staff Group and the log channel, at most once every 24 hours.
 
 When a group is locked, I post an alert to its linked Staff Group and, when the admin log category is on, to its log channel, then an hourly reminder. The alert has three buttons: Lift, Ban recent joiners (bans for good, and cannot be undone) and Revoke link. Every press is checked live against the locked group. Being in the Staff Group is not enough.
@@ -116,7 +116,7 @@ Eight rules, each with its own punishment: off, warn, kick, ban or mute. Every r
 - Russian letters (the letters `ы ъ э ё`), Arabic letters or Chinese characters in the first or last name. The name rules go by the first and last name, never the username.
 - No profile photo that I can see.
 - Not subscribed to the group's linked channel. This works only in a group linked to a channel, and only while I am an admin of that channel.
-- A spam-like name, judged by AI. I send only the first name, last name and username to Anthropic's Claude, never messages. The rule is off when `ENABLE_AISPAM` is false or `ANTHROPIC_API_KEY` is empty.
+- A spam-like name, judged by AI. I send only the first name, last name and username to the configured AI provider (Anthropic Claude or Featherless AI), never messages. The rule is off when `ENABLE_AISPAM` is false or no moderation provider is configured.
 
 Members are checked at their next message and, with Check on join, right after the captcha. Delete messages removes the messages of a held member. A muted member gets an "I fixed it" button that frees only that member, and only from a mute the requirements placed. A check that cannot be answered punishes nobody.
 
@@ -149,7 +149,7 @@ Everything is configured group by group in the bot's private chat, with no Staff
 
 ### Conversations
 
-Off globally (`ENABLE_CHAT=false`). When enabled, a group's live owner can turn on in-character Xenobot-72 replies for that group from the private **Conversations** settings page behind a two-tap data notice card, choosing Anthropic Claude or Google Gemini as the provider. I never converse in private chats, and messages deleted by moderation, locks, blacklists or antiflood are never answered.
+Off globally (`ENABLE_CHAT=false`). When enabled, a group's live owner can turn on in-character Xenobot-72 replies for that group from the private **Conversations** settings page behind a two-tap data notice card, choosing Anthropic Claude, Google Gemini or Featherless AI as the provider. Addressed messages and `/ask` also recognize attached photos, stickers, GIF/video thumbnails, image documents, UTF-8 text/code files and (on Anthropic and Google) PDFs. I never converse in private chats, and messages deleted by moderation, locks, blacklists or antiflood are never answered.
 
 ### Settings menu
 
@@ -696,7 +696,7 @@ flowchart TD
     L -->|"miss"| RD[("Redis<br/>cache, raid counters,<br/>captcha challenges, pacing")]
     RD -->|"miss"| PG[("PostgreSQL<br/>schema from migrations/*.sql")]
     R -->|"writes, then cache invalidation"| PG
-    M -.->|"optional"| AI["TypeSafe, Anthropic Claude<br/>and Google Gemini"]
+    M -.->|"optional"| AI["TypeSafe, Anthropic Claude,<br/>Google Gemini and Featherless AI"]
     M -->|"replies and actions"| TG
 ```
 
@@ -740,7 +740,7 @@ flowchart TD
 | Telegram | [gotgbot v2](https://github.com/PaulSonOfLars/gotgbot), [gotg_md2html](https://github.com/PaulSonOfLars/gotg_md2html) |
 | Database | PostgreSQL through [GORM](https://gorm.io), with plain SQL migrations in [`migrations/`](migrations) |
 | Cache | Redis ([go-redis v9](https://github.com/redis/go-redis), [gocache](https://github.com/eko/gocache)) with an in-process LRU ([golang-lru](https://github.com/hashicorp/golang-lru)) in front, msgpack encoding |
-| Features | [base64Captcha](https://github.com/mojocn/base64Captcha) for captcha images, [Aho-Corasick](https://github.com/cloudflare/ahocorasick) keyword matching, Cloudflare Turnstile for the web captcha, TypeSafe, Anthropic Claude and Google Gemini for optional AI checks and group conversations |
+| Features | [base64Captcha](https://github.com/mojocn/base64Captcha) for captcha images, [Aho-Corasick](https://github.com/cloudflare/ahocorasick) keyword matching, Cloudflare Turnstile for the web captcha, TypeSafe, Anthropic Claude, Google Gemini and Featherless AI for optional AI checks and group conversations |
 | Observability | Prometheus client, OpenTelemetry (OTLP gRPC or console exporter), logrus JSON logs with secret redaction |
 | Tests | testify, SQLite (GORM driver), miniredis, optional real PostgreSQL |
 | Tooling | golangci-lint v2, pre-commit, GoReleaser v2, Docker (distroless runtime) |
@@ -911,8 +911,11 @@ I read every variable below in [`xenobot/config/config.go`](xenobot/config/confi
 | --- | --- | --- |
 | `TYPESAFE_API_KEY` | — | TypeSafe API key. The AI spam filter and the raid AI text checks do nothing without it |
 | `ENABLE_AISPAM` | `true` | Master switch for every AI check: text, images and names. `/aispam` still has to be turned on per chat, and the AI spam-name rule stays off until an owner sets it to a punishment |
-| `ANTHROPIC_API_KEY` | — | Anthropic API key for the raid image checks, the AI spam-name rule and Anthropic group conversations. Without it none of those run, and no data leaves the server |
+| `ANTHROPIC_API_KEY` | — | Anthropic API key for the raid image checks, the AI spam-name rule and Anthropic group conversations. Registered with the log redactor |
 | `ANTHROPIC_MODEL` | `claude-haiku-5-5` | Claude model for the image and name checks. It must accept a forced tool call. An invalid name is replaced by the default, with a warning |
+| `FEATHERLESS_API_KEY` | — | Featherless AI API key, shared by Featherless AI moderation (with `FEATHERLESS_MODEL`) and conversations (with `CHAT_FEATHERLESS_MODEL`). Registered with the log redactor |
+| `FEATHERLESS_MODEL` | — | Explicit Featherless AI Hugging Face `owner/model` ID for raid image checks and the AI spam-name rule (no default; pick a vision-capable model for images) |
+| `AI_MODERATION_PROVIDER` | empty (auto) | Selects AI moderation provider: empty (auto: Anthropic when set, else Featherless), `anthropic` or `featherless` |
 
 </details>
 
@@ -925,6 +928,7 @@ I read every variable below in [`xenobot/config/config.go`](xenobot/config/confi
 | `GEMINI_API_KEY` | — | Google Gemini API key, needed only for groups whose owner picks Google for conversations. Registered with the log redactor |
 | `CHAT_ANTHROPIC_MODEL` | `claude-haiku-5-5` | Claude model used for Anthropic group conversations |
 | `CHAT_GEMINI_MODEL` | `gemini-4-hydrogen` | Gemini model used for Google group conversations |
+| `CHAT_FEATHERLESS_MODEL` | — | Explicit Featherless AI Hugging Face `owner/model` ID for Featherless AI conversations, briefs and `/judge` (no default; Featherless is unavailable until both `FEATHERLESS_API_KEY` and this variable are set) |
 
 </details>
 

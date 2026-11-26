@@ -440,6 +440,10 @@ func setRequiredConfigEnv(t *testing.T) {
 	// A key exported on a developer machine must never leak into a test.
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_MODEL", "")
+	t.Setenv("FEATHERLESS_API_KEY", "")
+	t.Setenv("FEATHERLESS_MODEL", "")
+	t.Setenv("CHAT_FEATHERLESS_MODEL", "")
+	t.Setenv("AI_MODERATION_PROVIDER", "")
 }
 
 // t.Setenv() is incompatible with parallel execution.
@@ -623,6 +627,84 @@ func TestChatConfig(t *testing.T) {
 		registerSecrets(&Config{GeminiAPIKey: key})
 		if got := logredact.Scrub("key=" + key); strings.Contains(got, key) {
 			t.Errorf("Gemini key leaked: %q", got)
+		}
+	})
+}
+
+func TestFeatherlessConfig(t *testing.T) {
+	t.Run("defaults: empty key, no built-in default models, auto moderation provider", func(t *testing.T) {
+		setRequiredConfigEnv(t)
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.FeatherlessAPIKey != "" || cfg.FeatherlessModel != "" || cfg.ChatFeatherlessModel != "" || cfg.AIModerationProvider != "" {
+			t.Errorf("got %q %q %q %q, want all empty",
+				cfg.FeatherlessAPIKey, cfg.FeatherlessModel, cfg.ChatFeatherlessModel, cfg.AIModerationProvider)
+		}
+	})
+
+	t.Run("valid values load", func(t *testing.T) {
+		setRequiredConfigEnv(t)
+		t.Setenv("FEATHERLESS_API_KEY", "rc_FAKEconfigKEY0123456789")
+		t.Setenv("FEATHERLESS_MODEL", "google/gemma-3-27b-it")
+		t.Setenv("CHAT_FEATHERLESS_MODEL", "Qwen/Qwen3-32B")
+		t.Setenv("AI_MODERATION_PROVIDER", "Featherless")
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.FeatherlessAPIKey != "rc_FAKEconfigKEY0123456789" ||
+			cfg.FeatherlessModel != "google/gemma-3-27b-it" ||
+			cfg.ChatFeatherlessModel != "Qwen/Qwen3-32B" ||
+			cfg.AIModerationProvider != "featherless" {
+			t.Errorf("cfg = %q %q %q %q",
+				cfg.FeatherlessAPIKey, cfg.FeatherlessModel, cfg.ChatFeatherlessModel, cfg.AIModerationProvider)
+		}
+	})
+
+	t.Run("invalid models and provider are cleared and never logged", func(t *testing.T) {
+		const pastedKey = "rc_PastedIntoTheWrongVariable0123456789"
+		const badProvider = "secret-bad-provider-token"
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+		setRequiredConfigEnv(t)
+		t.Setenv("FEATHERLESS_MODEL", pastedKey)
+		t.Setenv("CHAT_FEATHERLESS_MODEL", "../v1/files")
+		t.Setenv("AI_MODERATION_PROVIDER", badProvider)
+		cfg, err := LoadConfig()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.FeatherlessModel != "" || cfg.ChatFeatherlessModel != "" || cfg.AIModerationProvider != "" {
+			t.Errorf("got %q %q %q, want all empty", cfg.FeatherlessModel, cfg.ChatFeatherlessModel, cfg.AIModerationProvider)
+		}
+		var warnedMod, warnedChat, warnedProv bool
+		for _, entry := range hook.AllEntries() {
+			if strings.Contains(entry.Message, pastedKey) || strings.Contains(entry.Message, "../v1") || strings.Contains(entry.Message, badProvider) {
+				t.Errorf("a log line carries a rejected value: %q", entry.Message)
+			}
+			if strings.Contains(entry.Message, "FEATHERLESS_MODEL") && !strings.Contains(entry.Message, "CHAT_") {
+				warnedMod = true
+			}
+			if strings.Contains(entry.Message, "CHAT_FEATHERLESS_MODEL") {
+				warnedChat = true
+			}
+			if strings.Contains(entry.Message, "AI_MODERATION_PROVIDER") {
+				warnedProv = true
+			}
+		}
+		if !warnedMod || !warnedChat || !warnedProv {
+			t.Errorf("warnings = mod:%v chat:%v prov:%v, want all true", warnedMod, warnedChat, warnedProv)
+		}
+	})
+
+	t.Run("the Featherless key is registered", func(t *testing.T) {
+		const key = "rc_RegisteredFeatherlessSecretForTest_012345"
+		forgetRegisteredSecrets(t)
+		registerSecrets(&Config{FeatherlessAPIKey: key})
+		if got := logredact.Scrub("key=" + key); strings.Contains(got, key) {
+			t.Errorf("Featherless key leaked: %q", got)
 		}
 	})
 }

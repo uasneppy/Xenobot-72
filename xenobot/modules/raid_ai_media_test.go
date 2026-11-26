@@ -516,8 +516,17 @@ func TestRaidAIMedia(t *testing.T) {
 			{"a video note sends nothing", gotgbot.Message{
 				VideoNote: &gotgbot.VideoNote{FileId: "note", Thumbnail: thumb},
 			}, "", ""},
-			{"a document sends nothing", gotgbot.Message{
+			{"an image document sends the document file", gotgbot.Message{
 				Document: &gotgbot.Document{FileId: "doc", FileName: "x.jpg", MimeType: "image/jpeg", Thumbnail: thumb},
+			}, "doc", "document"},
+			{"an octet-stream image document sends the document file", gotgbot.Message{
+				Document: &gotgbot.Document{FileId: "dococtet", FileName: "x.webp", MimeType: "application/octet-stream", Thumbnail: thumb},
+			}, "dococtet", "document"},
+			{"a non-image document sends nothing", gotgbot.Message{
+				Document: &gotgbot.Document{FileId: "docpdf", FileName: "x.pdf", MimeType: "application/pdf", Thumbnail: thumb},
+			}, "", ""},
+			{"an image document over 5 MiB sends nothing", gotgbot.Message{
+				Document: &gotgbot.Document{FileId: "hugeimg", FileName: "big.png", MimeType: "image/png", FileSize: claude.MaxImageBytes + 1},
 			}, "", ""},
 			{"a voice note sends nothing", gotgbot.Message{Voice: &gotgbot.Voice{FileId: "voice"}}, "", ""},
 			{"a text sends nothing", gotgbot.Message{Text: "hello"}, "", ""},
@@ -565,6 +574,9 @@ func TestRaidAIMedia(t *testing.T) {
 			{"a video is sent as its thumbnail", gotgbot.Message{
 				Video: &gotgbot.Video{FileId: "vid", FileUniqueId: "uvid", Thumbnail: thumb},
 			}, "thumb", "image/jpeg"},
+			{"an image document is sent as JPEG", gotgbot.Message{
+				Document: &gotgbot.Document{FileId: "imgdoc", FileUniqueId: "uimgdoc", FileName: "promo.jpg", MimeType: "image/jpeg"},
+			}, "imgdoc", "image/jpeg"},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {

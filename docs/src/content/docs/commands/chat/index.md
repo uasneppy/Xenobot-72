@@ -22,7 +22,7 @@ The group's owner turns the message log on in /settings in a private chat with m
 
 **Notes**
 I answer a message that mentions me, a reply to one of my conversation replies, and /ask. I start no conversation, and I never talk in a private chat. Only the group's owner can turn conversations on, in /settings in a private chat with me.
-What goes to the AI provider the owner chose: for a conversation, the message, the message it replies to and the group's recent conversation with me; for a brief or a verdict, the stretch of messages. Always members' first names, the group's title and language, and the date. No IDs and no usernames.
+What goes to the AI provider the owner chose: for a conversation, the message (with any attached photo, sticker or supported file), the message it replies to and the group's recent conversation with me; for a brief or a verdict, the stretch of messages. Always members' first names, the group's title and language, and the date. No IDs and no usernames.
 A verdict is an AI opinion and decides nothing: no one is warned, muted or banned because of a score.
 
 **Example**

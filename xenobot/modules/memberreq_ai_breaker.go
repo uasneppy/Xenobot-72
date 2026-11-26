@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/claude"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/featherless"
 )
 
 // The name check's own breaker (D-12, D-26). A failing provider must neither be called for every
@@ -177,15 +178,27 @@ func (b *memberReqAIBreaker) clear(chatID int64) {
 // memberReqAILongRateLimit pauses for that delay, at most memberReqAIMaxPause. The reason names the
 // status and the error type only. span is zero when err calls for none.
 func memberReqAIProviderSpan(err error) (span time.Duration, reason string) {
-	var httpErr *claude.HTTPError
-	if !errors.As(err, &httpErr) {
+	var (
+		status     int
+		errType    string
+		rejected   bool
+		retryDelay time.Duration
+	)
+	var claudeErr *claude.HTTPError
+	var featherlessErr *featherless.HTTPError
+	switch {
+	case errors.As(err, &claudeErr):
+		status, errType, rejected, retryDelay = claudeErr.Status, claudeErr.Type, claudeErr.KeyRejected(), claudeErr.RetryDelay
+	case errors.As(err, &featherlessErr):
+		status, errType, rejected, retryDelay = featherlessErr.Status, featherlessErr.Type, featherlessErr.KeyRejected(), featherlessErr.RetryDelay
+	default:
 		return 0, ""
 	}
-	if httpErr.KeyRejected() {
-		return memberReqAIKeyPause, fmt.Sprintf("the key or its account was rejected (HTTP %d %s)", httpErr.Status, httpErr.Type)
+	if rejected {
+		return memberReqAIKeyPause, fmt.Sprintf("the key or its account was rejected (HTTP %d %s)", status, errType)
 	}
-	if httpErr.Status == 429 && httpErr.RetryDelay > memberReqAILongRateLimit {
-		return min(httpErr.RetryDelay, memberReqAIMaxPause), fmt.Sprintf("rate limited for %s (HTTP 429 %s)", httpErr.RetryDelay.Round(time.Second), httpErr.Type)
+	if status == 429 && retryDelay > memberReqAILongRateLimit {
+		return min(retryDelay, memberReqAIMaxPause), fmt.Sprintf("rate limited for %s (HTTP 429 %s)", retryDelay.Round(time.Second), errType)
 	}
 	return 0, ""
 }

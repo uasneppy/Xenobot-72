@@ -101,13 +101,23 @@ func (moduleStruct) ask(c *helpers.CommandContext) error {
 	case chatGateSilent:
 		return ext.EndGroups
 	}
-	text := chatCommandArgument(msg.Text)
-	if text == "" {
+	text := strings.TrimSpace(chatprompt.StripMention(chatCommandArgument(chatMessageText(msg)), c.Bot.Username))
+	job := chatJobOf(c.Bot, msg, userID, provider)
+	if text == "" && len(job.media) == 0 {
 		chatReplyText(c, "chat_ask_usage")
 		return ext.EndGroups
 	}
-	job := chatJobOf(c.Bot, msg, userID, provider)
-	job.turn.Text = strings.TrimSpace(chatprompt.StripMention(text, c.Bot.Username))
+	if text != "" {
+		job.turn.Text = text
+		job.hasText = true
+	} else {
+		job.hasText = false
+		label := chatMediaLabel(msg)
+		if label == "" {
+			label = "[attachment]"
+		}
+		job.turn.Text = label
+	}
 	chatEnqueue(job)
 	return ext.EndGroups
 }

@@ -311,4 +311,42 @@ func TestGenerateErrors(t *testing.T) {
 			t.Error("option not applied")
 		}
 	})
+	t.Run("attachments send inlineData parts and reject unsupported types", func(t *testing.T) {
+		server, rec := newServer(t, func(w http.ResponseWriter, _ *http.Request) { respond(w, 200, answer("STOP", `{"text":"Seen."}`)) })
+		in := request()
+		in.Attachments = []Attachment{
+			{MIMEType: "image/webp", Data: []byte("RIFF\x10\x00\x00\x00WEBPVP8 sticker")},
+			{MIMEType: "application/pdf", Data: []byte("%PDF-1.4\nbody")},
+		}
+		reply, err := client(server).Generate(context.Background(), in)
+		if err != nil || reply.Text != "Seen." {
+			t.Fatalf("reply %+v err %v", reply, err)
+		}
+		var body struct {
+			Contents []struct {
+				Parts []struct {
+					Text       string `json:"text"`
+					InlineData *struct {
+						MIMEType string `json:"mimeType"`
+						Data     string `json:"data"`
+					} `json:"inlineData"`
+				} `json:"parts"`
+			} `json:"contents"`
+		}
+		if err := json.Unmarshal(rec.all()[0].Body, &body); err != nil {
+			t.Fatal(err)
+		}
+		parts := body.Contents[0].Parts
+		if len(parts) != 3 || parts[0].Text != in.User ||
+			parts[1].InlineData == nil || parts[1].InlineData.MIMEType != "image/webp" ||
+			parts[2].InlineData == nil || parts[2].InlineData.MIMEType != "application/pdf" {
+			t.Fatalf("parts = %+v", parts)
+		}
+
+		bad := request()
+		bad.Attachments = []Attachment{{MIMEType: "text/html", Data: []byte("<b>no</b>")}}
+		if _, err := client(server).Generate(context.Background(), bad); !errors.Is(err, ErrUnsupportedAttachment) {
+			t.Errorf("unsupported attachment err = %v, want ErrUnsupportedAttachment", err)
+		}
+	})
 }

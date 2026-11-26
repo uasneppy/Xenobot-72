@@ -13,7 +13,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/uasneppy/Xenobot-72/xenobot/config"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/memberreq"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/cache"
@@ -190,8 +189,8 @@ type memberReqAIWatchRead struct {
 
 // memberReqAIWatchQueue adds the AI rule's three single-key GETs to the watcher's pipeline:
 // xenobot:memberreq:nv:<verdict key hash>, xenobot:memberreq:nm:<chat>:<user> and xenobot:memberreq:nu:<chat>:<user>.
-// The canonical names and the verdict key are computed by pure Go (namecanon, with the configured
-// model). For names the rule never judges nothing is queued and the zero value is returned,
+// The canonical names and the verdict key are computed by pure Go (namecanon, with the active
+// moderation model). For names the rule never judges nothing is queued and the zero value is returned,
 // which is satisfied with no key read. It queues reads only; it writes nothing and calls nobody.
 func memberReqAIWatchQueue(ctx context.Context, pipe redis.Pipeliner, chatID, userID int64, names memberReqNames) memberReqAIWatchRead {
 	canon, ok := namecanon.Of(names.First, names.Last, names.Username)
@@ -199,7 +198,7 @@ func memberReqAIWatchQueue(ctx context.Context, pipe redis.Pipeliner, chatID, us
 		return memberReqAIWatchRead{}
 	}
 	return memberReqAIWatchRead{
-		verdict:  pipe.Get(ctx, memberReqAIVerdictKey(config.AppConfig.AnthropicModel, canon)),
+		verdict:  pipe.Get(ctx, memberReqAIVerdictKey(memberReqAIModel(), canon)),
 		baseline: pipe.Get(ctx, memberReqAIBaselineKey(chatID, userID)),
 		marker:   pipe.Get(ctx, memberReqAIMarkerKey(chatID, userID)),
 		hash:     canon.Hash,
