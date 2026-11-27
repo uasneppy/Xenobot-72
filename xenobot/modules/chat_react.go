@@ -249,6 +249,59 @@ func chatReactTakeGate(client *redis.Client, chatID, userID int64, profile chatR
 	return allowed == 1
 }
 
+func chatReactBuildJob(
+	b *gotgbot.Bot,
+	msg *gotgbot.Message,
+	tgChat *gotgbot.Chat,
+	userID int64,
+	conv chatconv.Settings,
+	text string,
+	mediaRef chatMediaRef,
+	hasMedia bool,
+) chatReactJob {
+	turnText := text
+	if turnText == "" {
+		turnText = chatMediaLabel(msg)
+	}
+	job := chatReactJob{
+		bot:        b,
+		chatID:     tgChat.Id,
+		chatTitle:  tgChat.Title,
+		userID:     userID,
+		messageID:  msg.MessageId,
+		provider:   conv.Provider,
+		logEnabled: conv.LogEnabled,
+		turn:       chatprompt.Turn{Text: turnText},
+	}
+	if msg.From != nil {
+		job.turn.Name = msg.From.FirstName
+	}
+	if msg.IsTopicMessage {
+		job.threadID = msg.MessageThreadId
+	}
+	if reply := extraction.ReplyTarget(msg); reply != nil {
+		quotedText := strings.TrimSpace(chatMessageText(reply))
+		if quotedText == "" {
+			quotedText = chatMediaLabel(reply)
+		}
+		if quotedText != "" {
+			quoted := chatprompt.Turn{Text: quotedText}
+			if reply.From != nil {
+				quoted.Name = reply.From.FirstName
+			}
+			job.quoted = &quoted
+		}
+	}
+	if msg.Quote != nil {
+		job.quoteText = strings.TrimSpace(msg.Quote.Text)
+	}
+	if hasMedia {
+		ref := mediaRef
+		job.media = &ref
+	}
+	return job
+}
+
 // chatReactWatch evaluates an unaddressed group message from group 13, cheapest checks first,
 // preserving zero operational Redis I/O whenever EnableChat is off or AIReactMode is "off".
 func chatReactWatch(b *gotgbot.Bot, ctx *ext.Context) {
@@ -298,49 +351,7 @@ func chatReactWatch(b *gotgbot.Bot, ctx *ext.Context) {
 		return
 	}
 
-	turnText := text
-	if turnText == "" {
-		turnText = chatMediaLabel(msg)
-	}
-	job := chatReactJob{
-		bot:        b,
-		chatID:     chat.Id,
-		chatTitle:  chat.Title,
-		userID:     userID,
-		messageID:  msg.MessageId,
-		provider:   conv.Provider,
-		logEnabled: conv.LogEnabled,
-		turn: chatprompt.Turn{
-			Text: turnText,
-		},
-	}
-	if msg.From != nil {
-		job.turn.Name = msg.From.FirstName
-	}
-	if msg.IsTopicMessage {
-		job.threadID = msg.MessageThreadId
-	}
-	if reply := extraction.ReplyTarget(msg); reply != nil {
-		quotedText := strings.TrimSpace(chatMessageText(reply))
-		if quotedText == "" {
-			quotedText = chatMediaLabel(reply)
-		}
-		if quotedText != "" {
-			quoted := chatprompt.Turn{Text: quotedText}
-			if reply.From != nil {
-				quoted.Name = reply.From.FirstName
-			}
-			job.quoted = &quoted
-		}
-	}
-	if msg.Quote != nil {
-		job.quoteText = strings.TrimSpace(msg.Quote.Text)
-	}
-	if hasMedia {
-		ref := mediaRef
-		job.media = &ref
-	}
-	chatPresenceEnqueue(job)
+	chatPresenceEnqueue(chatReactBuildJob(b, msg, chat, userID, conv, text, mediaRef, hasMedia))
 }
 
 func chatFeatherlessModelName() string {

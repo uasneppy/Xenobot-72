@@ -104,15 +104,49 @@ func (moduleStruct) inspectCommand(c *helpers.CommandContext) error {
 	return ext.EndGroups
 }
 
-func chatInspectJobFromReply(b *gotgbot.Bot, msg, reply *gotgbot.Message, userID int64, gate chatToyGate) (chatInspectJob, bool) {
-	targetText := strings.TrimSpace(chatMessageText(reply))
-	mediaLabel := chatMediaLabel(reply)
+func chatInspectReplyMedia(reply *gotgbot.Message) (chatMediaRef, bool) {
 	mediaRef, hasMedia := chatExtractReactionMediaRef(reply)
 	if !hasMedia && reply.Animation == nil && reply.Video == nil {
 		if docRef, ok := chatExtractMediaRef(reply); ok && docRef.Kind == chatMediaImage {
-			mediaRef, hasMedia = docRef, true
+			return docRef, true
 		}
 	}
+	return mediaRef, hasMedia
+}
+
+func chatInspectThreadID(msg, reply *gotgbot.Message) int64 {
+	if msg.IsTopicMessage {
+		return msg.MessageThreadId
+	}
+	if reply.IsTopicMessage {
+		return reply.MessageThreadId
+	}
+	return 0
+}
+
+func chatInspectQuotedTurn(b *gotgbot.Bot, reply *gotgbot.Message) *chatprompt.Turn {
+	nested := extraction.ReplyTarget(reply)
+	if nested == nil || (nested.From != nil && b != nil && nested.From.Id == b.Id) {
+		return nil
+	}
+	qText := strings.TrimSpace(chatMessageText(nested))
+	if qText == "" {
+		qText = chatMediaLabel(nested)
+	}
+	if qText == "" {
+		return nil
+	}
+	q := &chatprompt.Turn{Text: qText}
+	if nested.From != nil {
+		q.Name = nested.From.FirstName
+	}
+	return q
+}
+
+func chatInspectJobFromReply(b *gotgbot.Bot, msg, reply *gotgbot.Message, userID int64, gate chatToyGate) (chatInspectJob, bool) {
+	targetText := strings.TrimSpace(chatMessageText(reply))
+	mediaLabel := chatMediaLabel(reply)
+	mediaRef, hasMedia := chatInspectReplyMedia(reply)
 	if targetText == "" && mediaLabel == "" && !hasMedia {
 		return chatInspectJob{}, false
 	}
@@ -130,13 +164,6 @@ func chatInspectJobFromReply(b *gotgbot.Bot, msg, reply *gotgbot.Message, userID
 		}
 	}
 
-	var threadID int64
-	if msg.IsTopicMessage {
-		threadID = msg.MessageThreadId
-	} else if reply.IsTopicMessage {
-		threadID = reply.MessageThreadId
-	}
-
 	job := chatInspectJob{
 		bot:            b,
 		chatID:         msg.Chat.Id,
@@ -145,29 +172,17 @@ func chatInspectJobFromReply(b *gotgbot.Bot, msg, reply *gotgbot.Message, userID
 		messageID:      msg.MessageId,
 		targetMsgID:    reply.MessageId,
 		targetAuthorID: targetAuthorID,
-		threadID:       threadID,
+		threadID:       chatInspectThreadID(msg, reply),
 		provider:       gate.provider,
 		target: chatprompt.Turn{
 			Name: targetName,
 			Text: turnText,
 		},
 		mediaDesc: mediaLabel,
+		quoted:    chatInspectQuotedTurn(b, reply),
 	}
 	if reply.Quote != nil {
 		job.quoteText = strings.TrimSpace(reply.Quote.Text)
-	}
-	if nested := extraction.ReplyTarget(reply); nested != nil && (nested.From == nil || b == nil || nested.From.Id != b.Id) {
-		qText := strings.TrimSpace(chatMessageText(nested))
-		if qText == "" {
-			qText = chatMediaLabel(nested)
-		}
-		if qText != "" {
-			q := chatprompt.Turn{Text: qText}
-			if nested.From != nil {
-				q.Name = nested.From.FirstName
-			}
-			job.quoted = &q
-		}
 	}
 	if hasMedia {
 		ref := mediaRef

@@ -461,15 +461,7 @@ func presenceRedisClaimCooldown(ctx context.Context, client *redis.Client, key s
 	return ok
 }
 
-func tryStaticReactionRules(
-	ctx context.Context,
-	b *gotgbot.Bot,
-	extCtx *ext.Context,
-	chatID, msgID, userID int64,
-	text string,
-	fromCaption bool,
-	rules []reactions.Rule,
-) bool {
+func filterSortedStaticReactionRules(text string, fromCaption bool, rules []reactions.Rule) []reactions.Rule {
 	var candidates []reactions.Rule
 	for _, rule := range rules {
 		if fromCaption && !rule.MatchCaption {
@@ -479,16 +471,64 @@ func tryStaticReactionRules(
 			candidates = append(candidates, rule)
 		}
 	}
-	if len(candidates) == 0 {
-		return false
-	}
 	slices.SortFunc(candidates, func(a, b reactions.Rule) int {
 		if c := strings.Compare(a.Keyword, b.Keyword); c != 0 {
 			return c
 		}
 		return cmp.Compare(a.ID, b.ID)
 	})
+	return candidates
+}
 
+func trySingleStaticReactionRule(
+	ctx context.Context,
+	b *gotgbot.Bot,
+	extCtx *ext.Context,
+	client *redis.Client,
+	chatID, msgID, userID int64,
+	rule reactions.Rule,
+) (reacted, stop bool) {
+	if client != nil && rule.CooldownSecs > 0 {
+		exists, ok := presenceRedisKeyExists(ctx, client, staticRuleCooldownKey(chatID, rule.ID))
+		if !ok {
+			return false, true
+		}
+		if exists {
+			return false, false
+		}
+	}
+	if !staticReactionRoll(rule.ChancePct) {
+		return false, false
+	}
+	if presenceIsLockedDown(chatID) {
+		return false, true
+	}
+	if rule.CooldownSecs > 0 && !presenceRedisClaimCooldown(ctx, client, staticRuleCooldownKey(chatID, rule.ID), time.Duration(rule.CooldownSecs)*time.Second) {
+		return false, true
+	}
+	if staticChatCooldown > 0 && !presenceRedisClaimCooldown(ctx, client, staticChatCooldownKey(chatID), staticChatCooldown) {
+		return false, true
+	}
+	if presenceSetReaction(ctx, b, chatID, msgID, userID, rule.Emoji, "static") {
+		setPresenceStaticReacted(extCtx)
+		return true, true
+	}
+	return false, true
+}
+
+func tryStaticReactionRules(
+	ctx context.Context,
+	b *gotgbot.Bot,
+	extCtx *ext.Context,
+	chatID, msgID, userID int64,
+	text string,
+	fromCaption bool,
+	rules []reactions.Rule,
+) bool {
+	candidates := filterSortedStaticReactionRules(text, fromCaption, rules)
+	if len(candidates) == 0 {
+		return false
+	}
 	client := presenceRedisClient()
 	if client != nil && staticChatCooldown > 0 {
 		exists, ok := presenceRedisKeyExists(ctx, client, staticChatCooldownKey(chatID))
@@ -496,34 +536,14 @@ func tryStaticReactionRules(
 			return false
 		}
 	}
-
 	for _, rule := range candidates {
-		if client != nil && rule.CooldownSecs > 0 {
-			exists, ok := presenceRedisKeyExists(ctx, client, staticRuleCooldownKey(chatID, rule.ID))
-			if !ok {
-				return false
-			}
-			if exists {
-				continue
-			}
-		}
-		if !staticReactionRoll(rule.ChancePct) {
-			continue
-		}
-		if presenceIsLockedDown(chatID) {
-			return false
-		}
-		if rule.CooldownSecs > 0 && !presenceRedisClaimCooldown(ctx, client, staticRuleCooldownKey(chatID, rule.ID), time.Duration(rule.CooldownSecs)*time.Second) {
-			return false
-		}
-		if staticChatCooldown > 0 && !presenceRedisClaimCooldown(ctx, client, staticChatCooldownKey(chatID), staticChatCooldown) {
-			return false
-		}
-		if presenceSetReaction(ctx, b, chatID, msgID, userID, rule.Emoji, "static") {
-			setPresenceStaticReacted(extCtx)
+		reacted, stop := trySingleStaticReactionRule(ctx, b, extCtx, client, chatID, msgID, userID, rule)
+		if reacted {
 			return true
 		}
-		return false
+		if stop {
+			return false
+		}
 	}
 	return false
 }

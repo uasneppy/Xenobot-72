@@ -173,6 +173,15 @@ func chatLogSince(ctx context.Context, client *redis.Client, chatID, fromID int6
 	return entries, nil
 }
 
+func chatLogZRevRange(ctx context.Context, client *redis.Client, chatID, start, stop int64) ([]string, error) {
+	return client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:   chatLogKey(chatID),
+		Start: start,
+		Stop:  stop,
+		Rev:   true,
+	}).Result()
+}
+
 // chatLogRecentThread performs a bounded reverse scan of the newest chatLogRecentScanLimit entries
 // in chatID's log ring, strictly filtering to entry.Thread == threadID && entry.MessageID < beforeMsgID
 // so forum topics never bleed and the triggering message is never duplicated. It returns up to limit
@@ -183,7 +192,7 @@ func chatLogRecentThread(ctx context.Context, client *redis.Client, chatID, thre
 	}
 	rCtx, cancel := context.WithTimeout(ctx, chatLogReadTimeout)
 	defer cancel()
-	raw, err := client.ZRevRange(rCtx, chatLogKey(chatID), 0, chatLogRecentScanLimit-1).Result()
+	raw, err := chatLogZRevRange(rCtx, client, chatID, 0, chatLogRecentScanLimit-1)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +225,7 @@ func chatLogRecent(ctx context.Context, client *redis.Client, chatID, threadID, 
 	}
 	rCtx, cancel := context.WithTimeout(ctx, chatLogReadTimeout)
 	defer cancel()
-	raw, err := client.ZRevRange(rCtx, chatLogKey(chatID), 0, -1).Result()
+	raw, err := chatLogZRevRange(rCtx, client, chatID, 0, -1)
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +259,7 @@ func chatLogSinceUser(ctx context.Context, client *redis.Client, chatID, threadI
 	}
 	rCtx, cancel := context.WithTimeout(ctx, chatLogReadTimeout)
 	defer cancel()
-	raw, err := client.ZRevRange(rCtx, chatLogKey(chatID), 0, -1).Result()
+	raw, err := chatLogZRevRange(rCtx, client, chatID, 0, -1)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +295,7 @@ func chatLogSinceTime(ctx context.Context, client *redis.Client, chatID, threadI
 	}
 	rCtx, cancel := context.WithTimeout(ctx, chatLogReadTimeout)
 	defer cancel()
-	raw, err := client.ZRevRange(rCtx, chatLogKey(chatID), 0, -1).Result()
+	raw, err := chatLogZRevRange(rCtx, client, chatID, 0, -1)
 	if err != nil {
 		return nil, err
 	}

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -109,6 +110,14 @@ func TestStaticReactionOptionsMigrationDefaults(t *testing.T) {
 		}
 	}
 	chat := captchaModeChatID(t)
+	now := time.Now().UTC()
+	if err := tx.Exec(
+		`INSERT INTO chats (chat_id, chat_name, language, is_inactive, created_at, updated_at)
+		 VALUES (?, ?, ?, FALSE, ?, ?)`,
+		chat, "static reaction options test", "en", now, now,
+	).Error; err != nil {
+		t.Fatalf("insert chat %d: %v", chat, err)
+	}
 	if err := tx.Exec(`INSERT INTO reactions (chat_id, keyword, emoji) VALUES (?, 'hello', '👋')`, chat).Error; err != nil {
 		t.Fatalf("insert minimal reaction row: %v", err)
 	}

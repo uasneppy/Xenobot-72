@@ -191,10 +191,7 @@ func presenceHandleReaction(runCtx context.Context, b *gotgbot.Bot, ctx *ext.Con
 		return
 	}
 	mru := ctx.MessageReaction
-	if mru == nil || !presenceChatTypeAllowed(&mru.Chat) {
-		return
-	}
-	if mru.User != nil && mru.User.IsBot {
+	if mru == nil || !presenceChatTypeAllowed(&mru.Chat) || (mru.User != nil && mru.User.IsBot) {
 		return
 	}
 	added, removed := presenceDiffReactions(mru.OldReaction, mru.NewReaction)
@@ -209,16 +206,23 @@ func presenceHandleReaction(runCtx context.Context, b *gotgbot.Bot, ctx *ext.Con
 		log.WithField("chat_id", mru.Chat.Id).Debug("[Presence] reading presence settings failed")
 		return
 	}
+	presenceDispatchReaction(runCtx, b, mru, settings, added, removed)
+}
+
+func presenceDispatchReaction(runCtx context.Context, b *gotgbot.Bot, mru *gotgbot.MessageReactionUpdated, settings presence.Settings, added, removed []string) {
 	if settings.RetractEnabled && slices.Contains(added, "👎") {
 		presenceHandleRetract(runCtx, b, mru)
 	}
-	if settings.ConsensusEnabled && mru.User != nil {
+	if mru.User == nil {
+		return
+	}
+	if settings.ConsensusEnabled {
 		presenceHandleConsensus(runCtx, b, mru, settings.ConsensusThreshold, added, removed)
 	}
-	if settings.ArchiveEnabled && settings.ArchiveChatID != 0 && mru.User != nil {
+	if settings.ArchiveEnabled && settings.ArchiveChatID != 0 {
 		presenceHandleArchive(runCtx, b, mru, settings)
 	}
-	if settings.PMBriefReact && mru.User != nil && slices.Contains(added, "✍") {
+	if settings.PMBriefReact && slices.Contains(added, "✍") {
 		presenceHandlePMBrief(runCtx, b, mru)
 	}
 }

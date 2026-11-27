@@ -410,48 +410,39 @@ func settingsPresenceMainState(_ *gotgbot.Bot, tr *i18n.Translator, group *gotgb
 	if err != nil {
 		return "", false
 	}
-	active := 0
-	if stored.ConsensusEnabled {
-		active++
-	}
-	if stored.RetractEnabled {
-		active++
-	}
-	aiReactOn := settingsPresenceNormalizeAIReactMode(stored.AIReactMode) != presence.AIReactModeOff
-	var convUnlocked, logUnlocked bool
-	if aiReactOn || stored.AmbientContext || stored.VocativeEnabled || stored.PMBriefReact || stored.ReferendumEnabled || stored.InspectEnabled {
-		if cu, lu, lockErr := settingsPresenceChatLocks(group.Id); lockErr == nil {
-			convUnlocked, logUnlocked = cu, lu
-		}
-	}
-	if aiReactOn && convUnlocked {
-		active++
-	}
-	if stored.CatStickerEnabled {
-		active++
-	}
-	if stored.ArchiveEnabled && stored.ArchiveChatID != 0 {
-		active++
-	}
-	if stored.AmbientContext && convUnlocked && logUnlocked {
-		active++
-	}
-	if stored.VocativeEnabled && convUnlocked {
-		active++
-	}
-	if stored.PMBriefReact && logUnlocked {
-		active++
-	}
-	if stored.ReferendumEnabled && convUnlocked {
-		active++
-	}
-	if stored.InspectEnabled && convUnlocked {
-		active++
-	}
+	active := settingsPresenceCountActive(group.Id, stored)
 	if active == 0 {
 		return settingsText(tr, "settings_state_off_plain"), true
 	}
 	return settingsText(tr, "settings_state_presence_on", i18n.TranslationParams{"n": active}), true
+}
+
+func settingsPresenceCountActive(groupID int64, stored presence.Settings) int {
+	aiReactOn := settingsPresenceNormalizeAIReactMode(stored.AIReactMode) != presence.AIReactModeOff
+	var convUnlocked, logUnlocked bool
+	if aiReactOn || stored.AmbientContext || stored.VocativeEnabled || stored.PMBriefReact || stored.ReferendumEnabled || stored.InspectEnabled {
+		if cu, lu, lockErr := settingsPresenceChatLocks(groupID); lockErr == nil {
+			convUnlocked, logUnlocked = cu, lu
+		}
+	}
+	active := 0
+	for _, on := range []bool{
+		stored.ConsensusEnabled,
+		stored.RetractEnabled,
+		aiReactOn && convUnlocked,
+		stored.CatStickerEnabled,
+		stored.ArchiveEnabled && stored.ArchiveChatID != 0,
+		stored.AmbientContext && convUnlocked && logUnlocked,
+		stored.VocativeEnabled && convUnlocked,
+		stored.PMBriefReact && logUnlocked,
+		stored.ReferendumEnabled && convUnlocked,
+		stored.InspectEnabled && convUnlocked,
+	} {
+		if on {
+			active++
+		}
+	}
+	return active
 }
 
 // settingsPresenceOpen loads and renders the Presence page in private chats for non-Staff groups.
@@ -903,45 +894,52 @@ func settingsPresenceSetArchiveThreshold(p *settingsPress, value string) *settin
 	)
 }
 
-func settingsPresenceSetArchiveEmoji(p *settingsPress, value string) *settingsScreen {
+func settingsPresenceSetArchiveCode(
+	p *settingsPress,
+	value string,
+	codes map[string]string,
+	current func(presence.Settings) string,
+	apply func(context.Context, int64, string, int64) presenceApplyResult,
+) *settingsScreen {
 	if settingsPresenceGroupRefused(p) || settingsPresenceStaffGate(p) {
 		return nil
 	}
-	mode, ok := settingsPresenceArchiveEmojiCodes[value]
+	selected, ok := codes[value]
 	if !ok {
 		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
 		return nil
 	}
 	return settingsPresenceApplyArchiveStored(
 		p,
-		func(stored presence.Settings) bool {
-			return settingsPresenceNormalizeArchiveEmojiMode(stored.ArchiveEmojiMode) == mode
-		},
+		func(stored presence.Settings) bool { return current(stored) == selected },
 		func(ctx context.Context) presenceApplyResult {
-			return applyPresenceArchiveEmojiMode(ctx, p.group.Id, mode, p.query.From.Id)
+			return apply(ctx, p.group.Id, selected, p.query.From.Id)
 		},
 		"",
 	)
 }
 
-func settingsPresenceSetArchiveDelivery(p *settingsPress, value string) *settingsScreen {
-	if settingsPresenceGroupRefused(p) || settingsPresenceStaffGate(p) {
-		return nil
-	}
-	delivery, ok := settingsPresenceArchiveDeliveryCodes[value]
-	if !ok {
-		p.answer(settingsText(p.tr, "common_callback_invalid_request"), true)
-		return nil
-	}
-	return settingsPresenceApplyArchiveStored(
+func settingsPresenceSetArchiveEmoji(p *settingsPress, value string) *settingsScreen {
+	return settingsPresenceSetArchiveCode(
 		p,
-		func(stored presence.Settings) bool {
-			return settingsPresenceNormalizeArchiveDelivery(stored.ArchiveDelivery) == delivery
+		value,
+		settingsPresenceArchiveEmojiCodes,
+		func(stored presence.Settings) string {
+			return settingsPresenceNormalizeArchiveEmojiMode(stored.ArchiveEmojiMode)
 		},
-		func(ctx context.Context) presenceApplyResult {
-			return applyPresenceArchiveDelivery(ctx, p.group.Id, delivery, p.query.From.Id)
+		applyPresenceArchiveEmojiMode,
+	)
+}
+
+func settingsPresenceSetArchiveDelivery(p *settingsPress, value string) *settingsScreen {
+	return settingsPresenceSetArchiveCode(
+		p,
+		value,
+		settingsPresenceArchiveDeliveryCodes,
+		func(stored presence.Settings) string {
+			return settingsPresenceNormalizeArchiveDelivery(stored.ArchiveDelivery)
 		},
-		"",
+		applyPresenceArchiveDelivery,
 	)
 }
 

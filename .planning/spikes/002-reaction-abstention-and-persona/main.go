@@ -963,7 +963,7 @@ func main() {
 		}
 		if *outFile != "" {
 			data, _ := json.MarshalIndent(snap, "", "  ")
-			if err := os.WriteFile(*outFile, data, 0o644); err != nil {
+			if err := os.WriteFile(*outFile, data, 0o600); err != nil {
 				fmt.Fprintf(os.Stderr, "write %s: %v\n", *outFile, err)
 				os.Exit(1)
 			}

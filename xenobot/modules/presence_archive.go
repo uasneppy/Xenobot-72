@@ -9,6 +9,7 @@ import (
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/Xenobot-72/xenobot/db/lang"
@@ -304,6 +305,73 @@ func presenceArchiveFilterEmojis(emojis []string, mode string) []string {
 	return out
 }
 
+func presenceArchiveAuthorID(ctx context.Context, client *redis.Client, chatID, msgID int64) int64 {
+	if authorID := presenceLogAuthorOf(ctx, client, chatID, msgID); authorID != 0 {
+		return authorID
+	}
+	if rec, ok := presenceReadBotReact(ctx, client, chatID, msgID); ok {
+		return rec.AuthorID
+	}
+	return 0
+}
+
+func presenceArchiveOp(mru *gotgbot.MessageReactionUpdated, mode string) string {
+	if len(presenceArchiveFilterEmojis(presenceStandardEmojis(mru.NewReaction), mode)) > 0 {
+		return "add"
+	}
+	_, removed := presenceDiffReactions(mru.OldReaction, mru.NewReaction)
+	if len(presenceArchiveFilterEmojis(removed, mode)) > 0 {
+		return "rem"
+	}
+	return ""
+}
+
+func presenceArchiveAlreadyDone(ctx context.Context, client *redis.Client, doneKey string) bool {
+	eCtx, eCancel := context.WithTimeout(ctx, chatRedisTimeout)
+	defer eCancel()
+	exists, err := client.Exists(eCtx, doneKey).Result()
+	return err == nil && exists > 0
+}
+
+func presenceArchiveTrackAndCheck(ctx context.Context, client *redis.Client, mru *gotgbot.MessageReactionUpdated, settings presence.Settings, op string) bool {
+	chatID, msgID := mru.Chat.Id, mru.MessageId
+	setTTLSecs := max(int(presenceArchiveSetTTL.Seconds()), 1)
+	rCtx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
+	count, err := presenceConsensusUpdateScript.Run(
+		rCtx,
+		client,
+		[]string{presenceArchiveUsersKey(chatID, msgID)},
+		op,
+		strconv.FormatInt(mru.User.Id, 10),
+		setTTLSecs,
+	).Int64()
+	cancel()
+	if err != nil {
+		log.WithField("chat_id", chatID).Debugf("[Presence] archive set %s failed: %s", op, chatRedisErrClass(err))
+		return false
+	}
+	threshold := settings.ArchiveThreshold
+	if !presence.ValidArchiveThreshold(threshold) {
+		threshold = presence.DefaultArchiveThreshold
+	}
+	if op != "add" || count < int64(threshold) {
+		return false
+	}
+	doneKey := presenceArchiveDoneKey(chatID, msgID)
+	if presenceArchiveAlreadyDone(ctx, client, doneKey) || presenceIsLockedDown(chatID) {
+		return false
+	}
+	claimed, err := presenceArchiveClaim(ctx, chatID, msgID)
+	if err != nil {
+		log.WithField("chat_id", chatID).Debug("[Presence] archive claim failed")
+		return false
+	}
+	wCtx, wCancel := context.WithTimeout(ctx, chatRedisTimeout)
+	_ = client.Set(wCtx, doneKey, "1", presenceArchiveDoneTTL).Err()
+	wCancel()
+	return claimed
+}
+
 // presenceHandleArchive tracks distinct non-bot, non-author member reactions on msgID for
 // Highlights Archive (COMM-04). When the distinct count reaches settings.ArchiveThreshold, it checks
 // the fast Redis latch, lazily verifies active lockdown status (fail-closed), claims (chat_id,
@@ -323,80 +391,16 @@ func presenceHandleArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.Mes
 	if client == nil {
 		return
 	}
-
-	authorID := presenceLogAuthorOf(ctx, client, chatID, msgID)
-	if authorID == 0 {
-		if rec, ok := presenceReadBotReact(ctx, client, chatID, msgID); ok {
-			authorID = rec.AuthorID
-		}
-	}
-	if authorID != 0 && mru.User.Id == authorID {
+	if authorID := presenceArchiveAuthorID(ctx, client, chatID, msgID); authorID != 0 && mru.User.Id == authorID {
 		return
 	}
-
-	mode := normalizeArchiveEmojiMode(settings.ArchiveEmojiMode)
-	qualifyingNew := presenceArchiveFilterEmojis(presenceStandardEmojis(mru.NewReaction), mode)
-	op := ""
-	if len(qualifyingNew) > 0 {
-		op = "add"
-	} else {
-		_, removed := presenceDiffReactions(mru.OldReaction, mru.NewReaction)
-		if len(presenceArchiveFilterEmojis(removed, mode)) > 0 {
-			op = "rem"
-		}
-	}
+	op := presenceArchiveOp(mru, normalizeArchiveEmojiMode(settings.ArchiveEmojiMode))
 	if op == "" || ctx.Err() != nil {
 		return
 	}
-
-	setTTLSecs := max(int(presenceArchiveSetTTL.Seconds()), 1)
-	rCtx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
-	count, err := presenceConsensusUpdateScript.Run(
-		rCtx,
-		client,
-		[]string{presenceArchiveUsersKey(chatID, msgID)},
-		op,
-		strconv.FormatInt(mru.User.Id, 10),
-		setTTLSecs,
-	).Int64()
-	cancel()
-	if err != nil {
-		log.WithField("chat_id", chatID).Debugf("[Presence] archive set %s failed: %s", op, chatRedisErrClass(err))
+	if !presenceArchiveTrackAndCheck(ctx, client, mru, settings, op) {
 		return
 	}
-
-	threshold := settings.ArchiveThreshold
-	if !presence.ValidArchiveThreshold(threshold) {
-		threshold = presence.DefaultArchiveThreshold
-	}
-	if op != "add" || count < int64(threshold) {
-		return
-	}
-
-	doneKey := presenceArchiveDoneKey(chatID, msgID)
-	eCtx, eCancel := context.WithTimeout(ctx, chatRedisTimeout)
-	exists, err := client.Exists(eCtx, doneKey).Result()
-	eCancel()
-	if err == nil && exists > 0 {
-		return
-	}
-
-	if presenceIsLockedDown(chatID) {
-		return
-	}
-
-	claimed, err := presenceArchiveClaim(ctx, chatID, msgID)
-	if err != nil {
-		log.WithField("chat_id", chatID).Debug("[Presence] archive claim failed")
-		return
-	}
-	wCtx, wCancel := context.WithTimeout(ctx, chatRedisTimeout)
-	_ = client.Set(wCtx, doneKey, "1", presenceArchiveDoneTTL).Err()
-	wCancel()
-	if !claimed {
-		return
-	}
-
 	presenceDeliverArchive(ctx, b, mru, settings)
 }
 
