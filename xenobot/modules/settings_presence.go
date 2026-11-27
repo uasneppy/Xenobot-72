@@ -42,11 +42,19 @@ const (
 	settingsPresenceControlArchiveEmoji = "ap"
 	// settingsPresenceControlArchiveDelivery is the Highlights Archive delivery mode selector (st only, v c/f).
 	settingsPresenceControlArchiveDelivery = "ad"
+	// settingsPresenceControlAmbient is the Ambient Room Context toggle (tg only, v 0 or 1).
+	settingsPresenceControlAmbient = "ax"
+	// settingsPresenceControlVocative is the Name Addressing toggle (tg only, v 0 or 1).
+	settingsPresenceControlVocative = "ve"
+	// settingsPresenceControlPMBrief is the ✍ reaction PM brief toggle (tg only, v 0 or 1).
+	settingsPresenceControlPMBrief = "pb"
 
 	// settingsActPresenceHighlights opens the Highlights Archive sub-page on pr (private only).
 	settingsActPresenceHighlights = "ph"
 	// settingsActPresenceArchiveUnlink unlinks the Highlights Archive destination on ph (private only).
 	settingsActPresenceArchiveUnlink = "pu"
+	// settingsActPresenceRoom opens the Room & Catch-Up sub-page on pr (private only).
+	settingsActPresenceRoom = "pc"
 )
 
 // settingsPresenceAIReactCodes maps a segmented button's v code to the stored AI reaction mode.
@@ -212,6 +220,18 @@ func init() {
 				Actions:  []string{settingsActSet},
 				Validate: func(v string) bool { _, ok := settingsPresenceArchiveDeliveryCodes[v]; return ok },
 			},
+			settingsPresenceControlAmbient: {
+				Right: settingsRightChangeInfo, Set: settingsPresenceSetAmbient,
+				Actions: []string{settingsActToggle}, Validate: settingsEditSwitchValue,
+			},
+			settingsPresenceControlVocative: {
+				Right: settingsRightChangeInfo, Set: settingsPresenceSetVocative,
+				Actions: []string{settingsActToggle}, Validate: settingsEditSwitchValue,
+			},
+			settingsPresenceControlPMBrief: {
+				Right: settingsRightChangeInfo, Set: settingsPresenceSetPMBrief,
+				Actions: []string{settingsActToggle}, Validate: settingsEditSwitchValue,
+			},
 		},
 		Actions: map[string]settingsPageAction{
 			settingsActPresenceHighlights: {
@@ -219,6 +239,9 @@ func init() {
 			},
 			settingsActPresenceArchiveUnlink: {
 				Right: settingsRightChangeInfo, Validate: private, Run: settingsPresenceRunArchiveUnlink,
+			},
+			settingsActPresenceRoom: {
+				Right: settingsRightAdmin, Validate: private, Run: settingsPresenceRunRoom,
 			},
 		},
 	})
@@ -270,29 +293,45 @@ func settingsPresenceReadChat(chatID int64) (chatconv.Settings, error) {
 	return settingsPresenceChatRead(ctx, chatID)
 }
 
-// settingsPresenceConvUnlocked reports whether Owner-controlled Conversations is enabled with a
-// server-configured AI provider for chatID. When the server has no AI provider configured it
-// returns false, nil with zero database reads.
-func settingsPresenceConvUnlocked(chatID int64) (bool, error) {
+// settingsPresenceChatLocks reports whether Owner-controlled Conversations (convUnlocked) and
+// Message log (logUnlocked) are enabled with a server-configured AI provider for chatID. When the
+// server has no AI provider configured it returns false, false, nil with zero database reads.
+func settingsPresenceChatLocks(chatID int64) (convUnlocked, logUnlocked bool, err error) {
 	if !chatAnyProviderConfigured() {
-		return false, nil
+		return false, false, nil
 	}
 	conv, err := settingsPresenceReadChat(chatID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	return conv.Enabled && chatProviderConfigured(conv.Provider), nil
+	providerOK := chatProviderConfigured(conv.Provider)
+	return conv.Enabled && providerOK, conv.LogEnabled && providerOK, nil
+}
+
+// settingsPresenceChatLocksForView degrades a transient Conversations read error to false, false
+// (showing the locked note) when rendering page pr or sub-page pc; enabling AI-backed controls
+// still fails closed.
+func settingsPresenceChatLocksForView(chatID int64) (bool, bool) {
+	convUnlocked, logUnlocked, err := settingsPresenceChatLocks(chatID)
+	if err != nil {
+		log.WithField("chat_id", chatID).Warn("[Settings] reading conversation state for presence page failed")
+		return false, false
+	}
+	return convUnlocked, logUnlocked
+}
+
+// settingsPresenceConvUnlocked reports whether Owner-controlled Conversations is enabled with a
+// server-configured AI provider for chatID.
+func settingsPresenceConvUnlocked(chatID int64) (bool, error) {
+	convUnlocked, _, err := settingsPresenceChatLocks(chatID)
+	return convUnlocked, err
 }
 
 // settingsPresenceConvUnlockedForView degrades a transient Conversations read error to false
 // (showing the locked note) when rendering page pr; enabling AI reactions still fails closed.
 func settingsPresenceConvUnlockedForView(chatID int64) bool {
-	unlocked, err := settingsPresenceConvUnlocked(chatID)
-	if err != nil {
-		log.WithField("chat_id", chatID).Warn("[Settings] reading conversation state for presence page failed")
-		return false
-	}
-	return unlocked
+	convUnlocked, _ := settingsPresenceChatLocksForView(chatID)
+	return convUnlocked
 }
 
 // settingsPresenceHidden is true only for a definite Staff Group row. An unreadable row hides
@@ -348,9 +387,9 @@ func settingsPresenceStaffGate(p *settingsPress) bool {
 }
 
 // settingsPresenceMainState reports the Main status block summary: Off when all active Presence
-// features are off, or "{n} on" when 1..5 features are active (counting Contextual AI Reactions
-// only when both chat_presence.AIReactMode != "off" and Owner Conversations is enabled/configured,
-// and Highlights Archive only when enabled with a linked target chat).
+// features are off, or "{n} on" when 1..8 features are active (counting AI-backed features only
+// when their Owner-controlled Conversations / Message log gates are enabled and configured, and
+// Highlights Archive only when enabled with a linked target chat).
 func settingsPresenceMainState(_ *gotgbot.Bot, tr *i18n.Translator, group *gotgbot.Chat) (string, bool) {
 	if settingsPresenceStaffCheck(group.Id) != settingsPresenceFree {
 		return "", false
@@ -366,15 +405,29 @@ func settingsPresenceMainState(_ *gotgbot.Bot, tr *i18n.Translator, group *gotgb
 	if stored.RetractEnabled {
 		active++
 	}
-	if settingsPresenceNormalizeAIReactMode(stored.AIReactMode) != presence.AIReactModeOff {
-		if unlocked, err := settingsPresenceConvUnlocked(group.Id); err == nil && unlocked {
-			active++
+	aiReactOn := settingsPresenceNormalizeAIReactMode(stored.AIReactMode) != presence.AIReactModeOff
+	var convUnlocked, logUnlocked bool
+	if aiReactOn || stored.AmbientContext || stored.VocativeEnabled || stored.PMBriefReact {
+		if cu, lu, lockErr := settingsPresenceChatLocks(group.Id); lockErr == nil {
+			convUnlocked, logUnlocked = cu, lu
 		}
+	}
+	if aiReactOn && convUnlocked {
+		active++
 	}
 	if stored.CatStickerEnabled {
 		active++
 	}
 	if stored.ArchiveEnabled && stored.ArchiveChatID != 0 {
+		active++
+	}
+	if stored.AmbientContext && convUnlocked && logUnlocked {
+		active++
+	}
+	if stored.VocativeEnabled && convUnlocked {
+		active++
+	}
+	if stored.PMBriefReact && logUnlocked {
 		active++
 	}
 	if active == 0 {
@@ -424,6 +477,20 @@ func renderSettingsPresence(v settingsView, stored presence.Settings, convUnlock
 	threshold := settingsPresenceClamp(stored.ConsensusThreshold)
 	aiMode := settingsPresenceNormalizeAIReactMode(stored.AIReactMode)
 	aiModeLabel := settingsText(v.Tr, settingsPresenceAIReactKey(aiMode))
+	roomActive := 0
+	if stored.AmbientContext {
+		roomActive++
+	}
+	if stored.VocativeEnabled {
+		roomActive++
+	}
+	if stored.PMBriefReact {
+		roomActive++
+	}
+	roomState := settingsText(v.Tr, "settings_state_off_plain")
+	if roomActive > 0 {
+		roomState = settingsText(v.Tr, "settings_state_presence_on", i18n.TranslationParams{"n": roomActive})
+	}
 
 	body := []string{
 		settingsText(v.Tr, "settings_pr_intro"),
@@ -439,6 +506,7 @@ func renderSettingsPresence(v settingsView, stored presence.Settings, convUnlock
 	body = append(body,
 		settingsText(v.Tr, "settings_pr_cat_line", i18n.TranslationParams{"state": catState}),
 		settingsText(v.Tr, "settings_pr_archive_line", i18n.TranslationParams{"state": archiveState}),
+		settingsText(v.Tr, "settings_pr_room_line", i18n.TranslationParams{"state": roomState}),
 		"",
 		settingsText(v.Tr, "settings_pr_hint"),
 	)
@@ -462,6 +530,9 @@ func renderSettingsPresence(v settingsView, stored presence.Settings, convUnlock
 	k.row(settingsToggleButton(k, settingsPagePresence, settingsPresenceControlCatSticker, catLabel, stored.CatStickerEnabled)...)
 	if archBtn, ok := k.button(settingsText(v.Tr, "settings_btn_pr_archive"), map[string]string{"a": settingsActPresenceHighlights}); ok {
 		k.row(archBtn)
+	}
+	if roomBtn, ok := k.button(settingsText(v.Tr, "settings_btn_pr_room"), map[string]string{"a": settingsActPresenceRoom}); ok {
+		k.row(roomBtn)
 	}
 	k.navRow(false)
 
@@ -858,5 +929,169 @@ func settingsPresenceRunArchiveUnlink(p *settingsPress) *settingsScreen {
 			return applyPresenceClearArchiveTarget(ctx, p.group.Id, p.query.From.Id)
 		},
 		settingsNoticeOK(settingsText(p.tr, "settings_ph_unlinked")),
+	)
+}
+
+// renderSettingsPresenceRoomCatchup draws the Room & Catch-Up sub-page (action pc on page pr)
+// purely from stored settings with zero DB reads.
+func renderSettingsPresenceRoomCatchup(v settingsView, stored presence.Settings, convUnlocked, logUnlocked bool, notice string) settingsScreen {
+	ambientState := settingsStateWord(v.Tr, stored.AmbientContext)
+	vocativeState := settingsStateWord(v.Tr, stored.VocativeEnabled)
+	pmBriefState := settingsStateWord(v.Tr, stored.PMBriefReact)
+
+	body := []string{
+		settingsText(v.Tr, "settings_pc_intro"),
+		"",
+		settingsText(v.Tr, "settings_pc_ambient_line", i18n.TranslationParams{"state": ambientState}),
+		settingsText(v.Tr, "settings_pc_vocative_line", i18n.TranslationParams{"state": vocativeState}),
+		settingsText(v.Tr, "settings_pc_pmbrief_line", i18n.TranslationParams{"state": pmBriefState}),
+	}
+	if !convUnlocked || !logUnlocked {
+		body = append(body, settingsText(v.Tr, "settings_pc_locked_note"))
+	}
+	body = append(body, "", settingsText(v.Tr, "settings_pc_hint"))
+
+	k := newSettingsKeyboard(v)
+	ambientLabel := settingsText(v.Tr, "settings_btn_pc_ambient", i18n.TranslationParams{"state": ambientState})
+	k.row(settingsToggleButton(k, settingsPagePresence, settingsPresenceControlAmbient, ambientLabel, stored.AmbientContext)...)
+	vocativeLabel := settingsText(v.Tr, "settings_btn_pc_vocative", i18n.TranslationParams{"state": vocativeState})
+	k.row(settingsToggleButton(k, settingsPagePresence, settingsPresenceControlVocative, vocativeLabel, stored.VocativeEnabled)...)
+	pmBriefLabel := settingsText(v.Tr, "settings_btn_pc_pmbrief", i18n.TranslationParams{"state": pmBriefState})
+	k.row(settingsToggleButton(k, settingsPagePresence, settingsPresenceControlPMBrief, pmBriefLabel, stored.PMBriefReact)...)
+
+	var nav []gotgbot.InlineKeyboardButton
+	if backBtn, ok := k.button(settingsText(v.Tr, "settings_btn_back"), map[string]string{
+		"a": settingsActOpen, "p": settingsPagePresence,
+	}); ok {
+		nav = append(nav, backBtn)
+	}
+	if closeBtn, ok := k.button(settingsText(v.Tr, "settings_btn_close"), map[string]string{
+		"a": settingsActClose,
+	}); ok {
+		nav = append(nav, closeBtn)
+	}
+	k.row(nav...)
+
+	return k.screen(settingsCompose(v, "settings_pc_title", body, notice, false))
+}
+
+func settingsPresenceRoomRedraw(p *settingsPress, notice string) *settingsScreen {
+	stored, err := settingsPresenceReadSettings(p.group.Id)
+	if err != nil {
+		log.Warnf("[Settings] the presence setting of chat %d could not be read: %v", p.group.Id, err)
+		p.cannotOpen()
+		return nil
+	}
+	convUnlocked, logUnlocked := settingsPresenceChatLocksForView(p.group.Id)
+	screen := renderSettingsPresenceRoomCatchup(p.view(), stored, convUnlocked, logUnlocked, notice)
+	return &screen
+}
+
+func settingsPresenceRoomFromResult(p *settingsPress, result presenceApplyResult) *settingsScreen {
+	if result.Outcome != presenceApplied {
+		return settingsPresenceRoomRedraw(p, settingsNoticeWarn(settingsText(p.tr, "common_settings_save_failed")))
+	}
+	if result.Settings == nil {
+		return settingsPresenceRoomRedraw(p, "")
+	}
+	convUnlocked, logUnlocked := settingsPresenceChatLocksForView(p.group.Id)
+	screen := renderSettingsPresenceRoomCatchup(p.view(), *result.Settings, convUnlocked, logUnlocked, "")
+	return &screen
+}
+
+func settingsPresenceRunRoom(p *settingsPress) *settingsScreen {
+	if settingsPresenceGroupRefused(p) || settingsPresenceStaffGate(p) {
+		return nil
+	}
+	return settingsPresenceRoomRedraw(p, "")
+}
+
+type settingsPresenceRoomGate int
+
+const (
+	settingsPresenceNeedConv settingsPresenceRoomGate = iota
+	settingsPresenceNeedLog
+	settingsPresenceNeedConvAndLog
+)
+
+func settingsPresenceSetRoomToggle(
+	p *settingsPress,
+	value string,
+	gate settingsPresenceRoomGate,
+	current func(presence.Settings) bool,
+	apply func(context.Context, bool) presenceApplyResult,
+) *settingsScreen {
+	if settingsPresenceGroupRefused(p) || settingsPresenceStaffGate(p) {
+		return nil
+	}
+	enabled := value == "1"
+	if enabled {
+		convUnlocked, logUnlocked, err := settingsPresenceChatLocks(p.group.Id)
+		if err != nil {
+			log.WithField("chat_id", p.group.Id).Warn("[Settings] conversation lookup failed when enabling presence room setting")
+			p.cannotOpen()
+			return nil
+		}
+		switch gate {
+		case settingsPresenceNeedConvAndLog:
+			if !convUnlocked || !logUnlocked {
+				p.answer(settingsText(p.tr, "settings_pc_need_owner_conv_log"), true)
+				return nil
+			}
+		case settingsPresenceNeedConv:
+			if !convUnlocked {
+				p.answer(settingsText(p.tr, "settings_pr_ai_need_owner"), true)
+				return nil
+			}
+		case settingsPresenceNeedLog:
+			if !logUnlocked {
+				p.answer(settingsText(p.tr, "settings_pc_need_owner_log"), true)
+				return nil
+			}
+		}
+	}
+	stored, err := settingsPresenceReadSettings(p.group.Id)
+	if err != nil {
+		log.Warnf("[Settings] the presence setting of chat %d could not be read: %v", p.group.Id, err)
+		p.cannotOpen()
+		return nil
+	}
+	if current(stored) == enabled {
+		convUnlocked, logUnlocked := settingsPresenceChatLocksForView(p.group.Id)
+		screen := renderSettingsPresenceRoomCatchup(p.view(), stored, convUnlocked, logUnlocked, "")
+		return &screen
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
+	defer cancel()
+	return settingsPresenceRoomFromResult(p, apply(ctx, enabled))
+}
+
+func settingsPresenceSetAmbient(p *settingsPress, value string) *settingsScreen {
+	return settingsPresenceSetRoomToggle(
+		p, value, settingsPresenceNeedConvAndLog,
+		func(s presence.Settings) bool { return s.AmbientContext },
+		func(ctx context.Context, enabled bool) presenceApplyResult {
+			return applyPresenceAmbientContext(ctx, p.group.Id, enabled, p.query.From.Id)
+		},
+	)
+}
+
+func settingsPresenceSetVocative(p *settingsPress, value string) *settingsScreen {
+	return settingsPresenceSetRoomToggle(
+		p, value, settingsPresenceNeedConv,
+		func(s presence.Settings) bool { return s.VocativeEnabled },
+		func(ctx context.Context, enabled bool) presenceApplyResult {
+			return applyPresenceVocativeEnabled(ctx, p.group.Id, enabled, p.query.From.Id)
+		},
+	)
+}
+
+func settingsPresenceSetPMBrief(p *settingsPress, value string) *settingsScreen {
+	return settingsPresenceSetRoomToggle(
+		p, value, settingsPresenceNeedLog,
+		func(s presence.Settings) bool { return s.PMBriefReact },
+		func(ctx context.Context, enabled bool) presenceApplyResult {
+			return applyPresencePMBriefReact(ctx, p.group.Id, enabled, p.query.From.Id)
+		},
 	)
 }
