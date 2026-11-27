@@ -5,16 +5,16 @@ milestone_name: Interactive Presence
 current_phase: 33
 current_phase_name: Smarter Static Reactions, Highlights Archive and Backup Parity
 status: planning
-stopped_at: Completed 33-07-PLAN.md
-last_updated: "2026-11-27T07:10:53.747Z"
+stopped_at: Completed 33-08-PLAN.md
+last_updated: "2026-11-27T07:17:23.965Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 32 complete, transitioned to Phase 33
-state_head: 5013f0c42c4d482a3af48962f1c5eed76ce88ca1
+state_head: 9b17f2f419adc4e410362f698d6d38d4874c0404
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 19
-  completed_plans: 18
+  completed_plans: 19
   percent: 40
 ---
 
@@ -237,6 +237,7 @@ Progress: [████░░░░░░] 40%
 | Phase 32 P05 | 7 min | 3 tasks | 4 files |
 | Phase 32 P06 | 6 min | 3 tasks | 3 files |
 | Phase 33 P07 | 6 min | 2 tasks | 3 files |
+| Phase 33 P08 | 5 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -395,6 +396,7 @@ Recent decisions affecting current work:
 - [Phase 32]: 32-06: Added 5-row Settings page pr [Off | Low | Medium] AI reactions control (t=ai) with fresh chatconv.GetFresh Owner×Admin double-gating, fail-closed cannotOpen on DB read error, unconditional Off disable, accurate Main state counting, and updated AGENTS.md with Phase 32 invariants
 - [Phase 33]: Refreshed ph in place when tapping the center value button of the ah stepper (a=ph) while reusing settingsStepperRow
 - [Phase 33]: Validated ph/pu action-code uniqueness against settingsCoreActions and other pages' Actions without colliding on settingsLockRows control codes
+- [Phase 33]: Updated hardcoded 20-module / fffff literals in settings_backup_test.go, settings_phase30_test.go, and phase30_e2e_test.go to 21-module dynamic/0x1fffff equivalents
 
 ### Pending Todos
 
@@ -540,8 +542,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T07:10:53.626Z
-Stopped at: Completed 33-07-PLAN.md
+Last session: 2026-11-27T07:17:23.837Z
+Stopped at: Completed 33-08-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

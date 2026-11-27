@@ -26,11 +26,11 @@ Requirements for Milestone v1.3 Interactive Presence. Each maps to roadmap phase
 
 ### Smarter Static Reactions & Highlights Archive
 
-- [ ] **COMM-01**: Static reaction rules (`reactions.go`, group `8`) support optional pure Unicode word-boundary matching (UK/RU/EN safe, not ASCII-only `\b`), caption matching, trigger chance %, per-rule/chat cooldowns, Staff/lockdown guards, and a `ctx.Data` marker so group `13` AI reactions never overwrite static reactions
+- [x] **COMM-01**: Static reaction rules (`reactions.go`, group `8`) support optional pure Unicode word-boundary matching (UK/RU/EN safe, not ASCII-only `\b`), caption matching, trigger chance %, per-rule/chat cooldowns, Staff/lockdown guards, and a `ctx.Data` marker so group `13` AI reactions never overwrite static reactions
 - [x] **COMM-02**: Zero-AI cat-sticker micro-triggers detect cat glyphs on `msg.Sticker.Emoji` and occasionally react with an allowed `👀` or `❤` (behind cooldown + `ctx.Data` handoff) with zero AI calls
 - [x] **COMM-03**: Group admin can link or unlink a Highlights Archive destination channel or forum topic via 2-step `/setarchive` / `/unsetarchive` proof (refusing Staff Groups as source or destination) and configure the distinct-member reaction threshold, emoji filter (`Positive only` / `All standard`), and delivery mode (`CopyMessage` with `t.me/c/` jump button default, or `ForwardMessage`)
-- [ ] **COMM-04**: When a message hits the Highlights threshold of distinct member reactions (excluding author self-reactions and hostile emojis), the bot archives it once-only (backed by durable PostgreSQL `(chat_id, message_id)` deduplication) into the linked destination
-- [ ] **COMM-05**: Backup & Restore adds `BackupModulePresence` (`"presence"`) and extends `BackupModuleReactions` (normalizing legacy `chance == 0 -> 100`), strips `archive_chat_id`/`archive_thread_id` on import (`ArchiveChannelSkipped`), keeps `chat_conversations` permanently excluded from Backup, and leaves Copy Settings (`copy_settings.go`) untouched
+- [x] **COMM-04**: When a message hits the Highlights threshold of distinct member reactions (excluding author self-reactions and hostile emojis), the bot archives it once-only (backed by durable PostgreSQL `(chat_id, message_id)` deduplication) into the linked destination
+- [x] **COMM-05**: Backup & Restore adds `BackupModulePresence` (`"presence"`) and extends `BackupModuleReactions` (normalizing legacy `chance == 0 -> 100`), strips `archive_chat_id`/`archive_thread_id` on import (`ArchiveChannelSkipped`), keeps `chat_conversations` permanently excluded from Backup, and leaves Copy Settings (`copy_settings.go`) untouched
 
 ### Room-Aware Conversations & Catch-Up
 
@@ -86,11 +86,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REACT-03 | Phase 32 | Complete |
 | REACT-04 | Phase 31 | Complete |
 | REACT-05 | Phase 31 | Complete |
-| COMM-01 | Phase 33 | Pending |
+| COMM-01 | Phase 33 | Complete |
 | COMM-02 | Phase 33 | Complete |
 | COMM-03 | Phase 33 | Complete |
-| COMM-04 | Phase 33 | Pending |
-| COMM-05 | Phase 33 | Pending |
+| COMM-04 | Phase 33 | Complete |
+| COMM-05 | Phase 33 | Complete |
 | CHAT-01 | Phase 34 | Pending |
 | CHAT-02 | Phase 34 | Pending |
 | CHAT-03 | Phase 34 | Pending |
