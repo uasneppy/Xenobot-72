@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.3
 milestone_name: Interactive Presence
-current_phase: 32
-current_phase_name: Contextual AI Emoji Reactions
-status: verifying
-stopped_at: Completed 32-06-PLAN.md
-last_updated: "2026-11-27T00:16:55.871Z"
+current_phase: 33
+current_phase_name: Smarter Static Reactions, Highlights Archive and Backup Parity
+status: planning
+stopped_at: Phase 32 complete, ready to plan Phase 33
+last_updated: "2026-11-27T00:19:55.600Z"
 last_activity: 2026-11-27
-last_activity_desc: Phase 31 complete, transitioned to Phase 32
-state_head: 0e13fc3acc8098e3a79364ce9cdc047cce93625d
+last_activity_desc: Phase 32 complete, transitioned to Phase 33
+state_head: 5b81da10e0ba937777f8b500fb55a1260b88a3b2
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 11
   completed_plans: 11
-  percent: 20
+  percent: 40
 ---
 
 # Project State
@@ -30,17 +30,17 @@ See: .planning/ROADMAP.md (v1.3 Interactive Presence — Phases 31–35)
 
 ## Current Position
 
-Phase: 32 of 35 (Contextual AI Emoji Reactions)
-Plan: 6 of 6
-Status: Phase complete — ready for verification
-Last activity: 2026-11-27 — Completed Plan 32-01 (AI react mode persistence & rolling-deploy cache safety)
+Phase: 33 of 35 (Smarter Static Reactions, Highlights Archive and Backup Parity)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-27 — Phase 32 complete, transitioned to Phase 33
 
-Progress: [██░░░░░░░░] 20%
+Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 136
+- Total plans completed: 142
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -62,6 +62,7 @@ Progress: [██░░░░░░░░] 20%
 | 29 | 6 | - | - |
 | 30 | 5 | - | - |
 | 31 | 5 | - | - |
+| 32 | 6 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -537,7 +538,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 ## Session Continuity
 
 Last session: 2026-11-27T00:16:55.780Z
-Stopped at: Completed 32-06-PLAN.md
+Stopped at: Phase 32 complete, ready to plan Phase 33
 Resume file: None
 
 ## Operator Next Steps
