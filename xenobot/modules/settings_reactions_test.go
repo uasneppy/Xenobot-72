@@ -26,6 +26,7 @@ func settingsReactionsCleanup(t *testing.T, chatIDs ...int64) {
 		db.DB.Where("chat_id IN ?", chatIDs).Delete(&models.Reactions{})
 		for _, id := range chatIDs {
 			dbcache.DeleteCache(dbcache.CacheKey("reactions", id))
+			dbcache.DeleteCache(dbcache.CacheKey("reaction_rules", id))
 		}
 		dbcache.ResetLocalForTest()
 	}
@@ -94,8 +95,8 @@ func TestSettingsReactionsOpens(t *testing.T) {
 			t.Errorf("the page lacks %q:\n%s", want, text)
 		}
 	}
-	if got := settingsListRowWidths(keyboard); fmt.Sprint(got) != fmt.Sprint([]int{3, 1, 2}) {
-		t.Errorf("row widths = %v, want the delete row, Add and the navigation row", got)
+	if got := settingsListRowWidths(keyboard); fmt.Sprint(got) != fmt.Sprint([]int{3, 2, 2}) {
+		t.Errorf("row widths = %v, want the delete row, Add+Options and the navigation row", got)
 	}
 
 	msgID := env.updateID()
@@ -330,13 +331,25 @@ func TestSettingsListReactionsFits(t *testing.T) {
 			private := views["private"]
 			private.GroupTitle = strings.Repeat("Ж", 64)
 			long := strings.Repeat("&", 100)
+			worstRule := models.Reactions{
+				ID:           12345678901234567,
+				Keyword:      long,
+				Emoji:        "❤‍🔥",
+				WordBoundary: true,
+				MatchCaption: true,
+				ChancePct:    100,
+				CooldownSecs: 600,
+			}
 			for name, screen := range map[string]settingsScreen{
-				"list":   renderSettingsList(private, def, worst, 2, settingsNoticeOK(settingsListEntryText(tr, "settings_rct_saved", "keyword", long))+"\n"+settingsText(tr, "settings_edit_album_cut")),
-				"card":   renderSettingsListCard(private, def, worst[0], 9999),
-				"prompt": renderSettingsListPrompt(private, def, "r", time.Now(), true, ""),
-				"refuse": renderSettingsInputRefusalCode(private, def.CancelCode, "r", settingsListEntryText(tr, "settings_rct_refuse_exists", "keyword", long)),
-				"emoji":  renderSettingsInputRefusalCode(private, def.CancelCode, "r", settingsText(tr, "settings_rct_refuse_emoji", i18n.TranslationParams{"examples": settingsReactionExamples})),
-				"note":   renderSettingsPrivateOnlyNote(views["group"], def.TitleKey, "XenobotTestBot"),
+				"list":       renderSettingsList(private, def, worst, 2, settingsNoticeOK(settingsListEntryText(tr, "settings_rct_saved", "keyword", long))+"\n"+settingsText(tr, "settings_edit_album_cut")),
+				"card":       renderSettingsListCard(private, def, worst[0], 9999),
+				"prompt":     renderSettingsListPrompt(private, def, "r", time.Now(), true, ""),
+				"refuse":     renderSettingsInputRefusalCode(private, def.CancelCode, "r", settingsListEntryText(tr, "settings_rct_refuse_exists", "keyword", long)),
+				"emoji":      renderSettingsInputRefusalCode(private, def.CancelCode, "r", settingsText(tr, "settings_rct_refuse_emoji", i18n.TranslationParams{"examples": settingsReactionExamples})),
+				"note":       renderSettingsPrivateOnlyNote(views["group"], def.TitleKey, "XenobotTestBot"),
+				"opts":       renderSettingsReactionsOpts(private, worst, 2, ""),
+				"opts_empty": renderSettingsReactionsOpts(private, nil, 1, ""),
+				"rule":       renderSettingsReactionRule(private, worstRule, settingsNoticeWarn(settingsText(tr, "common_settings_save_failed"))),
 			} {
 				if units := panelUTF16Len(screen.Text); units == 0 || units > 3800 {
 					t.Errorf("%s is %d UTF-16 units", name, units)
@@ -344,16 +357,144 @@ func TestSettingsListReactionsFits(t *testing.T) {
 				if screen.Omitted != 0 {
 					t.Errorf("%s omitted %d buttons", name, screen.Omitted)
 				}
-				for _, button := range settingsAllButtons(screen.Keyboard.InlineKeyboard) {
-					if len(button.CallbackData) > 64 {
-						t.Errorf("%s: %q carries %d bytes", name, button.Text, len(button.CallbackData))
+				for _, row := range screen.Keyboard.InlineKeyboard {
+					maxRunes := 20
+					if len(row) == 1 {
+						maxRunes = 40
 					}
-					if n := len([]rune(button.Text)); n > 20 && button.Url == "" {
-						t.Errorf("%s: %q has %d code points", name, button.Text, n)
+					for _, button := range row {
+						if len(button.CallbackData) > 64 {
+							t.Errorf("%s: %q carries %d bytes", name, button.Text, len(button.CallbackData))
+						}
+						if n := len([]rune(button.Text)); n > maxRunes && button.Url == "" {
+							t.Errorf("%s: %q has %d code points (max %d)", name, button.Text, n, maxRunes)
+						}
 					}
 				}
 			}
 		})
+	}
+}
+
+func TestSettingsReactionsOptions(t *testing.T) {
+	env := newSettingsReactionsEnv(t)
+	owner := settingsFiltersOwner(env, env.chat)
+	other := env.addChat()
+	settingsReactionsCleanup(t, other.Id)
+	settingsReactionsSeed(t, env.chat.Id, "alpha 👍", "beta 🔥")
+	settingsReactionsSeed(t, other.Id, "foreign 👍")
+
+	alphaID := settingsReactionsIDOf(t, env.chat.Id, "alpha")
+	foreignID := strconv.FormatInt(settingsReactionsIDOf(t, other.Id, "foreign"), 10)
+
+	// Open page x, press Options (xo), and verify the numbered selector buttons.
+	m := settingsListOpenMenuPage(env, env.chat, owner, settingsPageReactions)
+	optsBtn, ok := m.markedButton("settings_btn_rct_opts")
+	if !ok {
+		t.Fatalf("the Reactions page has no Options button")
+	}
+	m.tap(optsBtn)
+	text, _ := m.last()
+	for _, want := range []string{
+		staffMarker("settings_rct_opts_title"),
+		staffMarker("settings_rct_opts_intro"),
+		"1. <code>alpha</code> → 👍",
+		"2. <code>beta</code> → 🔥",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("xo screen lacks %q:\n%s", want, text)
+		}
+	}
+
+	// Open rule 1 (alpha) via xr.
+	m.tap(m.button("⚙ 1"))
+	text, _ = m.last()
+	for _, want := range []string{
+		staffMarker("settings_rct_rule_title"),
+		"<code>alpha</code> → 👍",
+		staffMarker("settings_rct_rule_wb_line"),
+		staffMarker("settings_rct_rule_cap_line"),
+		staffMarker("settings_rct_rule_chance_line") + " 100",
+		staffMarker("settings_rct_rule_cd_line"),
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("xr screen lacks %q:\n%s", want, text)
+		}
+	}
+
+	// Warm the skipLocal reaction_rules cache before editing options to verify eviction.
+	if _, err := reactionWrites.Rules(context.Background(), env.chat.Id); err != nil {
+		t.Fatalf("warm Rules cache: %v", err)
+	}
+
+	// Toggle wb=1, mc=1, set ch=25, cd=120 via xs.
+	wbBtn, ok := m.markedButton("settings_btn_rct_wb")
+	if !ok {
+		t.Fatalf("xr screen has no Whole word only button")
+	}
+	m.tap(wbBtn)
+	capBtn, ok := m.markedButton("settings_btn_rct_cap")
+	if !ok {
+		t.Fatalf("xr screen has no Match captions button")
+	}
+	m.tap(capBtn)
+	m.tap(m.button("25%"))
+	m.tap(m.button(staffMarker("settings_adv_unit_m") + " 2"))
+
+	var updated models.Reactions
+	if err := db.DB.Where("id = ?", alphaID).Take(&updated).Error; err != nil {
+		t.Fatalf("read updated rule: %v", err)
+	}
+	if !updated.WordBoundary || !updated.MatchCaption || updated.ChancePct != 25 || updated.CooldownSecs != 120 {
+		t.Errorf("updated rule = %+v, want wb=true mc=true ch=25 cd=120", updated)
+	}
+	if env.redis.Exists(dbcache.CacheKey("reaction_rules", env.chat.Id)) {
+		t.Errorf("xs did not drop reaction_rules cache key")
+	}
+
+	// Foreign IDOR refusal on both xr and xs.
+	m.press("a", settingsActReactionsRule, "r", foreignID)
+	if text, _ = m.last(); !strings.Contains(text, staffMarker("settings_entries_already_removed")) {
+		t.Errorf("foreign xr drew:\n%s", text)
+	}
+	m.press("a", settingsActReactionsSetOpt, "r", foreignID, "k", "wb", "v", "1")
+	if text, _ = m.last(); !strings.Contains(text, staffMarker("settings_entries_already_removed")) {
+		t.Errorf("foreign xs drew:\n%s", text)
+	}
+	var foreign models.Reactions
+	if err := db.DB.Where("chat_id = ? AND keyword = ?", other.Id, "foreign").Take(&foreign).Error; err != nil {
+		t.Fatalf("read foreign rule: %v", err)
+	}
+	if foreign.WordBoundary {
+		t.Errorf("forged xs modified foreign chat rule: %+v", foreign)
+	}
+
+	// Helper admin without can_change_info can view xo/xr, but xs refuses with settings_no_change_info.
+	listEditAdmin(env.settingsEnv, env.chat, env.admin, false)
+	cache.InvalidateAdminCache(env.chat.Id)
+	helperMenu := settingsListOpenMenuPage(env, env.chat, env.admin, settingsPageReactions)
+	optsBtn, _ = helperMenu.markedButton("settings_btn_rct_opts")
+	helperMenu.tap(optsBtn)
+	helperMenu.tap(helperMenu.button("⚙ 1"))
+	if text, _ = helperMenu.last(); !strings.Contains(text, "<code>alpha</code>") {
+		t.Fatalf("helper admin could not view xr:\n%s", text)
+	}
+	wbBtn, _ = helperMenu.markedButton("settings_btn_rct_wb")
+	helperMenu.tap(wbBtn)
+	if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("settings_no_change_info")) {
+		t.Errorf("helper xs answered %q (alert %v), want settings_no_change_info", answer, alert)
+	}
+	if err := db.DB.Where("id = ?", alphaID).Take(&updated).Error; err != nil {
+		t.Fatalf("re-read rule: %v", err)
+	}
+	if !updated.WordBoundary {
+		t.Errorf("helper xs changed WordBoundary despite refusal")
+	}
+
+	// Invalid k/v refused in step 1 before any DB read/write.
+	m.press("a", settingsActReactionsSetOpt, "r", strconv.FormatInt(alphaID, 10), "k", "ch", "v", "77")
+	if answer, alert := env.lastAnswer(); !alert || !strings.Contains(answer, staffMarker("common_callback_invalid_request")) {
+		t.Errorf("invalid xs answered %q (alert %v), want common_callback_invalid_request", answer, alert)
 	}
 }
 
