@@ -170,9 +170,9 @@ func TestChatLogWatcher(t *testing.T) {
 		env.deliver(msg)
 	}
 	want := []chatLogEntry{
-		{MessageID: text.MessageId, UserID: alice.Id, Name: "Alice", Text: "hello there"},
-		{MessageID: photo.MessageId, UserID: alice.Id, Name: "Alice", Text: "look at this", Media: "[photo]"},
-		{MessageID: sticker.MessageId, UserID: alice.Id, Name: "Alice", Media: "[sticker]"},
+		{MessageID: text.MessageId, UserID: alice.Id, Name: "Alice", Text: "hello there", At: text.Date},
+		{MessageID: photo.MessageId, UserID: alice.Id, Name: "Alice", Text: "look at this", Media: "[photo]", At: photo.Date},
+		{MessageID: sticker.MessageId, UserID: alice.Id, Name: "Alice", Media: "[sticker]", At: sticker.Date},
 	}
 	got := env.logged()
 	if len(got) != len(want) {
@@ -183,11 +183,11 @@ func TestChatLogWatcher(t *testing.T) {
 			t.Errorf("entry %d = %+v, want %+v", i, got[i], want[i])
 		}
 	}
-	// Nothing but the compact fields is stored: no username, chat ID or date.
+	// Nothing but the compact fields is stored: no username or chat ID.
 	raw, _ := env.rc.ZRange(context.Background(), chatLogKey(env.chatID), 0, 0).Result()
 	var fields map[string]any
-	if err := json.Unmarshal([]byte(raw[0]), &fields); err != nil || len(fields) != 4 {
-		t.Errorf("stored entry %s has %d fields, want m, u, n and t", raw[0], len(fields))
+	if err := json.Unmarshal([]byte(raw[0]), &fields); err != nil || len(fields) != 5 {
+		t.Errorf("stored entry %s has %d fields, want m, u, n, t and at", raw[0], len(fields))
 	}
 
 	// An edit updates the stored line; an edit of a message that was never logged inserts nothing.
@@ -197,7 +197,7 @@ func TestChatLogWatcher(t *testing.T) {
 	unknown := env.message(alice, "never seen")
 	env.deliverEdit(unknown)
 	got = env.logged()
-	if len(got) != 3 || got[0].Text != "hello again" || !got[0].Edited {
+	if len(got) != 3 || got[0].Text != "hello again" || !got[0].Edited || got[0].At != text.Date {
 		t.Fatalf("after the edits: %+v", got)
 	}
 
