@@ -281,6 +281,14 @@ func TestPresenceKeys(t *testing.T) {
 			got:  presenceAIReactChatCooldownKey(chatID),
 			want: "xenobot:presence:{-1001234567890}:ai:cd:chat",
 		},
+		"archive_users": {
+			got:  presenceArchiveUsersKey(chatID, msgID),
+			want: "xenobot:presence:{-1001234567890}:arch:u:456",
+		},
+		"archive_done": {
+			got:  presenceArchiveDoneKey(chatID, msgID),
+			want: "xenobot:presence:{-1001234567890}:arch:done:456",
+		},
 	}
 
 	if presenceStaticReactedKey != "presence.static_reacted" {
@@ -328,6 +336,100 @@ func TestPresenceApply(t *testing.T) {
 		r = applyPresenceAIReactMode(ctx, chatID, presence.AIReactModeMedium, 10)
 		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.AIReactMode != presence.AIReactModeMedium || r.Settings.ConsensusThreshold != 7 || r.Settings.RetractEnabled {
 			t.Fatalf("AIReactMode medium: got %+v", r)
+		}
+
+		r = applyPresenceCatStickerEnabled(ctx, chatID, true, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || !r.Settings.CatStickerEnabled {
+			t.Fatalf("CatStickerEnabled true: got %+v", r)
+		}
+
+		// Enabling Highlights Archive without a linked destination must fail validation.
+		r = applyPresenceArchiveEnabled(ctx, chatID, true, 10)
+		if r.Outcome != presenceInvalidValue || r.Settings != nil || r.Err != nil {
+			t.Fatalf("ArchiveEnabled without target: got %+v, want presenceInvalidValue", r)
+		}
+
+		r = applyPresenceArchiveTarget(ctx, chatID, -100777888, 42, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.ArchiveChatID != -100777888 || r.Settings.ArchiveThreadID != 42 || !r.Settings.ArchiveEnabled {
+			t.Fatalf("ArchiveTarget: got %+v", r)
+		}
+
+		r = applyPresenceArchiveThreshold(ctx, chatID, 12, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.ArchiveThreshold != 12 {
+			t.Fatalf("ArchiveThreshold 12: got %+v", r)
+		}
+
+		r = applyPresenceArchiveEmojiMode(ctx, chatID, presence.ArchiveEmojiModeAll, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.ArchiveEmojiMode != presence.ArchiveEmojiModeAll {
+			t.Fatalf("ArchiveEmojiMode all: got %+v", r)
+		}
+
+		r = applyPresenceArchiveDelivery(ctx, chatID, presence.ArchiveDeliveryForward, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.ArchiveDelivery != presence.ArchiveDeliveryForward {
+			t.Fatalf("ArchiveDelivery forward: got %+v", r)
+		}
+
+		r = applyPresenceArchiveEnabled(ctx, chatID, false, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.ArchiveEnabled || r.Settings.ArchiveChatID != -100777888 {
+			t.Fatalf("ArchiveEnabled false: got %+v", r)
+		}
+
+		r = applyPresenceArchiveEnabled(ctx, chatID, true, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || !r.Settings.ArchiveEnabled {
+			t.Fatalf("ArchiveEnabled true with target: got %+v", r)
+		}
+
+		r = applyPresenceClearArchiveTarget(ctx, chatID, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.ArchiveChatID != 0 || r.Settings.ArchiveThreadID != 0 || r.Settings.ArchiveEnabled || !r.Settings.CatStickerEnabled {
+			t.Fatalf("ClearArchiveTarget: got %+v", r)
+		}
+	})
+
+	t.Run("invalid archive values write nothing", func(t *testing.T) {
+		chatID := uniqueModuleChatID()
+		presenceCleanup(t, chatID)
+
+		writeCalls := 0
+		chatSwap(t, &presenceWrites.ArchiveTarget, func(ctx context.Context, id, targetID, threadID, by int64) error {
+			writeCalls++
+			return presence.SetArchiveTarget(ctx, id, targetID, threadID, by)
+		})
+		chatSwap(t, &presenceWrites.ArchiveThreshold, func(ctx context.Context, id int64, threshold int, by int64) error {
+			writeCalls++
+			return presence.SetArchiveThreshold(ctx, id, threshold, by)
+		})
+		chatSwap(t, &presenceWrites.ArchiveEmojiMode, func(ctx context.Context, id int64, mode string, by int64) error {
+			writeCalls++
+			return presence.SetArchiveEmojiMode(ctx, id, mode, by)
+		})
+		chatSwap(t, &presenceWrites.ArchiveDelivery, func(ctx context.Context, id int64, delivery string, by int64) error {
+			writeCalls++
+			return presence.SetArchiveDelivery(ctx, id, delivery, by)
+		})
+
+		if r := applyPresenceArchiveTarget(ctx, chatID, 0, 0, 10); r.Outcome != presenceInvalidValue || r.Settings != nil || r.Err != nil {
+			t.Errorf("ArchiveTarget(0): got %+v", r)
+		}
+		if r := applyPresenceArchiveTarget(ctx, chatID, -1001, -1, 10); r.Outcome != presenceInvalidValue || r.Settings != nil || r.Err != nil {
+			t.Errorf("ArchiveTarget(-1 thread): got %+v", r)
+		}
+		for _, bad := range []int{0, 1, 51, -3} {
+			if r := applyPresenceArchiveThreshold(ctx, chatID, bad, 10); r.Outcome != presenceInvalidValue || r.Settings != nil || r.Err != nil {
+				t.Errorf("ArchiveThreshold(%d): got %+v", bad, r)
+			}
+		}
+		for _, bad := range []string{"", "hostile", "POSITIVE"} {
+			if r := applyPresenceArchiveEmojiMode(ctx, chatID, bad, 10); r.Outcome != presenceInvalidValue || r.Settings != nil || r.Err != nil {
+				t.Errorf("ArchiveEmojiMode(%q): got %+v", bad, r)
+			}
+		}
+		for _, bad := range []string{"", "link", "COPY"} {
+			if r := applyPresenceArchiveDelivery(ctx, chatID, bad, 10); r.Outcome != presenceInvalidValue || r.Settings != nil || r.Err != nil {
+				t.Errorf("ArchiveDelivery(%q): got %+v", bad, r)
+			}
+		}
+		if writeCalls != 0 {
+			t.Errorf("writers called %d times for invalid archive values, want 0", writeCalls)
 		}
 	})
 
@@ -382,6 +484,13 @@ func TestPresenceApply(t *testing.T) {
 		chatSwap(t, &presenceWrites.ConsensusThreshold, func(context.Context, int64, int, int64) error { return boom })
 		chatSwap(t, &presenceWrites.RetractEnabled, func(context.Context, int64, bool, int64) error { return boom })
 		chatSwap(t, &presenceWrites.AIReactMode, func(context.Context, int64, string, int64) error { return boom })
+		chatSwap(t, &presenceWrites.CatStickerEnabled, func(context.Context, int64, bool, int64) error { return boom })
+		chatSwap(t, &presenceWrites.ArchiveEnabled, func(context.Context, int64, bool, int64) error { return boom })
+		chatSwap(t, &presenceWrites.ArchiveTarget, func(context.Context, int64, int64, int64, int64) error { return boom })
+		chatSwap(t, &presenceWrites.ClearArchiveTarget, func(context.Context, int64, int64) error { return boom })
+		chatSwap(t, &presenceWrites.ArchiveThreshold, func(context.Context, int64, int, int64) error { return boom })
+		chatSwap(t, &presenceWrites.ArchiveEmojiMode, func(context.Context, int64, string, int64) error { return boom })
+		chatSwap(t, &presenceWrites.ArchiveDelivery, func(context.Context, int64, string, int64) error { return boom })
 
 		if r := applyPresenceConsensusEnabled(ctx, chatID, true, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
 			t.Errorf("ConsensusEnabled failure: got %+v", r)
@@ -394,6 +503,27 @@ func TestPresenceApply(t *testing.T) {
 		}
 		if r := applyPresenceAIReactMode(ctx, chatID, presence.AIReactModeLow, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
 			t.Errorf("AIReactMode failure: got %+v", r)
+		}
+		if r := applyPresenceCatStickerEnabled(ctx, chatID, true, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("CatStickerEnabled failure: got %+v", r)
+		}
+		if r := applyPresenceArchiveEnabled(ctx, chatID, false, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("ArchiveEnabled failure: got %+v", r)
+		}
+		if r := applyPresenceArchiveTarget(ctx, chatID, -1001, 0, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("ArchiveTarget failure: got %+v", r)
+		}
+		if r := applyPresenceClearArchiveTarget(ctx, chatID, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("ClearArchiveTarget failure: got %+v", r)
+		}
+		if r := applyPresenceArchiveThreshold(ctx, chatID, 5, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("ArchiveThreshold failure: got %+v", r)
+		}
+		if r := applyPresenceArchiveEmojiMode(ctx, chatID, presence.ArchiveEmojiModeAll, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("ArchiveEmojiMode failure: got %+v", r)
+		}
+		if r := applyPresenceArchiveDelivery(ctx, chatID, presence.ArchiveDeliveryForward, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("ArchiveDelivery failure: got %+v", r)
 		}
 	})
 
