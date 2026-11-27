@@ -987,6 +987,22 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_btn_rct_cap":          {32, 38},
 	"settings_rct_cd_off":           {10, 14},
 	"settings_rct_cd_val":           {12, 16},
+
+	// Room-Aware Conversations & Frictionless Catch-Up (Phase 34, CHAT-02..05).
+	"settings_pr_room_line":           {32, 42},
+	"settings_btn_pr_room":            {28, 36},
+	"settings_pc_title":               {24, 36},
+	"settings_pc_intro":               {180, 240},
+	"settings_pc_ambient_line":        {36, 48},
+	"settings_pc_vocative_line":       {44, 56},
+	"settings_pc_pmbrief_line":        {36, 48},
+	"settings_pc_locked_note":         {140, 180},
+	"settings_pc_hint":                {180, 240},
+	"settings_btn_pc_ambient":         {28, 36},
+	"settings_btn_pc_vocative":        {28, 36},
+	"settings_btn_pc_pmbrief":         {26, 36},
+	"settings_pc_need_owner_conv_log": {110, 150},
+	"settings_pc_need_owner_log":      {90, 130},
 }
 
 // settingsAlertKeys are shown as answerCallbackQuery alerts: plain text, no tag, at most
@@ -1023,6 +1039,9 @@ var settingsAlertKeys = []string{
 	"settings_pr_ai_need_owner",
 	// Highlights Archive unlinked enable refusal alert (Phase 33, COMM-03).
 	"settings_ph_need_target",
+	// Room & Catch-Up Owner-lock refusal alerts (Phase 34, CHAT-02, CHAT-05).
+	"settings_pc_need_owner_conv_log",
+	"settings_pc_need_owner_log",
 }
 
 // settingsAlertMaxRunes is the length Telegram allows an alert.
@@ -1296,6 +1315,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 		"settings_btn_pr_consensus", "settings_btn_pr_retract",
 		"settings_btn_pr_cat", "settings_btn_ph_enabled",
 		"settings_btn_rct_wb", "settings_btn_rct_cap",
+		"settings_btn_pc_ambient", "settings_btn_pc_vocative", "settings_btn_pc_pmbrief",
 	}
 	// The full-width toggles that carry the state icon alone in place of {state} (Phase 21, plan 21-07: an event
 	// screen's Silent switch).
@@ -1310,7 +1330,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 	// opens the private copy), at most 40 code points.
 	fullWidthLabels := []string{
 		"settings_btn_msg_pm_open", "settings_btn_moddef_dur_off", "settings_btn_chat_presence",
-		"settings_btn_pr_archive", "settings_btn_ph_unlink",
+		"settings_btn_pr_archive", "settings_btn_ph_unlink", "settings_btn_pr_room",
 	}
 	// The editor's two-column buttons (UI-SPEC rows 28 to 38): at most 20 code points as
 	// written, icon included.
