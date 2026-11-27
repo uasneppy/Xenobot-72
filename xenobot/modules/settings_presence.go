@@ -48,6 +48,10 @@ const (
 	settingsPresenceControlVocative = "ve"
 	// settingsPresenceControlPMBrief is the ✍ reaction PM brief toggle (tg only, v 0 or 1).
 	settingsPresenceControlPMBrief = "pb"
+	// settingsPresenceControlReferendum is the /referendum polls toggle (tg only, v 0 or 1).
+	settingsPresenceControlReferendum = "rf"
+	// settingsPresenceControlInspect is the /inspect verdicts toggle (tg only, v 0 or 1).
+	settingsPresenceControlInspect = "in"
 
 	// settingsActPresenceHighlights opens the Highlights Archive sub-page on pr (private only).
 	settingsActPresenceHighlights = "ph"
@@ -232,6 +236,14 @@ func init() {
 				Right: settingsRightChangeInfo, Set: settingsPresenceSetPMBrief,
 				Actions: []string{settingsActToggle}, Validate: settingsEditSwitchValue,
 			},
+			settingsPresenceControlReferendum: {
+				Right: settingsRightChangeInfo, Set: settingsPresenceSetReferendum,
+				Actions: []string{settingsActToggle}, Validate: settingsEditSwitchValue,
+			},
+			settingsPresenceControlInspect: {
+				Right: settingsRightChangeInfo, Set: settingsPresenceSetInspect,
+				Actions: []string{settingsActToggle}, Validate: settingsEditSwitchValue,
+			},
 		},
 		Actions: map[string]settingsPageAction{
 			settingsActPresenceHighlights: {
@@ -387,7 +399,7 @@ func settingsPresenceStaffGate(p *settingsPress) bool {
 }
 
 // settingsPresenceMainState reports the Main status block summary: Off when all active Presence
-// features are off, or "{n} on" when 1..8 features are active (counting AI-backed features only
+// features are off, or "{n} on" when 1..10 features are active (counting AI-backed features only
 // when their Owner-controlled Conversations / Message log gates are enabled and configured, and
 // Highlights Archive only when enabled with a linked target chat).
 func settingsPresenceMainState(_ *gotgbot.Bot, tr *i18n.Translator, group *gotgbot.Chat) (string, bool) {
@@ -407,7 +419,7 @@ func settingsPresenceMainState(_ *gotgbot.Bot, tr *i18n.Translator, group *gotgb
 	}
 	aiReactOn := settingsPresenceNormalizeAIReactMode(stored.AIReactMode) != presence.AIReactModeOff
 	var convUnlocked, logUnlocked bool
-	if aiReactOn || stored.AmbientContext || stored.VocativeEnabled || stored.PMBriefReact {
+	if aiReactOn || stored.AmbientContext || stored.VocativeEnabled || stored.PMBriefReact || stored.ReferendumEnabled || stored.InspectEnabled {
 		if cu, lu, lockErr := settingsPresenceChatLocks(group.Id); lockErr == nil {
 			convUnlocked, logUnlocked = cu, lu
 		}
@@ -428,6 +440,12 @@ func settingsPresenceMainState(_ *gotgbot.Bot, tr *i18n.Translator, group *gotgb
 		active++
 	}
 	if stored.PMBriefReact && logUnlocked {
+		active++
+	}
+	if stored.ReferendumEnabled && convUnlocked {
+		active++
+	}
+	if stored.InspectEnabled && convUnlocked {
 		active++
 	}
 	if active == 0 {
@@ -485,6 +503,12 @@ func renderSettingsPresence(v settingsView, stored presence.Settings, convUnlock
 		roomActive++
 	}
 	if stored.PMBriefReact {
+		roomActive++
+	}
+	if stored.ReferendumEnabled {
+		roomActive++
+	}
+	if stored.InspectEnabled {
 		roomActive++
 	}
 	roomState := settingsText(v.Tr, "settings_state_off_plain")
@@ -938,6 +962,8 @@ func renderSettingsPresenceRoomCatchup(v settingsView, stored presence.Settings,
 	ambientState := settingsStateWord(v.Tr, stored.AmbientContext)
 	vocativeState := settingsStateWord(v.Tr, stored.VocativeEnabled)
 	pmBriefState := settingsStateWord(v.Tr, stored.PMBriefReact)
+	referendumState := settingsStateWord(v.Tr, stored.ReferendumEnabled)
+	inspectState := settingsStateWord(v.Tr, stored.InspectEnabled)
 
 	body := []string{
 		settingsText(v.Tr, "settings_pc_intro"),
@@ -945,6 +971,8 @@ func renderSettingsPresenceRoomCatchup(v settingsView, stored presence.Settings,
 		settingsText(v.Tr, "settings_pc_ambient_line", i18n.TranslationParams{"state": ambientState}),
 		settingsText(v.Tr, "settings_pc_vocative_line", i18n.TranslationParams{"state": vocativeState}),
 		settingsText(v.Tr, "settings_pc_pmbrief_line", i18n.TranslationParams{"state": pmBriefState}),
+		settingsText(v.Tr, "settings_pc_referendum_line", i18n.TranslationParams{"state": referendumState}),
+		settingsText(v.Tr, "settings_pc_inspect_line", i18n.TranslationParams{"state": inspectState}),
 	}
 	if !convUnlocked || !logUnlocked {
 		body = append(body, settingsText(v.Tr, "settings_pc_locked_note"))
@@ -958,6 +986,10 @@ func renderSettingsPresenceRoomCatchup(v settingsView, stored presence.Settings,
 	k.row(settingsToggleButton(k, settingsPagePresence, settingsPresenceControlVocative, vocativeLabel, stored.VocativeEnabled)...)
 	pmBriefLabel := settingsText(v.Tr, "settings_btn_pc_pmbrief", i18n.TranslationParams{"state": pmBriefState})
 	k.row(settingsToggleButton(k, settingsPagePresence, settingsPresenceControlPMBrief, pmBriefLabel, stored.PMBriefReact)...)
+	referendumLabel := settingsText(v.Tr, "settings_btn_pc_referendum", i18n.TranslationParams{"state": referendumState})
+	k.row(settingsToggleButton(k, settingsPagePresence, settingsPresenceControlReferendum, referendumLabel, stored.ReferendumEnabled)...)
+	inspectLabel := settingsText(v.Tr, "settings_btn_pc_inspect", i18n.TranslationParams{"state": inspectState})
+	k.row(settingsToggleButton(k, settingsPagePresence, settingsPresenceControlInspect, inspectLabel, stored.InspectEnabled)...)
 
 	var nav []gotgbot.InlineKeyboardButton
 	if backBtn, ok := k.button(settingsText(v.Tr, "settings_btn_back"), map[string]string{
@@ -1092,6 +1124,26 @@ func settingsPresenceSetPMBrief(p *settingsPress, value string) *settingsScreen 
 		func(s presence.Settings) bool { return s.PMBriefReact },
 		func(ctx context.Context, enabled bool) presenceApplyResult {
 			return applyPresencePMBriefReact(ctx, p.group.Id, enabled, p.query.From.Id)
+		},
+	)
+}
+
+func settingsPresenceSetReferendum(p *settingsPress, value string) *settingsScreen {
+	return settingsPresenceSetRoomToggle(
+		p, value, settingsPresenceNeedConv,
+		func(s presence.Settings) bool { return s.ReferendumEnabled },
+		func(ctx context.Context, enabled bool) presenceApplyResult {
+			return applyPresenceReferendumEnabled(ctx, p.group.Id, enabled, p.query.From.Id)
+		},
+	)
+}
+
+func settingsPresenceSetInspect(p *settingsPress, value string) *settingsScreen {
+	return settingsPresenceSetRoomToggle(
+		p, value, settingsPresenceNeedConv,
+		func(s presence.Settings) bool { return s.InspectEnabled },
+		func(ctx context.Context, enabled bool) presenceApplyResult {
+			return applyPresenceInspectEnabled(ctx, p.group.Id, enabled, p.query.From.Id)
 		},
 	)
 }
