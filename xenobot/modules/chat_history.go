@@ -47,13 +47,24 @@ type chatHistoryEntry struct {
 // chatReadHistory returns the chat's recent conversation, oldest first. A Redis error or an entry
 // that does not parse is left out: the reply then has less context, never none.
 func chatReadHistory(ctx context.Context, client *redis.Client, chatID int64) []chatprompt.Turn {
+	turns, _ := chatReadHistoryWithIDs(ctx, client, chatID)
+	return turns
+}
+
+// chatReadHistoryWithIDs returns the chat's recent conversation oldest first together with the set
+// of decoded MessageIDs (> 0) so ambient room context can deduplicate against prior turns.
+func chatReadHistoryWithIDs(ctx context.Context, client *redis.Client, chatID int64) ([]chatprompt.Turn, map[int64]bool) {
+	if client == nil {
+		return nil, nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
 	defer cancel()
 	raw, err := client.LRange(ctx, chatHistoryKey(chatID), 0, chatHistoryMax-1).Result()
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	turns := make([]chatprompt.Turn, 0, len(raw))
+	ids := make(map[int64]bool, len(raw))
 	// The list is newest first; the prompt wants oldest first.
 	for i := len(raw) - 1; i >= 0; i-- {
 		var entry chatHistoryEntry
@@ -61,8 +72,11 @@ func chatReadHistory(ctx context.Context, client *redis.Client, chatID int64) []
 			continue
 		}
 		turns = append(turns, chatprompt.Turn{Name: entry.Name, Text: entry.Text, Bot: entry.Role == "b"})
+		if entry.MessageID > 0 {
+			ids[entry.MessageID] = true
+		}
 	}
-	return turns
+	return turns, ids
 }
 
 // chatRecordExchange stores one answered exchange: the member's line and the bot's reply in the

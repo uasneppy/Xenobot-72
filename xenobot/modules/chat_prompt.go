@@ -242,10 +242,10 @@ func chatLanguageName(ctx context.Context, chatID int64) (code, name string) {
 
 // chatBuildRequest assembles the three strings and any validated binary attachments of a turn.
 // The static text is the same bytes for every chat; the dynamic text holds the group's title,
-// language, today's date in the group's zone and the bot's username; the user text holds the
-// transcript, the quoted message, the message to answer and any attached text files. No user ID,
-// username or chat ID is in any of them.
-func chatBuildRequest(ctx context.Context, job chatJob, botUsername string, history []chatprompt.Turn, media chatDownloadedMedia) chatRequest {
+// language, today's date in the group's zone and the bot's username; the user text holds any
+// ambient topic chatter, the transcript, the quoted message, the message to answer and any
+// attached text files. No user ID, username or chat ID is in any of them.
+func chatBuildRequest(ctx context.Context, job chatJob, botUsername string, ambient, history []chatprompt.Turn, media chatDownloadedMedia) chatRequest {
 	_, language := chatLanguageName(ctx, job.chatID)
 	date := time.Now().In(chatClock(ctx, job.chatID)).Format("2006-01-02")
 	return chatRequest{
@@ -253,7 +253,7 @@ func chatBuildRequest(ctx context.Context, job chatJob, botUsername string, hist
 		Dynamic: chatprompt.Dynamic(chatprompt.Chat{
 			Title: job.chatTitle, Language: language, Date: date, BotUsername: botUsername,
 		}),
-		User:        chatprompt.UserWithFiles(history, job.quoted, job.turn, media.Files),
+		User:        chatprompt.UserWithAmbient(ambient, history, job.quoted, job.turn, media.Files),
 		Attachments: media.Attachments,
 	}
 }
