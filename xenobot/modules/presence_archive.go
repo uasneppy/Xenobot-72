@@ -1,17 +1,70 @@
 package modules
 
 import (
+	"context"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/uasneppy/Xenobot-72/xenobot/db/lang"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
+	"github.com/uasneppy/Xenobot-72/xenobot/i18n"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/actionlog"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/chat_status"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/helpers"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/tracing"
 )
+
+var (
+	// presenceArchiveClaim atomically claims (chat_id, message_id) in PostgreSQL so each
+	// message is archived at most once across restarts and replicas. Swappable in tests.
+	presenceArchiveClaim = presence.TryClaimArchived
+	// presenceArchiveSetTTL is how long per-message distinct reactor sets live outside xenobot:cache:.
+	presenceArchiveSetTTL = 72 * time.Hour
+	// presenceArchiveDoneTTL is how long the fast Redis once-only latch lives outside xenobot:cache:.
+	presenceArchiveDoneTTL = 7 * 24 * time.Hour
+)
+
+// presencePositiveEmojis is the positive subset of supportedReactionEmoji used when
+// archive_emoji_mode is 'positive'.
+var presencePositiveEmojis = map[string]struct{}{
+	"❤":   {},
+	"👍":   {},
+	"🔥":   {},
+	"🥰":   {},
+	"👏":   {},
+	"😁":   {},
+	"🎉":   {},
+	"🤩":   {},
+	"🙏":   {},
+	"👌":   {},
+	"🕊":   {},
+	"😍":   {},
+	"🐳":   {},
+	"❤‍🔥": {},
+	"💯":   {},
+	"🤣":   {},
+	"⚡":   {},
+	"🏆":   {},
+	"🍓":   {},
+	"🍾":   {},
+	"💋":   {},
+	"😇":   {},
+	"🤝":   {},
+	"✍":   {},
+	"🤗":   {},
+	"🫡":   {},
+	"💘":   {},
+	"🦄":   {},
+	"😘":   {},
+	"😎":   {},
+	"🆒":   {},
+}
 
 func setarchivePendingKey(targetChatID, messageID int64) string {
 	return fmt.Sprintf("xenobot:setarchive:%d:%d", targetChatID, messageID)
@@ -222,4 +275,188 @@ func (moduleStruct) unsetArchive(b *gotgbot.Bot, ctx *ext.Context) error {
 	replyHTML(b, msg, trS(tr, "archive_unset_ok"))
 	actionlog.Settings(b, chat, from, "unset archive destination")
 	return ext.EndGroups
+}
+
+func normalizeArchiveEmojiMode(mode string) string {
+	if presence.ValidArchiveEmojiMode(mode) {
+		return mode
+	}
+	return presence.ArchiveEmojiModePositive
+}
+
+func presenceArchiveFilterEmojis(emojis []string, mode string) []string {
+	if len(emojis) == 0 {
+		return nil
+	}
+	positiveOnly := mode == presence.ArchiveEmojiModePositive
+	var out []string
+	for _, emoji := range emojis {
+		if _, hostile := presenceConsensusHostile[emoji]; hostile {
+			continue
+		}
+		if positiveOnly {
+			if _, ok := presencePositiveEmojis[emoji]; !ok {
+				continue
+			}
+		}
+		out = append(out, emoji)
+	}
+	return out
+}
+
+// presenceHandleArchive tracks distinct non-bot, non-author member reactions on msgID for
+// Highlights Archive (COMM-04). When the distinct count reaches settings.ArchiveThreshold, it checks
+// the fast Redis latch, lazily verifies active lockdown status (fail-closed), claims (chat_id,
+// message_id) once in PostgreSQL, and delivers the highlight via CopyMessage or ForwardMessage.
+func presenceHandleArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.MessageReactionUpdated, settings presence.Settings) {
+	if b == nil || mru == nil || mru.User == nil || mru.User.IsBot || !presenceChatTypeAllowed(&mru.Chat) {
+		return
+	}
+	if !settings.ArchiveEnabled || settings.ArchiveChatID == 0 {
+		return
+	}
+	chatID, msgID := mru.Chat.Id, mru.MessageId
+	if msgID <= 0 || presenceIsStaffGroup(chatID) || presenceIsStaffGroup(settings.ArchiveChatID) {
+		return
+	}
+	client := presenceRedisClient()
+	if client == nil {
+		return
+	}
+
+	authorID := presenceLogAuthorOf(ctx, client, chatID, msgID)
+	if authorID == 0 {
+		if rec, ok := presenceReadBotReact(ctx, client, chatID, msgID); ok {
+			authorID = rec.AuthorID
+		}
+	}
+	if authorID != 0 && mru.User.Id == authorID {
+		return
+	}
+
+	mode := normalizeArchiveEmojiMode(settings.ArchiveEmojiMode)
+	qualifyingNew := presenceArchiveFilterEmojis(presenceStandardEmojis(mru.NewReaction), mode)
+	op := ""
+	if len(qualifyingNew) > 0 {
+		op = "add"
+	} else {
+		_, removed := presenceDiffReactions(mru.OldReaction, mru.NewReaction)
+		if len(presenceArchiveFilterEmojis(removed, mode)) > 0 {
+			op = "rem"
+		}
+	}
+	if op == "" || ctx.Err() != nil {
+		return
+	}
+
+	setTTLSecs := max(int(presenceArchiveSetTTL.Seconds()), 1)
+	rCtx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
+	count, err := presenceConsensusUpdateScript.Run(
+		rCtx,
+		client,
+		[]string{presenceArchiveUsersKey(chatID, msgID)},
+		op,
+		strconv.FormatInt(mru.User.Id, 10),
+		setTTLSecs,
+	).Int64()
+	cancel()
+	if err != nil {
+		log.WithField("chat_id", chatID).Debugf("[Presence] archive set %s failed: %s", op, chatRedisErrClass(err))
+		return
+	}
+
+	threshold := settings.ArchiveThreshold
+	if !presence.ValidArchiveThreshold(threshold) {
+		threshold = presence.DefaultArchiveThreshold
+	}
+	if op != "add" || count < int64(threshold) {
+		return
+	}
+
+	doneKey := presenceArchiveDoneKey(chatID, msgID)
+	eCtx, eCancel := context.WithTimeout(ctx, chatRedisTimeout)
+	exists, err := client.Exists(eCtx, doneKey).Result()
+	eCancel()
+	if err == nil && exists > 0 {
+		return
+	}
+
+	if presenceIsLockedDown(chatID) {
+		return
+	}
+
+	claimed, err := presenceArchiveClaim(ctx, chatID, msgID)
+	if err != nil {
+		log.WithField("chat_id", chatID).Debug("[Presence] archive claim failed")
+		return
+	}
+	wCtx, wCancel := context.WithTimeout(ctx, chatRedisTimeout)
+	_ = client.Set(wCtx, doneKey, "1", presenceArchiveDoneTTL).Err()
+	wCancel()
+	if !claimed {
+		return
+	}
+
+	presenceDeliverArchive(ctx, b, mru, settings)
+}
+
+func presenceArchiveJumpURL(chat *gotgbot.Chat, msgID int64) string {
+	if chat == nil || msgID <= 0 {
+		return ""
+	}
+	if chat.Username != "" {
+		return fmt.Sprintf("https://t.me/%s/%d", chat.Username, msgID)
+	}
+	if chat.Type == "supergroup" && strings.HasPrefix(strconv.FormatInt(chat.Id, 10), "-100") {
+		return chat_status.GetMessageLinkFromMessageId(chat, msgID)
+	}
+	return ""
+}
+
+func presenceDeliverArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.MessageReactionUpdated, settings presence.Settings) {
+	if b == nil || mru == nil {
+		return
+	}
+	chatID, msgID := mru.Chat.Id, mru.MessageId
+	if settings.ArchiveDelivery == presence.ArchiveDeliveryForward {
+		var opts *gotgbot.ForwardMessageOpts
+		if settings.ArchiveThreadID > 0 {
+			opts = &gotgbot.ForwardMessageOpts{MessageThreadId: settings.ArchiveThreadID}
+		}
+		err := presencePaced(ctx, func(callCtx context.Context) error {
+			_, callErr := b.ForwardMessageWithContext(callCtx, settings.ArchiveChatID, chatID, msgID, opts)
+			return callErr
+		})
+		if err != nil {
+			log.WithField("chat_id", chatID).Debugf("[Presence] archive forward failed: %s", chatSendErrClass(err))
+		}
+		return
+	}
+
+	jumpURL := presenceArchiveJumpURL(&mru.Chat, msgID)
+	var opts *gotgbot.CopyMessageOpts
+	if settings.ArchiveThreadID > 0 || jumpURL != "" {
+		opts = &gotgbot.CopyMessageOpts{
+			MessageThreadId: settings.ArchiveThreadID,
+		}
+		if jumpURL != "" {
+			tr := i18n.MustNewTranslator(lang.GetGroupLanguage(ctx, chatID))
+			label := trS(tr, "archive_jump_button")
+			if label == "" {
+				label = "↗️ Jump to message"
+			}
+			opts.ReplyMarkup = gotgbot.InlineKeyboardMarkup{
+				InlineKeyboard: [][]gotgbot.InlineKeyboardButton{
+					{{Text: label, Url: jumpURL}},
+				},
+			}
+		}
+	}
+	err := presencePaced(ctx, func(callCtx context.Context) error {
+		_, callErr := b.CopyMessageWithContext(callCtx, settings.ArchiveChatID, chatID, msgID, opts)
+		return callErr
+	})
+	if err != nil {
+		log.WithField("chat_id", chatID).Debugf("[Presence] archive copy failed: %s", chatSendErrClass(err))
+	}
 }

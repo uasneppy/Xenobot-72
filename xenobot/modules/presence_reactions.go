@@ -10,6 +10,7 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers"
+	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/message"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/reaction"
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
@@ -17,6 +18,7 @@ import (
 	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/chat_status"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/error_handling"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/helpers"
 )
 
 const (
@@ -85,10 +87,17 @@ redis.call('SET', KEYS[2], '1', 'EX', ARGV[2])
 return 1
 `)
 
-// LoadPresence registers the MessageReactionUpdated router at handler group 0.
-// It intentionally omits SetModuleEnabled because Phase 31 adds no /help commands.
+// LoadPresence registers the MessageReactionUpdated router at handler group 0, the /setarchive
+// and /unsetarchive commands, and the group-11 forward capture watcher.
 func LoadPresence(dispatcher *ext.Dispatcher) {
 	dispatcher.AddHandler(handlers.NewReaction(reaction.All, presenceModule.handleReaction))
+	dispatcher.AddHandler(helpers.NewBotCommand("setarchive", presenceModule.setArchive).SetAllowChannel(true))
+	dispatcher.AddHandler(helpers.NewBotCommand("unsetarchive", presenceModule.unsetArchive))
+	dispatcher.AddHandlerToGroup(
+		handlers.NewMessage(message.All, presenceModule.captureSetArchiveForward),
+		logHandlerGroup,
+	)
+	SetModuleEnabled(presenceModule.moduleName, true)
 	log.Info("[Modules] Presence module loaded")
 }
 
@@ -198,6 +207,9 @@ func presenceHandleReaction(runCtx context.Context, b *gotgbot.Bot, ctx *ext.Con
 	}
 	if settings.ConsensusEnabled && mru.User != nil {
 		presenceHandleConsensus(runCtx, b, mru, settings.ConsensusThreshold, added, removed)
+	}
+	if settings.ArchiveEnabled && settings.ArchiveChatID != 0 && mru.User != nil {
+		presenceHandleArchive(runCtx, b, mru, settings)
 	}
 }
 
