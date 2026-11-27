@@ -14,6 +14,8 @@ import (
 	dbcache "github.com/uasneppy/Xenobot-72/xenobot/db/cache"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/eventmsg"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/reactions"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/content"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -42,6 +44,7 @@ var moduleExporters = map[string]func(chatID int64) (interface{}, error){
 	BackupModuleFederations: exporter(exportFederationsData),
 	BackupModuleLogChannels: exporter(exportLogChannelsData),
 	BackupModuleMessages:    exporter(exportMessagesData),
+	BackupModulePresence:    exporter(exportPresenceData),
 }
 
 // exporter adapts a typed export function to the moduleExporters signature.
@@ -84,11 +87,13 @@ func ImportModuleData(chatID int64, module string, data interface{}) error {
 // notes and custom event messages that would not pass the checks the commands/editor make (a keyword
 // or word too broad or too long, a note name that could never be fetched, a button link that is not
 // http or https, an unknown event/destination, disallowed media, over-limit text/caption, or a repeat
-// after lower-casing), and LogChannelSkipped says the log channel categories were not imported because
-// the target has no log channel.
+// after lower-casing), LogChannelSkipped says the log channel categories were not imported because
+// the target has no log channel, and ArchiveChannelSkipped says Highlights Archive stayed off because
+// the target has no /setarchive destination.
 type ImportReport struct {
-	Skipped           int
-	LogChannelSkipped bool
+	Skipped               int
+	LogChannelSkipped     bool
+	ArchiveChannelSkipped bool
 }
 
 func ClearModuleData(chatID int64, module string) error {
@@ -600,6 +605,8 @@ func importListModule(tx *gorm.DB, chatID int64, module string, data interface{}
 		keys, err = importLogChannels(tx, chatID, data, report)
 	case BackupModuleMessages:
 		keys, err = importMessages(tx, chatID, data, report)
+	case BackupModulePresence:
+		keys, err = importPresence(tx, chatID, data, report)
 	default:
 		return nil, false, nil
 	}
@@ -897,12 +904,22 @@ func importReactions(tx *gorm.DB, chatID int64, payload interface{}) ([]string, 
 		if data.Reactions[i].Keyword == "" || data.Reactions[i].Emoji == "" {
 			return nil, fmt.Errorf("invalid reaction")
 		}
+		data.Reactions[i].ID = 0
 		data.Reactions[i].ChatID = chatID
+		if !reactions.ValidChancePct(int(data.Reactions[i].ChancePct)) {
+			data.Reactions[i].ChancePct = reactions.DefaultChancePct
+		}
+		if !reactions.ValidCooldownSecs(data.Reactions[i].CooldownSecs) {
+			data.Reactions[i].CooldownSecs = 0
+		}
 	}
 	if err := replaceChatRows(tx, chatID, data.Reactions); err != nil {
 		return nil, err
 	}
-	return []string{cacheKey("reactions", chatID)}, nil
+	return []string{
+		cacheKey("reactions", chatID),
+		cacheKey("reaction_rules", chatID),
+	}, nil
 }
 
 func importReports(tx *gorm.DB, chatID int64, payload interface{}) ([]string, error) {
@@ -1093,6 +1110,7 @@ var moduleClearers = map[string]func(tx *gorm.DB, chatID int64) ([]string, error
 	BackupModuleFederations: clearFederations,
 	BackupModuleLogChannels: clearLogChannels,
 	BackupModuleMessages:    clearMessages,
+	BackupModulePresence:    clearPresence,
 }
 
 func clearModuleData(tx *gorm.DB, chatID int64, module string) ([]string, error) {
@@ -1226,7 +1244,10 @@ func clearPins(tx *gorm.DB, chatID int64) ([]string, error) {
 }
 
 func clearReactions(tx *gorm.DB, chatID int64) ([]string, error) {
-	return []string{cacheKey("reactions", chatID)}, replaceChatRows[models.Reactions](tx, chatID, nil)
+	return []string{
+		cacheKey("reactions", chatID),
+		cacheKey("reaction_rules", chatID),
+	}, replaceChatRows[models.Reactions](tx, chatID, nil)
 }
 
 func clearReports(tx *gorm.DB, chatID int64) ([]string, error) {
@@ -1401,4 +1422,69 @@ func clearMessages(tx *gorm.DB, chatID int64) ([]string, error) {
 		return nil, err
 	}
 	return []string{eventmsg.CacheKey(chatID)}, nil
+}
+
+func exportPresenceData(chatID int64) (*PresenceBackup, error) {
+	row, err := findChatSetting[models.ChatPresence](chatID)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return &PresenceBackup{}, nil
+	}
+	return &PresenceBackup{
+		Settings: &PresencePortableBackup{
+			ConsensusEnabled:   row.ConsensusEnabled,
+			ConsensusThreshold: int(row.ConsensusThreshold),
+			RetractEnabled:     row.RetractEnabled,
+			AIReactMode:        row.AIReactMode,
+			CatStickerEnabled:  row.CatStickerEnabled,
+			ArchiveEnabled:     row.ArchiveEnabled,
+			ArchiveThreshold:   int(row.ArchiveThreshold),
+			ArchiveEmojiMode:   row.ArchiveEmojiMode,
+			ArchiveDelivery:    row.ArchiveDelivery,
+		},
+	}, nil
+}
+
+// importPresence restores portable chat_presence settings without ever importing
+// archive_chat_id or archive_thread_id. When the imported settings enable archiving
+// and the target chat has no /setarchive target, archive_enabled is forced false and
+// report.ArchiveChannelSkipped is set.
+func importPresence(tx *gorm.DB, chatID int64, payload interface{}, report *ImportReport) ([]string, error) {
+	var data PresenceBackup
+	if err := decodeModuleData(payload, BackupModulePresence, &data); err != nil {
+		return nil, err
+	}
+	if data.Settings == nil {
+		return nil, nil
+	}
+	s := presence.Settings{
+		ConsensusEnabled:   data.Settings.ConsensusEnabled,
+		ConsensusThreshold: data.Settings.ConsensusThreshold,
+		RetractEnabled:     data.Settings.RetractEnabled,
+		AIReactMode:        data.Settings.AIReactMode,
+		CatStickerEnabled:  data.Settings.CatStickerEnabled,
+		ArchiveEnabled:     data.Settings.ArchiveEnabled,
+		ArchiveChatID:      0,
+		ArchiveThreadID:    0,
+		ArchiveThreshold:   data.Settings.ArchiveThreshold,
+		ArchiveEmojiMode:   data.Settings.ArchiveEmojiMode,
+		ArchiveDelivery:    data.Settings.ArchiveDelivery,
+	}
+	archiveSkipped, err := presence.ReplacePortableTx(tx, chatID, s, 0)
+	if err != nil {
+		return nil, err
+	}
+	if archiveSkipped {
+		report.ArchiveChannelSkipped = true
+	}
+	return []string{presence.CacheKey(chatID)}, nil
+}
+
+func clearPresence(tx *gorm.DB, chatID int64) ([]string, error) {
+	if err := presence.ClearTx(tx, chatID); err != nil {
+		return nil, err
+	}
+	return []string{presence.CacheKey(chatID)}, nil
 }
