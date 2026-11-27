@@ -17,13 +17,14 @@ func settingsPhase33Codes() []settingsPhase33Code {
 	return []settingsPhase33Code{
 		{settingsActPresenceHighlights, settingsPagePresence, nil},
 		{settingsActPresenceArchiveUnlink, settingsPagePresence, nil},
+		{settingsActPresenceRoom, settingsPagePresence, nil},
 	}
 }
 
-// TestPhase33Codes verifies that Phase 33 keeps len(settingsPages) == 31 and
-// settingsMainOwnerRows == 17 unchanged, registers ph and pu as actions on private-only
+// TestPhase33Codes verifies that Phase 33/34 keep len(settingsPages) == 31 and
+// settingsMainOwnerRows == 17 unchanged, register ph, pu, and pc as actions on private-only
 // page pr with zero collisions against core actions or other pages, and
-// refuses extra unknown fields or group-menu presses (u instead of c) in step 1 with 0
+// refuse extra unknown fields or group-menu presses (u instead of c) in step 1 with 0
 // getChatMember calls.
 func TestPhase33Codes(t *testing.T) {
 	allPages := []string{
@@ -79,6 +80,9 @@ func TestPhase33Codes(t *testing.T) {
 		settingsPresenceControlArchiveThreshold,
 		settingsPresenceControlArchiveEmoji,
 		settingsPresenceControlArchiveDelivery,
+		settingsPresenceControlAmbient,
+		settingsPresenceControlVocative,
+		settingsPresenceControlPMBrief,
 	} {
 		if _, ok := prPage.Controls[ctrl]; !ok {
 			t.Errorf("control %q missing from page %q Controls", ctrl, settingsPagePresence)
