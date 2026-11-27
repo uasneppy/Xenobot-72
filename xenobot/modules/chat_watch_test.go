@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 
 	"github.com/uasneppy/Xenobot-72/xenobot/db/chatconv"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/disabling"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/claude"
 )
 
@@ -429,5 +432,253 @@ func TestChatAskCommand(t *testing.T) {
 	}
 	if got := len(env.provider.calls()); got != 2 {
 		t.Fatalf("provider calls = %d, want 2", got)
+	}
+}
+
+func chatTopicMsg(env *chatEnv, from *gotgbot.User, threadID int64, text string) *gotgbot.Message {
+	msg := env.message(from, text)
+	if threadID > 0 {
+		msg.IsTopicMessage = true
+		msg.MessageThreadId = threadID
+	}
+	return msg
+}
+
+func chatTopicMention(env *chatEnv, from *gotgbot.User, threadID int64, text string) *gotgbot.Message {
+	msg := env.mention(from, text)
+	if threadID > 0 {
+		msg.IsTopicMessage = true
+		msg.MessageThreadId = threadID
+	}
+	return msg
+}
+
+func chatAmbientSection(userPrompt string) string {
+	const header = "[Recent room chatter in this topic, oldest first]\n"
+	idx := strings.Index(userPrompt, header)
+	if idx < 0 {
+		return ""
+	}
+	rest := userPrompt[idx+len(header):]
+	if end := strings.Index(rest, "\n\n["); end >= 0 {
+		return rest[:end]
+	}
+	return rest
+}
+
+// TestChatAmbientContext holds CHAT-02: Owner×Admin double-gating, Staff Group exclusion, strict
+// forum-topic isolation, chatAmbientContextLimit cap, and deduplication against chatReadHistory,
+// quotedMessageID, and triggering messageID.
+func TestChatAmbientContext(t *testing.T) {
+	t.Run("double-gating and staff group", func(t *testing.T) {
+		env := newChatEnv(t)
+		chatSwap(t, &chatCooldown, time.Millisecond)
+		conv := chatconv.Settings{Enabled: true, LogEnabled: true, Provider: chatconv.ProviderAnthropic, Audience: chatconv.AudienceEveryone}
+		pres := presence.Settings{AmbientContext: false}
+		var staffRow *models.StaffGroup
+		chatSwap(t, &chatSettingsLookup, func(context.Context, int64) (chatconv.Settings, error) { return conv, nil })
+		chatSwap(t, &presenceSettingsGet, func(context.Context, int64) (presence.Settings, error) { return pres, nil })
+		chatSwap(t, &presenceStaffLookup, func(int64) *models.StaffGroup { return staffRow })
+
+		alice, bob := env.member("Alice"), env.member("Bob")
+		// Seed a Topic A log entry via group 14 and directly.
+		env.deliver(chatTopicMsg(env, alice, 10, "topic-a chatter before"))
+
+		// 1. AmbientContext=false -> omitted.
+		env.deliver(chatTopicMention(env, bob, 10, "first ping"))
+		if sec := chatAmbientSection(env.provider.calls()[0].User); sec != "" {
+			t.Fatalf("AmbientContext=false leaked ambient section: %q", sec)
+		}
+
+		// 2. LogEnabled=false with AmbientContext=true -> omitted even if log entries exist in Redis.
+		conv.LogEnabled = false
+		pres.AmbientContext = true
+		env.mr.FastForward(time.Second)
+		env.deliver(chatTopicMention(env, bob, 10, "second ping"))
+		if sec := chatAmbientSection(env.provider.calls()[1].User); sec != "" {
+			t.Fatalf("LogEnabled=false leaked ambient section: %q", sec)
+		}
+
+		// 3. Staff Group with both enabled -> omitted.
+		conv.LogEnabled = true
+		staffRow = &models.StaffGroup{ChatID: env.chatID}
+		env.mr.FastForward(time.Second)
+		env.deliver(chatTopicMention(env, bob, 10, "third ping"))
+		if sec := chatAmbientSection(env.provider.calls()[2].User); sec != "" {
+			t.Fatalf("Staff Group leaked ambient section: %q", sec)
+		}
+	})
+
+	t.Run("topic isolation, deduplication, and cap", func(t *testing.T) {
+		env := newChatEnv(t)
+		chatSwap(t, &chatCooldown, time.Millisecond)
+		conv := chatconv.Settings{Enabled: true, LogEnabled: true, Provider: chatconv.ProviderAnthropic, Audience: chatconv.AudienceEveryone}
+		pres := presence.Settings{AmbientContext: true}
+		chatSwap(t, &chatSettingsLookup, func(context.Context, int64) (chatconv.Settings, error) { return conv, nil })
+		chatSwap(t, &presenceSettingsGet, func(context.Context, int64) (presence.Settings, error) { return pres, nil })
+		chatSwap(t, &presenceStaffLookup, func(int64) *models.StaffGroup { return nil })
+
+		alice, bob, carol := env.member("Alice"), env.member("Bob"), env.member("Carol")
+
+		// Prior @mention exchange in Topic A (stored in both chatReadHistory and chat_log).
+		prior := chatTopicMention(env, alice, 10, "prior mention in topic A")
+		env.deliver(prior)
+
+		// Deliver 10 messages across Topic A (Thread: 10), Topic B (Thread: 20), and General (Thread: 0).
+		for i := 1; i <= 5; i++ {
+			env.deliver(chatTopicMsg(env, bob, 10, fmt.Sprintf("topic-a line %d", i)))
+		}
+		for i := 1; i <= 3; i++ {
+			env.deliver(chatTopicMsg(env, carol, 20, fmt.Sprintf("topic-b secret %d", i)))
+		}
+		for i := 1; i <= 2; i++ {
+			env.deliver(chatTopicMsg(env, carol, 0, fmt.Sprintf("general secret %d", i)))
+		}
+		quoted := chatTopicMsg(env, bob, 10, "topic-a quoted line")
+		env.deliver(quoted)
+
+		// Triggering message in Topic A replying to quoted.
+		env.mr.FastForward(time.Second)
+		trigger := chatTopicMention(env, alice, 10, "triggering question")
+		trigger.ReplyToMessage = quoted
+		env.deliver(trigger)
+
+		calls := env.provider.calls()
+		if len(calls) != 2 {
+			t.Fatalf("provider calls = %d, want 2", len(calls))
+		}
+		userPrompt := calls[1].User
+		amb := chatAmbientSection(userPrompt)
+		if amb == "" {
+			t.Fatalf("expected [Recent room chatter in this topic, oldest first] in %q", userPrompt)
+		}
+		for i := 1; i <= 5; i++ {
+			want := fmt.Sprintf("Bob: topic-a line %d", i)
+			if !strings.Contains(amb, want) {
+				t.Fatalf("ambient %q missing %q", amb, want)
+			}
+		}
+		// Topic B and General must not appear anywhere in the prompt.
+		for _, forbidden := range []string{"topic-b secret", "general secret"} {
+			if strings.Contains(userPrompt, forbidden) {
+				t.Fatalf("prompt leaked other thread %q: %q", forbidden, userPrompt)
+			}
+		}
+		// Deduplication: prior mention, quoted message, and trigger must NOT appear in ambient section.
+		for _, dup := range []string{"prior mention in topic A", "topic-a quoted line", "triggering question"} {
+			if strings.Contains(amb, dup) {
+				t.Fatalf("ambient section duplicated %q: %q", dup, amb)
+			}
+		}
+		if !strings.Contains(userPrompt, "Alice: prior mention in topic A") {
+			t.Fatalf("expected prior mention in conversation history: %q", userPrompt)
+		}
+		if !strings.Contains(userPrompt, "Bob: topic-a quoted line") {
+			t.Fatalf("expected quoted message in reply context: %q", userPrompt)
+		}
+
+		// Exceed chatAmbientContextLimit (8) with 5 more Topic A lines (10+ unaddressed Topic A entries total).
+		for i := 6; i <= 10; i++ {
+			env.deliver(chatTopicMsg(env, bob, 10, fmt.Sprintf("topic-a line %d", i)))
+		}
+		env.mr.FastForward(time.Second)
+		env.deliver(chatTopicMention(env, alice, 10, "capped check"))
+		ambCapped := chatAmbientSection(env.provider.calls()[2].User)
+		lines := strings.Split(strings.TrimSpace(ambCapped), "\n")
+		if len(lines) > chatAmbientContextLimit {
+			t.Fatalf("ambient lines = %d, want <= %d: %q", len(lines), chatAmbientContextLimit, ambCapped)
+		}
+		// Oldest lines 1..2 should be outside the newest-8 window; lines 3..10 (or subset after trigger/prior) remain.
+		if strings.Contains(ambCapped, "topic-a line 1\n") || !strings.Contains(ambCapped, "topic-a line 10") {
+			t.Fatalf("ambient window unexpected: %q", ambCapped)
+		}
+	})
+}
+
+// TestChatVocativeAddressing holds CHAT-03: opt-in leading name addressing across EN/UK,
+// forward/audience/staff-group guards, and strict mutual exclusion with chatReactWatch.
+func TestChatVocativeAddressing(t *testing.T) {
+	env := newChatEnv(t)
+	chatSwap(t, &chatCooldown, time.Millisecond)
+	conv := chatconv.Settings{Enabled: true, Provider: chatconv.ProviderAnthropic, Audience: chatconv.AudienceEveryone}
+	pres := presence.Settings{VocativeEnabled: false, AIReactMode: presence.AIReactModeMedium}
+	var staffRow *models.StaffGroup
+	chatSwap(t, &chatSettingsLookup, func(context.Context, int64) (chatconv.Settings, error) { return conv, nil })
+	chatSwap(t, &presenceSettingsGet, func(context.Context, int64) (presence.Settings, error) { return pres, nil })
+	chatSwap(t, &presenceStaffLookup, func(int64) *models.StaffGroup { return staffRow })
+	chatSwap(t, &chatReactProfiles, map[string]chatReactProfile{
+		presence.AIReactModeMedium: {minGap: 1, chatCooldown: 0, userCooldown: 0, chancePct: 100},
+	})
+	chatSwap(t, &chatReactRoll, func(chancePct int) bool { return chancePct > 0 })
+	var reactJobs atomic.Int32
+	chatSwap(t, &chatReactProcess, func(chatReactJob) { reactJobs.Add(1) })
+
+	alice, bob, plain := env.member("Alice"), env.member("Bob"), env.member("Plain")
+
+	// 1. VocativeEnabled=false: no Conversations reply, falls through to chatReactWatch.
+	env.deliver(env.message(alice, "Xenobot, what's up?"))
+	if got := len(env.sends()); got != 0 {
+		t.Fatalf("VocativeEnabled=false sends = %d, want 0", got)
+	}
+	if got := reactJobs.Load(); got != 1 {
+		t.Fatalf("VocativeEnabled=false reactJobs = %d, want 1", got)
+	}
+
+	// 2. VocativeEnabled=true: EN and UK vocatives reply with stripped prefix and zero AI reactions.
+	pres.VocativeEnabled = true
+	env.mr.FastForward(time.Second)
+	env.deliver(env.message(alice, "Xenobot, check the reactor"))
+	env.mr.FastForward(time.Second)
+	env.deliver(env.message(bob, "Кзенобот, перевір реактор"))
+
+	if got := len(env.sends()); got != 2 {
+		t.Fatalf("vocative sends = %d, want 2", got)
+	}
+	if got := reactJobs.Load(); got != 1 {
+		t.Fatalf("vocative triggered AI reactions: reactJobs = %d, want still 1", got)
+	}
+	calls := env.provider.calls()
+	if !strings.Contains(calls[0].User, "Alice: check the reactor") || strings.Contains(calls[0].User, "Xenobot,") {
+		t.Fatalf("EN vocative prompt = %q, want stripped prefix", calls[0].User)
+	}
+	if !strings.Contains(calls[1].User, "Bob: перевір реактор") || strings.Contains(calls[1].User, "Кзенобот,") {
+		t.Fatalf("UK vocative prompt = %q, want stripped prefix", calls[1].User)
+	}
+
+	// 3. Forwarded message starting with "Xenobot, hi" is NOT treated as vocative (falls through to chatReactWatch).
+	fwd := env.message(alice, "Xenobot, hi")
+	fwd.ForwardOrigin = gotgbot.MessageOriginUser{Date: 1, SenderUser: *bob}
+	env.mr.FastForward(time.Second)
+	env.deliver(fwd)
+	if got := len(env.sends()); got != 2 {
+		t.Fatalf("forwarded sends = %d, want still 2", got)
+	}
+	if got := reactJobs.Load(); got != 2 {
+		t.Fatalf("forwarded reactJobs = %d, want 2", got)
+	}
+
+	// 4. AudienceAdminsApproved: non-approved member is silently ignored and does NOT trigger AI reaction.
+	conv.Audience = chatconv.AudienceAdminsApproved
+	chatSwap(t, &chatAudienceAdmin, func(*gotgbot.Bot, int64, int64) bool { return false })
+	chatSwap(t, &chatAudienceApproved, func(context.Context, int64, int64) (bool, error) { return false, nil })
+	env.mr.FastForward(time.Second)
+	env.deliver(env.message(plain, "Xenobot, hi"))
+	if got := len(env.sends()); got != 2 {
+		t.Fatalf("audience-rejected sends = %d, want still 2", got)
+	}
+	if got := reactJobs.Load(); got != 2 {
+		t.Fatalf("audience-rejected reactJobs = %d, want still 2", got)
+	}
+
+	// 5. Staff Group: zero replies and zero AI reactions.
+	conv.Audience = chatconv.AudienceEveryone
+	staffRow = &models.StaffGroup{ChatID: env.chatID}
+	env.mr.FastForward(time.Second)
+	env.deliver(env.message(alice, "Xenobot, hi"))
+	if got := len(env.sends()); got != 2 {
+		t.Fatalf("staff group sends = %d, want still 2", got)
+	}
+	if got := reactJobs.Load(); got != 2 {
+		t.Fatalf("staff group reactJobs = %d, want still 2", got)
 	}
 }
