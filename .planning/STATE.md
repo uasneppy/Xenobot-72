@@ -5,16 +5,16 @@ milestone_name: Interactive Presence
 current_phase: 33
 current_phase_name: Smarter Static Reactions, Highlights Archive and Backup Parity
 status: planning
-stopped_at: Phase 32 complete, ready to plan Phase 33
-last_updated: "2026-11-27T00:19:55.600Z"
+stopped_at: Completed 33-07-PLAN.md
+last_updated: "2026-11-27T07:10:53.747Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 32 complete, transitioned to Phase 33
-state_head: 5b81da10e0ba937777f8b500fb55a1260b88a3b2
+state_head: 5013f0c42c4d482a3af48962f1c5eed76ce88ca1
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 19
+  completed_plans: 18
   percent: 40
 ---
 
@@ -236,6 +236,7 @@ Progress: [████░░░░░░] 40%
 | Phase 32 P04 | 5 min | 3 tasks | 6 files |
 | Phase 32 P05 | 7 min | 3 tasks | 4 files |
 | Phase 32 P06 | 6 min | 3 tasks | 3 files |
+| Phase 33 P07 | 6 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -392,6 +393,8 @@ Recent decisions affecting current work:
 - [Phase 32]: 32-04: Placed AI reaction operational keys (:ai:gap, :ai:cd:chat) under presenceChatTag(chatID) outside xenobot:cache: alongside :cd:u:<user>, extracted cloned fail-closed presenceAllowedPalette reusing the 20m avail_react cache, and added bounded 50-entry topic-isolated chatLogRecentThread
 - [Phase 32]: 32-05: Wired dedicated 2-worker/32-cap chatPresenceQueue under StopChat with group 13 mutually exclusive chatReactWatch (zero operational Redis I/O on default/off groups), same-slot Redis Lua throttle preserving 24h retraction cooldown TTL, dedicated react:b hourly budget, read-only chatBreakers, and 24h Featherless text_only fallback
 - [Phase 32]: 32-06: Added 5-row Settings page pr [Off | Low | Medium] AI reactions control (t=ai) with fresh chatconv.GetFresh Owner×Admin double-gating, fail-closed cannotOpen on DB read error, unconditional Off disable, accurate Main state counting, and updated AGENTS.md with Phase 32 invariants
+- [Phase 33]: Refreshed ph in place when tapping the center value button of the ah stepper (a=ph) while reusing settingsStepperRow
+- [Phase 33]: Validated ph/pu action-code uniqueness against settingsCoreActions and other pages' Actions without colliding on settingsLockRows control codes
 
 ### Pending Todos
 
@@ -537,8 +540,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T00:16:55.780Z
-Stopped at: Phase 32 complete, ready to plan Phase 33
+Last session: 2026-11-27T07:10:53.626Z
+Stopped at: Completed 33-07-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
