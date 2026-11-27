@@ -56,9 +56,18 @@ var referendumDesc = helpers.CommandDescriptor{
 	RequiredChecks: []helpers.CheckFunc{helpers.CheckDisabled("referendum"), helpers.RequireGroup()},
 }
 
-// LoadChat registers /ask (alias /xeno), /unrollshort, /unrolllong, /judge, /referendum, the conversation watcher, alone at its own
-// handler group after every other group, with no setter (new messages of real users only), and the
-// message log watcher at the group after it.
+// inspectDesc is /inspect: everyone allowed by chat Audience may request a deadpan Facility
+// Inspection of a replied message, photo, or sticker when Owner Conversations and Admin Inspect
+// are both on.
+var inspectDesc = helpers.CommandDescriptor{
+	Name:           "inspect",
+	Disableable:    true,
+	RequiredChecks: []helpers.CheckFunc{helpers.CheckDisabled("inspect"), helpers.RequireGroup()},
+}
+
+// LoadChat registers /ask (alias /xeno), /unrollshort, /unrolllong, /judge, /referendum, /inspect,
+// the conversation watcher, alone at its own handler group after every other group, with no
+// setter (new messages of real users only), and the message log watcher at the group after it.
 func LoadChat(dispatcher *ext.Dispatcher) {
 	helpers.WrapCommand(dispatcher, helpers.CommandDescriptor{
 		Name:           "ask",
@@ -75,13 +84,14 @@ func LoadChat(dispatcher *ext.Dispatcher) {
 	helpers.WrapCommand(dispatcher, unrollLongDesc, chatModule.unrollLong)
 	helpers.WrapCommand(dispatcher, judgeDesc, chatModule.judgeCommand)
 	helpers.WrapCommand(dispatcher, referendumDesc, chatModule.referendumCommand)
+	helpers.WrapCommand(dispatcher, inspectDesc, chatModule.inspectCommand)
 	dispatcher.AddHandlerToGroup(handlers.NewMessage(message.All, chatModule.chatWatcher), chatWatchGroup)
 	// The log watcher is the only handler of its group. It sees edits, which the conversation
 	// watcher does not, and ends no update.
 	dispatcher.AddHandlerToGroup(handlers.NewMessage(message.All, chatModule.chatLogWatcher).SetAllowEdited(true), chatLogGroup)
 
 	SetModuleEnabled(chatModule.moduleName, true)
-	DefaultHelpRegistry().AltHelpOptions["Chat"] = []string{"conversations", "ask", "xeno", "unrollshort", "unrolllong", "judge", "messagelog", "referendum"}
+	DefaultHelpRegistry().AltHelpOptions["Chat"] = []string{"conversations", "ask", "xeno", "unrollshort", "unrolllong", "judge", "messagelog", "referendum", "inspect"}
 	log.Info("[Modules] Chat module loaded")
 }
 
