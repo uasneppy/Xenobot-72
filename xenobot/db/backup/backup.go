@@ -1446,6 +1446,8 @@ func exportPresenceData(chatID int64) (*PresenceBackup, error) {
 			AmbientContext:     row.AmbientContext,
 			VocativeEnabled:    row.VocativeEnabled,
 			PMBriefReact:       row.PMBriefReact,
+			ReferendumEnabled:  row.ReferendumEnabled,
+			InspectEnabled:     row.InspectEnabled,
 		},
 	}, nil
 }
@@ -1477,6 +1479,8 @@ func importPresence(tx *gorm.DB, chatID int64, payload interface{}, report *Impo
 		AmbientContext:     data.Settings.AmbientContext,
 		VocativeEnabled:    data.Settings.VocativeEnabled,
 		PMBriefReact:       data.Settings.PMBriefReact,
+		ReferendumEnabled:  data.Settings.ReferendumEnabled,
+		InspectEnabled:     data.Settings.InspectEnabled,
 	}
 	archiveSkipped, err := presence.ReplacePortableTx(tx, chatID, s, 0)
 	if err != nil {

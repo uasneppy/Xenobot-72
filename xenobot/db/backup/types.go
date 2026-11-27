@@ -249,6 +249,8 @@ type PresencePortableBackup struct {
 	AmbientContext     bool   `json:"ambient_context"`
 	VocativeEnabled    bool   `json:"vocative_enabled"`
 	PMBriefReact       bool   `json:"pm_brief_react"`
+	ReferendumEnabled  bool   `json:"referendum_enabled"`
+	InspectEnabled     bool   `json:"inspect_enabled"`
 }
 
 type PresenceBackup = SettingBackup[PresencePortableBackup]

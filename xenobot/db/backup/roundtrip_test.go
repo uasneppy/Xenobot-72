@@ -169,6 +169,8 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 		AmbientContext:     true,
 		VocativeEnabled:    false,
 		PMBriefReact:       true,
+		ReferendumEnabled:  true,
+		InspectEnabled:     false,
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.ChatPresence{
 		ChatID:             dstChat,
@@ -186,6 +188,8 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 		AmbientContext:     false,
 		VocativeEnabled:    true,
 		PMBriefReact:       false,
+		ReferendumEnabled:  false,
+		InspectEnabled:     true,
 	}).Error)
 
 	// Existing destination data must be replaced, not merged.
@@ -439,6 +443,8 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	assert.True(t, presenceData.Settings.AmbientContext)
 	assert.False(t, presenceData.Settings.VocativeEnabled)
 	assert.True(t, presenceData.Settings.PMBriefReact)
+	assert.True(t, presenceData.Settings.ReferendumEnabled)
+	assert.False(t, presenceData.Settings.InspectEnabled)
 
 	dstPresenceRow, err := findChatSetting[models.ChatPresence](dstChat)
 	require.NoError(t, err)

@@ -60,6 +60,8 @@ func TestBackupPresenceArchiveStripped(t *testing.T) {
 			AmbientContext:     true,
 			VocativeEnabled:    true,
 			PMBriefReact:       true,
+			ReferendumEnabled:  true,
+			InspectEnabled:     true,
 		}).Error)
 
 		// Prime destination cache before import so cache invalidation is verified.
@@ -95,6 +97,8 @@ func TestBackupPresenceArchiveStripped(t *testing.T) {
 		assert.True(t, got.AmbientContext)
 		assert.True(t, got.VocativeEnabled)
 		assert.True(t, got.PMBriefReact)
+		assert.True(t, got.ReferendumEnabled)
+		assert.True(t, got.InspectEnabled)
 	})
 
 	t.Run("tampered JSON archive target ignored on unlinked and linked targets", func(t *testing.T) {
@@ -155,6 +159,8 @@ func TestBackupPresenceArchiveStripped(t *testing.T) {
 		assert.False(t, unlinkedGot.AmbientContext)
 		assert.False(t, unlinkedGot.VocativeEnabled)
 		assert.False(t, unlinkedGot.PMBriefReact)
+		assert.False(t, unlinkedGot.ReferendumEnabled)
+		assert.False(t, unlinkedGot.InspectEnabled)
 
 		linkedReport, err := ImportChatDataReport(linkedChat, bkp, nil)
 		require.NoError(t, err)
@@ -169,6 +175,8 @@ func TestBackupPresenceArchiveStripped(t *testing.T) {
 		assert.False(t, linkedGot.AmbientContext)
 		assert.False(t, linkedGot.VocativeEnabled)
 		assert.False(t, linkedGot.PMBriefReact)
+		assert.False(t, linkedGot.ReferendumEnabled)
+		assert.False(t, linkedGot.InspectEnabled)
 	})
 
 	t.Run("nil settings leaves target untouched and ClearModuleData resets row and cache", func(t *testing.T) {
