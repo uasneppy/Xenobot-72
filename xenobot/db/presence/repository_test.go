@@ -56,6 +56,9 @@ func TestChatPresenceSettings(t *testing.T) {
 			ArchiveThreshold:   DefaultArchiveThreshold,
 			ArchiveEmojiMode:   ArchiveEmojiModePositive,
 			ArchiveDelivery:    ArchiveDeliveryCopy,
+			AmbientContext:     false,
+			VocativeEnabled:    false,
+			PMBriefReact:       false,
 		}
 		if Defaults() != want {
 			t.Fatalf("Defaults() = %+v, want %+v", Defaults(), want)
@@ -547,9 +550,146 @@ func TestChatPresenceSettings(t *testing.T) {
 			ArchiveThreshold:   DefaultArchiveThreshold,
 			ArchiveEmojiMode:   ArchiveEmojiModePositive,
 			ArchiveDelivery:    ArchiveDeliveryCopy,
+			AmbientContext:     false,
+			VocativeEnabled:    false,
+			PMBriefReact:       false,
 		}
 		if got, err := Get(ctx, chatID); err != nil || got != want {
 			t.Fatalf("pre-Phase-33 cached Get = %+v, %v, want %+v", got, err, want)
+		}
+	})
+
+	t.Run("SetAmbientContext, SetVocativeEnabled, SetPMBriefReact column-targeted upserts and cache invalidation", func(t *testing.T) {
+		utilsCache.SetupTestMemoryMarshaler(t)
+		chatID := newChat(t)
+		if _, err := Get(ctx, chatID); err != nil { // warm cache
+			t.Fatal(err)
+		}
+
+		// Set sibling columns first so we verify none are clobbered.
+		if err := SetConsensusEnabled(ctx, chatID, true, 60); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetRetractEnabled(ctx, chatID, false, 60); err != nil {
+			t.Fatal(err)
+		}
+
+		want := Defaults()
+		want.ConsensusEnabled = true
+		want.RetractEnabled = false
+
+		// Enable each Phase 34 toggle independently.
+		if err := SetAmbientContext(ctx, chatID, true, 61); err != nil {
+			t.Fatal(err)
+		}
+		want.AmbientContext = true
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetAmbientContext(true): Get = %+v, %v, want %+v", got, err, want)
+		}
+		if fresh, err := GetFresh(ctx, chatID); err != nil || fresh != want {
+			t.Fatalf("after SetAmbientContext(true): GetFresh = %+v, %v, want %+v", fresh, err, want)
+		}
+
+		if err := SetVocativeEnabled(ctx, chatID, true, 62); err != nil {
+			t.Fatal(err)
+		}
+		want.VocativeEnabled = true
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetVocativeEnabled(true): Get = %+v, %v, want %+v", got, err, want)
+		}
+		if fresh, err := GetFresh(ctx, chatID); err != nil || fresh != want {
+			t.Fatalf("after SetVocativeEnabled(true): GetFresh = %+v, %v, want %+v", fresh, err, want)
+		}
+
+		if err := SetPMBriefReact(ctx, chatID, true, 63); err != nil {
+			t.Fatal(err)
+		}
+		want.PMBriefReact = true
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetPMBriefReact(true): Get = %+v, %v, want %+v", got, err, want)
+		}
+		if fresh, err := GetFresh(ctx, chatID); err != nil || fresh != want {
+			t.Fatalf("after SetPMBriefReact(true): GetFresh = %+v, %v, want %+v", fresh, err, want)
+		}
+
+		// Disable each independently without clobbering siblings.
+		if err := SetVocativeEnabled(ctx, chatID, false, 64); err != nil {
+			t.Fatal(err)
+		}
+		want.VocativeEnabled = false
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetVocativeEnabled(false): Get = %+v, %v, want %+v", got, err, want)
+		}
+
+		if err := SetAmbientContext(ctx, chatID, false, 65); err != nil {
+			t.Fatal(err)
+		}
+		want.AmbientContext = false
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetAmbientContext(false): Get = %+v, %v, want %+v", got, err, want)
+		}
+
+		if err := SetPMBriefReact(ctx, chatID, false, 66); err != nil {
+			t.Fatal(err)
+		}
+		want.PMBriefReact = false
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetPMBriefReact(false): Get = %+v, %v, want %+v", got, err, want)
+		}
+		if fresh, err := GetFresh(ctx, chatID); err != nil || fresh != want {
+			t.Fatalf("after SetPMBriefReact(false): GetFresh = %+v, %v, want %+v", fresh, err, want)
+		}
+	})
+
+	t.Run("rolling-deploy cache normalization for pre-Phase-34 cached entries", func(t *testing.T) {
+		utilsCache.SetupTestMemoryMarshaler(t)
+		type prePhase34Settings struct {
+			ConsensusEnabled   bool   `msgpack:"ce"`
+			ConsensusThreshold int    `msgpack:"ct"`
+			RetractEnabled     bool   `msgpack:"re"`
+			AIReactMode        string `msgpack:"ar"`
+			CatStickerEnabled  bool   `msgpack:"cs"`
+			ArchiveEnabled     bool   `msgpack:"ae"`
+			ArchiveChatID      int64  `msgpack:"ac"`
+			ArchiveThreadID    int64  `msgpack:"at"`
+			ArchiveThreshold   int    `msgpack:"ah"`
+			ArchiveEmojiMode   string `msgpack:"am"`
+			ArchiveDelivery    string `msgpack:"ad"`
+		}
+		chatID := newChat(t)
+		if err := utilsCache.GetMarshal().Set(ctx, CacheKey(chatID), prePhase34Settings{
+			ConsensusEnabled:   true,
+			ConsensusThreshold: 4,
+			RetractEnabled:     false,
+			AIReactMode:        AIReactModeMedium,
+			CatStickerEnabled:  true,
+			ArchiveEnabled:     true,
+			ArchiveChatID:      -100111222,
+			ArchiveThreadID:    5,
+			ArchiveThreshold:   10,
+			ArchiveEmojiMode:   ArchiveEmojiModeAll,
+			ArchiveDelivery:    ArchiveDeliveryForward,
+		}); err != nil {
+			t.Fatalf("seed pre-Phase-34 cache: %v", err)
+		}
+		want := Settings{
+			ConsensusEnabled:   true,
+			ConsensusThreshold: 4,
+			RetractEnabled:     false,
+			AIReactMode:        AIReactModeMedium,
+			CatStickerEnabled:  true,
+			ArchiveEnabled:     true,
+			ArchiveChatID:      -100111222,
+			ArchiveThreadID:    5,
+			ArchiveThreshold:   10,
+			ArchiveEmojiMode:   ArchiveEmojiModeAll,
+			ArchiveDelivery:    ArchiveDeliveryForward,
+			AmbientContext:     false,
+			VocativeEnabled:    false,
+			PMBriefReact:       false,
+		}
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("pre-Phase-34 cached Get = %+v, %v, want %+v", got, err, want)
 		}
 	})
 
@@ -597,6 +737,9 @@ func TestChatPresenceSettings(t *testing.T) {
 				ArchiveThreshold:   1,          // normalizes to DefaultArchiveThreshold
 				ArchiveEmojiMode:   "",         // normalizes to positive
 				ArchiveDelivery:    "bad",      // normalizes to copy
+				AmbientContext:     true,
+				VocativeEnabled:    true,
+				PMBriefReact:       true,
 			}, 50)
 			return txErr
 		})
@@ -622,6 +765,9 @@ func TestChatPresenceSettings(t *testing.T) {
 			ArchiveThreshold:   DefaultArchiveThreshold,
 			ArchiveEmojiMode:   ArchiveEmojiModePositive,
 			ArchiveDelivery:    ArchiveDeliveryCopy,
+			AmbientContext:     true,
+			VocativeEnabled:    true,
+			PMBriefReact:       true,
 		}
 		if gotUnlinked != wantUnlinked {
 			t.Fatalf("unlinked after ReplacePortableTx = %+v, want %+v", gotUnlinked, wantUnlinked)
@@ -630,6 +776,9 @@ func TestChatPresenceSettings(t *testing.T) {
 		// Target with existing archive target preserves archive_chat_id and archive_thread_id.
 		linkedChat := newChat(t)
 		if err := SetArchiveTarget(ctx, linkedChat, -100777666, 12, 51); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetVocativeEnabled(ctx, linkedChat, true, 51); err != nil {
 			t.Fatal(err)
 		}
 		err = db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -646,6 +795,9 @@ func TestChatPresenceSettings(t *testing.T) {
 				ArchiveThreshold:   15,
 				ArchiveEmojiMode:   ArchiveEmojiModeAll,
 				ArchiveDelivery:    ArchiveDeliveryForward,
+				AmbientContext:     true,
+				VocativeEnabled:    false, // must overwrite existing true with false
+				PMBriefReact:       true,
 			}, 52)
 			return txErr
 		})
@@ -671,6 +823,9 @@ func TestChatPresenceSettings(t *testing.T) {
 			ArchiveThreshold:   15,
 			ArchiveEmojiMode:   ArchiveEmojiModeAll,
 			ArchiveDelivery:    ArchiveDeliveryForward,
+			AmbientContext:     true,
+			VocativeEnabled:    false,
+			PMBriefReact:       true,
 		}
 		if gotLinked != wantLinked {
 			t.Fatalf("linked after ReplacePortableTx = %+v, want %+v", gotLinked, wantLinked)

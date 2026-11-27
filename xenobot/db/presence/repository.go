@@ -64,11 +64,15 @@ type Settings struct {
 	ArchiveThreshold   int    `msgpack:"ah"`
 	ArchiveEmojiMode   string `msgpack:"am"`
 	ArchiveDelivery    string `msgpack:"ad"`
+	AmbientContext     bool   `msgpack:"ax"`
+	VocativeEnabled    bool   `msgpack:"ve"`
+	PMBriefReact       bool   `msgpack:"pb"`
 }
 
 // Defaults returns the settings of a chat with no row: Emoji Consensus off with threshold 3,
 // thumbs-down retraction on, Contextual AI Emoji Reactions off, Cat-Sticker Micro-Triggers off,
-// and Highlights Archive off (threshold 5, positive emojis, copy delivery).
+// Highlights Archive off (threshold 5, positive emojis, copy delivery), Ambient Room Context off,
+// Vocative Name-Addressing off, and PM Brief Reaction off.
 func Defaults() Settings {
 	return Settings{
 		ConsensusEnabled:   false,
@@ -82,6 +86,9 @@ func Defaults() Settings {
 		ArchiveThreshold:   DefaultArchiveThreshold,
 		ArchiveEmojiMode:   ArchiveEmojiModePositive,
 		ArchiveDelivery:    ArchiveDeliveryCopy,
+		AmbientContext:     false,
+		VocativeEnabled:    false,
+		PMBriefReact:       false,
 	}
 }
 
@@ -196,6 +203,9 @@ func GetFresh(ctx context.Context, chatID int64) (Settings, error) {
 		ArchiveThreshold:   int(row.ArchiveThreshold),
 		ArchiveEmojiMode:   row.ArchiveEmojiMode,
 		ArchiveDelivery:    row.ArchiveDelivery,
+		AmbientContext:     row.AmbientContext,
+		VocativeEnabled:    row.VocativeEnabled,
+		PMBriefReact:       row.PMBriefReact,
 	}), nil
 }
 
@@ -324,6 +334,27 @@ func SetArchiveDelivery(ctx context.Context, chatID int64, delivery string, by i
 	return upsertColumns(ctx, row, []string{"archive_delivery"})
 }
 
+// SetAmbientContext writes ambient_context with one column-targeted upsert and drops the cache key.
+func SetAmbientContext(ctx context.Context, chatID int64, enabled bool, by int64) error {
+	row := defaultRow(chatID, by)
+	row.AmbientContext = enabled
+	return upsertColumns(ctx, row, []string{"ambient_context"})
+}
+
+// SetVocativeEnabled writes vocative_enabled with one column-targeted upsert and drops the cache key.
+func SetVocativeEnabled(ctx context.Context, chatID int64, enabled bool, by int64) error {
+	row := defaultRow(chatID, by)
+	row.VocativeEnabled = enabled
+	return upsertColumns(ctx, row, []string{"vocative_enabled"})
+}
+
+// SetPMBriefReact writes pm_brief_react with one column-targeted upsert and drops the cache key.
+func SetPMBriefReact(ctx context.Context, chatID int64, enabled bool, by int64) error {
+	row := defaultRow(chatID, by)
+	row.PMBriefReact = enabled
+	return upsertColumns(ctx, row, []string{"pm_brief_react"})
+}
+
 // TryClaimArchived durably claims (chatID, msgID) in chat_presence_archived via ON CONFLICT DO
 // NOTHING, returning true iff this caller inserted the row.
 func TryClaimArchived(ctx context.Context, chatID, msgID int64) (bool, error) {
@@ -386,6 +417,9 @@ func ReplacePortableTx(tx *gorm.DB, chatID int64, s Settings, by int64) (archive
 		ArchiveThreshold:   int16(norm.ArchiveThreshold), // #nosec G115 -- normalized to 2..50
 		ArchiveEmojiMode:   norm.ArchiveEmojiMode,
 		ArchiveDelivery:    norm.ArchiveDelivery,
+		AmbientContext:     norm.AmbientContext,
+		VocativeEnabled:    norm.VocativeEnabled,
+		PMBriefReact:       norm.PMBriefReact,
 		UpdatedBy:          by,
 		UpdatedAt:          time.Now(),
 	}
@@ -399,6 +433,9 @@ func ReplacePortableTx(tx *gorm.DB, chatID int64, s Settings, by int64) (archive
 		"archive_threshold",
 		"archive_emoji_mode",
 		"archive_delivery",
+		"ambient_context",
+		"vocative_enabled",
+		"pm_brief_react",
 	}
 	if err := upsertColumnsTx(tx, row, portableCols); err != nil {
 		return false, err
@@ -433,6 +470,9 @@ func defaultRow(chatID, by int64) *models.ChatPresence {
 		ArchiveThreshold:   int16(d.ArchiveThreshold), // #nosec G115 -- DefaultArchiveThreshold is 5
 		ArchiveEmojiMode:   d.ArchiveEmojiMode,
 		ArchiveDelivery:    d.ArchiveDelivery,
+		AmbientContext:     d.AmbientContext,
+		VocativeEnabled:    d.VocativeEnabled,
+		PMBriefReact:       d.PMBriefReact,
 		UpdatedBy:          by,
 		UpdatedAt:          time.Now(),
 	}
