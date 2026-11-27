@@ -51,9 +51,19 @@ func settingsPresenceRows(t *testing.T, chatID int64) int64 {
 
 func settingsPresenceOpenPrivate(t *testing.T, env *settingsEnv, user gotgbot.User) int64 {
 	t.Helper()
-	env.sendPrivate(user, fmt.Sprintf("/start settings_%d", env.chat.Id))
-	msgID := settingsPrivateOnlySent(t, env, user).MessageID
-	env.pressPrivate(user, msgID, env.privateFields(env.chat.Id, "a", settingsActOpen, "p", settingsPagePresence))
+	return settingsPresenceOpenPrivateForChat(t, env, user, env.chat.Id)
+}
+
+func settingsPresenceOpenPrivateForChat(t *testing.T, env *settingsEnv, user gotgbot.User, chatID int64) int64 {
+	t.Helper()
+	before := len(env.fake.sentTo(user.Id))
+	env.sendPrivate(user, fmt.Sprintf("/start settings_%d", chatID))
+	sent := env.fake.sentTo(user.Id)
+	if len(sent) != before+1 {
+		t.Fatalf("the bot sent %d new messages to the private chat, want 1", len(sent)-before)
+	}
+	msgID := sent[len(sent)-1].MessageID
+	env.pressPrivate(user, msgID, env.privateFields(chatID, "a", settingsActOpen, "p", settingsPagePresence))
 	return msgID
 }
 
@@ -61,13 +71,13 @@ func TestSettingsPresenceCallbackBytes(t *testing.T) {
 	withRealLocales(t)
 	tr := i18n.MustNewTranslator("en")
 	view := settingsView{
-		Tr: tr, Private: true, OwnerKey: "c", OwnerValue: "-1001234567890",
-		GroupID: -1001234567890, GroupTitle: "G", OpenerName: "N", Owner: true,
+		Tr: tr, Private: true, OwnerKey: "c", OwnerValue: "-1009999999999999",
+		GroupID: -1009999999999999, GroupTitle: "G", OpenerName: "N", Owner: true,
 	}
 	baseStates := []presence.Settings{
 		{ConsensusEnabled: false, ConsensusThreshold: 2, RetractEnabled: false},
-		{ConsensusEnabled: true, ConsensusThreshold: 3, RetractEnabled: true},
-		{ConsensusEnabled: true, ConsensusThreshold: 20, RetractEnabled: false},
+		{ConsensusEnabled: true, ConsensusThreshold: 3, RetractEnabled: true, CatStickerEnabled: true},
+		{ConsensusEnabled: true, ConsensusThreshold: 20, RetractEnabled: false, ArchiveEnabled: true, ArchiveChatID: -100777888999},
 	}
 	for _, base := range baseStates {
 		for _, aiMode := range []string{presence.AIReactModeOff, presence.AIReactModeLow, presence.AIReactModeMedium} {
@@ -75,17 +85,50 @@ func TestSettingsPresenceCallbackBytes(t *testing.T) {
 				stored := base
 				stored.AIReactMode = aiMode
 				screen := renderSettingsPresence(view, stored, convUnlocked, "")
-				label := fmt.Sprintf("cons=%t retract=%t thr=%d ai=%s unlocked=%t",
-					stored.ConsensusEnabled, stored.RetractEnabled, stored.ConsensusThreshold, aiMode, convUnlocked)
+				label := fmt.Sprintf("cons=%t retract=%t thr=%d ai=%s cat=%t arch=%t unlocked=%t",
+					stored.ConsensusEnabled, stored.RetractEnabled, stored.ConsensusThreshold, aiMode, stored.CatStickerEnabled, stored.ArchiveEnabled, convUnlocked)
 				if screen.Omitted != 0 {
 					t.Errorf("%s omitted %d buttons", label, screen.Omitted)
 				}
-				if got := len(screen.Keyboard.InlineKeyboard); got != 5 {
-					t.Errorf("%s rows = %d, want 5", label, got)
+				if got := len(screen.Keyboard.InlineKeyboard); got != 7 {
+					t.Errorf("%s rows = %d, want 7", label, got)
 				}
 				for _, button := range settingsAllButtons(screen.Keyboard.InlineKeyboard) {
 					if n := len(button.CallbackData); n < 1 || n > 64 {
 						t.Errorf("%s button %q has %d bytes", label, button.Text, n)
+					}
+				}
+			}
+		}
+	}
+
+	for _, targetID := range []int64{0, -100777888999} {
+		for _, thr := range []int{2, 5, 50} {
+			for _, emojiMode := range []string{presence.ArchiveEmojiModePositive, presence.ArchiveEmojiModeAll} {
+				for _, delivery := range []string{presence.ArchiveDeliveryCopy, presence.ArchiveDeliveryForward} {
+					stored := presence.Settings{
+						ArchiveEnabled:   targetID != 0,
+						ArchiveChatID:    targetID,
+						ArchiveThreadID:  42,
+						ArchiveThreshold: thr,
+						ArchiveEmojiMode: emojiMode,
+						ArchiveDelivery:  delivery,
+					}
+					screen := renderSettingsPresenceArchive(view, stored, "")
+					wantRows := 5
+					if targetID != 0 {
+						wantRows = 6
+					}
+					if screen.Omitted != 0 {
+						t.Errorf("ph target=%d omitted %d buttons", targetID, screen.Omitted)
+					}
+					if got := len(screen.Keyboard.InlineKeyboard); got != wantRows {
+						t.Errorf("ph target=%d rows = %d, want %d", targetID, got, wantRows)
+					}
+					for _, button := range settingsAllButtons(screen.Keyboard.InlineKeyboard) {
+						if n := len(button.CallbackData); n < 1 || n > 64 {
+							t.Errorf("ph target=%d button %q has %d bytes", targetID, button.Text, n)
+						}
 					}
 				}
 			}
@@ -101,15 +144,29 @@ func TestSettingsPresencePageFitsEveryLocale(t *testing.T) {
 		convUnlocked bool
 	}{
 		{
-			stored:       presence.Settings{ConsensusEnabled: false, ConsensusThreshold: 2, RetractEnabled: false, AIReactMode: presence.AIReactModeOff},
+			stored: presence.Settings{
+				ConsensusEnabled: false, ConsensusThreshold: 2, RetractEnabled: false,
+				AIReactMode: presence.AIReactModeOff, CatStickerEnabled: false,
+				ArchiveThreshold: 2, ArchiveEmojiMode: presence.ArchiveEmojiModePositive, ArchiveDelivery: presence.ArchiveDeliveryCopy,
+			},
 			convUnlocked: false,
 		},
 		{
-			stored:       presence.Settings{ConsensusEnabled: true, ConsensusThreshold: 20, RetractEnabled: true, AIReactMode: presence.AIReactModeMedium},
+			stored: presence.Settings{
+				ConsensusEnabled: true, ConsensusThreshold: 20, RetractEnabled: true,
+				AIReactMode: presence.AIReactModeMedium, CatStickerEnabled: true,
+				ArchiveEnabled: true, ArchiveChatID: -1009999999999999, ArchiveThreadID: 12345,
+				ArchiveThreshold: 50, ArchiveEmojiMode: presence.ArchiveEmojiModeAll, ArchiveDelivery: presence.ArchiveDeliveryForward,
+			},
 			convUnlocked: false,
 		},
 		{
-			stored:       presence.Settings{ConsensusEnabled: true, ConsensusThreshold: 20, RetractEnabled: true, AIReactMode: presence.AIReactModeMedium},
+			stored: presence.Settings{
+				ConsensusEnabled: true, ConsensusThreshold: 20, RetractEnabled: true,
+				AIReactMode: presence.AIReactModeMedium, CatStickerEnabled: true,
+				ArchiveEnabled: true, ArchiveChatID: -1009999999999999, ArchiveThreadID: 0,
+				ArchiveThreshold: 5, ArchiveEmojiMode: presence.ArchiveEmojiModePositive, ArchiveDelivery: presence.ArchiveDeliveryCopy,
+			},
 			convUnlocked: true,
 		},
 	}
@@ -118,23 +175,33 @@ func TestSettingsPresencePageFitsEveryLocale(t *testing.T) {
 			tr := i18n.MustNewTranslator(code)
 			notice := settingsNoticeWarn(settingsText(tr, "common_settings_save_failed"))
 			view := settingsView{
-				Tr: tr, Private: true, OwnerKey: "c", OwnerValue: "-1001234567890",
-				GroupID: -1001234567890, GroupTitle: title, OpenerName: "N", Owner: true,
+				Tr: tr, Private: true, OwnerKey: "c", OwnerValue: "-1009999999999999",
+				GroupID: -1009999999999999, GroupTitle: title, OpenerName: "N", Owner: true,
 			}
 			for _, tc := range cases {
-				screen := renderSettingsPresence(view, tc.stored, tc.convUnlocked, notice)
-				if screen.Omitted != 0 {
-					t.Errorf("omitted %d buttons", screen.Omitted)
-				}
-				if rows := len(screen.Keyboard.InlineKeyboard); rows > 8 {
-					t.Errorf("page has %d rows, want <= 8", rows)
-				}
-				if got := panelUTF16Len(screen.Text); got > 3800 {
-					t.Errorf("screen is %d UTF-16 units, want <= 3800", got)
-				}
-				for _, button := range settingsAllButtons(screen.Keyboard.InlineKeyboard) {
-					if n := utf8.RuneCountInString(button.Text); n == 0 || n > 40 {
-						t.Errorf("button %q is %d code points, want 1..40", button.Text, n)
+				for _, screen := range []settingsScreen{
+					renderSettingsPresence(view, tc.stored, tc.convUnlocked, notice),
+					renderSettingsPresenceArchive(view, tc.stored, notice),
+				} {
+					if screen.Omitted != 0 {
+						t.Errorf("omitted %d buttons", screen.Omitted)
+					}
+					if rows := len(screen.Keyboard.InlineKeyboard); rows > 8 {
+						t.Errorf("page has %d rows, want <= 8", rows)
+					}
+					if got := panelUTF16Len(screen.Text); got > 3800 {
+						t.Errorf("screen is %d UTF-16 units, want <= 3800", got)
+					}
+					for _, row := range screen.Keyboard.InlineKeyboard {
+						maxRunes := 40
+						if len(row) == 2 {
+							maxRunes = 20
+						}
+						for _, button := range row {
+							if n := utf8.RuneCountInString(button.Text); n == 0 || n > maxRunes {
+								t.Errorf("button %q (row len %d) is %d code points, want 1..%d", button.Text, len(row), n, maxRunes)
+							}
+						}
 					}
 				}
 			}
@@ -453,8 +520,8 @@ func TestSettingsPresenceFlows(t *testing.T) {
 		if !strings.Contains(lockedText, staffMarker("settings_pr_ai_line")) || !strings.Contains(lockedText, staffMarker("settings_pr_ai_locked_note")) {
 			t.Fatalf("locked page pr missing AI line or locked note:\n%s", lockedText)
 		}
-		if len(lockedKB) != 5 {
-			t.Fatalf("page pr keyboard rows = %d, want 5", len(lockedKB))
+		if len(lockedKB) != 7 {
+			t.Fatalf("page pr keyboard rows = %d, want 7", len(lockedKB))
 		}
 		for _, code := range []string{"l", "m"} {
 			env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlAIReact, "v", code))
@@ -572,6 +639,348 @@ func TestSettingsPresenceFlows(t *testing.T) {
 		}
 		if reads.Load() != 0 {
 			t.Errorf("forged t=ai presses called settingsPresenceRead %d times, want 0", reads.Load())
+		}
+	})
+
+	// 7. Cat Stickers toggle (cs) and Main state counting.
+	t.Run("cat_stickers_toggle_idempotency_and_main_state", func(t *testing.T) {
+		catChat := env.addChat()
+		settingsPresenceCleanup(t, catChat.Id)
+		env.fake.setMemberRaw(catChat.Id, owner.Id, copyCreatorJSON(owner.Id))
+		env.fake.setCreator(catChat.Id, owner.Id)
+
+		msgID := settingsPresenceOpenPrivateForChat(t, env, owner, catChat.Id)
+		prText, prKB := env.lastEdit(owner.Id, msgID)
+		for _, want := range []string{"settings_pr_cat_line", "settings_pr_archive_line"} {
+			if !strings.Contains(prText, staffMarker(want)) {
+				t.Fatalf("page pr missing %s:\n%s", want, prText)
+			}
+		}
+
+		catOn, ok := settingsChatFind(t, prKB, func(f map[string]string) bool {
+			return f["a"] == settingsActToggle && f["t"] == settingsPresenceControlCatSticker
+		})
+		if !ok || settingsButtonFields(t, catOn)["v"] != "1" {
+			t.Fatalf("cat sticker toggle missing v=1: %+v", prKB)
+		}
+		env.pressRaw(privateOwner, owner, msgID, catOn.CallbackData)
+		if got := settingsPresenceStored(t, catChat.Id); !got.CatStickerEnabled {
+			t.Fatalf("cat sticker on did not persist: %+v", got)
+		}
+
+		// Main state counts CatStickerEnabled=true + RetractEnabled=true => 2 on.
+		env.pressPrivate(owner, msgID, env.privateFields(catChat.Id, "a", settingsActBack))
+		mainText, _ := env.lastEdit(owner.Id, msgID)
+		if line, ok := settingsMainStateLine(mainText, "settings_page_presence"); !ok || !strings.Contains(line, staffMarker("settings_state_presence_on")+" 2") {
+			t.Errorf("Main state with cat stickers on = %q (found=%v), want 2 on", line, ok)
+		}
+
+		// Idempotent press writes nothing.
+		var writeCalls atomic.Int32
+		origCat := presenceWrites.CatStickerEnabled
+		presenceWrites.CatStickerEnabled = func(ctx context.Context, chatID int64, enabled bool, by int64) error {
+			writeCalls.Add(1)
+			return origCat(ctx, chatID, enabled, by)
+		}
+		t.Cleanup(func() { presenceWrites.CatStickerEnabled = origCat })
+
+		env.pressRaw(privateOwner, owner, msgID, catOn.CallbackData)
+		if writeCalls.Load() != 0 {
+			t.Errorf("idempotent cs press made %d writes, want 0", writeCalls.Load())
+		}
+
+		// Write failure shows common_settings_save_failed notice.
+		presenceWrites.CatStickerEnabled = func(context.Context, int64, bool, int64) error {
+			return errors.New("cat db fail")
+		}
+		env.pressPrivate(owner, msgID, env.privateFields(catChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlCatSticker, "v", "0"))
+		errText, _ := env.lastEdit(owner.Id, msgID)
+		if !strings.Contains(errText, staffMarker("common_settings_save_failed")) {
+			t.Errorf("cat write error screen = %q, want common_settings_save_failed", errText)
+		}
+		presenceWrites.CatStickerEnabled = origCat
+
+		// Toggle off succeeds.
+		env.pressPrivate(owner, msgID, env.privateFields(catChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlCatSticker, "v", "0"))
+		if got := settingsPresenceStored(t, catChat.Id); got.CatStickerEnabled {
+			t.Fatalf("cat sticker off did not persist: %+v", got)
+		}
+	})
+
+	// 8. Highlights Archive sub-page (ph / pu + ae, ah, ap, ad), rights, unlinked refusal,
+	//    group-menu & Staff Group refusals, and forged inputs.
+	t.Run("highlights_archive_subpage_flows_and_guards", func(t *testing.T) {
+		archChat := env.addChat()
+		settingsPresenceCleanup(t, archChat.Id)
+		env.fake.setMemberRaw(archChat.Id, owner.Id, copyCreatorJSON(owner.Id))
+		env.fake.setCreator(archChat.Id, owner.Id)
+		env.setAdminsAllowed(archChat.Id, true)
+
+		allowedAdmin := gotgbot.User{Id: env.admin.Id + 30, FirstName: "ArchAllowedAdmin"}
+		env.fake.setMemberRaw(archChat.Id, allowedAdmin.Id, copyAdminJSON(allowedAdmin.Id, true, false))
+		deniedAdmin := gotgbot.User{Id: env.admin.Id + 31, FirstName: "ArchDeniedAdmin"}
+		env.fake.setMemberRaw(archChat.Id, deniedAdmin.Id, copyAdminJSON(deniedAdmin.Id, false, true))
+
+		// Open pr and tap Highlights Archive button (a=ph) on unlinked chat: 0 DB rows created.
+		msgID := settingsPresenceOpenPrivateForChat(t, env, owner, archChat.Id)
+		_, prKB := env.lastEdit(owner.Id, msgID)
+		archBtn, ok := settingsChatFind(t, prKB, func(f map[string]string) bool {
+			return f["a"] == settingsActPresenceHighlights
+		})
+		if !ok {
+			t.Fatalf("page pr missing a=ph button: %+v", prKB)
+		}
+		env.pressRaw(privateOwner, owner, msgID, archBtn.CallbackData)
+
+		phText, phKB := env.lastEdit(owner.Id, msgID)
+		for _, want := range []string{
+			"settings_ph_title", "settings_ph_intro", "settings_ph_status_line",
+			"settings_ph_target_none", "settings_ph_threshold_line",
+			"settings_ph_filter_line", "settings_ph_delivery_line", "settings_ph_hint",
+		} {
+			if !strings.Contains(phText, staffMarker(want)) {
+				t.Fatalf("unlinked ph screen missing %s:\n%s", want, phText)
+			}
+		}
+		if _, hasUnlink := settingsChatFind(t, phKB, func(f map[string]string) bool {
+			return f["a"] == settingsActPresenceArchiveUnlink
+		}); hasUnlink {
+			t.Error("unlinked ph screen unexpectedly shows pu unlink button")
+		}
+		if settingsPresenceRows(t, archChat.Id) != 0 {
+			t.Fatal("opening ph created a database row")
+		}
+
+		// Trying to enable ae when unlinked alerts settings_ph_need_target and writes 0 DB rows.
+		aeOnBtn, ok := settingsChatFind(t, phKB, func(f map[string]string) bool {
+			return f["a"] == settingsActToggle && f["t"] == settingsPresenceControlArchiveEnabled && f["v"] == "1"
+		})
+		if !ok {
+			t.Fatalf("ph missing ae v=1 button: %+v", phKB)
+		}
+		env.pressRaw(privateOwner, owner, msgID, aeOnBtn.CallbackData)
+		if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker("settings_ph_need_target")) {
+			t.Errorf("enabling unlinked archive answered (%q, alert=%v), want settings_ph_need_target alert", ans, alert)
+		}
+		if settingsPresenceRows(t, archChat.Id) != 0 {
+			t.Fatal("enabling unlinked archive wrote a database row")
+		}
+
+		// Link destination via SetArchiveTarget; verify linked state, controls, and Main state.
+		const targetChatID int64 = -100777888999
+		const targetThreadID int64 = 42
+		if err := presence.SetArchiveTarget(context.Background(), archChat.Id, targetChatID, targetThreadID, owner.Id); err != nil {
+			t.Fatalf("presence.SetArchiveTarget = %v", err)
+		}
+		env.pressRaw(privateOwner, owner, msgID, archBtn.CallbackData)
+		linkedText, linkedKB := env.lastEdit(owner.Id, msgID)
+		if !strings.Contains(linkedText, staffMarker("settings_ph_target_linked")) || !strings.Contains(linkedText, "-100777888999/42") {
+			t.Fatalf("linked ph screen missing target display:\n%s", linkedText)
+		}
+		if _, hasUnlink := settingsChatFind(t, linkedKB, func(f map[string]string) bool {
+			return f["a"] == settingsActPresenceArchiveUnlink
+		}); !hasUnlink {
+			t.Fatal("linked ph screen missing pu unlink button")
+		}
+
+		// Main state counts RetractEnabled (true) + active Archive => 2 on.
+		env.pressPrivate(owner, msgID, env.privateFields(archChat.Id, "a", settingsActBack))
+		mainLinked, _ := env.lastEdit(owner.Id, msgID)
+		if line, ok := settingsMainStateLine(mainLinked, "settings_page_presence"); !ok || !strings.Contains(line, staffMarker("settings_state_presence_on")+" 2") {
+			t.Errorf("Main state with active archive = %q (found=%v), want 2 on", line, ok)
+		}
+
+		// Re-open ph and toggle ae off -> on.
+		env.pressRaw(privateOwner, owner, msgID, archBtn.CallbackData)
+		env.pressPrivate(owner, msgID, env.privateFields(archChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlArchiveEnabled, "v", "0"))
+		if got := settingsPresenceStored(t, archChat.Id); got.ArchiveEnabled {
+			t.Fatalf("after ae=0: ArchiveEnabled=true, want false")
+		}
+		env.pressPrivate(owner, msgID, env.privateFields(archChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlArchiveEnabled, "v", "1"))
+		if got := settingsPresenceStored(t, archChat.Id); !got.ArchiveEnabled {
+			t.Fatalf("after ae=1: ArchiveEnabled=false, want true")
+		}
+
+		// Step threshold ah: 5 -> 6 (+1) -> 2 (-5 clamped) -> 50 (direct).
+		_, kb := env.lastEdit(owner.Id, msgID)
+		step6, ok := settingsChatFind(t, kb, func(f map[string]string) bool {
+			return f["a"] == settingsActSet && f["t"] == settingsPresenceControlArchiveThreshold && f["v"] == "6"
+		})
+		if !ok {
+			t.Fatalf("ph stepper missing +1 (v=6): %+v", kb)
+		}
+		env.pressRaw(privateOwner, owner, msgID, step6.CallbackData)
+		if got := settingsPresenceStored(t, archChat.Id); got.ArchiveThreshold != 6 {
+			t.Fatalf("after +1 step: ArchiveThreshold = %d, want 6", got.ArchiveThreshold)
+		}
+		env.pressPrivate(owner, msgID, env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveThreshold, "v", "2"))
+		if got := settingsPresenceStored(t, archChat.Id); got.ArchiveThreshold != 2 {
+			t.Fatalf("after v=2: ArchiveThreshold = %d, want 2", got.ArchiveThreshold)
+		}
+		_, kb = env.lastEdit(owner.Id, msgID)
+		if len(kb[1]) != 5 || kb[1][0].Text != settingsBoundLabel || kb[1][1].Text != settingsBoundLabel || kb[1][2].Text != "2" {
+			t.Errorf("ah stepper at lower bound = %+v, want [· · 2 +1 +5]", kb[1])
+		}
+		env.pressPrivate(owner, msgID, env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveThreshold, "v", "50"))
+		if got := settingsPresenceStored(t, archChat.Id); got.ArchiveThreshold != 50 {
+			t.Fatalf("after v=50: ArchiveThreshold = %d, want 50", got.ArchiveThreshold)
+		}
+		_, kb = env.lastEdit(owner.Id, msgID)
+		if len(kb[1]) != 5 || kb[1][2].Text != "50" || kb[1][3].Text != settingsBoundLabel || kb[1][4].Text != settingsBoundLabel {
+			t.Errorf("ah stepper at upper bound = %+v, want [-5 -1 50 · ·]", kb[1])
+		}
+
+		// Switch emoji filter ap (p -> a -> p) and verify selected prefix.
+		env.pressPrivate(owner, msgID, env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveEmoji, "v", "a"))
+		if got := settingsPresenceStored(t, archChat.Id); got.ArchiveEmojiMode != presence.ArchiveEmojiModeAll {
+			t.Fatalf("after ap=a: ArchiveEmojiMode = %q, want all", got.ArchiveEmojiMode)
+		}
+		_, kb = env.lastEdit(owner.Id, msgID)
+		allBtn, ok := settingsChatFind(t, kb, func(f map[string]string) bool {
+			return f["a"] == settingsActSet && f["t"] == settingsPresenceControlArchiveEmoji && f["v"] == "a"
+		})
+		if !ok || !strings.HasPrefix(allBtn.Text, settingsSelectedPrefix) {
+			t.Errorf("ap=a button = %+v (found=%v), want selected prefix", allBtn, ok)
+		}
+
+		// Switch delivery mode ad (c -> f -> c) and verify selected prefix.
+		env.pressPrivate(owner, msgID, env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveDelivery, "v", "f"))
+		if got := settingsPresenceStored(t, archChat.Id); got.ArchiveDelivery != presence.ArchiveDeliveryForward {
+			t.Fatalf("after ad=f: ArchiveDelivery = %q, want forward", got.ArchiveDelivery)
+		}
+		_, kb = env.lastEdit(owner.Id, msgID)
+		fwdBtn, ok := settingsChatFind(t, kb, func(f map[string]string) bool {
+			return f["a"] == settingsActSet && f["t"] == settingsPresenceControlArchiveDelivery && f["v"] == "f"
+		})
+		if !ok || !strings.HasPrefix(fwdBtn.Text, settingsSelectedPrefix) {
+			t.Errorf("ad=f button = %+v (found=%v), want selected prefix", fwdBtn, ok)
+		}
+
+		// Back button from ph returns to pr.
+		backToPr, ok := settingsChatFind(t, kb, func(f map[string]string) bool {
+			return f["a"] == settingsActOpen && f["p"] == settingsPagePresence
+		})
+		if !ok {
+			t.Fatalf("ph missing Back button to pr: %+v", kb)
+		}
+		env.pressRaw(privateOwner, owner, msgID, backToPr.CallbackData)
+		backText, _ := env.lastEdit(owner.Id, msgID)
+		if !strings.Contains(backText, staffMarker("settings_page_presence")) {
+			t.Fatalf("Back from ph did not render pr:\n%s", backText)
+		}
+
+		// Helper admin without CanChangeInfo can open ph (settingsRightAdmin) but is refused on all writes.
+		env.sendPrivate(deniedAdmin, fmt.Sprintf("/start settings_%d", archChat.Id))
+		deniedMsg := settingsPrivateOnlySent(t, env, deniedAdmin).MessageID
+		env.pressPrivate(deniedAdmin, deniedMsg, env.privateFields(archChat.Id, "a", settingsActPresenceHighlights))
+		deniedPhText, _ := env.lastEdit(deniedAdmin.Id, deniedMsg)
+		if !strings.Contains(deniedPhText, staffMarker("settings_ph_title")) {
+			t.Fatalf("helper admin without CanChangeInfo could not open ph:\n%s", deniedPhText)
+		}
+		beforeDenied := settingsPresenceStored(t, archChat.Id)
+		for _, fields := range []map[string]string{
+			env.privateFields(archChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlCatSticker, "v", "1"),
+			env.privateFields(archChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlArchiveEnabled, "v", "0"),
+			env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveThreshold, "v", "10"),
+			env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveEmoji, "v", "p"),
+			env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveDelivery, "v", "c"),
+			env.privateFields(archChat.Id, "a", settingsActPresenceArchiveUnlink),
+		} {
+			env.pressPrivate(deniedAdmin, deniedMsg, fields)
+			if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker("settings_no_change_info")) {
+				t.Errorf("denied admin %v answered (%q, alert=%v), want settings_no_change_info alert", fields, ans, alert)
+			}
+		}
+		if got := settingsPresenceStored(t, archChat.Id); got != beforeDenied {
+			t.Fatalf("denied admin mutated settings: got %+v, want %+v", got, beforeDenied)
+		}
+
+		// Helper admin WITH CanChangeInfo can mutate & unlink via pu.
+		env.sendPrivate(allowedAdmin, fmt.Sprintf("/start settings_%d", archChat.Id))
+		allowedMsg := settingsPrivateOnlySent(t, env, allowedAdmin).MessageID
+		env.pressPrivate(allowedAdmin, allowedMsg, env.privateFields(archChat.Id, "a", settingsActPresenceArchiveUnlink))
+		unlinkedText, unlinkedKB := env.lastEdit(allowedAdmin.Id, allowedMsg)
+		if !strings.Contains(unlinkedText, staffMarker("settings_ph_unlinked")) || !strings.Contains(unlinkedText, staffMarker("settings_ph_target_none")) {
+			t.Fatalf("after pu unlink: screen missing unlinked notice or target_none:\n%s", unlinkedText)
+		}
+		if _, hasUnlink := settingsChatFind(t, unlinkedKB, func(f map[string]string) bool {
+			return f["a"] == settingsActPresenceArchiveUnlink
+		}); hasUnlink {
+			t.Error("after pu unlink: pu button still present")
+		}
+		if got := settingsPresenceStored(t, archChat.Id); got.ArchiveChatID != 0 || got.ArchiveThreadID != 0 || got.ArchiveEnabled {
+			t.Fatalf("after pu unlink: %+v, want ArchiveChatID=0 ArchiveThreadID=0 ArchiveEnabled=false", got)
+		}
+
+		// Forged out-of-range ah / invalid ap / invalid ad rejected with 0 DB reads.
+		var reads atomic.Int32
+		origRead := settingsPresenceRead
+		settingsPresenceRead = func(ctx context.Context, chatID int64) (presence.Settings, error) {
+			reads.Add(1)
+			return origRead(ctx, chatID)
+		}
+		t.Cleanup(func() { settingsPresenceRead = origRead })
+		for _, fields := range []map[string]string{
+			env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveThreshold, "v", "1"),
+			env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveThreshold, "v", "51"),
+			env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveThreshold, "v", "05"),
+			env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveThreshold, "v", "abc"),
+			env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveEmoji, "v", "x"),
+			env.privateFields(archChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveDelivery, "v", "x"),
+		} {
+			env.pressPrivate(owner, msgID, fields)
+			if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker("common_callback_invalid_request")) {
+				t.Errorf("forged %v answered (%q, alert=%v), want common_callback_invalid_request", fields, ans, alert)
+			}
+		}
+
+		// Group-menu presses for ph, pu, cs, ae, ah, ap, ad are refused with 0 DB reads.
+		groupMsg := env.openMenu(owner)
+		for _, kv := range [][]string{
+			{"a", settingsActPresenceHighlights},
+			{"a", settingsActPresenceArchiveUnlink},
+			{"a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlCatSticker, "v", "1"},
+			{"a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlArchiveEnabled, "v", "1"},
+			{"a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveThreshold, "v", "10"},
+			{"a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveEmoji, "v", "a"},
+			{"a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveDelivery, "v", "f"},
+		} {
+			env.press(owner, groupMsg, env.groupFields(owner, kv...))
+			if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker("common_callback_invalid_request")) {
+				t.Errorf("group forged %v answered (%q, alert=%v), want common_callback_invalid_request", kv, ans, alert)
+			}
+		}
+		if reads.Load() != 0 {
+			t.Errorf("forged/group presses called settingsPresenceRead %d times, want 0", reads.Load())
+		}
+
+		// Staff Group refuses ph, pu, cs, ae, ah, ap, ad without leaking Staff Group identity.
+		staffChat := env.addChat()
+		settingsPresenceCleanup(t, staffChat.Id)
+		copySeedStaffGroup(t, staffChat.Id, owner.Id)
+		env.fake.setMemberRaw(staffChat.Id, owner.Id, copyCreatorJSON(owner.Id))
+		env.fake.setCreator(staffChat.Id, owner.Id)
+		staffPrivMsg := env.updateID()
+		for _, fields := range []map[string]string{
+			env.privateFields(staffChat.Id, "a", settingsActPresenceHighlights),
+			env.privateFields(staffChat.Id, "a", settingsActPresenceArchiveUnlink),
+			env.privateFields(staffChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlCatSticker, "v", "1"),
+			env.privateFields(staffChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlArchiveEnabled, "v", "1"),
+			env.privateFields(staffChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveThreshold, "v", "10"),
+			env.privateFields(staffChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveEmoji, "v", "a"),
+			env.privateFields(staffChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlArchiveDelivery, "v", "f"),
+		} {
+			env.pressPrivate(owner, staffPrivMsg, fields)
+			ans, alert := env.lastAnswer()
+			if !alert || !strings.Contains(ans, staffMarker("common_callback_invalid_request")) {
+				t.Errorf("Staff Group %v answered (%q, alert=%v), want common_callback_invalid_request", fields, ans, alert)
+			}
+			if strings.Contains(strings.ToLower(ans), "staff") {
+				t.Errorf("Staff Group refusal leaked Staff Group identity: %q", ans)
+			}
+		}
+		if settingsPresenceRows(t, staffChat.Id) != 0 {
+			t.Fatal("Staff Group forged presses wrote a presence row")
 		}
 	})
 }
