@@ -374,6 +374,17 @@ func TestSkipLocalChatPresenceKey(t *testing.T) {
 	}
 }
 
+// TestSkipLocalReactionRulesKey pins the exact key the reactions repository reads and
+// invalidates for per-rule static reaction options (cache.CacheKey("reaction_rules", chat)).
+func TestSkipLocalReactionRulesKey(t *testing.T) {
+	if !skipLocal(CacheKey("reaction_rules", int64(-100123))) {
+		t.Error("the reaction_rules key is served from the local layer")
+	}
+	if skipLocal(CacheKey("reaction_rulesx", int64(1))) {
+		t.Error("a key that only starts with reaction_rules is excluded from the local layer")
+	}
+}
+
 func TestSwappingBackingStoreDropsLocalEntries(t *testing.T) {
 	setupLocalRedis(t, 10)
 	ctx := context.Background()
