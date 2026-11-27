@@ -498,15 +498,29 @@ func chatReferendumSendPoll(ctx, root context.Context, client *redis.Client, job
 	}
 }
 
+func chatCutRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	n := 0
+	for i := range s {
+		if n == max {
+			return strings.TrimSpace(s[:i])
+		}
+		n++
+	}
+	return strings.TrimSpace(s)
+}
+
 func chatSanitizeReferendumDraft(draft chatprompt.ReferendumDraft) (chatprompt.ReferendumDraft, bool) {
-	question := chatprompt.Clean(chatSanitizeText(draft.Question), chatprompt.ReferendumQuestionMaxRunes)
+	question := chatCutRunes(chatSanitizeText(draft.Question), chatprompt.ReferendumQuestionMaxRunes)
 	if question == "" {
 		return chatprompt.ReferendumDraft{}, false
 	}
 	options := make([]string, 0, len(draft.Options))
 	seen := make(map[string]struct{}, len(draft.Options))
 	for _, opt := range draft.Options {
-		cleaned := chatprompt.Clean(chatSanitizeText(opt), chatprompt.ReferendumOptionMaxRunes)
+		cleaned := chatCutRunes(chatSanitizeText(opt), chatprompt.ReferendumOptionMaxRunes)
 		if cleaned == "" {
 			continue
 		}
