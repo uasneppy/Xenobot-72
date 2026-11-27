@@ -7,7 +7,8 @@ import "time"
 // ConsensusThreshold=3, RetractEnabled=true, AIReactMode="off", CatStickerEnabled=false,
 // ArchiveEnabled=false, ArchiveChatID=0, ArchiveThreadID=0, ArchiveThreshold=5,
 // ArchiveEmojiMode="positive", ArchiveDelivery="copy", AmbientContext=false,
-// VocativeEnabled=false, and PMBriefReact=false. It is read through the
+// VocativeEnabled=false, PMBriefReact=false, ReferendumEnabled=false, and InspectEnabled=false.
+// It is read through the
 // skipLocal cache key chat_presence:<chat> (see xenobot/db/presence).
 // All booleans carry NO GORM default: tag so a Go false is always written explicitly on
 // Create and Save.
@@ -27,6 +28,8 @@ type ChatPresence struct {
 	AmbientContext     bool      `gorm:"column:ambient_context;not null" json:"ambient_context"`
 	VocativeEnabled    bool      `gorm:"column:vocative_enabled;not null" json:"vocative_enabled"`
 	PMBriefReact       bool      `gorm:"column:pm_brief_react;not null" json:"pm_brief_react"`
+	ReferendumEnabled  bool      `gorm:"column:referendum_enabled;not null" json:"referendum_enabled"`
+	InspectEnabled     bool      `gorm:"column:inspect_enabled;not null" json:"inspect_enabled"`
 	UpdatedBy          int64     `gorm:"column:updated_by;not null" json:"updated_by"`
 	UpdatedAt          time.Time `gorm:"column:updated_at" json:"updated_at,omitempty"`
 }
