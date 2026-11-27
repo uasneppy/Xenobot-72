@@ -105,24 +105,30 @@ func TestSettingsPresenceCallbackBytes(t *testing.T) {
 	for _, ax := range []bool{false, true} {
 		for _, ve := range []bool{false, true} {
 			for _, pb := range []bool{false, true} {
-				for _, convUnlocked := range []bool{false, true} {
-					for _, logUnlocked := range []bool{false, true} {
-						stored := presence.Settings{
-							AmbientContext:  ax,
-							VocativeEnabled: ve,
-							PMBriefReact:    pb,
-						}
-						screen := renderSettingsPresenceRoomCatchup(view, stored, convUnlocked, logUnlocked, "")
-						label := fmt.Sprintf("pc ax=%t ve=%t pb=%t cu=%t lu=%t", ax, ve, pb, convUnlocked, logUnlocked)
-						if screen.Omitted != 0 {
-							t.Errorf("%s omitted %d buttons", label, screen.Omitted)
-						}
-						if got := len(screen.Keyboard.InlineKeyboard); got != 4 {
-							t.Errorf("%s rows = %d, want 4", label, got)
-						}
-						for _, button := range settingsAllButtons(screen.Keyboard.InlineKeyboard) {
-							if n := len(button.CallbackData); n < 1 || n > 64 {
-								t.Errorf("%s button %q has %d bytes", label, button.Text, n)
+				for _, rf := range []bool{false, true} {
+					for _, in := range []bool{false, true} {
+						for _, convUnlocked := range []bool{false, true} {
+							for _, logUnlocked := range []bool{false, true} {
+								stored := presence.Settings{
+									AmbientContext:    ax,
+									VocativeEnabled:   ve,
+									PMBriefReact:      pb,
+									ReferendumEnabled: rf,
+									InspectEnabled:    in,
+								}
+								screen := renderSettingsPresenceRoomCatchup(view, stored, convUnlocked, logUnlocked, "")
+								label := fmt.Sprintf("pc ax=%t ve=%t pb=%t rf=%t in=%t cu=%t lu=%t", ax, ve, pb, rf, in, convUnlocked, logUnlocked)
+								if screen.Omitted != 0 {
+									t.Errorf("%s omitted %d buttons", label, screen.Omitted)
+								}
+								if got := len(screen.Keyboard.InlineKeyboard); got != 6 {
+									t.Errorf("%s rows = %d, want 6", label, got)
+								}
+								for _, button := range settingsAllButtons(screen.Keyboard.InlineKeyboard) {
+									if n := len(button.CallbackData); n < 1 || n > 64 {
+										t.Errorf("%s button %q has %d bytes", label, button.Text, n)
+									}
+								}
 							}
 						}
 					}
@@ -189,6 +195,7 @@ func TestSettingsPresencePageFitsEveryLocale(t *testing.T) {
 				ArchiveEnabled: true, ArchiveChatID: -1009999999999999, ArchiveThreadID: 12345,
 				ArchiveThreshold: 50, ArchiveEmojiMode: presence.ArchiveEmojiModeAll, ArchiveDelivery: presence.ArchiveDeliveryForward,
 				AmbientContext: true, VocativeEnabled: true, PMBriefReact: true,
+				ReferendumEnabled: true, InspectEnabled: true,
 			},
 			convUnlocked: false,
 			logUnlocked:  false,
@@ -200,6 +207,7 @@ func TestSettingsPresencePageFitsEveryLocale(t *testing.T) {
 				ArchiveEnabled: true, ArchiveChatID: -1009999999999999, ArchiveThreadID: 0,
 				ArchiveThreshold: 5, ArchiveEmojiMode: presence.ArchiveEmojiModePositive, ArchiveDelivery: presence.ArchiveDeliveryCopy,
 				AmbientContext: true, VocativeEnabled: true, PMBriefReact: true,
+				ReferendumEnabled: true, InspectEnabled: true,
 			},
 			convUnlocked: true,
 			logUnlocked:  true,
@@ -1037,7 +1045,7 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 	deniedAdmin := gotgbot.User{Id: env.admin.Id + 41, FirstName: "RoomDeniedAdmin"}
 	env.fake.setMemberRaw(env.chat.Id, deniedAdmin.Id, copyAdminJSON(deniedAdmin.Id, false, true))
 
-	// 1. Open pr and navigate into pc: check body markers, 4 rows, 0 DB rows created.
+	// 1. Open pr and navigate into pc: check body markers, 6 rows, 0 DB rows created.
 	msgID := settingsPresenceOpenPrivate(t, env, owner)
 	prText, prKB := env.lastEdit(owner.Id, msgID)
 	if !strings.Contains(prText, staffMarker("settings_pr_room_line")) {
@@ -1058,14 +1066,15 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 	for _, want := range []string{
 		"settings_pc_title", "settings_pc_intro",
 		"settings_pc_ambient_line", "settings_pc_vocative_line",
-		"settings_pc_pmbrief_line", "settings_pc_locked_note", "settings_pc_hint",
+		"settings_pc_pmbrief_line", "settings_pc_referendum_line",
+		"settings_pc_inspect_line", "settings_pc_locked_note", "settings_pc_hint",
 	} {
 		if !strings.Contains(pcText, staffMarker(want)) {
 			t.Fatalf("pc screen missing %s:\n%s", want, pcText)
 		}
 	}
-	if len(pcKB) != 4 {
-		t.Fatalf("pc keyboard rows = %d, want 4", len(pcKB))
+	if len(pcKB) != 6 {
+		t.Fatalf("pc keyboard rows = %d, want 6", len(pcKB))
 	}
 	if settingsPresenceRows(t, env.chat.Id) != 0 {
 		t.Fatal("opening pc created a database row")
@@ -1088,13 +1097,15 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 	adminMsg := settingsPrivateOnlySent(t, env, allowedAdmin).MessageID
 	env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActPresenceRoom))
 
-	// 2. Owner×Admin gate: when both Conversations and Message log are off, enabling ax/ve/pb is refused.
+	// 2. Owner×Admin gate: when both Conversations and Message log are off, enabling ax/ve/pb/rf/in is refused.
 	for _, tc := range []struct {
 		ctrl, alertKey string
 	}{
 		{settingsPresenceControlAmbient, "settings_pc_need_owner_conv_log"},
 		{settingsPresenceControlVocative, "settings_pr_ai_need_owner"},
 		{settingsPresenceControlPMBrief, "settings_pc_need_owner_log"},
+		{settingsPresenceControlReferendum, "settings_pr_ai_need_owner"},
+		{settingsPresenceControlInspect, "settings_pr_ai_need_owner"},
 	} {
 		env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", tc.ctrl, "v", "1"))
 		if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker(tc.alertKey)) {
@@ -1110,22 +1121,26 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 	settingsPresenceChatRead = func(context.Context, int64) (chatconv.Settings, error) {
 		return chatconv.Settings{}, errors.New("chatconv db down")
 	}
-	env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlAmbient, "v", "1"))
-	if errText, _ := env.lastEdit(allowedAdmin.Id, adminMsg); !strings.Contains(errText, staffMarker("settings_cannot_open")) {
-		t.Errorf("chatconv read error drew %q, want settings_cannot_open", errText)
+	for _, ctrl := range []string{settingsPresenceControlAmbient, settingsPresenceControlReferendum, settingsPresenceControlInspect} {
+		env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", ctrl, "v", "1"))
+		if errText, _ := env.lastEdit(allowedAdmin.Id, adminMsg); !strings.Contains(errText, staffMarker("settings_cannot_open")) {
+			t.Errorf("chatconv read error on %s drew %q, want settings_cannot_open", ctrl, errText)
+		}
 	}
 	settingsPresenceChatRead = origChatRead
 	if settingsPresenceRows(t, env.chat.Id) != 0 {
 		t.Fatal("chatconv read error created a presence row")
 	}
 
-	// 3. Only Conversations Enabled (LogEnabled=false): ve unlocks, ax and pb stay refused.
+	// 3. Only Conversations Enabled (LogEnabled=false): ve, rf, and in unlock; ax and pb stay refused.
 	if err := chatconv.SetEnabled(context.Background(), env.chat.Id, true, owner.Id); err != nil {
 		t.Fatalf("chatconv.SetEnabled(true) = %v", err)
 	}
 	env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlVocative, "v", "1"))
-	if got := settingsPresenceStored(t, env.chat.Id); !got.VocativeEnabled || got.AmbientContext || got.PMBriefReact {
-		t.Fatalf("with conv=true log=false after ve=1: %+v", got)
+	env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlReferendum, "v", "1"))
+	env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlInspect, "v", "1"))
+	if got := settingsPresenceStored(t, env.chat.Id); !got.VocativeEnabled || !got.ReferendumEnabled || !got.InspectEnabled || got.AmbientContext || got.PMBriefReact {
+		t.Fatalf("with conv=true log=false after ve/rf/in=1: %+v", got)
 	}
 	env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlAmbient, "v", "1"))
 	if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker("settings_pc_need_owner_conv_log")) {
@@ -1136,7 +1151,7 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 		t.Errorf("pb with log=false answered (%q, alert=%v), want settings_pc_need_owner_log", ans, alert)
 	}
 
-	// 4. Only Message log Enabled (Enabled=false, LogEnabled=true): pb unlocks, ax and ve stay refused.
+	// 4. Only Message log Enabled (Enabled=false, LogEnabled=true): pb unlocks, ax/ve/rf/in stay refused.
 	if err := chatconv.SetEnabled(context.Background(), env.chat.Id, false, owner.Id); err != nil {
 		t.Fatalf("chatconv.SetEnabled(false) = %v", err)
 	}
@@ -1152,14 +1167,14 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 		t.Errorf("ax with conv=false answered (%q, alert=%v), want settings_pc_need_owner_conv_log", ans, alert)
 	}
 
-	// Main state with conv=false, log=true, RetractEnabled=true, VocativeEnabled=true (locked!), PMBriefReact=true (unlocked!) => 2 on.
+	// Main state with conv=false, log=true, RetractEnabled=true, ve/rf/in=true (locked!), PMBriefReact=true (unlocked!) => 2 on.
 	env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActBack))
 	mainPartial, _ := env.lastEdit(allowedAdmin.Id, adminMsg)
 	if line, ok := settingsMainStateLine(mainPartial, "settings_page_presence"); !ok || !strings.Contains(line, staffMarker("settings_state_presence_on")+" 2") {
-		t.Errorf("Main state with Retract+PMBrief(unlocked)+Vocative(locked) = %q (found=%v), want 2 on", line, ok)
+		t.Errorf("Main state with Retract+PMBrief(unlocked)+ve/rf/in(locked) = %q (found=%v), want 2 on", line, ok)
 	}
 
-	// 5. Both Conversations and Message log enabled: locked note disappears, ax unlocks, Main state counts all 4 (Retract + ax + ve + pb).
+	// 5. Both Conversations and Message log enabled: locked note disappears, ax unlocks, Main state counts all 6 (Retract + ax + ve + pb + rf + in).
 	if err := chatconv.SetEnabled(context.Background(), env.chat.Id, true, owner.Id); err != nil {
 		t.Fatalf("chatconv.SetEnabled(true) = %v", err)
 	}
@@ -1169,19 +1184,19 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 		t.Errorf("unlocked pc screen still shows settings_pc_locked_note:\n%s", unlockedText)
 	}
 	env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlAmbient, "v", "1"))
-	if got := settingsPresenceStored(t, env.chat.Id); !got.AmbientContext || !got.VocativeEnabled || !got.PMBriefReact {
+	if got := settingsPresenceStored(t, env.chat.Id); !got.AmbientContext || !got.VocativeEnabled || !got.PMBriefReact || !got.ReferendumEnabled || !got.InspectEnabled {
 		t.Fatalf("after ax=1 with both unlocked: %+v", got)
 	}
 	env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActBack))
 	mainAll, _ := env.lastEdit(allowedAdmin.Id, adminMsg)
-	if line, ok := settingsMainStateLine(mainAll, "settings_page_presence"); !ok || !strings.Contains(line, staffMarker("settings_state_presence_on")+" 4") {
-		t.Errorf("Main state with Retract+ax+ve+pb unlocked = %q (found=%v), want 4 on", line, ok)
+	if line, ok := settingsMainStateLine(mainAll, "settings_page_presence"); !ok || !strings.Contains(line, staffMarker("settings_state_presence_on")+" 6") {
+		t.Errorf("Main state with Retract+ax+ve+pb+rf+in unlocked = %q (found=%v), want 6 on", line, ok)
 	}
-	// Page pr summary line shows "3 on" when ax, ve, pb are active.
+	// Page pr summary line shows "5 on" when ax, ve, pb, rf, in are active.
 	env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActOpen, "p", settingsPagePresence))
 	prActiveText, _ := env.lastEdit(allowedAdmin.Id, adminMsg)
-	if !strings.Contains(prActiveText, staffMarker("settings_pr_room_line")) || !strings.Contains(prActiveText, staffMarker("settings_state_presence_on")+" 3") {
-		t.Errorf("pr screen missing room 3 on summary:\n%s", prActiveText)
+	if !strings.Contains(prActiveText, staffMarker("settings_pr_room_line")) || !strings.Contains(prActiveText, staffMarker("settings_state_presence_on")+" 5") {
+		t.Errorf("pr screen missing room 5 on summary:\n%s", prActiveText)
 	}
 
 	// 6. Idempotent press writes nothing; write error displays common_settings_save_failed.
@@ -1206,8 +1221,8 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 	}
 	presenceWrites.AmbientContext = origAx
 
-	// 7. Owner locks both Conversations and Message log again: Main state drops ax/ve/pb -> 1 on (Retract only),
-	//    and authorized admin can STILL disable (v=0) ax, ve, and pb while locked!
+	// 7. Owner locks both Conversations and Message log again: Main state drops ax/ve/pb/rf/in -> 1 on (Retract only),
+	//    and authorized admin can STILL disable (v=0) ax, ve, pb, rf, and in while locked!
 	if err := chatconv.SetEnabled(context.Background(), env.chat.Id, false, owner.Id); err != nil {
 		t.Fatalf("chatconv.SetEnabled(false) = %v", err)
 	}
@@ -1220,10 +1235,16 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 		t.Errorf("Main state after Owner disables conv+log = %q (found=%v), want 1 on", line, ok)
 	}
 
-	for _, ctrl := range []string{settingsPresenceControlAmbient, settingsPresenceControlVocative, settingsPresenceControlPMBrief} {
+	for _, ctrl := range []string{
+		settingsPresenceControlAmbient,
+		settingsPresenceControlVocative,
+		settingsPresenceControlPMBrief,
+		settingsPresenceControlReferendum,
+		settingsPresenceControlInspect,
+	} {
 		env.pressPrivate(allowedAdmin, adminMsg, env.privateFields(env.chat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", ctrl, "v", "0"))
 	}
-	if got := settingsPresenceStored(t, env.chat.Id); got.AmbientContext || got.VocativeEnabled || got.PMBriefReact {
+	if got := settingsPresenceStored(t, env.chat.Id); got.AmbientContext || got.VocativeEnabled || got.PMBriefReact || got.ReferendumEnabled || got.InspectEnabled {
 		t.Fatalf("admin disable while locked failed: %+v", got)
 	}
 
@@ -1234,14 +1255,20 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 	if deniedText, _ := env.lastEdit(deniedAdmin.Id, deniedMsg); !strings.Contains(deniedText, staffMarker("settings_pc_title")) {
 		t.Fatalf("helper admin without CanChangeInfo could not open pc:\n%s", deniedText)
 	}
-	for _, ctrl := range []string{settingsPresenceControlAmbient, settingsPresenceControlVocative, settingsPresenceControlPMBrief} {
+	for _, ctrl := range []string{
+		settingsPresenceControlAmbient,
+		settingsPresenceControlVocative,
+		settingsPresenceControlPMBrief,
+		settingsPresenceControlReferendum,
+		settingsPresenceControlInspect,
+	} {
 		env.pressPrivate(deniedAdmin, deniedMsg, env.privateFields(env.chat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", ctrl, "v", "1"))
 		if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker("settings_no_change_info")) {
 			t.Errorf("denied admin %s answered (%q, alert=%v), want settings_no_change_info", ctrl, ans, alert)
 		}
 	}
 
-	// 9. Group-menu presses for pc, ax, ve, pb are refused with 0 DB reads.
+	// 9. Group-menu presses for pc, ax, ve, pb, rf, in are refused with 0 DB reads.
 	var reads atomic.Int32
 	origRead := settingsPresenceRead
 	settingsPresenceRead = func(ctx context.Context, chatID int64) (presence.Settings, error) {
@@ -1255,6 +1282,8 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 		{"a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlAmbient, "v", "1"},
 		{"a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlVocative, "v", "1"},
 		{"a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlPMBrief, "v", "1"},
+		{"a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlReferendum, "v", "1"},
+		{"a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlInspect, "v", "1"},
 	} {
 		env.press(owner, groupMsg, env.groupFields(owner, kv...))
 		if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker("common_callback_invalid_request")) {
@@ -1265,7 +1294,7 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 		t.Errorf("group forged pc presses called settingsPresenceRead %d times, want 0", reads.Load())
 	}
 
-	// 10. Staff Group refuses pc, ax, ve, pb without leaking Staff Group identity and writes 0 rows.
+	// 10. Staff Group refuses pc, ax, ve, pb, rf, in without leaking Staff Group identity and writes 0 rows.
 	staffChat := env.addChat()
 	settingsPresenceCleanup(t, staffChat.Id)
 	copySeedStaffGroup(t, staffChat.Id, owner.Id)
@@ -1277,6 +1306,8 @@ func TestSettingsPresenceRoomCatchup(t *testing.T) {
 		env.privateFields(staffChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlAmbient, "v", "1"),
 		env.privateFields(staffChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlVocative, "v", "1"),
 		env.privateFields(staffChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlPMBrief, "v", "1"),
+		env.privateFields(staffChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlReferendum, "v", "1"),
+		env.privateFields(staffChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlInspect, "v", "1"),
 	} {
 		env.pressPrivate(owner, staffPrivMsg, fields)
 		ans, alert := env.lastAnswer()

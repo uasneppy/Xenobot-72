@@ -83,6 +83,8 @@ func TestPhase33Codes(t *testing.T) {
 		settingsPresenceControlAmbient,
 		settingsPresenceControlVocative,
 		settingsPresenceControlPMBrief,
+		settingsPresenceControlReferendum,
+		settingsPresenceControlInspect,
 	} {
 		if _, ok := prPage.Controls[ctrl]; !ok {
 			t.Errorf("control %q missing from page %q Controls", ctrl, settingsPagePresence)
