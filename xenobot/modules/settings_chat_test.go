@@ -675,4 +675,27 @@ func TestSettingsChatLog(t *testing.T) {
 			t.Fatal("Off did not turn the log off and delete it")
 		}
 	})
+
+	t.Run("presence shortcut row opens page pr in private", func(t *testing.T) {
+		withChatProviders(t, true, true, true)
+		env := settingsChatEnv(t)
+		owner := env.newOwner(env.chat)
+		private := settingsPrivateChat(owner)
+		msgID := settingsChatOpenPrivate(t, env, owner)
+		_, keyboard := env.lastEdit(owner.Id, msgID)
+		shortcut, ok := settingsChatFind(t, keyboard, func(f map[string]string) bool {
+			return f["a"] == settingsActOpen && f["p"] == settingsPagePresence
+		})
+		if !ok {
+			t.Fatalf("Conversations page p lacks a=op&p=pr shortcut button: %+v", keyboard)
+		}
+		if !strings.Contains(shortcut.Text, staffMarker("settings_btn_chat_presence")) {
+			t.Errorf("shortcut label = %q, want settings_btn_chat_presence", shortcut.Text)
+		}
+		env.pressRaw(private, owner, msgID, shortcut.CallbackData)
+		text, _ := env.lastEdit(owner.Id, msgID)
+		if !strings.Contains(text, staffMarker("settings_page_presence")) || !strings.Contains(text, staffMarker("settings_pr_intro")) {
+			t.Errorf("clicking Presence shortcut drew:\n%s\nwant Presence page pr", text)
+		}
+	})
 }

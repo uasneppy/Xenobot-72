@@ -1,43 +1,44 @@
 ---
 gsd_state_version: "1.0"
-milestone: v1.2
+milestone: v1.3
+milestone_name: Interactive Presence
 status: Awaiting next milestone
-stopped_at: Phase 30 complete, ready to verify Phase 21
-last_updated: "2026-11-24T21:04:51.049Z"
-last_activity: 2026-11-24
-last_activity_desc: "Quick task 261124-l1n: fix CI lint findings after the rebrand"
-state_head: dfe7bfccd42a6f5680e7174b20454e9ca6d34843
-milestone_name: Conversations, Custom Messages and Tuning
-current_phase: 30
-current_phase_name: Backup Page and Custom Messages in Backups
+stopped_at: Phase 35 complete — all phases complete
+last_updated: "2026-11-27T13:31:38.544Z"
+last_activity: 2026-11-27
+last_activity_desc: Milestone v1.3 completed and archived
+state_head: 6ff22ff0b2068c4220784ab88ca7e40ad3bd7caa
 progress:
-  total_phases: 11
-  completed_phases: 11
-  total_plans: 87
-  completed_plans: 87
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 34
+  completed_plans: 34
   percent: 100
+current_phase: 35
+current_phase_name: Interactive Group Toys
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-24)
+See: .planning/PROJECT.md (updated 2026-11-26)
+See: .planning/ROADMAP.md (v1.3 Interactive Presence — Phases 31–35)
 
 **Core value:** My trusted staff can protect every one of my communities from one place. We act on a bad actor across all groups at once, and the bot never lets anyone act in a group where they aren't an admin.
-**Current focus:** Planning next milestone (v1.2 shipped 2026-11-24)
+**Current focus:** Milestone v1.3 Interactive Presence — Phase 35 (Interactive Group Toys)
 
 ## Current Position
 
-Phase: Milestone v1.2 complete
+Phase: Milestone v1.3 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-11-24 -- Quick task 261124-l1n: fix CI lint findings after the rebrand
+Last activity: 2026-11-27 — Milestone v1.3 completed and archived
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 131
+- Total plans completed: 165
 - Average duration: -
 - Total execution time: 0.0 hours
 
@@ -58,6 +59,11 @@ Last activity: 2026-11-24 -- Quick task 261124-l1n: fix CI lint findings after t
 | 28 | 6 | - | - |
 | 29 | 6 | - | - |
 | 30 | 5 | - | - |
+| 31 | 5 | - | - |
+| 32 | 6 | - | - |
+| 33 | 8 | - | - |
+| 34 | 8 | - | - |
+| 35 | 7 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: -
@@ -220,6 +226,20 @@ Last activity: 2026-11-24 -- Quick task 261124-l1n: fix CI lint findings after t
 | Phase 30 P03 | 9min | 2 tasks | 2 files |
 | Phase 30 P04 | 19min | 3 tasks | 16 files |
 | Phase 30-backup-page-and-custom-messages-in-backups P05 | 29min | 3 tasks | 3 files |
+| Phase 31 P01 | 4 min | 3 tasks | 11 files |
+| Phase 31 P02 | 8 min | 2 tasks | 4 files |
+| Phase 31 P03 | 4 min | 3 tasks | 9 files |
+| Phase 31 P04 | 16 min | 2 tasks | 2 files |
+| Phase 31 P05 | 9 min | 3 tasks | 11 files |
+| Phase 32 P01 | 4 min | 3 tasks | 5 files |
+| Phase 32 P02 | 3 min | 2 tasks | 2 files |
+| Phase 32 P03 | 3 min | 3 tasks | 9 files |
+| Phase 32 P04 | 5 min | 3 tasks | 6 files |
+| Phase 32 P05 | 7 min | 3 tasks | 4 files |
+| Phase 32 P06 | 6 min | 3 tasks | 3 files |
+| Phase 33 P07 | 6 min | 2 tasks | 3 files |
+| Phase 33 P08 | 5 min | 3 tasks | 9 files |
+| Phase 35 P07 | 3 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -228,6 +248,10 @@ Last activity: 2026-11-24 -- Quick task 261124-l1n: fix CI lint findings after t
 Decisions are logged in the PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [v1.3 Roadmap]: Five focused phases (31–35) calibrated for `granularity: "fine"` across 23 requirements: Presence Foundation, Settings Page & Zero-AI Social Reactions (31), Contextual AI Emoji Reactions (32), Smarter Static Reactions, Highlights Archive & Backup Parity (33), Room-Aware Conversations & Frictionless Catch-Up (34), and Interactive Group Toys (35).
+- [v1.3 Roadmap]: Zero new external Go dependencies, zero new message handler groups, and zero new shutdown drains (`chatPresenceQueue` joins `StopChat` under `chatJobs`/`chatContext()`, keeping the 70 s worst case and `stop_grace_period: 75s` unchanged).
+- [v1.3 Roadmap]: `PRES-04` (Owner×Admin runtime double-gating) sits in Phase 32 where the first AI interactive feature ships, while Phase 31 delivers the `chat_presence` schema, `pr` private Settings page, `AvailableReactions`-safe reaction API, and zero-AI Emoji Consensus + `👎` Retraction independently verifiable without AI keys.
+- [v1.3 Roadmap]: `/referendum` and `/inspect` are isolated into Phase 35 so multi-field JSON prompt validation (`MaxTokens >= 512` / `768`) stays scoped cleanly without delaying Room-Aware Conversations and Catch-Up (Phase 34).
 - [v1.1 Roadmap]: Ten phases, 10-19, in the owner's priority order, which is also the dependency order: hub and owner gate (10), message editor (11), rules media, media under text and greet once (12), member requirements with local rules and "I fixed it" (13), photo and channel lookups (14), AI spam-name check (15), service and bot message deletion with the durable queue (16), command, edit and self-destruct deletion (17), remaining settings pages (18), blacklist, filter and note pages (19).
 - [v1.1 Roadmap]: PLAT-05 (8 locales) is mapped to Phase 10 and PLAT-06 (shared rate budgets, crash recovery, shutdown drain for new background work) to Phase 14, where each first matters. Both apply to every later phase (ROADMAP Cross-Cutting Constraints), as PLAT-01..03 did in v1.0.
 - [v1.1 Roadmap]: MREQ-15 (requirement notices deleted automatically) sits in Phase 16 with the bot-message timer it needs. MREQ-10 is in Phase 14, and its "AI not configured" status line lands with the AI rule in Phase 15. The AI name check is its own one-requirement phase so it can be spiked and deferred on its own.
@@ -361,6 +385,20 @@ Recent decisions affecting current work:
 - [Phase 30]: Implemented private-only Backup settings page ba (Order 83, actions bv/be/bi/bl/bj/br/bu, stateless 20-bit hex mask m=0..fffff, settingsTypedPages[settingsPageBackup] document wait, peek-before-consume Lua GET+DEL two-tap cards, shared BackupRateLimiter and apply helpers) with 8-locale UI and TestSettingsBackupPage
 - [Phase 30]: Checked settingsLockRows alongside settingsCoreActions and all 30 settingsPages in TestPhase30Codes to guard against lock-row code collisions
 - [Phase 30]: Documented Phase 30 invariants and provisional decisions P30-01..P30-04 in AGENTS.md with zero new goroutines, handler groups, or shutdown drains
+- [Phase 31]: 31-01: Subscribed message_reaction (excluding message_reaction_count) in AllowedUpdates, added dedicated chat_presence table with no GORM default: tags on booleans, registered chat_presence:<chat> in skipLocal, and implemented column-targeted upserts in xenobot/db/presence
+- [Phase 31]: 31-02: Shared PRES-02 safety gate in presence.go leaves lockdown.GetActiveFresh lazy (fail-closed), isolates operational keys under xenobot:presence:{<chat>}:*, and verifies reaction=[] wire serialization via httptest multipart decoder
+- [Phase 31]: 31-03: Added all 11 Presence Settings page (pr) and Conversations shortcut keys across 8 locales, registered ceilings in settingsLocaleLimits, and added Main grid (<= 20 runes) plus toggle/shortcut (<= 40 runes) length guards in TestSettingsLabelLengths
+- [Phase 31]: 31-04: LoadPresence registers handlers.NewReaction at group 0 without SetModuleEnabled, joins StopChat (chatJobs+chatDraining+chatContext) with zero new shutdown drains, checks bot_react before Telegram calls on 👎 retraction, and tracks Emoji Consensus via Cluster-safe Redis Lua sets with lazy fail-closed lockdown checks
+- [Phase 31]: 31-05: Registered private-only Presence Settings page pr (Order 91, paired y|pr at 17 Main rows across 31 pages, hidden/fail-closed in Staff Groups, settingsRightChangeInfo) and ✨ Presence → shortcut on Owner-only Conversations page p (<= 8 rows); documented Phase 31 invariants in AGENTS.md
+- [Phase 32]: 32-01: Added append-only chat_presence.ai_react_mode migration with inline chk_chat_presence_ai_react_mode CHECK constraint, zero GORM default tags on booleans, column-targeted SetAIReactMode upsert, and rolling-deploy empty-mode normalization to "off" in presence.Get/GetFresh
+- [Phase 32]: 32-02: Added stdlib-only reaction prompt builder (ReactionMaxTokens=512, compact <3000B ReactionStatic, palette-filtered lookalike warnings in ReactionDynamic, sanitized ReactionUser) and fail-closed strict ParseReactionJSON with U+FE0F normalization in xenobot/utils/chatprompt
+- [Phase 32]: 32-03: Added all 6 Presence AI reaction UI keys across 8 locales matching each locale's settings_page_chat Conversations term, registered settingsLocaleLimits and plain-text settingsAlertKeys for settings_pr_ai_need_owner, and added <= 16-rune segmented button guard in TestSettingsLabelLengths
+- [Phase 32]: 32-04: Placed AI reaction operational keys (:ai:gap, :ai:cd:chat) under presenceChatTag(chatID) outside xenobot:cache: alongside :cd:u:<user>, extracted cloned fail-closed presenceAllowedPalette reusing the 20m avail_react cache, and added bounded 50-entry topic-isolated chatLogRecentThread
+- [Phase 32]: 32-05: Wired dedicated 2-worker/32-cap chatPresenceQueue under StopChat with group 13 mutually exclusive chatReactWatch (zero operational Redis I/O on default/off groups), same-slot Redis Lua throttle preserving 24h retraction cooldown TTL, dedicated react:b hourly budget, read-only chatBreakers, and 24h Featherless text_only fallback
+- [Phase 32]: 32-06: Added 5-row Settings page pr [Off | Low | Medium] AI reactions control (t=ai) with fresh chatconv.GetFresh Owner×Admin double-gating, fail-closed cannotOpen on DB read error, unconditional Off disable, accurate Main state counting, and updated AGENTS.md with Phase 32 invariants
+- [Phase 33]: Refreshed ph in place when tapping the center value button of the ah stepper (a=ph) while reusing settingsStepperRow
+- [Phase 33]: Validated ph/pu action-code uniqueness against settingsCoreActions and other pages' Actions without colliding on settingsLockRows control codes
+- [Phase 33]: Updated hardcoded 20-module / fffff literals in settings_backup_test.go, settings_phase30_test.go, and phase30_e2e_test.go to 21-module dynamic/0x1fffff equivalents
 
 ### Pending Todos
 
@@ -368,6 +406,7 @@ None yet.
 
 ### Blockers/Concerns
 
+- [v1.3 Roadmap]: Planning items to settle per phase: (a) Phase 31 — confirm whether anonymous group admins (`mru.User == nil && mru.ActorChat.Id == mru.Chat.Id`) can trigger `👎` retraction, and note rolling-deploy webhook rule (all v1.2 replicas must stop before final `getWebhookInfo` verification of `"message_reaction"`); (b) Phase 33 — confirm Highlights delivery default (`CopyMessage` with `t.me/c/` jump button vs `ForwardMessage` toggle on sub-page `ph`); (c) Phase 35 — validate whether `MaxTokens = 512` or `768` is safer for multi-field localized `/referendum` & `/inspect` JSON across Claude, Gemini, and Featherless reasoning models.
 - [v1.2 Roadmap]: Open owner questions: (a) does a lift from a settings menu opened in the group also post the custom lifted message, or does it keep redrawing the menu only (Phase 25, EVT-08); (b) does `{percent}` join the placeholder set for the flood trigger (Phase 25, EVT-07); (c) which automatic sources join the escalation ladder, and where offence counts live (Phase 26); (d) which commands "reason required" covers, and whether the silent and delete-first variants get the default duration (Phase 27); (e) whether an empty source entry clears the target's custom message on copy (Phase 29); (f) whether `/reset` of all modules clears custom messages once they are a backup module, and whether tuning values join the backup (Phase 30).
 - [v1.2 Roadmap]: Technical risks to settle in discussion: how an event, a destination and a part fit the editor's wait hash and the 64-byte callbacks (21); the Details button's short-lived record and deep link (22); `warns_users` has no time per warn, so warn expiry needs a migration (26); hot-path reads and Lua script windows for the Advanced thresholds (28); the command's pending import and reset live in one replica's memory, so the page's cards need another home (30). No research was run for v1.2; `research/SUMMARY.md` is stale v1.1 research.
 - [v1.1 Roadmap]: Live Telegram spikes the owner runs before the phase that needs them is planned (Gaps to Address in `research/SUMMARY.md`): caption placement with `show_caption_above_media` (Phase 12); the per-group message rate limit for notices during a raid (Phase 13); `getUserProfilePhotos` for a hidden photo and `getChatMember` on a channel whose admin the bot is not (Phase 14); a Claude Haiku name accuracy, latency and cost run with the owner's key (Phase 15); `deleteMessages` with one undeletable ID in a batch (Phase 16); how often link previews and caption touches arrive as edits (Phase 17).
@@ -469,6 +508,7 @@ Items acknowledged and deferred at milestone close, most recent first:
 | quick_tasks | 261117-w7q-memberreq | unknown | 2026-11-24 | v1.2 |
 | quick_tasks | 261117-w8s-staff | unknown | 2026-11-24 | v1.2 |
 | quick_tasks | 261117-w9i-infra | unknown | 2026-11-24 | v1.2 |
+| quick_tasks | 261124-l1n-fix-ci-lint-findings-after-rebrand | unknown | 2026-11-27 | v1.3 |
 | verification | Quick task 261113-tjj (Staff Group forward-source blocklist) live Telegram checks (`quick/261113-tjj-staff-group-forward-source-blocklist-blo/261113-tjj-VERIFICATION.md`, status `human_needed`, code verified, no gaps): BEFORE the owner relies on it in a real group, forward a post of a listed channel into a linked group and see it deleted with the list's action applied once; resolve an `@username` and a negative ID with `/addfwdblock`; confirm a plain member's forward of a GROUP message cannot be matched (Telegram labels it a user or hidden-user origin, so only channels and an anonymous admin's group post can match); check the bot's delete and restrict rights and the notice wording; then decide whether writes should stay Staff Group creator only (the plan's deviation from creator or administrator, one right swap to relax). | deferred | 2026-11-14 | quick |
 | verification | Phase 19 live Telegram checks and owner review (`milestones/v1.1-phases/19-blacklist-filter-and-note-pages/19-SPIKE.md`, 15 numbered checks, `19-VERIFICATION.md` status `human_needed`, `19-SECURITY.md` verified, 59 of 59 threats closed): BEFORE the owner relies on the three list pages in a real group run checks 1 (the production `blacklists` CHECK constraints and `/blacklistaction none`), 2 (Main at 11 rows on a phone), 4 (the two-step add in a real client against `/filter K` and `/save K` as replies), 5 (the effect in the group) and 7 (the six changed commands in a real group), and answer the provisional confirmations A19-1 to A19-11: A19-2 (`/addblacklist` and `/filter` refuse a one-character word), A19-3 (a new blacklist word takes the shared action), A19-4 (`/save` refuses a name with whitespace, a leading `#` or over 100 code points) and the two fail-closed lookups of `/filter` and `/save`, each listed with its reply key and revert commit under 'Command behaviour this phase changed'; the native-speaker read of the 67 new strings (check 9) and the stale `settings_help_msg` (A19-A17) stay open | deferred | 2026-11-13 | v1.1 |
 | verification | Phase 18 live Telegram checks and owner review (`milestones/v1.1-phases/18-remaining-settings-pages/18-SPIKE.md`, 25 numbered checks, `18-VERIFICATION.md` status `human_needed`, `18-SECURITY.md` verified): BEFORE the owner relies on the six pages in a real group run checks 1 to 3 (the warn limit and each action at the limit, a hand-written `tban`, the `/reset warnings` empty-mode follow-up), 4 to 6 (the AI line with and without `TYPESAFE_API_KEY` and with `ENABLE_AISPAM=false`, Auto-approve's first press on PostgreSQL, `/report` against the Reports switch), 7 and 8 (the language redraw on two replicas within `CACHE_LOCAL_TTL` and from a private menu), 9 to 12 (the log categories with a real channel and the `#SETTINGS` line, the anonymous-admin flow before and after a toggle, the owner and non-owner refusals, the page opening while the bot is not an administrator), 13 to 15 (each lock live, `all`, `messages` and `url`), 16 to 19 (hi, ru and uk cells at phone width, the native-speaker read of the 55 new strings), 20 (the stale `settings_help_msg` and `/settings` docs page that name no page since Phase 16: A18-A15 and A16-A11) and 21 to 25 (the owner confirmations A18-1 to A18-9, the flagged UI points, the four deviation notes, `make lint` on a Go 1.26 golangci-lint; the CI Test Suite for `xenobot/modules` took 1129 s to 1760 s of a limit that is now 2400 s, trim a heavy test before it grows) | deferred (owner's standing choice: defer live checks) | 2026-11-13 | v1.1 |
@@ -505,12 +545,11 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-23T22:00:31.915Z
-Stopped at: Phase 30 complete, ready to verify Phase 21
+Last session: 2026-11-27T13:21:31.499Z
+Stopped at: Phase 35 complete — all phases complete
 Resume file: None
 
 ## Operator Next Steps
-
 
 
 - Start the next milestone with /gsd-new-milestone

@@ -558,6 +558,7 @@ func LoadConfig() (*Config, error) {
 		"my_chat_member",
 		"chat_member",
 		"chat_join_request",
+		"message_reaction",
 	}
 
 	cfg.ValidLangCodes = typeConvertor{str: os.Getenv("ENABLED_LOCALES")}.StringArray()

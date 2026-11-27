@@ -88,10 +88,10 @@ func TestSettingsPhase18InStaffGroup(t *testing.T) {
 	if _, ok := settingsPageButton(t, m.mainKeyboard, settingsPageDeletion); ok {
 		t.Error("the chat is not a Staff Group: its Main still has the Deletion cell")
 	}
-	// Every page except the 8 hidden in a Staff Group (Deletion, Messages, Escalation, Manual defaults,
-	// Reason shortcuts, Advanced, Copy, Backup), plus Blocked sources, which exists only in a Staff Group.
-	if got := len(settingsMainLines(m.mainText)); got != len(settingsMainTitleKeys)-7 {
-		t.Errorf("a Staff Group's Main has %d state lines, want %d (every page except the 8 hidden in Staff Groups, plus Blocked sources)", got, len(settingsMainTitleKeys)-7)
+	// Every page except the 9 hidden in a Staff Group (Deletion, Messages, Escalation, Manual defaults,
+	// Reason shortcuts, Advanced, Copy, Backup, Presence), plus Blocked sources, which exists only in a Staff Group.
+	if got := len(settingsMainLines(m.mainText)); got != len(settingsMainTitleKeys)-8 {
+		t.Errorf("a Staff Group's Main has %d state lines, want %d (every page except the 9 hidden in Staff Groups, plus Blocked sources)", got, len(settingsMainTitleKeys)-8)
 	}
 	for _, key := range []string{
 		"settings_page_warns", "settings_page_locks", "settings_page_switches",
@@ -165,8 +165,8 @@ func TestSettingsPhase18Codes(t *testing.T) {
 				t.Errorf("Phase 18 page %q is not registered", key)
 			}
 		}
-		// All 30 registered settings pages (through Phase 30 Backup page "ba"), and no other.
-		want := []string{"s", "v", "l", "c", "f", "q", "n", "j", "k", "rs", "b", "i", "w", "g", "r", "e", "x", "h", "m", "av", "cp", "ba", "d", "t", "u", "z", "o", "y", "p", "a"}
+		// All 31 registered settings pages (through Phase 31 Presence page "pr"), and no other.
+		want := []string{"s", "v", "l", "c", "f", "q", "n", "j", "k", "rs", "b", "i", "w", "g", "r", "e", "x", "h", "m", "av", "cp", "ba", "d", "t", "u", "z", "o", "y", "pr", "p", "a"}
 		if got := slices.Sorted(maps.Keys(seen)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
 			t.Errorf("registered pages = %v, want %v", got, slices.Sorted(slices.Values(want)))
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -35,6 +36,8 @@ const (
 	chatLogTextRunes = 400
 	// chatLogReadTimeout bounds the read of a stretch (up to a ring's worth of entries).
 	chatLogReadTimeout = 2 * time.Second
+	// chatLogRecentScanLimit bounds the reverse scan used for background AI reaction context.
+	chatLogRecentScanLimit = 50
 )
 
 // chatLogMax is how many messages the ring keeps; a variable only so a test can shrink it.
@@ -52,6 +55,8 @@ type chatLogEntry struct {
 	// Thread is the forum topic's thread ID, 0 outside a topic.
 	Thread int64 `json:"th,omitempty"`
 	Edited bool  `json:"e,omitempty"`
+	// At is the original Telegram message Unix timestamp (msg.Date), preserved across edits.
+	At int64 `json:"at,omitempty"`
 }
 
 // chatLogReplaceLua is the body of both scripts: it replaces any member at the message's own score, adds the entry, keeps the
@@ -100,10 +105,40 @@ func chatLogRecord(client *redis.Client, chatID int64, entry chatLogEntry) error
 }
 
 // chatLogEdit replaces the entry of an edited message and marks it edited; an ID that is not in
-// the ring is left out. It reports whether an entry was replaced.
+// the ring is left out. It preserves the original At timestamp when an existing entry carries one.
 func chatLogEdit(client *redis.Client, chatID int64, entry chatLogEntry) (bool, error) {
+	if existing, ok, err := chatLogEntryAt(context.Background(), client, chatID, entry.MessageID); err != nil {
+		return false, err
+	} else if ok && existing.At > 0 {
+		entry.At = existing.At
+	}
 	entry.Edited = true
 	return chatLogWrite(client, chatLogEditScript, chatID, entry)
+}
+
+// chatLogEntryAt reads the single logged entry at score messageID from chatID's log ring.
+// Returns (zero, false, nil) when client is nil, messageID <= 0, absent, or malformed.
+func chatLogEntryAt(ctx context.Context, client *redis.Client, chatID, messageID int64) (chatLogEntry, bool, error) {
+	if client == nil || messageID <= 0 {
+		return chatLogEntry{}, false, nil
+	}
+	rCtx, cancel := context.WithTimeout(ctx, chatLogReadTimeout)
+	defer cancel()
+	id := strconv.FormatInt(messageID, 10)
+	raw, err := client.ZRangeArgs(rCtx, redis.ZRangeArgs{
+		Key:     chatLogKey(chatID),
+		Start:   id,
+		Stop:    id,
+		ByScore: true,
+	}).Result()
+	if err != nil || len(raw) == 0 {
+		return chatLogEntry{}, false, err
+	}
+	var entry chatLogEntry
+	if json.Unmarshal([]byte(raw[0]), &entry) != nil {
+		return chatLogEntry{}, false, nil
+	}
+	return entry, true, nil
 }
 
 // chatLogHas reports whether the message is in the ring. The members are JSON, so the score is
@@ -135,6 +170,153 @@ func chatLogSince(ctx context.Context, client *redis.Client, chatID, fromID int6
 		}
 		entries = append(entries, entry)
 	}
+	return entries, nil
+}
+
+func chatLogZRevRange(ctx context.Context, client *redis.Client, chatID, start, stop int64) ([]string, error) {
+	return client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:   chatLogKey(chatID),
+		Start: start,
+		Stop:  stop,
+		Rev:   true,
+	}).Result()
+}
+
+// chatLogRecentThread performs a bounded reverse scan of the newest chatLogRecentScanLimit entries
+// in chatID's log ring, strictly filtering to entry.Thread == threadID && entry.MessageID < beforeMsgID
+// so forum topics never bleed and the triggering message is never duplicated. It returns up to limit
+// matching entries ordered oldest-first, or (nil, nil) when none match.
+func chatLogRecentThread(ctx context.Context, client *redis.Client, chatID, threadID, beforeMsgID int64, limit int) ([]chatLogEntry, error) {
+	if client == nil || limit <= 0 {
+		return nil, nil
+	}
+	rCtx, cancel := context.WithTimeout(ctx, chatLogReadTimeout)
+	defer cancel()
+	raw, err := chatLogZRevRange(rCtx, client, chatID, 0, chatLogRecentScanLimit-1)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]chatLogEntry, 0, min(limit, len(raw)))
+	for _, item := range raw {
+		var entry chatLogEntry
+		if json.Unmarshal([]byte(item), &entry) != nil {
+			continue
+		}
+		if entry.Thread != threadID || entry.MessageID >= beforeMsgID {
+			continue
+		}
+		entries = append(entries, entry)
+		if len(entries) == limit {
+			break
+		}
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	slices.Reverse(entries)
+	return entries, nil
+}
+
+// chatLogRecent scans chatID's log ring from newest to oldest, returning up to limit entries with
+// entry.Thread == threadID (and entry.MessageID < beforeMsgID when beforeMsgID > 0), ordered oldest-first.
+func chatLogRecent(ctx context.Context, client *redis.Client, chatID, threadID, beforeMsgID int64, limit int) ([]chatLogEntry, error) {
+	if client == nil || limit <= 0 {
+		return nil, nil
+	}
+	rCtx, cancel := context.WithTimeout(ctx, chatLogReadTimeout)
+	defer cancel()
+	raw, err := chatLogZRevRange(rCtx, client, chatID, 0, -1)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]chatLogEntry, 0, min(limit, len(raw)))
+	for _, item := range raw {
+		var entry chatLogEntry
+		if json.Unmarshal([]byte(item), &entry) != nil {
+			continue
+		}
+		if entry.Thread != threadID || (beforeMsgID > 0 && entry.MessageID >= beforeMsgID) {
+			continue
+		}
+		entries = append(entries, entry)
+		if len(entries) == limit {
+			break
+		}
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	slices.Reverse(entries)
+	return entries, nil
+}
+
+// chatLogSinceUser scans chatID's log ring from newest to oldest for entries in threadID
+// (strictly below beforeMsgID when beforeMsgID > 0) back to and including the newest entry
+// from userID. Returns (nil, nil) if userID has no matching entry in that thread.
+func chatLogSinceUser(ctx context.Context, client *redis.Client, chatID, threadID, userID, beforeMsgID int64) ([]chatLogEntry, error) {
+	if client == nil || userID <= 0 {
+		return nil, nil
+	}
+	rCtx, cancel := context.WithTimeout(ctx, chatLogReadTimeout)
+	defer cancel()
+	raw, err := chatLogZRevRange(rCtx, client, chatID, 0, -1)
+	if err != nil {
+		return nil, err
+	}
+	var entries []chatLogEntry
+	found := false
+	for _, item := range raw {
+		var entry chatLogEntry
+		if json.Unmarshal([]byte(item), &entry) != nil {
+			continue
+		}
+		if entry.Thread != threadID || (beforeMsgID > 0 && entry.MessageID >= beforeMsgID) {
+			continue
+		}
+		entries = append(entries, entry)
+		if entry.UserID == userID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, nil
+	}
+	slices.Reverse(entries)
+	return entries, nil
+}
+
+// chatLogSinceTime scans chatID's log ring from newest to oldest, returning entries in threadID
+// (strictly below beforeMsgID when beforeMsgID > 0) with entry.At >= cutoffUnix, ordered
+// oldest-first. Legacy entries with entry.At <= 0 are skipped so they never match a time window.
+func chatLogSinceTime(ctx context.Context, client *redis.Client, chatID, threadID, cutoffUnix, beforeMsgID int64) ([]chatLogEntry, error) {
+	if client == nil {
+		return nil, nil
+	}
+	rCtx, cancel := context.WithTimeout(ctx, chatLogReadTimeout)
+	defer cancel()
+	raw, err := chatLogZRevRange(rCtx, client, chatID, 0, -1)
+	if err != nil {
+		return nil, err
+	}
+	var entries []chatLogEntry
+	for _, item := range raw {
+		var entry chatLogEntry
+		if json.Unmarshal([]byte(item), &entry) != nil {
+			continue
+		}
+		if entry.Thread != threadID || (beforeMsgID > 0 && entry.MessageID >= beforeMsgID) {
+			continue
+		}
+		if entry.At <= 0 || entry.At < cutoffUnix {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	slices.Reverse(entries)
 	return entries, nil
 }
 
@@ -186,6 +368,7 @@ func chatLogEntryOf(msg *gotgbot.Message, userID int64) chatLogEntry {
 		UserID:    userID,
 		Text:      chatprompt.Clean(chatMessageText(msg), chatLogTextRunes),
 		Media:     chatLogMediaTag(msg),
+		At:        msg.Date,
 	}
 	if msg.From != nil {
 		entry.Name = chatprompt.Clean(msg.From.FirstName, chatprompt.MaxNameRunes)

@@ -74,6 +74,9 @@ func settingsPhase19Codes(minute string) []settingsPhase19Code {
 		{"xy", settingsPageReactions, map[string]string{"r": "5", "e": minute}},
 		{"xa", settingsPageReactions, map[string]string{}},
 		{"xc", settingsPageReactions, map[string]string{"t": "r"}},
+		{"xo", settingsPageReactions, map[string]string{"v": "1"}},
+		{"xr", settingsPageReactions, map[string]string{"r": "5"}},
+		{"xs", settingsPageReactions, map[string]string{"r": "5", "k": "wb", "v": "1"}},
 		{"sq", settingsPageReasons, map[string]string{"v": "1"}},
 		{"sx", settingsPageReasons, map[string]string{"r": "5", "v": "1"}},
 		{"sy", settingsPageReasons, map[string]string{"r": "5", "e": minute}},
@@ -93,7 +96,7 @@ func TestSettingsPhase19Codes(t *testing.T) {
 			}
 			seen[pg.Key] = true
 		}
-		want := []string{"s", "v", "l", "c", "f", "q", "n", "j", "k", "rs", "b", "i", "w", "g", "r", "e", "x", "h", "m", "av", "cp", "ba", "d", "t", "u", "z", "o", "y", "p", "a"}
+		want := []string{"s", "v", "l", "c", "f", "q", "n", "j", "k", "rs", "b", "i", "w", "g", "r", "e", "x", "h", "m", "av", "cp", "ba", "d", "t", "u", "z", "o", "y", "pr", "p", "a"}
 		if got := slices.Sorted(maps.Keys(seen)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
 			t.Errorf("registered pages = %v, want %v", got, slices.Sorted(slices.Values(want)))
 		}

@@ -16,6 +16,10 @@ key-files:
     - xenobot/utils/formatting/formatting_test.go
 duration: 1 session
 completed: 2026-11-24
+audit_acknowledged:
+  milestone: v1.3
+  at: 2026-11-27
+  status: unknown
 ---
 
 # Quick task 261124-l1n summary

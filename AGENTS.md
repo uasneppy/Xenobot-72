@@ -112,7 +112,13 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   case and `stop_grace_period: 75s` are unchanged. The message log watcher starts no job and needs no stop. `TestShutdownEndsChat`
   proves it: a job inside a hung provider call is ended inside the wait, sends nothing, writes no memory, and a later message starts
   no job; `TestShutdownEndsChatBriefs` proves the same for a brief (and that a later `/unrollshort` starts no job and spends no
-  budget); a test that runs the stop restores the pool with `restoreChatPool`.
+  budget); a test that runs the stop restores the pool with `restoreChatPool`. Phase 31's reaction handler (`LoadPresence`,
+  `handleReaction`) joins `StopChat` the same way — tracked in `chatJobs`, refused while `chatDraining`, and bounded by a 3 s context
+  derived from `chatContext()` — adding zero shutdown drains and keeping the 70 s webhook worst case and `stop_grace_period: 75s`
+  unchanged (`TestShutdownEndsPresenceReaction`). Phase 32's contextual AI emoji reaction worker lane (`chatPresenceQueue`, 2 workers,
+  cap 32, launched inside `chatEnsureWorkers()` in `chat_run.go`) shares `chatJobs`, `chatDraining`, and `chatContext()` under `StopChat`
+  with zero new shutdown drains and zero `main.go` changes, keeping the 70 s webhook worst case and `stop_grace_period: 75s` unchanged
+  (`TestShutdownEndsChatReact`).
 - `StopRaidAI` is a drain registered after DB-close as well, through `RegisterRaidAIDrain` (`raidAIStopWait`, 1 s, plus
   grace), in `main.go` right after `RegisterRaidPostsDrain`. Shutdown is LIFO, so it runs after `DrainAISpamChecks`
   (whose verdicts can start lockdowns) and before `StopRaidPosts` (a start can post a notice) and the database close. It
@@ -171,6 +177,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`chat_media.go`, image documents in `raid_ai_media.go`) add zero goroutines, zero handler groups, and zero shutdown drains: every
   provider call and Telegram media download runs inside the existing `StopChat`, `StopRaidAI`, or `StopMemberReqJobs` pool under its
   derived context, so the 70 s worst case and `stop_grace_period: 75s` are unchanged.
+- Phase 33 (Smarter Static Reactions, Highlights Archive, Cat-Sticker Micro-Triggers, and Backup Parity) adds zero goroutines,
+  zero new handler groups (reusing group `8` in `reactions.go`, group `0` `NewReaction` + `/setarchive`/`/unsetarchive` via
+  `helpers.NewBotCommand` and group `11` `captureSetArchiveForward` in `presence_reactions.go`/`presence_archive.go`), and zero
+  shutdown drains (`handleReaction` joins `StopChat` via `chatJobs`/`chatDraining`/`chatContext()`), keeping the `70 s` webhook
+  worst-case shutdown and `stop_grace_period: 75s` unchanged.
+- Phase 34 (Room-Aware Conversations and Frictionless Catch-Up) adds zero goroutines, zero handler groups, and zero shutdown
+  drains: the silent `✍` PM brief routes from group `0` `handleReaction` (`presenceHandlePMBrief`) into `chatBriefQueue` under
+  `StopChat` (`chatJobs`, `chatDraining`, `chatContext()`), keeping the `70 s` webhook worst-case shutdown and
+  `stop_grace_period: 75s` unchanged.
+- Phase 35 (Interactive Group Toys) adds zero goroutines outside `StopChat`, zero new message handler groups
+  (`handlers.NewPoll(poll.All, chatModule.handlePollUpdate)` sits at group `0` in `LoadPresence`), and zero shutdown drains (both
+  the shared `chatToyQueue` worker lane and `handlePollUpdate` join `StopChat` via `chatJobs`/`chatDraining`/`chatContext()`,
+  proved by `TestShutdownEndsChatToys` and `TestShutdownEndsInspect`), keeping the `70 s` webhook worst-case shutdown and
+  `stop_grace_period: 75s` unchanged.
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
 - The Turnstile web captcha is configured in `main` (`registerCaptchaWeb`) when `config.AppConfig.CaptchaWebConfigured()`
   holds: all four of `CAPTCHA_WEB_BASE_URL`, `TELEGRAM_MINI_APP_SHORT_NAME`, `TURNSTILE_SITE_KEY` and
@@ -199,12 +219,15 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - Group numbers are execution order: `-10` captcha sweeper · `-9` forward blocklist watcher (the only handler of the group, never ends an update; see the `StaffForwardBlock` bullet) · `-8` member deletion (two handlers: the edit handler and the self-destruct watcher, a `handlers.NewMessage(message.All, ...)` with no setter; neither ends an update, see the `MemberDeletion` bullet) · `-7` lockdown join guard (it also counts the join surge
   before it reads the lockdown) · `-6` fed-ban · `-5` service message deletion watcher (the only handler of the group, never ends an update, `SetAllowBot`; a deletable service type is deleted now or queued by the group's stored rule) · `-4` raid flood counter (counts everything but slash-prefixed texts, never ends an update; there is no
   antiraid handler any more) · `-3` staff watchers (chat-migration re-key; later ownership and bot health) · `-2` admin-cache (`my_chat_member` only) and the member requirements watcher (supergroup messages only, the only message handler of the group, `ext.ContinueGroups` on every path; never add another message handler to group -2) ·
-  `-1` users tracker (records real users only: no `sender_chat`, no non-positive ID, no Telegram service account, `trackableUser`) · `0` commands/help/greetings · `1` settings typed-reply door (private messages only;
+  `-1` users tracker (records real users only: no `sender_chat`, no non-positive ID, no Telegram service account, `trackableUser`) · `0` commands/help/greetings and `LoadPresence`'s `handlers.NewReaction(reaction.All, presenceModule.handleReaction)` plus `handlers.NewPoll(poll.All, chatModule.handlePollUpdate)` (non-message updates; neither contends with message handlers and `CommandDeletionProcessor` returns immediately when `ctx.Message == nil`; `"message_reaction"` and `"poll"` are subscribed in `config.AppConfig.AllowedUpdates`, rolling deploys must terminate all v1.2 replicas before final `getWebhookInfo` verification, and `"message_reaction_count"` must never be added) · `1` settings typed-reply door (private messages only;
   `ext.ContinueGroups` for anyone with no wait and no marker, consumes and ends the update otherwise) · `2` raid AI candidate watcher (hands a new member's suspicious
   item to the raid AI pool, never ends an update) · `3` aispam · `4` antiflood · `5`/`6` locks · `7` blacklists ·
-  `8` reports+reactions (the `@admin` watcher, `reportWatch`, returns `nil` after reporting so groups 9 to 12 still run) · `9` filters · `10` pins · `11` log-channel · `12` late raid flood counter (slash-prefixed texts only; keep it
+  `8` reports+reactions (the `@admin` watcher, `reportWatch`, returns `nil` after reporting so groups 9 to 12 still run; `checkReactions` in `reactions.go` gates with `presenceMessageAllowed` + lazy `presenceIsLockedDown` and sets `ctx.Data[presenceStaticReactedKey] = true` on a static or cat-sticker reaction) · `9` filters · `10` pins · `11` log-channel (including `captureSetArchiveForward` for `/setarchive` forwards) · `12` late raid flood counter (slash-prefixed texts only; keep it
   after every group that can end a slash text) · `13` conversation watcher (the Chat module, the only handler of the group; handles no command,
-  ignores slash texts and ends no update, which is why it may come after group 12; see the `Chat` bullet) · `14` message log watcher (the Chat
+  ignores slash texts and ends no update, which is why it may come after group 12; handles `@mention`/reply addressing and
+  opt-in vocative prefix addressing via `chatprompt.ParseVocativePrefix` mutually exclusively with `chatReactWatch`, which
+  respects `ctx.Data[presenceStaticReactedKey]` and performs zero operational Redis I/O when `EnableChat` is false or
+  `chat_presence.ai_react_mode == "off"`; see the `Chat` and `Presence` bullets) · `14` message log watcher (the Chat
   module, the only handler of the group; sees new messages and edits of real members, ends no update; see the `Chat` bullet).
 - gotgbot stops a group at the first matching handler. Watchers return `ext.ContinueGroups`; commands return
   `ext.EndGroups`. A group-0 watcher returning `nil` silently kills every later group-0 handler.
@@ -487,16 +510,23 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   channels cannot converse (a stated limit); addressed (`chatAddressed`): an `@<bot username>` mention entity compared without
   regard to case or a `text_mention` of the bot, in the text or the caption (pure), else a reply, read through
   `extraction.ReplyTarget`, to a message the conversation feature sent (one Redis `ZSCORE` of `xenobot:chat:{<chat>}:mine`, only for
-  a reply to the bot, so a reply to a ban notice, a welcome or a captcha is no address); the server can converse at all
+  a reply to the bot, so a reply to a ban notice, a welcome or a captcha is no address), else opt-in vocative prefix addressing
+  (Phase 34, CHAT-03: `msg.ForwardOrigin == nil`, `chatprompt.ParseVocativePrefix` pure Unicode rune prefix matching across UK/RU/EN
+  and optional `b.FirstName`, `!presenceIsStaffGroup`, and `chat_presence.vocative_enabled`, returning early from `chatWatch` before
+  `chatReactWatch` for strict mutual exclusion whenever `vocative_enabled` is enabled); the server can converse at all
   (`chatAnyProviderConfigured`); the cached setting (`chatconv.Get`; an error answers nothing); enabled and its provider configured
   (`chatProviderConfigured`); Redis present; the audience (`chatAudienceAllows`: everyone, or an administrator by
   `chat_status.IsUserAdmin` or an approved member by `approvals.IsUserApprovedContext`, where a failed read means no reply).
   A job, in order (`chatProcessJob`): the per-user cooldown (`SET NX EX 5`), the provider's breaker, the hourly budgets
   (`chatReserve`: the member's unit, then the group's, then the fleet's, 12, 80 and 800 per UTC hour, through `raidAIBudgetTake`;
-  a counter error makes no call), one paced typing action, the transcript, the request (`chatBuildRequest`, through the leaf
-  `chatprompt`: the static persona and archive, the group's title, language name, today's date in the group's zone and the bot's
-  username, then the transcript, the quoted message when the speaker replies to someone else's, and the message with the bot's
-  mention removed, plus any attached photo, static/animated/video sticker, GIF/video thumbnail, image document (`image/jpeg`, `image/png`,
+  a counter error makes no call), one paced typing action, the transcript (`chatReadHistoryWithIDs` preserving `MessageID`s) and
+  optional ambient room context (`chatAmbientContextTurns`, Phase 34, CHAT-02: Owner×Admin+Log double-gated via
+  `!presenceIsStaffGroup && conv.Enabled && conv.LogEnabled && pres.AmbientContext`, reading up to `chatAmbientContextLimit` = 8
+  same-thread entries from `chatLogRecentThread` and deduplicating against `historyIDs`, `job.quotedMessageID`, and `job.messageID`),
+  the request (`chatBuildRequest`, through the leaf `chatprompt` via `chatprompt.UserWithAmbient` in
+  `xenobot/utils/chatprompt/ambient.go`: the static persona and archive, the group's title, language name, today's date in the
+  group's zone and the bot's username, then optional `[Recent room chatter in this topic, oldest first]`, then the transcript, the
+  quoted message when the speaker replies to someone else's, and the message with the bot's mention or vocative prefix removed, plus any attached photo, static/animated/video sticker, GIF/video thumbnail, image document (`image/jpeg`, `image/png`,
   `image/webp`), PDF (`application/pdf`, Anthropic and Google only; skipped before download on Featherless), or UTF-8 text/code file
   (`<= 64 KiB`, inlined as untrusted data via `chatprompt.UserWithFiles`) extracted pure in `chat_media.go` (`chatExtractMediaRef`)
   and downloaded inside the worker via `chatDownloadMedia` over the shared `downloadTelegramFileBytes` helper and `raidAIFileHTTPClient` with no redirects (failing closed without calling the provider when a turn has no text and zero usable attachments or files survive); no user ID, username or chat
@@ -529,7 +559,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `chat_ask_usage`, for an anonymous admin, a channel, an unreadable setting, no Redis or an audience the sender is not in nothing,
   and otherwise the text after the command is handed to the pool after the same checks as a mention (`chatAccept`, shared with the
   watcher). The module's help page is `chat_help_msg` (`help_module_name_chat`, icon 🗨, alt names `conversations`, `ask`, `xeno`,
-  `unrollshort`, `unrolllong`, `judge` and `messagelog`), which says how to talk to the bot, that the owner turns conversations
+  `unrollshort`, `unrolllong`, `judge`, `messagelog`, `referendum` and `inspect`), which says how to talk to the bot, that the owner turns conversations
   and the message log on in private, what the log keeps (the newest 1000 messages, deleted when it is turned off), the brief
   commands for everyone and `/judge` with its `group`, `pm` and `staff` words for admins, what goes to the provider (no IDs, no
   usernames) and that a verdict decides nothing; `TestChatHelpFitsOneMessage` (`xenobot/i18n`) holds it to one Telegram message
@@ -547,15 +577,20 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   provider configured (an error stores nothing); Redis; then `chatLogEdit` for an edit and `chatLogRecord` for a new message. A Redis
   error is one Debug line with the chat ID and the error class. The log is described under the conversation Redis keys; `/unrollshort`
   and the other briefs are described in their own bullet below the Chat bullets.
-- `/unrollshort` (Quick 261125-0iq, `chat_brief.go`, `chat_brief_prompt.go`) is a brief of a stretch of the group's conversation: a
-  member replies to a message and the bot posts an AI brief of that message and every logged message after it. Its descriptor
+- `/unrollshort` (Quick 261125-0iq, extended Phase 34 CHAT-04/CHAT-05; `chat_brief.go`, `chat_brief_prompt.go`) is a brief of a
+  stretch of the group's conversation: a member replies to a message (the bot posts an AI brief of that message and every logged
+  message after it in the same forum topic) or runs it reply-free with `<N (5..200) | me | duration (60s..7d via
+  extraction.ParseDurationToken)> [pm]` (`chatBriefParseArgs`, reading thread-isolated `chatLogRecent`, `chatLogSinceUser`, or
+  `chatLogSinceTime`, answering `brief_empty` when nothing matches in that topic; `pm` delivers privately via
+  `chatDeliverPrivate` with `brief_header_short_pm` and `brief_note_pm` / `brief_pm_blocked`). Its descriptor
   `unrollShortDesc` (declared in `chat.go` beside `LoadChat`, so the docs generator finds descriptor and registration in one file) is
   `Disableable`, checks its own name and `RequireGroup`, and is registered through `helpers.WrapCommand` with no anonymous-admin
   re-entry (anonymous admins and channels get nothing, as for `/ask`). It is for everyone and never needs conversations to be on: the
   gate (`chatBriefGateOf`) is the server (`chatAnyProviderConfigured` false answers `brief_unavailable`), the cached setting (a read
   failure is silent), the owner's Message log switch (off answers `brief_off_hint`), the stored provider configured (else
   `brief_unavailable`) and Redis (none is silent). The handler `chatBriefCommand` (through `chatBriefPrepare`) checks, in order, a group, a sender that counts
-  (`raidFloodSenderCounts`, not a bot), `extraction.ReplyTarget` (none answers the usage `brief_usage_short`), the gate, and
+  (`raidFloodSenderCounts`, not a bot), the reply/argument mode (`chatBriefParseArgs`, answering `brief_usage_short` on bad syntax
+  or out-of-range counts/durations), the gate, and in reply mode
   `chatLogHas` of the replied-to ID (a Redis error is silent; absent answers `brief_too_old` and makes no provider call); then it
   queues a `chatBriefJob`. Briefs have their own queue of 16 and one dedicated worker (`chatBriefWorker`), started inside
   `chatEnsureWorkers`'s `Once`, counted in `chatJobs`, refused while `chatDraining` and derived from `chatContext`, so `StopChat` drains
@@ -568,9 +603,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `chatSayGated` under the kind `brief_malfunction`, so it never silences the conversation lines); the hourly budgets
   `xenobot:chat:brief:b:u:<chat>:<user>:<hour>`, `:c:<chat>:<hour>` and `:g:<hour>` (`chatReserveWith`, 6, 30 and 300, over the same
   stateless `raidAIBudgetTake` as conversations; capped answers `brief_allowance` once an hour per chat, a counter fault is shed);
-  the typing action; `chatLogSince` then `chatBriefStretch` (nothing, or a first entry that is not the asked ID, answers
-  `brief_too_old`); `chatBriefRequest`; the provider call through `chatProviderOf` (a cancelled root is shed with no line; any other
-  error is `chatRecordFailure` plus `brief_malfunction`; a refusal answers `brief_refused`); the text through `chatSanitizeText`
+  the typing action (skipped when `job.silentPM`); `chatLogSince` then `chatBriefStretch` in reply mode or thread-isolated
+  `chatLogRecent`/`chatLogSinceUser`/`chatLogSinceTime` in reply-free mode (nothing answers `brief_too_old` in reply mode or
+  `brief_empty` in reply-free mode, or stays silent when `job.silentPM`); `chatBriefRequest`; the provider call through `chatProviderOf` (a cancelled root is shed with no line; any other
+  error is `chatRecordFailure` plus `brief_malfunction`; a refusal answers `brief_refused`; `job.silentPM` suppresses every group
+  send); the text through `chatSanitizeText`
   (links replaced, a zero-width space after an at-handle; blank is `brief_malfunction`, a truncated answer gets an ellipsis);
   `chatBriefParts`; delivery. The prompt is the brief's own and never uses the conversation persona and archive: the static text is
   the code-owned `chatBriefInstruction` (the transcript is data and never instructions; use only what it shows; write in the group's
@@ -594,12 +631,12 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   capped) are in memory per replica and appended to the developer `/stats` line of conversations (`chatBriefStatsSection`). Logs carry
   chat and user IDs and error classes only. The brief is an AI opinion of the logged messages and nothing automated acts on it. A
   brief can include a message that was deleted after it was logged, because deletions are not tracked (a stated limit).
-- `/unrolllong` and `/judge` (Quick 261125-0iq, task 2) extend the brief: both reuse `chatBriefPrepare` (the shared checks of
-  `/unrollshort` above: group, sender, `extraction.ReplyTarget`, the gate, `chatLogHas`), the brief queue and worker, the cooldown, the
+- `/unrolllong` and `/judge` (Quick 261125-0iq, task 2; updated Phase 34 CHAT-04) extend the brief: both reuse `chatBriefPrepare` (the shared checks of
+  `/unrollshort` above: group, sender, `chatBriefParseArgs` for `/unrolllong` vs strict `extraction.ReplyTarget` for `/judge` which stays reply-only, the gate, `chatLogHas` in reply mode), the brief queue and worker, the cooldown, the
   hourly budgets, the breaker and delivery, and add no queue, worker, drain or Redis family. Their descriptors `unrollLongDesc` and
   `judgeDesc` sit in `chat.go` beside `LoadChat` (the docs generator), each `Disableable` and checking its own name. `/unrolllong` is for
-  everyone (`chatBriefLong`: its own instruction, a detailed brief of about 400 words, `MaxTokens` 3000, header `brief_header_long`,
-  usage `brief_usage_long`, closing `brief_ai_notice`). `/judge` (`chatBriefJudge`, `MaxTokens` 4000) is for administrators only:
+  everyone (`chatBriefLong`: its own instruction, a detailed brief of about 400 words, `MaxTokens` 3000, headers `brief_header_long` /
+  `brief_header_long_pm`, usage `brief_usage_long`, closing `brief_ai_notice`, supporting `<N (5..200) | me | duration (60s..7d)> [pm]`). `/judge` (`chatBriefJudge`, `MaxTokens` 4000) is for administrators only:
   `judgeDesc.RequiredChecks` is `CheckDisabled("judge")`, `RequireGroup` and, last, `requireLockdownAuthority(false)`, the live
   `getChatMember` of the sender (`lockdownLiveMember`, creator or administrator) that never reads the admin cache or the chat's
   AnonAdmin setting, refuses a message sent as another chat, fails closed on a lookup error and always sends an anonymous sender the
@@ -1489,8 +1526,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - The Backup page (`settings_backup.go`, `backup.go`, page `ba`, `Order` 83, icon `💾`, `settings_page_backup`, Phase 30, BKP-01..03,
   MSG-10) is `PrivateOnly` (`PrivateNoteKey` `settings_bkp_group_note`), `Hidden` in Staff Groups (`settingsBackupHidden`, failing
   closed on fresh DB errors via `settingsBackupVerifyNonStaff`), and has a static zero-I/O `MainState` (`settings_state_backup`).
-  Module selection is stateless via a canonical 20-bit lowercase hex mask `m` (`0`..`fffff`) mapping bits `0..19` to
-  `backup.AllExportableModules()` (including `"messages"`), with per-module toggles plus Select all (`m=fffff`) and Clear (`m=0`)
+  Module selection is stateless via a canonical 21-bit lowercase hex mask `m` (`0`..`1fffff`) mapping bits `0..20` to
+  `backup.AllExportableModules()` (including `"messages"` and `"presence"`), with per-module toggles plus Select all (`m=1fffff`) and Clear (`m=0`)
   (`P30-04`). Action codes (every `Validate` requires private field `c` in step 1, producing 0 `getChatMember` calls on forged or
   group-menu presses): `bv` (stateless bitmask redraw `m`, `settingsRightAdmin`), `be` (Export selected modules `m`,
   `settingsRightAdminBotAdmin`, refuses `m=0` with `settings_bkp_pick_one`, delegates to `applyBackupExport` under `AcquireExport` and
@@ -1498,7 +1535,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settingsTypedPages[settingsPageBackup]`, part `i`, `CancelCode` `bl`, `Right` `settingsRightOwnerBotAdmin`, `WaitEndedKey`
   `settings_bkp_import_wait_ended`, keeping the wait alive on plain text or invalid/corrupt files), `bl` (cancels active wait, `t=i`,
   `settingsRightAdmin`), `bj` (Import confirm Yes, `k` 16-char base64url token, `settingsRightOwnerBotAdmin`, peeks user/chat binding
-  before atomic Lua `GET+DEL` + `AcquireImport` + `applyBackupImport` / `formatBackupImportSuccess`), `bq` (Reset confirm ask, `m`,
+  before atomic Lua `GET+DEL` + `AcquireImport` + `applyBackupImport` / `formatBackupImportSuccess`, which appends
+  `backup_import_archive_skipped` when `ImportReport.ArchiveChannelSkipped` is true), `bq` (Reset confirm ask, `m`,
   `settingsRightOwnerBotAdmin`, refuses `m=0` with `settings_bkp_pick_one`, stores one-time Redis reset token), and `bu` (Reset confirm
   Yes, `k`, `settingsRightOwnerBotAdmin`, peeks user/chat binding before atomic Lua `GET+DEL` + `AcquireReset` + `applyBackupReset` /
   `formatBackupResetSuccess`). Both `/export`, `/import`, `/reset` and the Backup page call the shared apply helpers in
@@ -1506,6 +1544,115 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `applyBackupReset`, `formatBackupResetSuccess`) and share `BackupRateLimiter`. With `ba` registered at `Order` 83, Main has 30
   registered pages total (`settingsMainOwnerRows = 17`, Staff Group Main hides `ba` too so `staffOwnerRows = settingsMainOwnerRows - 4`
   and Staff Group Main state lines = `len(settingsMainTitleKeys) - 7`).
+- **Presence** (`presence.go`, `presence_react_api.go`, `presence_reactions.go`, `settings_presence.go`, Phase 31, PRES-01..03, PRES-05,
+  REACT-04..05): admin-configurable social reaction settings live in `chat_presence` (migration `20261127120000_add_chat_presence.sql`,
+  `xenobot/db/presence/`, `skipLocal` cache key `chat_presence:<chat>`, no GORM `default:` tags on booleans so Go `false` always persists
+  explicitly, column-targeted upserts, strictly separate from Owner-only AI consent in `chat_conversations`). Operational Redis state
+  lives under `xenobot:presence:{<chat>}:*` outside `xenobot:cache:` (`bot_react:<msgID>` 24 h JSON, `cons:u:<msgID>:<emoji_hex>` 48 h
+  distinct-member SETs, `cons:cd` chat cooldown, `cons:done:<msgID>` 48 h once-only latch, `cd:u:<userID>` 24 h user cooldown), while
+  per-chat `AvailableReactions` is cached 20 min under `xenobot:cache:avail_react:<chat>`. Setting reactions uses `IsBig: false` on a
+  dedicated `presenceReactionPacer` (never `chatPacer`, never tripping `chatBreakers` on Telegram `400`s); clearing a reaction on `👎`
+  retraction MUST send explicit non-nil `[]gotgbot.ReactionType{}` (`"reaction":[]` on the wire). `👎` retraction checks `bot_react` in
+  Redis before any Telegram call, authorizes the message author, a live group admin, or an anonymous group admin (`mru.User == nil &&
+  mru.ActorChat.Id == mru.Chat.Id`), clears silently, and extends the user cooldown; Emoji Consensus counts real non-anonymous members
+  only (`mru.User != nil`), excludes hostile emojis, checks `lockdown.GetActiveFresh` lazily fail-closed at threshold crossing before
+  claiming `cons:cd` + `cons:done:<msgID>` atomically, and never runs in Staff Groups, private chats, or channels. `LoadPresence`
+  registers without `SetModuleEnabled` so `/help` stays unchanged. Private Settings page `pr` (`Order` 91, icon `✨`,
+  `settings_page_presence`, `OwnerOnly: false`, `PrivateOnly: true`, `PrivateNoteKey: settings_pr_group_note`, `Hidden` + fail-closed
+  Staff Group gate without naming Staff Group, controls `c`/`ct`/`r`/`ai` under `settingsRightChangeInfo`, 5 rows total) pairs `y|pr` on Main keeping
+  `settingsMainOwnerRows = 17` across 31 registered pages (`staffOwnerRows = settingsMainOwnerRows - 4`, Staff Group Main state lines =
+  `len(settingsMainTitleKeys) - 8`), and is linked by one shortcut row (`settings_btn_chat_presence`, `a=op&p=pr`) from Owner-only
+  Conversations page `p` (staying `<= 8` rows across all 8 locales with all 3 providers configured).
+  Phase 32 (**Contextual AI Emoji Reactions**, `chat_react.go`, `xenobot/utils/chatprompt/reaction.go`, PRES-04, REACT-01..03) extends
+  `chat_presence` via `migrations/20261128120000_add_chat_presence_ai_react_mode.sql` with `ai_react_mode` (`'off'`/`'low'`/`'medium'`,
+  inline `chk_chat_presence_ai_react_mode`) and normalizes empty strings from rolling-deploy cache entries to `'off'` in `xenobot/db/presence`.
+  Unaddressed group `13` messages (`chat_watch.go`) hand off to `chatReactWatch` (strictly mutually exclusive with Conversations and
+  respecting `ctx.Data[presenceStaticReactedKey]`, performing zero operational Redis I/O when `EnableChat` is false or
+  `chat_presence.ai_react_mode == "off"`). Operational Redis keys (`xenobot:presence:{<chat>}:ai:gap`, `:ai:cd:chat`, shared `:cd:u:<user>`
+  preserving the 24 h `👎` retraction TTL in the same-slot `{<chat>}` Lua gate, and dedicated hourly budget `xenobot:chat:react:b:*` via
+  `chatReserveWith`) stay outside `xenobot:cache:`, while Featherless model `text_only` vision fallback
+  (`xenobot:cache:featherless_text_only:<model>`, 24 h TTL, set on non-auth `400`/`422` vision errors before one text-only retry) sits inside
+  `xenobot:cache:`. `chatPresenceQueue` (2 workers, cap 32, launched in `chatEnsureWorkers()`) runs under `StopChat` (`chatJobs`, `chatDraining`,
+  `chatContext()`), checks lazy fail-closed `presenceIsLockedDown`, inspects `chatBreaker(provider).isPaused` read-only with strictly
+  non-tripping silent error shedding (never calling `chatRecordFailure`), filters against `presenceAllowedPalette` (skipping custom-only
+  chats before downloads or LLM calls), assembles bounded 50-entry same-thread `chatLogRecentThread` + `ReplyTarget`/`Quote` + photo/sticker
+  vision via `chat_media.go`, and calls `xenobot/utils/chatprompt/reaction.go` (stdlib-only leaf, `ReactionMaxTokens = 512`, compact prompt
+  without comic archive, explicit lookalike warnings against `😂`/`🐱`/`😹`/`😻`/`😼`, strict `U+FE0F`-normalized JSON parser). Page `pr`
+  renders `[Off | Low | Medium]` (`t=ai`, `v=o/l/m`) with Owner×Admin `chatconv.GetFresh` double-gating: enabling `low`/`medium` refuses
+  writes with plain-text alert `settings_pr_ai_need_owner` when Owner Conversations is off (failing closed with `cannotOpen` on DB read
+  error), disabling to `off` always succeeds even when locked, zero-AI controls stay independent, and `settingsPresenceMainState` counts AI
+  reactions only when both `AIReactMode != "off"` and Owner Conversations is enabled/configured.
+  Phase 33 (**Cat-Sticker Micro-Triggers, Highlights Archive & Backup Parity**, `presence_archive.go`, `reactions.go`, `settings_presence.go`,
+  `xenobot/db/backup/`, COMM-02..05) extends `chat_presence` via `migrations/20261129130000_add_presence_stickers_and_archive.sql` with
+  `cat_sticker_enabled`, `archive_enabled`, `archive_chat_id`, `archive_thread_id`, `archive_threshold` (`2..50`, default `5`),
+  `archive_emoji_mode` (`'positive'`/`'all'`), `archive_delivery` (`'copy'`/`'forward'`), and durable composite-PK dedup table
+  `chat_presence_archived (chat_id, message_id)` (rolling-deploy safe empty-string/zero normalization in `xenobot/db/presence`).
+  Cat-sticker micro-triggers (`tryCatStickerReaction` in group `8` `reactions.go`) run only when no static rule reacted on a message with
+  `msg.Sticker` matching `catStickerEmojis`, require `CatStickerEnabled`, apply a 20% `catStickerRoll` + `xenobot:presence:{<chat>}:cat:cd`
+  (3 min) + lazy `presenceIsLockedDown`, intersect `["👀", "❤"]` with `presenceAllowedPalette`, call `presenceSetReaction(..., "cat")`
+  (zero AI calls), and set `ctx.Data[presenceStaticReactedKey] = true`.
+  Highlights Archive (`presence_archive.go`, `presenceHandleArchive` called from group `0` `handleReaction`) registers `/setarchive`
+  (`SetAllowChannel(true)`) and `/unsetarchive` via `helpers.NewBotCommand`, plus group-11 `captureSetArchiveForward`, and enables Presence
+  help (`SetModuleEnabled("Presence", true)`). `/setarchive` stores a 1 h `xenobot:setarchive:<targetChatID>:<msgID>` marker outside
+  `xenobot:cache:`, binds a forwarded post from a channel or supergroup or binds a current forum topic directly when invoked with Change
+  Info permission, verifies live admin + bot post permission, and refuses Staff Groups as both source and destination. On reactions,
+  `presenceHandleArchive` counts distinct real non-bot, non-author members (`mru.User != nil`, excluding `presenceConsensusHostile` and
+  honoring `positive`/`all`), tracks `xenobot:presence:{<chat>}:arch:u:<msgID>` (72 h) and fast latch `:arch:done:<msgID>` (7 d) outside
+  `xenobot:cache:`, checks lazy `presenceIsLockedDown`, claims once-only in PostgreSQL via `presence.TryClaimArchived` (`ON CONFLICT DO NOTHING`),
+  and delivers via `CopyMessage` (default, attaching a `t.me/c/` / `t.me/<user>/` jump button only for supergroups or public usernames)
+  or `ForwardMessage` while failing silently on `400`/`403`. On Settings page `pr` (now 7 rows), Cat Stickers toggle `cs` and Highlights
+  Archive sub-page `ph` + unlink `pu` register as `PrivateOnly` `settingsPageAction` entries on `pr` (keeping `len(settingsPages) == 31`
+  and `settingsMainOwnerRows == 17`), with archive controls `ae`/`ah`/`ap`/`ad` (`settingsRightChangeInfo`, refusing unlinked enable with
+  `settings_ph_need_target`, fail-closed Staff Group guard; `TestPhase33Codes`). `BackupModulePresence = "presence"` (21st backup module)
+  exports/imports/clears portable `chat_presence` fields via `PresencePortableBackup` (omitting `archive_chat_id`/`archive_thread_id`),
+  preserves already-linked destination targets, forces `archive_enabled = false` and sets `ImportReport.ArchiveChannelSkipped = true` on
+  unlinked targets, invalidates `presence.CacheKey(chatID)` post-commit, keeps `chat_conversations` permanently excluded
+  (`TestChatConversationsStayOutOfBackup`), and leaves `xenobot/modules/copy_settings.go` completely untouched.
+  Phase 34 (**Room-Aware Conversations & Frictionless Catch-Up**, `chat_log.go`, `chat_history.go`, `chat_prompt.go`, `chat_run.go`,
+  `chat_watch.go`, `chat_brief.go`, `presence.go`, `presence_reactions.go`, `settings_presence.go`, `xenobot/utils/chatprompt/ambient.go`,
+  `xenobot/db/presence/`, `xenobot/db/backup/`, CHAT-01..05) extends `chat_presence` via
+  `migrations/20261130120000_add_presence_room_and_catchup.sql` with `ambient_context`, `vocative_enabled`, and `pm_brief_react`
+  (all `BOOLEAN NOT NULL DEFAULT FALSE`, no GORM `default:` tags on booleans, `msgpack` tags `ax`/`ve`/`pb`, column-targeted
+  `SetAmbientContext`/`SetVocativeEnabled`/`SetPMBriefReact`, `applyPresence*` helpers, and full `BackupModulePresence` parity in
+  `PresencePortableBackup`), while keeping `xenobot/modules/copy_settings.go` completely untouched.
+  Ambient Room Context (`CHAT-02`, `chatAmbientContextTurns` in `chat_run.go`, `chatprompt.UserWithAmbient`) double-gates on
+  `!presenceIsStaffGroup && conv.Enabled && conv.LogEnabled && pres.AmbientContext`, reads up to `chatAmbientContextLimit` (`8`,
+  within `6..10`) same-thread entries via `chatLogRecentThread`, and deduplicates against `chatReadHistoryWithIDs`,
+  `job.quotedMessageID`, and `job.messageID`. Opt-In Vocative Addressing (`CHAT-03`, `chatprompt.ParseVocativePrefix`, group `13`
+  `chatWatch`) uses pure Unicode rune prefix matching across UK/RU/EN (plus optional `b.FirstName`), skips `msg.ForwardOrigin != nil`
+  and Staff Groups, requires `pres.VocativeEnabled`, and returns early before `chatReactWatch` for strict mutual exclusion.
+  Reply-free `/unrollshort` and `/unrolllong` (`CHAT-04`, `chatBriefParseArgs`) accept `<N (5..200) | me | duration (60s..7d via
+  extraction.ParseDurationToken)> [pm]` using thread-isolated `chatLogRecent`/`chatLogSinceUser`/`chatLogSinceTime` (answering
+  `brief_empty` when nothing matches) and `chatDeliverPrivate(..., silent)` while keeping `/judge` strictly reply-only. Silent `✍`
+  PM Brief (`CHAT-05`, `presenceHandlePMBrief` in `presence_reactions.go`) enforces Owner `LogEnabled` + provider, `!presenceIsStaffGroup`,
+  lazy `presenceIsLockedDown`, `chatAudienceAllows`, Redis `SetNX` user cooldown (`xenobot:presence:pmbrief:cd:{<chat>}:<user>`, `60s`),
+  and `chatLogEntryAt` before queueing into `chatBriefQueue` under `StopChat` with `silentPM: true` (posting zero group messages on
+  success or `403`). On Settings page `pr` (now `8` rows `<= 8`), `Room & Catch-Up` sub-page `pc` (`settingsActPresenceRoom`,
+  `PrivateOnly`) keeps `len(settingsPages) == 31` and `settingsMainOwnerRows == 17`, exposing Owner×Admin double-gated toggles
+  `ax`/`ve`/`pb` where authorized admins can still disable (`v=0`) even when locked (`TestPhase33Codes`, `TestSettingsPresenceRoomCatchup`).
+  Phase 35 (**Interactive Group Toys**, `chat_polls.go`, `chat_inspect.go`, `chat.go`, `chat_run.go`, `presence.go`,
+  `presence_reactions.go`, `settings_presence.go`, `xenobot/utils/chatprompt/toys.go`, `xenobot/db/presence/`, `xenobot/db/backup/`,
+  TOYS-01..03) extends `chat_presence` via `migrations/20261201120000_add_presence_toys.sql` with `referendum_enabled` and
+  `inspect_enabled` (`BOOLEAN NOT NULL DEFAULT FALSE`, zero GORM `default:` tags on booleans, `msgpack` tags `rf`/`in`,
+  column-targeted `SetReferendumEnabled`/`SetInspectEnabled`, `applyPresence*` helpers, and full `BackupModulePresence` parity in
+  `PresencePortableBackup`), while keeping `xenobot/modules/copy_settings.go` completely untouched. Both `/referendum` and `/inspect`
+  share the `StopChat`-joined toy lane (`chatToyQueue`, 2 workers, cap 16, `chatJobs`/`chatDraining`/`chatContext()`), dedicated
+  hourly budget `"toy:b"` via `chatReserveWith` (`6` user / `30` chat / `300` global), `chatToyChatCooldown` (`30 s`) /
+  `chatToyUserCooldown` (`20 s`), `chatToysStatsSection` in `/stats`, and `chatToyGateOf` (real non-bot user, `!presenceIsStaffGroup`,
+  `!presenceIsLockedDown`, Owner×Admin double-gating, and `chatAudienceAllows`). `xenobot/utils/chatprompt/toys.go` preserves the
+  stdlib-only leaf invariant (`TestChatpromptPackageIsLeaf`) with `ReferendumMaxTokens = 768`, `InspectMaxTokens = 512`,
+  `TieBreakerMaxTokens = 512`, `ParseReferendumJSON`, `ParseInspectJSON` (`U+FE0F` strip + non-Telegram lookalike rejection), and
+  `ParseTieBreakerText`. `/referendum` (`TOYS-01`) extracts optional reply target + same-thread `chatLogRecentThread` (when
+  `LogEnabled`) + command argument, sends sanitized polls via `SendPollWithContext` (`OpenPeriod = 900`, `DisableNotification: true`,
+  `AllowAddingOptions: false`), and persists `xenobot:presence:poll:<poll_id>` (outside `xenobot:cache:`, 25 h TTL). Group-`0`
+  `handlers.NewPoll(poll.All, chatModule.handlePollUpdate)` (`TOYS-02`, joining `StopChat`) triggers only when `IsClosed &&
+  TotalVoterCount > 0 && tiedCount >= 2`, claims once-only cross-replica via `SETNX` `xenobot:presence:poll:tie:<poll_id>` (24 h TTL),
+  and posts a deadpan Facility Tie-Breaker (with localized fallback if AI fails/disabled) via `AllowSendingWithoutReply: false`.
+  `/inspect` (`TOYS-03`) requires `extraction.ReplyTarget` (`inspect_usage`), reuses `chatReactDownloadVision` + `chatReactCallProvider`
+  (`chat_media.go` photo/sticker/image-doc vision + Featherless `400`/`422` `text_only` fallback), replies with
+  `AllowSendingWithoutReply: false`, and calls `presenceSetReaction(..., targetAuthorID, "inspect")` for 24 h `bot_react` / `👎`
+  retraction parity. Sub-page `pc` adds `rf` (`referendum_enabled`) and `in` (`inspect_enabled`) under `settingsPresenceNeedConv` (now
+  `6` rows `<= 8`, `pr` stays `8` rows, `len(settingsPages) == 31`, `settingsMainOwnerRows == 17`).
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
@@ -1939,7 +2086,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   through the `reactionWrites` seam; `TestLegacyReactionRequests` was recorded before that extraction and is never re-recorded. A
   group has at most 100 reactions (`reactionsCapMax`, a soft cap read before the insert; giving an existing keyword a new emoji is
   allowed at the cap): `/addreaction` of a new keyword at the cap answers `reactions_limit_reached` and stores nothing. The
-  `reactions` table keeps what backup does with it today. `TestSettingsReactions*`, `TestSettingsParityReactionAdd` (the page and
+  `reactions` table supports per-rule smart options since Phase 33 (`migrations/20261129120000_add_static_reaction_options.sql`, COMM-01:
+  `word_boundary`, `match_caption`, `chance_pct` `1..100` default `100`, `cooldown_secs` `0..86400` default `0`; zero GORM `default:` tags on
+  booleans). `xenobot/db/reactions` caches typed `[]Rule` under `reaction_rules:<chat>` (`skipLocal` in `xenobot/db/cache/local.go`),
+  normalizes legacy `ChancePct == 0 -> 100` on read and in `importReactions`, and invalidates both `reactions:<chat>` and
+  `reaction_rules:<chat>` on every write (including `SetReactionOptionsByID`). In group `8`, `checkReactions` (`reactions.go`) enforces
+  `presenceMessageAllowed`, checks text then caption (for `MatchCaption` rules), matches via pure Go Unicode word-boundary rune decoding
+  (`matchStaticReactionKeyword` using `unicode.IsLetter`/`unicode.IsDigit`/`r == '_'`, no `regexp`), sorts matches deterministically by
+  `(Keyword, ID)`, evaluates `ChancePct` + `xenobot:presence:{<chat>}:static:cd` (10 s) and `:static:r:<id>` Redis cooldowns outside
+  `xenobot:cache:`, checks lazy `presenceIsLockedDown`, calls `presenceSetReaction(..., "static")` (honoring `AvailableReactions` and
+  24 h `bot_react` for `👎` retraction), and sets `ctx.Data[presenceStaticReactedKey] = true` to suppress group-13 AI reactions.
+  `settings_reactions.go` (page `x`) preserves 2-token `"keyword emoji"` input and `TestLegacyReactionRequests` untouched while adding
+  `xo` (options rule list), `xr` (rule detail), and `xs` (`wb`/`mc`/`ch`/`cd`, `settingsRightChangeInfo`).
+  `TestSettingsReactions*`, `TestSettingsParityReactionAdd` (the page and
   `/addreaction` store the same row, and the page draws what the commands wrote), `TestSettingsAuthorityParityReactions`,
   `TestSettingsListReactionsFits` and `TestReactionCap` hold it.
 - The Conversations page (`settings_chat.go`, page `p`, `Order` 89 with key `p`, after Anonymous admins; icon 🗨,
@@ -3436,15 +3595,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   what was addressed to the bot and the bot's replies, bounded, short-lived and disclosed on the settings page. Turning
   conversations off deletes the transcript and the `mine` set. Without Redis conversations are inert on that replica (one info
   line per process).
-  `xenobot:chat:{<chat>}:log` (Quick 261125-0iq, `chat_log.go`) is the group's message log: a sorted set scored by the Telegram
+  `xenobot:chat:{<chat>}:log` (Quick 261125-0iq, extended Phase 34 CHAT-01/CHAT-04/CHAT-05; `chat_log.go`) is the group's message log: a sorted set scored by the Telegram
   message ID, its members compact JSON entries (`m` message ID, `u` user ID, `n` first name cleaned to 32 runes, `t` text or caption
-  cleaned and cut to 400 runes, `k` the English media tag such as `[photo]`, `th` the forum topic thread ID, `e` the edited flag), the
+  cleaned and cut to 400 runes, `k` the English media tag such as `[photo]`, `th` the forum topic thread ID, `e` the edited flag,
+  `at` the original Telegram `msg.Date` Unix timestamp `chatLogEntry.At` with `json:"at,omitempty"`, never `time.Now()`), the
   newest `chatLogMax` (1000, a variable for tests), with a 7 day idle expiry renewed by every write. It is written only while the
   owner's Message log switch is on and the stored provider is configured, by two Lua scripts (`chatLogInsertScript`: replace any member
   at the message's own score, add, trim to the newest 1000, renew the expiry, so a redelivered update replaces instead of duplicating;
   `chatLogEditScript`: the same, but it writes nothing when no member sits at the score, so an edit of a message that was never logged
-  or already left the ring inserts nothing) and read with `ZCOUNT` of the score (`chatLogHas`: the members are JSON, so `ZSCORE`
-  cannot be used) and `ZRANGE ... BYSCORE` from an ID (`chatLogSince`, an entry that does not parse is skipped). Deleted messages are
+  or already left the ring inserts nothing, while `chatLogEdit` reads `chatLogEntryAt` to preserve any existing `At > 0`) and read
+  with `ZCOUNT` of the score (`chatLogHas`: the members are JSON, so `ZSCORE`
+  cannot be used), `ZRANGE ... BYSCORE` (`chatLogEntryAt` at one ID, `chatLogSince` from an ID, skipping entries that do not parse),
+  and reverse thread-isolated scans (`chatLogRecentThread`, `chatLogRecent`, `chatLogSinceUser`, `chatLogSinceTime`, isolating queries
+  strictly by `entry.Thread == threadID` and skipping legacy `entry.At <= 0` entries in `chatLogSinceTime`). Deleted messages are
   not tracked and stay in the ring; slash texts and service messages are not logged; the user ID is stored for telling two people of
   one name apart and is never sent to a provider. Turning the switch off deletes the key at once (`applyChatLog`); a message already
   past the switch check on another replica can still write once afterwards (accepted, the residual of a switch with no shared lock),

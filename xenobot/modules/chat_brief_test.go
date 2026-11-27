@@ -432,3 +432,232 @@ func TestChatBriefLong(t *testing.T) {
 		}
 	}
 }
+
+func TestChatBriefReplyFree(t *testing.T) {
+	t.Run("argument parser", func(t *testing.T) {
+		cases := []struct {
+			name     string
+			arg      string
+			hasReply bool
+			wantMode chatBriefMode
+			wantN    int
+			wantDur  time.Duration
+			wantPM   bool
+			wantOK   bool
+		}{
+			{name: "reply empty", arg: "", hasReply: true, wantMode: chatBriefModeReply, wantOK: true},
+			{name: "reply pm", arg: "PM", hasReply: true, wantMode: chatBriefModeReply, wantPM: true, wantOK: true},
+			{name: "reply conflicting positional", arg: "50", hasReply: true, wantOK: false},
+			{name: "reply conflicting positional with pm", arg: "2h pm", hasReply: true, wantOK: false},
+			{name: "count min", arg: "5", wantMode: chatBriefModeCount, wantN: 5, wantOK: true},
+			{name: "count max", arg: "200 pm", wantMode: chatBriefModeCount, wantN: 200, wantPM: true, wantOK: true},
+			{name: "count below min", arg: "4", wantOK: false},
+			{name: "count zero", arg: "0", wantOK: false},
+			{name: "count above max", arg: "201", wantOK: false},
+			{name: "count signed", arg: "+10", wantOK: false},
+			{name: "me", arg: "Me", wantMode: chatBriefModeMe, wantOK: true},
+			{name: "me pm", arg: "me pm", wantMode: chatBriefModeMe, wantPM: true, wantOK: true},
+			{name: "duration 1m", arg: "1m", wantMode: chatBriefModeTime, wantDur: time.Minute, wantOK: true},
+			{name: "duration 2H pm", arg: "2H pm", wantMode: chatBriefModeTime, wantDur: 2 * time.Hour, wantPM: true, wantOK: true},
+			{name: "duration 7d", arg: "7d", wantMode: chatBriefModeTime, wantDur: 7 * 24 * time.Hour, wantOK: true},
+			{name: "duration 30s unsupported", arg: "30s", wantOK: false},
+			{name: "duration 0m", arg: "0m", wantOK: false},
+			{name: "duration 30d over cap", arg: "30d", wantOK: false},
+			{name: "empty without reply", arg: "", wantOK: false},
+			{name: "pm only without reply", arg: "pm", wantOK: false},
+			{name: "unknown token", arg: "foo", wantOK: false},
+			{name: "extra trailing token", arg: "2h pm extra", wantOK: false},
+			{name: "pm before anchor", arg: "pm 2h", wantOK: false},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				mode, n, dur, toPM, ok := chatBriefParseArgs(tc.arg, tc.hasReply)
+				if ok != tc.wantOK || mode != tc.wantMode || n != tc.wantN || dur != tc.wantDur || toPM != tc.wantPM {
+					t.Fatalf("chatBriefParseArgs(%q, %v) = (%v, %d, %v, %v, %v), want (%v, %d, %v, %v, %v)",
+						tc.arg, tc.hasReply, mode, n, dur, toPM, ok,
+						tc.wantMode, tc.wantN, tc.wantDur, tc.wantPM, tc.wantOK)
+				}
+			})
+		}
+	})
+
+	t.Run("count me duration topic isolation and pm delivery", func(t *testing.T) {
+		env := newChatEnv(t)
+		chatLogTurnOn(t, env)
+		chatSwap(t, &chatBriefUserHourlyBudget, int64(100))
+		deliverBrief := func(cmd *gotgbot.Message) {
+			env.mr.FastForward(chatBriefCooldown + time.Second)
+			env.deliver(cmd)
+		}
+
+		base := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+		chatSwap(t, &raidNow, func() time.Time { return base })
+
+		alice := env.member("Alice")
+		bob := env.member("Bob")
+		carol := env.member("Carol")
+		asker := env.member("Dave")
+
+		topicMsg := func(from *gotgbot.User, threadID int64, at time.Time, text string) *gotgbot.Message {
+			m := env.message(from, text)
+			m.Chat.Title = "Facility <7>"
+			m.Date = at.Unix()
+			if threadID > 0 {
+				m.IsTopicMessage = true
+				m.MessageThreadId = threadID
+			}
+			return m
+		}
+		topicCmd := func(from *gotgbot.User, threadID int64, text string, target *gotgbot.Message) *gotgbot.Message {
+			m := env.commandMessage(from, text, target)
+			m.Chat.Title = "Facility <7>"
+			m.Date = base.Unix()
+			if threadID > 0 {
+				m.IsTopicMessage = true
+				m.MessageThreadId = threadID
+			}
+			return m
+		}
+
+		// Topic 10 messages (some older than 2h, some inside 2h, with Alice anchored in the middle).
+		env.deliver(topicMsg(bob, 10, base.Add(-4*time.Hour), "t10-ancient"))
+		env.deliver(topicMsg(carol, 10, base.Add(-3*time.Hour), "t10-before-alice"))
+		env.deliver(topicMsg(alice, 10, base.Add(-90*time.Minute), "t10-alice-anchor"))
+		env.deliver(topicMsg(bob, 10, base.Add(-45*time.Minute), "t10-after-1"))
+		env.deliver(topicMsg(carol, 10, base.Add(-20*time.Minute), "t10-after-2"))
+		env.deliver(topicMsg(bob, 10, base.Add(-10*time.Minute), "t10-after-3"))
+		// Topic 20 noise that must never leak into Topic 10 queries.
+		env.deliver(topicMsg(alice, 20, base.Add(-5*time.Minute), "t20-other-topic"))
+
+		// 1. /unrollshort 5 in Topic 10: gets last 5 in Topic 10 only (excludes t10-ancient & t20-other-topic).
+		env.provider.script(chatAnswerText("Summary of last 5 in topic 10."))
+		deliverBrief(topicCmd(asker, 10, "/unrollshort 5", nil))
+		calls := env.provider.calls()
+		if len(calls) != 1 {
+			t.Fatalf("count provider calls = %d, want 1", len(calls))
+		}
+		if strings.Contains(calls[0].User, "t10-ancient") || strings.Contains(calls[0].User, "t20-other-topic") {
+			t.Fatalf("count query leaked outside range/topic:\n%s", calls[0].User)
+		}
+		for _, want := range []string{"t10-before-alice", "t10-alice-anchor", "t10-after-3"} {
+			if !strings.Contains(calls[0].User, want) {
+				t.Fatalf("count query missing %q:\n%s", want, calls[0].User)
+			}
+		}
+		last := env.lastSend()
+		if fmt.Sprint(last["message_thread_id"]) != "10" {
+			t.Fatalf("topic 10 reply thread_id = %v, want 10", last["message_thread_id"])
+		}
+
+		// 2. /unrolllong 20 in Topic 10: uses chatBriefLong instruction and MaxTokens.
+		env.provider.script(chatAnswerText("Detailed summary."))
+		deliverBrief(topicCmd(asker, 10, "/unrolllong 20", nil))
+		calls = env.provider.calls()
+		if len(calls) != 2 || calls[1].Static != chatBriefInstruction(chatBriefLong) || calls[1].MaxTokens != chatBriefMaxTokens(chatBriefLong) {
+			t.Fatalf("long count call mismatch: %+v", calls)
+		}
+
+		// 3. /unrollshort me for Alice in Topic 10: starts at t10-alice-anchor, excludes earlier & Topic 20.
+		env.provider.script(chatAnswerText("Since Alice spoke."))
+		deliverBrief(topicCmd(alice, 10, "/unrollshort me", nil))
+		calls = env.provider.calls()
+		if len(calls) != 3 {
+			t.Fatalf("me provider calls = %d, want 3", len(calls))
+		}
+		if strings.Contains(calls[2].User, "t10-before-alice") || strings.Contains(calls[2].User, "t20-other-topic") {
+			t.Fatalf("me query leaked earlier or other-topic messages:\n%s", calls[2].User)
+		}
+		if !strings.Contains(calls[2].User, "t10-alice-anchor") || !strings.Contains(calls[2].User, "t10-after-3") {
+			t.Fatalf("me query missing expected stretch:\n%s", calls[2].User)
+		}
+
+		// 4. /unrollshort 2h in Topic 10: uses raidNow()-2h cutoff against msg.Date (At).
+		env.provider.script(chatAnswerText("Last 2 hours."))
+		deliverBrief(topicCmd(asker, 10, "/unrollshort 2h", nil))
+		calls = env.provider.calls()
+		if len(calls) != 4 {
+			t.Fatalf("duration provider calls = %d, want 4", len(calls))
+		}
+		if strings.Contains(calls[3].User, "t10-before-alice") || strings.Contains(calls[3].User, "t10-ancient") || strings.Contains(calls[3].User, "t20-other-topic") {
+			t.Fatalf("2h query leaked older or other-topic messages:\n%s", calls[3].User)
+		}
+		if !strings.Contains(calls[3].User, "t10-alice-anchor") || !strings.Contains(calls[3].User, "t10-after-3") {
+			t.Fatalf("2h query missing messages inside 2h:\n%s", calls[3].User)
+		}
+
+		// 5. /unrollshort 5 pm: sends PM with escaped group title header and brief_note_pm in group.
+		env.provider.script(chatAnswerText("Private catch-up."))
+		groupBefore := len(env.sends())
+		deliverBrief(topicCmd(asker, 10, "/unrollshort 5 pm", nil))
+		pmCalls := env.client.callsFor("sendMessage")
+		var pmParams map[string]any
+		for _, c := range pmCalls {
+			if fmt.Sprint(c.Params["chat_id"]) == fmt.Sprint(asker.Id) {
+				pmParams = c.Params
+			}
+		}
+		if pmParams == nil {
+			t.Fatalf("expected PM sendMessage to user %d", asker.Id)
+		}
+		pmText := fmt.Sprint(pmParams["text"])
+		if !strings.Contains(pmText, "Facility &lt;7&gt;") || !strings.Contains(pmText, "Private catch-up.") {
+			t.Fatalf("PM brief %q missing escaped title or body", pmText)
+		}
+		if pmParams["message_thread_id"] != nil && fmt.Sprint(pmParams["message_thread_id"]) != "0" {
+			t.Fatalf("PM brief has non-zero message_thread_id = %v", pmParams["message_thread_id"])
+		}
+		if groupSends := env.sends(); len(groupSends) != groupBefore+1 || groupSends[len(groupSends)-1] != chatCanned(t, "brief_note_pm") {
+			t.Fatalf("group sends after PM = %q, want trailing brief_note_pm", groupSends)
+		}
+
+		// 6. PM 403 -> brief_pm_blocked in group.
+		env.fake.refuse(asker.Id)
+		env.provider.script(chatAnswerText("Blocked PM catch-up."))
+		groupBefore = len(env.sends())
+		deliverBrief(topicCmd(asker, 10, "/unrolllong 20 pm", nil))
+		if groupSends := env.sends(); len(groupSends) != groupBefore+1 || groupSends[len(groupSends)-1] != chatCanned(t, "brief_pm_blocked") {
+			t.Fatalf("group sends after 403 PM = %q, want trailing brief_pm_blocked", groupSends)
+		}
+
+		// 7. Empty topic 30 -> brief_empty with zero provider calls.
+		callsBefore := len(env.provider.calls())
+		for _, cmd := range []string{"/unrollshort 5", "/unrollshort me", "/unrollshort 2h"} {
+			groupBefore = len(env.sends())
+			deliverBrief(topicCmd(asker, 30, cmd, nil))
+			if groupSends := env.sends(); len(groupSends) != groupBefore+1 || groupSends[len(groupSends)-1] != chatCanned(t, "brief_empty") {
+				t.Fatalf("%s on empty topic answered %q, want brief_empty", cmd, groupSends)
+			}
+		}
+		if len(env.provider.calls()) != callsBefore {
+			t.Fatalf("empty topic made provider calls: got %d, want %d", len(env.provider.calls()), callsBefore)
+		}
+
+		// 8. Invalid args and /judge reply-only check -> usage lines, zero provider calls.
+		admin := env.judgeAdmin("JudgeAdmin")
+		existingMsg := topicMsg(bob, 10, base, "reply target")
+		for _, tc := range []struct {
+			who     *gotgbot.User
+			cmd     string
+			target  *gotgbot.Message
+			wantKey string
+		}{
+			{asker, "/unrollshort 0", nil, "brief_usage_short"},
+			{asker, "/unrollshort 201", nil, "brief_usage_short"},
+			{asker, "/unrollshort 30s", nil, "brief_usage_short"},
+			{asker, "/unrollshort 30d", nil, "brief_usage_short"},
+			{asker, "/unrollshort foo", nil, "brief_usage_short"},
+			{asker, "/unrollshort 50", existingMsg, "brief_usage_short"},
+			{asker, "/unrolllong 0", nil, "brief_usage_long"},
+			{admin, "/judge 5", nil, "judge_usage"},
+		} {
+			groupBefore = len(env.sends())
+			deliverBrief(topicCmd(tc.who, 10, tc.cmd, tc.target))
+			if groupSends := env.sends(); len(groupSends) != groupBefore+1 || groupSends[len(groupSends)-1] != chatCanned(t, tc.wantKey) {
+				t.Fatalf("%s answered %q, want %s", tc.cmd, groupSends, tc.wantKey)
+			}
+		}
+		if len(env.provider.calls()) != callsBefore {
+			t.Fatalf("invalid commands made provider calls: got %d, want %d", len(env.provider.calls()), callsBefore)
+		}
+	})
+}

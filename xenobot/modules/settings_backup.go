@@ -18,7 +18,7 @@ import (
 
 // The Backup page (page ba, Phase 30, BKP-01..03, MSG-10): private-only Backup, Restore, and
 // Reset controls inside /settings. Hidden in Staff Groups, with a static zero-I/O Main state.
-// Module selection is stateless via a canonical 20-bit lowercase hex mask (m=0..fffff). Export
+// Module selection is stateless via a canonical 21-bit lowercase hex mask (m=0..1fffff). Export
 // (be) requires settingsRightAdminBotAdmin and delivers the .json document to the presser's
 // private chat under AcquireExport. Import (bi -> private document wait -> bj) and Reset
 // (bq -> bu) require live settingsRightOwnerBotAdmin, store cross-replica one-time Redis tokens
@@ -189,7 +189,7 @@ func settingsBackupMainState(_ *gotgbot.Bot, tr *i18n.Translator, _ *gotgbot.Cha
 	return settingsText(tr, "settings_state_backup"), true
 }
 
-// settingsBackupOpen draws the Backup page with all 20 modules selected.
+// settingsBackupOpen draws the Backup page with all 21 modules selected.
 func settingsBackupOpen(p *settingsPress, notice string) (settingsScreen, error) {
 	return renderSettingsBackup(p.view(), settingsBackupAllMask, notice), nil
 }
@@ -531,7 +531,7 @@ func settingsBackupRunResetYes(p *settingsPress) *settingsScreen {
 	return &screen
 }
 
-// renderSettingsBackup draws the private Backup page with a stateless 20-module selector. Pure.
+// renderSettingsBackup draws the private Backup page with a stateless 21-module selector. Pure.
 func renderSettingsBackup(v settingsView, mask uint32, notice string) settingsScreen {
 	mods := settingsBackupModules()
 	selected := len(settingsBackupMaskModules(mask))

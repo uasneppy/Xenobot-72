@@ -31,6 +31,9 @@ const (
 	chatWorkerCount = 3
 	// chatJobTimeout bounds one job: the provider call (40 s with its retry) and the reply.
 	chatJobTimeout = 60 * time.Second
+	// chatAmbientContextLimit is how many recent same-thread room log entries are offered as
+	// ambient context when double-gated Owner + Admin switches are on.
+	chatAmbientContextLimit = 8
 )
 
 var (
@@ -52,17 +55,18 @@ var (
 // chatJob is one addressed message waiting for its reply. It holds the speaker's first name and
 // text for the prompt, and IDs only for Telegram and the guards.
 type chatJob struct {
-	bot       *gotgbot.Bot
-	chatID    int64
-	chatTitle string
-	userID    int64
-	messageID int64
-	threadID  int64
-	provider  string
-	turn      chatprompt.Turn
-	quoted    *chatprompt.Turn
-	media     []chatMediaRef
-	hasText   bool
+	bot             *gotgbot.Bot
+	chatID          int64
+	chatTitle       string
+	userID          int64
+	messageID       int64
+	quotedMessageID int64
+	threadID        int64
+	provider        string
+	turn            chatprompt.Turn
+	quoted          *chatprompt.Turn
+	media           []chatMediaRef
+	hasText         bool
 	// allowMissingReply sends the reply even when the message it answers is gone. The zero value
 	// keeps a conversation reply silent for a deleted message; a brief sets it because the
 	// command it answers is deleted right after the handler returns.
@@ -140,7 +144,7 @@ func chatStatsSection() string {
 	return fmt.Sprintf(
 		"\n    <b>Conversations:</b> answered %d, refused %d, failed %d, shed %d, capped %d",
 		chatAnsweredCount.Load(), chatRefusedCount.Load(), chatFailedCount.Load(), chatShedCount.Load(), chatCappedCount.Load(),
-	) + chatBriefStatsSection()
+	) + chatBriefStatsSection() + chatReactStatsSection() + chatToysStatsSection()
 }
 
 func chatEnsureWorkers() {
@@ -151,6 +155,8 @@ func chatEnsureWorkers() {
 			go chatWorker()
 		}
 		chatBriefEnsureWorkers()
+		chatPresenceEnsureWorkers()
+		chatToysEnsureWorkers()
 	})
 }
 
@@ -282,7 +288,8 @@ func chatProcessJob(job chatJob) {
 	}
 
 	chatSendTyping(ctx, job.bot, job)
-	history := chatReadHistory(ctx, client, job.chatID)
+	history, historyIDs := chatReadHistoryWithIDs(ctx, client, job.chatID)
+	ambient := chatAmbientContextTurns(ctx, client, job, historyIDs)
 	var media chatDownloadedMedia
 	if len(job.media) > 0 {
 		media = chatDownloadMedia(ctx, job.bot, job.chatID, job.userID, job.provider, job.media)
@@ -296,7 +303,7 @@ func chatProcessJob(job chatJob) {
 			return
 		}
 	}
-	request := chatBuildRequest(ctx, job, job.bot.Username, history, media)
+	request := chatBuildRequest(ctx, job, job.bot.Username, ambient, history, media)
 	answer, err := chatProviderOf(job.provider).converse(ctx, request)
 	if err != nil {
 		if root.Err() != nil || errors.Is(err, context.Canceled) {
@@ -353,6 +360,52 @@ func chatProcessJob(job chatJob) {
 		log.WithFields(fields).Debug("[Chat] the exchange could not be recorded")
 	}
 	log.WithFields(fields).Debugf("[Chat] answered (%d input, %d output tokens)", answer.InputTokens, answer.OutputTokens)
+}
+
+// chatAmbientContextTurns returns recent same-thread room chatter when both Owner
+// (conv.Enabled && conv.LogEnabled) and Admin (pres.AmbientContext) settings consent and the
+// chat is not a Staff Group. Entries matching the triggering message, its quoted target, or any
+// turn already in conversation history are deduplicated out. Errors degrade silently to nil.
+func chatAmbientContextTurns(ctx context.Context, client *redis.Client, job chatJob, historyIDs map[int64]bool) []chatprompt.Turn {
+	if client == nil || presenceIsStaffGroup(job.chatID) {
+		return nil
+	}
+	conv, err := chatSettingsLookup(ctx, job.chatID)
+	if err != nil || !conv.Enabled || !conv.LogEnabled {
+		return nil
+	}
+	pres, err := presenceSettingsGet(ctx, job.chatID)
+	if err != nil || !pres.AmbientContext {
+		return nil
+	}
+	entries, err := chatLogRecentThread(ctx, client, job.chatID, job.threadID, job.messageID, chatAmbientContextLimit)
+	if err != nil {
+		log.WithField("chat_id", job.chatID).Debugf("[Chat] ambient room context lookup skipped: %s", chatRedisErrClass(err))
+		return nil
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	turns := make([]chatprompt.Turn, 0, len(entries))
+	for _, entry := range entries {
+		if entry.MessageID == job.messageID || (job.quotedMessageID > 0 && entry.MessageID == job.quotedMessageID) || historyIDs[entry.MessageID] {
+			continue
+		}
+		var text string
+		switch {
+		case entry.Media != "" && entry.Text != "":
+			text = entry.Media + " " + entry.Text
+		case entry.Text != "":
+			text = entry.Text
+		default:
+			text = entry.Media
+		}
+		if text == "" {
+			continue
+		}
+		turns = append(turns, chatprompt.Turn{Name: entry.Name, Text: text})
+	}
+	return turns
 }
 
 // chatRecordFailure counts one provider failure toward the group on the provider's breaker and

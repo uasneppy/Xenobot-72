@@ -928,6 +928,87 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_bkp_import_file_too_large": {140, 200},
 	"settings_btn_bkp_import_yes":        {20, 20},
 	"settings_btn_bkp_reset_yes":         {20, 20},
+
+	// The Presence page (Phase 31, PRES-03): private-only page title, Main state, group note,
+	// intro, status lines, hint, toggle buttons, and Conversations page shortcut button.
+	"settings_page_presence":     {14, 17},
+	"settings_state_presence_on": {10, 16},
+	"settings_pr_group_note":     {160, 220},
+	"settings_pr_intro":          {200, 260},
+	"settings_pr_consensus_line": {36, 48},
+	"settings_pr_threshold_line": {48, 60},
+	"settings_pr_retract_line":   {40, 52},
+	"settings_pr_hint":           {170, 220},
+	"settings_btn_pr_consensus":  {30, 34},
+	"settings_btn_pr_retract":    {28, 34},
+	"settings_btn_chat_presence": {24, 30},
+
+	// Presence contextual AI reactions (Phase 32, PRES-04, REACT-01): status line, Owner-lock
+	// note, plain-text refusal alert, and 3-wide segmented mode buttons.
+	"settings_pr_ai_line":        {40, 56},
+	"settings_pr_ai_locked_note": {100, 150},
+	"settings_pr_ai_need_owner":  {90, 140},
+	"settings_btn_pr_ai_off":     {10, 14},
+	"settings_btn_pr_ai_low":     {10, 14},
+	"settings_btn_pr_ai_medium":  {10, 14},
+
+	// Smarter static reactions, Cat Stickers, and Highlights Archive (Phase 33, COMM-01..03).
+	"settings_pr_cat_line":          {36, 48},
+	"settings_btn_pr_cat":           {28, 36},
+	"settings_pr_archive_line":      {36, 52},
+	"settings_btn_pr_archive":       {30, 40},
+	"settings_ph_title":             {24, 36},
+	"settings_ph_intro":             {220, 300},
+	"settings_ph_status_line":       {24, 34},
+	"settings_ph_target_linked":     {40, 56},
+	"settings_ph_target_none":       {56, 80},
+	"settings_ph_threshold_line":    {48, 64},
+	"settings_ph_filter_line":       {40, 56},
+	"settings_ph_delivery_line":     {40, 56},
+	"settings_ph_hint":              {200, 280},
+	"settings_ph_need_target":       {100, 140},
+	"settings_btn_ph_enabled":       {32, 38},
+	"settings_btn_ph_filter_pos":    {18, 18},
+	"settings_btn_ph_filter_all":    {18, 18},
+	"settings_btn_ph_del_copy":      {18, 18},
+	"settings_btn_ph_del_fwd":       {18, 18},
+	"settings_btn_ph_unlink":        {30, 40},
+	"settings_ph_unlinked":          {60, 84},
+	"settings_btn_rct_opts":         {18, 20},
+	"settings_rct_opts_title":       {28, 36},
+	"settings_rct_opts_intro":       {160, 220},
+	"settings_rct_opts_empty":       {80, 120},
+	"settings_rct_rule_title":       {28, 36},
+	"settings_rct_rule_wb_line":     {36, 48},
+	"settings_rct_rule_cap_line":    {40, 56},
+	"settings_rct_rule_chance_line": {36, 48},
+	"settings_rct_rule_cd_line":     {36, 48},
+	"settings_btn_rct_wb":           {32, 38},
+	"settings_btn_rct_cap":          {32, 38},
+	"settings_rct_cd_off":           {10, 14},
+	"settings_rct_cd_val":           {12, 16},
+
+	// Room-Aware Conversations & Frictionless Catch-Up (Phase 34, CHAT-02..05).
+	"settings_pr_room_line":           {32, 42},
+	"settings_btn_pr_room":            {28, 36},
+	"settings_pc_title":               {24, 36},
+	"settings_pc_intro":               {180, 240},
+	"settings_pc_ambient_line":        {36, 48},
+	"settings_pc_vocative_line":       {44, 56},
+	"settings_pc_pmbrief_line":        {36, 48},
+	"settings_pc_locked_note":         {140, 180},
+	"settings_pc_hint":                {180, 240},
+	"settings_btn_pc_ambient":         {28, 36},
+	"settings_btn_pc_vocative":        {28, 36},
+	"settings_btn_pc_pmbrief":         {26, 36},
+	"settings_pc_need_owner_conv_log": {110, 150},
+	"settings_pc_need_owner_log":      {90, 130},
+
+	// Interactive Group Toys (Phase 35, TOYS-01..03).
+	"settings_pc_referendum_line": {36, 48},
+	"settings_pc_inspect_line":    {36, 48},
+	"settings_btn_pc_referendum":  {28, 36},
+	"settings_btn_pc_inspect":     {28, 36},
 }
 
 // settingsAlertKeys are shown as answerCallbackQuery alerts: plain text, no tag, at most
@@ -960,6 +1041,13 @@ var settingsAlertKeys = []string{
 	"settings_mreq_here_ai",
 	// The Staff Group creator's refusal of the Blocked sources page's writes, the command's own text (plain, at most 200).
 	"staff_fwdblock_owner_only",
+	// Presence AI reactions Owner-lock refusal alert (Phase 32, PRES-04).
+	"settings_pr_ai_need_owner",
+	// Highlights Archive unlinked enable refusal alert (Phase 33, COMM-03).
+	"settings_ph_need_target",
+	// Room & Catch-Up Owner-lock refusal alerts (Phase 34, CHAT-02, CHAT-05).
+	"settings_pc_need_owner_conv_log",
+	"settings_pc_need_owner_log",
 }
 
 // settingsAlertMaxRunes is the length Telegram allows an alert.
@@ -1167,6 +1255,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 		{"📨", "settings_page_msgs"},
 		{"🕒", "settings_page_tz"},
 		{"🗨", "settings_page_chat"},
+		{"✨", "settings_page_presence"},
 	}
 	options := []string{
 		"settings_opt_math", "settings_opt_text", "settings_opt_turnstile",
@@ -1224,9 +1313,17 @@ func TestSettingsLabelLengths(t *testing.T) {
 		"settings_log_cat_settings", "settings_log_cat_admin", "settings_log_cat_user",
 		"settings_log_cat_reports",
 	}
-	// The full-width toggles of the Switches and Anonymous admins pages (Phase 18): each is
-	// rendered with the check or cross icon and the language's longer On or Off word.
-	phase18Toggles := []string{"settings_btn_sw_reports", "settings_btn_sw_aispam", "settings_btn_sw_approve", "settings_btn_anon_toggle", "settings_btn_moddef_reason"}
+	// The full-width toggles of the Switches, Anonymous admins, Manual defaults, and Presence pages:
+	// each is rendered with the check or cross icon and the language's longer On or Off word.
+	phase18Toggles := []string{
+		"settings_btn_sw_reports", "settings_btn_sw_aispam", "settings_btn_sw_approve",
+		"settings_btn_anon_toggle", "settings_btn_moddef_reason",
+		"settings_btn_pr_consensus", "settings_btn_pr_retract",
+		"settings_btn_pr_cat", "settings_btn_ph_enabled",
+		"settings_btn_rct_wb", "settings_btn_rct_cap",
+		"settings_btn_pc_ambient", "settings_btn_pc_vocative", "settings_btn_pc_pmbrief",
+		"settings_btn_pc_referendum", "settings_btn_pc_inspect",
+	}
 	// The full-width toggles that carry the state icon alone in place of {state} (Phase 21, plan 21-07: an event
 	// screen's Silent switch).
 	iconToggles := []string{
@@ -1238,7 +1335,10 @@ func TestSettingsLabelLengths(t *testing.T) {
 	}
 	// The full-width buttons whose label is the whole button (Phase 22, plan 22-04: the event screen's row that
 	// opens the private copy), at most 40 code points.
-	fullWidthLabels := []string{"settings_btn_msg_pm_open", "settings_btn_moddef_dur_off"}
+	fullWidthLabels := []string{
+		"settings_btn_msg_pm_open", "settings_btn_moddef_dur_off", "settings_btn_chat_presence",
+		"settings_btn_pr_archive", "settings_btn_ph_unlink", "settings_btn_pr_room",
+	}
 	// The editor's two-column buttons (UI-SPEC rows 28 to 38): at most 20 code points as
 	// written, icon included.
 	editorButtons := []string{
@@ -1265,8 +1365,10 @@ func TestSettingsLabelLengths(t *testing.T) {
 		"settings_btn_bkp_all", "settings_btn_bkp_none",
 		"settings_btn_bkp_export", "settings_btn_bkp_import", "settings_btn_bkp_reset",
 		"settings_btn_bkp_import_yes", "settings_btn_bkp_reset_yes",
+		// The Reactions page's Options button (Phase 33, COMM-01).
+		"settings_btn_rct_opts",
 	}
-	// The Backup page's 20 exportable module cells (Phase 30, plan 30-04): each is drawn with
+	// The Backup page's 21 exportable module cells (Phase 30, updated Phase 33 with presence): each is drawn with
 	// ✅ or ⬜ plus a space and its human-readable backup_module_<name> label (<= 20 code points).
 	backupModuleKeys := []string{
 		"backup_module_admin", "backup_module_antiflood", "backup_module_antiraid", "backup_module_approvals",
@@ -1274,6 +1376,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 		"backup_module_filters", "backup_module_greetings", "backup_module_locks", "backup_module_notes",
 		"backup_module_pins", "backup_module_reactions", "backup_module_reports", "backup_module_rules",
 		"backup_module_warns", "backup_module_federations", "backup_module_logchannels", "backup_module_messages",
+		"backup_module_presence",
 	}
 	// The editor's half-width switch cells (Phase 12, UI-SPEC check 2): the template with
 	// {state} replaced by the icon alone is at most 20 code points, so a name is at most 18.
@@ -1533,6 +1636,35 @@ func TestSettingsLabelLengths(t *testing.T) {
 					t.Errorf("%s: choice button %q (%s) has %d characters, ceiling %d", lang, label, key, runes, choiceMax)
 				}
 			}
+
+			// Presence AI reaction 3-wide segmented row (Phase 32, REACT-01): each mode label
+			// with the selected "✓ " prefix must stay <= 16 code points so all 3 buttons fit on one row.
+			for _, key := range []string{"settings_btn_pr_ai_off", "settings_btn_pr_ai_low", "settings_btn_pr_ai_medium"} {
+				label := "✓ " + settingsLocaleString(t, lang, data, key)
+				if runes := utf8.RuneCountInString(label); runes > 16 {
+					t.Errorf("%s: presence AI segmented button %q (%s) has %d characters, ceiling 16", lang, label, key, runes)
+				}
+			}
+
+			// Phase 33 half-width Highlights choice cells (<= 20 code points with "✅ " prefix),
+			// help module name (<= 14 code points, plain text), and archive jump button (<= 24 code points).
+			for _, key := range []string{
+				"settings_btn_ph_filter_pos", "settings_btn_ph_filter_all",
+				"settings_btn_ph_del_copy", "settings_btn_ph_del_fwd",
+			} {
+				label := "✅ " + settingsLocaleString(t, lang, data, key)
+				if runes := utf8.RuneCountInString(label); runes > gridMax {
+					t.Errorf("%s: archive choice button %q (%s) has %d characters, ceiling %d", lang, label, key, runes, gridMax)
+				}
+			}
+			helpName := settingsLocaleString(t, lang, data, "help_module_name_presence")
+			if strings.ContainsAny(helpName, "<>") || strings.TrimSpace(helpName) != helpName || utf8.RuneCountInString(helpName) > 14 {
+				t.Errorf("%s: help_module_name_presence %q violates plain-text <= 14 rune rule", lang, helpName)
+			}
+			jumpBtn := settingsLocaleString(t, lang, data, "archive_jump_button")
+			if runes := utf8.RuneCountInString(jumpBtn); runes > 24 {
+				t.Errorf("%s: archive_jump_button %q has %d characters, ceiling 24", lang, jumpBtn, runes)
+			}
 		})
 	}
 }
@@ -1540,8 +1672,8 @@ func TestSettingsLabelLengths(t *testing.T) {
 // TestSettingsReusedKeyPlaceholders is the privacy check of D-21: a menu opened in a group
 // is readable by every member, so the Staff texts the menu reuses must never carry a
 // placeholder that could name the Staff Group. They carry none, or {group} (this group).
-// Only settings_staff_linked_to may hold {staff} or {id}, and it is rendered in a private
-// menu only.
+// Only settings_staff_linked_to and settings_ph_target_linked may hold {staff} or {id}, and
+// both are rendered in a private menu only.
 func TestSettingsReusedKeyPlaceholders(t *testing.T) {
 	noPlaceholder := []string{
 		"staff_link_no_staff_group",
@@ -1580,7 +1712,7 @@ func TestSettingsReusedKeyPlaceholders(t *testing.T) {
 			}
 
 			for key, value := range data {
-				if !strings.HasPrefix(key, settingsKeyPrefix) || key == "settings_staff_linked_to" {
+				if !strings.HasPrefix(key, settingsKeyPrefix) || key == "settings_staff_linked_to" || key == "settings_ph_target_linked" {
 					continue
 				}
 				text, _ := value.(string)

@@ -14,6 +14,7 @@ import (
 	"github.com/uasneppy/Xenobot-72/xenobot/db/federations"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/logchannels"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/user"
 )
 
@@ -114,7 +115,13 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 		ChatId: srcChat, MsgId: 4242, CleanLinked: true, AntiChannelPin: true,
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.Reactions{
-		ChatID: srcChat, Keyword: "nice", Emoji: "🔥",
+		ChatID:       srcChat,
+		Keyword:      "nice",
+		Emoji:        "🔥",
+		WordBoundary: true,
+		MatchCaption: true,
+		ChancePct:    35,
+		CooldownSecs: 120,
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.ReportChatSettings{
 		ChatId: srcChat, Enabled: true, Status: true, BlockedList: models.Int64Array{303, 404},
@@ -143,6 +150,46 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.ChatEventMessageOptions{
 		ChatID: srcChat, PMDetails: true, PMLog: true, PlainTone: true,
+	}).Error)
+	srcArchiveChatID := srcChat + 10
+	dstArchiveChatID := srcChat + 11
+	require.NoError(t, db.DB.Create(&models.ChatPresence{
+		ChatID:             srcChat,
+		ConsensusEnabled:   true,
+		ConsensusThreshold: 7,
+		RetractEnabled:     false,
+		AIReactMode:        presence.AIReactModeMedium,
+		CatStickerEnabled:  true,
+		ArchiveEnabled:     true,
+		ArchiveChatID:      srcArchiveChatID,
+		ArchiveThreadID:    55,
+		ArchiveThreshold:   9,
+		ArchiveEmojiMode:   presence.ArchiveEmojiModeAll,
+		ArchiveDelivery:    presence.ArchiveDeliveryForward,
+		AmbientContext:     true,
+		VocativeEnabled:    false,
+		PMBriefReact:       true,
+		ReferendumEnabled:  true,
+		InspectEnabled:     false,
+	}).Error)
+	require.NoError(t, db.DB.Create(&models.ChatPresence{
+		ChatID:             dstChat,
+		ConsensusEnabled:   false,
+		ConsensusThreshold: 4,
+		RetractEnabled:     true,
+		AIReactMode:        presence.AIReactModeLow,
+		CatStickerEnabled:  false,
+		ArchiveEnabled:     false,
+		ArchiveChatID:      dstArchiveChatID,
+		ArchiveThreadID:    88,
+		ArchiveThreshold:   3,
+		ArchiveEmojiMode:   presence.ArchiveEmojiModePositive,
+		ArchiveDelivery:    presence.ArchiveDeliveryCopy,
+		AmbientContext:     false,
+		VocativeEnabled:    true,
+		PMBriefReact:       false,
+		ReferendumEnabled:  false,
+		InspectEnabled:     true,
 	}).Error)
 
 	// Existing destination data must be replaced, not merged.
@@ -176,6 +223,8 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 
 	raw, err := exported.ToJSON()
 	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "archive_chat_id", "export must omit archive_chat_id")
+	assert.NotContains(t, string(raw), "archive_thread_id", "export must omit archive_thread_id")
 	decoded, err := BackupFormatFromJSON(raw)
 	require.NoError(t, err)
 	require.NoError(t, ImportChatData(dstChat, decoded, nil))
@@ -308,6 +357,10 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	require.Len(t, reactionsData.Reactions, 1)
 	assert.Equal(t, "nice", reactionsData.Reactions[0].Keyword)
 	assert.Equal(t, "🔥", reactionsData.Reactions[0].Emoji)
+	assert.True(t, reactionsData.Reactions[0].WordBoundary)
+	assert.True(t, reactionsData.Reactions[0].MatchCaption)
+	assert.Equal(t, int16(35), reactionsData.Reactions[0].ChancePct)
+	assert.Equal(t, 120, reactionsData.Reactions[0].CooldownSecs)
 
 	reportsData, err := exportReportsData(dstChat)
 	require.NoError(t, err)
@@ -374,6 +427,30 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	assert.True(t, messagesData.Options.PMDetails)
 	assert.True(t, messagesData.Options.PMLog)
 	assert.True(t, messagesData.Options.PlainTone)
+
+	presenceData, err := exportPresenceData(dstChat)
+	require.NoError(t, err)
+	require.NotNil(t, presenceData.Settings)
+	assert.True(t, presenceData.Settings.ConsensusEnabled)
+	assert.Equal(t, 7, presenceData.Settings.ConsensusThreshold)
+	assert.False(t, presenceData.Settings.RetractEnabled)
+	assert.Equal(t, presence.AIReactModeMedium, presenceData.Settings.AIReactMode)
+	assert.True(t, presenceData.Settings.CatStickerEnabled)
+	assert.True(t, presenceData.Settings.ArchiveEnabled)
+	assert.Equal(t, 9, presenceData.Settings.ArchiveThreshold)
+	assert.Equal(t, presence.ArchiveEmojiModeAll, presenceData.Settings.ArchiveEmojiMode)
+	assert.Equal(t, presence.ArchiveDeliveryForward, presenceData.Settings.ArchiveDelivery)
+	assert.True(t, presenceData.Settings.AmbientContext)
+	assert.False(t, presenceData.Settings.VocativeEnabled)
+	assert.True(t, presenceData.Settings.PMBriefReact)
+	assert.True(t, presenceData.Settings.ReferendumEnabled)
+	assert.False(t, presenceData.Settings.InspectEnabled)
+
+	dstPresenceRow, err := findChatSetting[models.ChatPresence](dstChat)
+	require.NoError(t, err)
+	require.NotNil(t, dstPresenceRow)
+	assert.Equal(t, dstArchiveChatID, dstPresenceRow.ArchiveChatID, "destination archive_chat_id must be preserved")
+	assert.Equal(t, int64(88), dstPresenceRow.ArchiveThreadID, "destination archive_thread_id must be preserved")
 }
 
 func TestExportChatDataReturnsDatabaseErrors(t *testing.T) {

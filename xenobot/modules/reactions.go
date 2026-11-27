@@ -1,17 +1,25 @@
 package modules
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"html"
+	"math/rand/v2"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/callbackquery"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/message"
+	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/uasneppy/Xenobot-72/xenobot/db/lang"
@@ -318,6 +326,273 @@ func (m moduleStruct) resetReactions(b *gotgbot.Bot, ctx *ext.Context) error {
 	return ext.EndGroups
 }
 
+const staticReactTimeout = 5 * time.Second
+
+var (
+	// staticReactionRoll decides whether a static reaction rule fires for its ChancePct (1..100).
+	// Package variable only so tests can make probability rolls deterministic.
+	staticReactionRoll = func(pct int) bool {
+		return pct >= 100 || (pct > 0 && rand.IntN(100) < pct) // #nosec G404 -- non-cryptographic reaction sampling
+	}
+	// catStickerRoll decides whether an eligible cat sticker triggers a micro-reaction (20%).
+	// Package variable only so tests can make probability rolls deterministic.
+	catStickerRoll = func() bool {
+		return rand.IntN(100) < 20 // #nosec G404 -- non-cryptographic reaction sampling
+	}
+	// catStickerCooldown gates per-chat cat-sticker micro-triggers across replicas.
+	catStickerCooldown = 3 * time.Minute
+	// staticChatCooldown gates per-chat static reaction bursts across replicas.
+	staticChatCooldown = 10 * time.Second
+)
+
+var catStickerEmojis = map[string]struct{}{
+	"🐱":  {},
+	"😸":  {},
+	"😹":  {},
+	"😻":  {},
+	"😼":  {},
+	"😽":  {},
+	"🙀":  {},
+	"😿":  {},
+	"😾":  {},
+	"🐈":  {},
+	"🐈‍⬛": {},
+}
+
+func staticRuleCooldownKey(chatID int64, ruleID uint) string {
+	return presenceChatTag(chatID) + "static:r:" + strconv.FormatUint(uint64(ruleID), 10)
+}
+
+func staticChatCooldownKey(chatID int64) string {
+	return presenceChatTag(chatID) + "static:cd"
+}
+
+func catStickerCooldownKey(chatID int64) string {
+	return presenceChatTag(chatID) + "cat:cd"
+}
+
+func isCatStickerEmoji(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	_, ok := catStickerEmojis[normaliseReactionEmoji(raw)]
+	return ok
+}
+
+func isStaticWordRune(r rune) bool {
+	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+// matchStaticReactionKeyword checks whether keyword matches text, optionally enforcing Unicode
+// word boundaries using pure Go rune decoding (safe for UK/RU/EN with zero RE2 \b backtracking).
+func matchStaticReactionKeyword(text, keyword string, wordBoundary bool) bool {
+	if text == "" || keyword == "" {
+		return false
+	}
+	lowerText := strings.ToLower(text)
+	lowerKeyword := strings.ToLower(keyword)
+	if !wordBoundary {
+		return strings.Contains(lowerText, lowerKeyword)
+	}
+	for offset := 0; offset <= len(lowerText)-len(lowerKeyword); {
+		idx := strings.Index(lowerText[offset:], lowerKeyword)
+		if idx < 0 {
+			return false
+		}
+		start := offset + idx
+		end := start + len(lowerKeyword)
+		beforeOK := true
+		if start > 0 {
+			r, _ := utf8.DecodeLastRuneInString(lowerText[:start])
+			beforeOK = !isStaticWordRune(r)
+		}
+		afterOK := true
+		if end < len(lowerText) {
+			r, _ := utf8.DecodeRuneInString(lowerText[end:])
+			afterOK = !isStaticWordRune(r)
+		}
+		if beforeOK && afterOK {
+			return true
+		}
+		_, step := utf8.DecodeRuneInString(lowerText[start:])
+		if step <= 0 {
+			step = 1
+		}
+		offset = start + step
+	}
+	return false
+}
+
+func setPresenceStaticReacted(ctx *ext.Context) {
+	if ctx == nil {
+		return
+	}
+	if ctx.Data == nil {
+		ctx.Data = make(map[string]any)
+	}
+	ctx.Data[presenceStaticReactedKey] = true
+}
+
+func presenceRedisKeyExists(ctx context.Context, client *redis.Client, key string) (bool, bool) {
+	if client == nil {
+		return false, true
+	}
+	rCtx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
+	defer cancel()
+	n, err := client.Exists(rCtx, key).Result()
+	if err != nil {
+		log.WithField("key", key).Debugf("[Reactions] redis EXISTS failed: %s", chatRedisErrClass(err))
+		return false, false
+	}
+	return n > 0, true
+}
+
+func presenceRedisClaimCooldown(ctx context.Context, client *redis.Client, key string, ttl time.Duration) bool {
+	if client == nil || ttl <= 0 {
+		return true
+	}
+	wCtx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
+	defer cancel()
+	ok, err := client.SetNX(wCtx, key, "1", ttl).Result()
+	if err != nil {
+		log.WithField("key", key).Debugf("[Reactions] redis SET NX failed: %s", chatRedisErrClass(err))
+		return false
+	}
+	return ok
+}
+
+func filterSortedStaticReactionRules(text string, fromCaption bool, rules []reactions.Rule) []reactions.Rule {
+	var candidates []reactions.Rule
+	for _, rule := range rules {
+		if fromCaption && !rule.MatchCaption {
+			continue
+		}
+		if matchStaticReactionKeyword(text, rule.Keyword, rule.WordBoundary) {
+			candidates = append(candidates, rule)
+		}
+	}
+	slices.SortFunc(candidates, func(a, b reactions.Rule) int {
+		if c := strings.Compare(a.Keyword, b.Keyword); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.ID, b.ID)
+	})
+	return candidates
+}
+
+func trySingleStaticReactionRule(
+	ctx context.Context,
+	b *gotgbot.Bot,
+	extCtx *ext.Context,
+	client *redis.Client,
+	chatID, msgID, userID int64,
+	rule reactions.Rule,
+) (reacted, stop bool) {
+	if client != nil && rule.CooldownSecs > 0 {
+		exists, ok := presenceRedisKeyExists(ctx, client, staticRuleCooldownKey(chatID, rule.ID))
+		if !ok {
+			return false, true
+		}
+		if exists {
+			return false, false
+		}
+	}
+	if !staticReactionRoll(rule.ChancePct) {
+		return false, false
+	}
+	if presenceIsLockedDown(chatID) {
+		return false, true
+	}
+	if rule.CooldownSecs > 0 && !presenceRedisClaimCooldown(ctx, client, staticRuleCooldownKey(chatID, rule.ID), time.Duration(rule.CooldownSecs)*time.Second) {
+		return false, true
+	}
+	if staticChatCooldown > 0 && !presenceRedisClaimCooldown(ctx, client, staticChatCooldownKey(chatID), staticChatCooldown) {
+		return false, true
+	}
+	if presenceSetReaction(ctx, b, chatID, msgID, userID, rule.Emoji, "static") {
+		setPresenceStaticReacted(extCtx)
+		return true, true
+	}
+	return false, true
+}
+
+func tryStaticReactionRules(
+	ctx context.Context,
+	b *gotgbot.Bot,
+	extCtx *ext.Context,
+	chatID, msgID, userID int64,
+	text string,
+	fromCaption bool,
+	rules []reactions.Rule,
+) bool {
+	candidates := filterSortedStaticReactionRules(text, fromCaption, rules)
+	if len(candidates) == 0 {
+		return false
+	}
+	client := presenceRedisClient()
+	if client != nil && staticChatCooldown > 0 {
+		exists, ok := presenceRedisKeyExists(ctx, client, staticChatCooldownKey(chatID))
+		if !ok || exists {
+			return false
+		}
+	}
+	for _, rule := range candidates {
+		reacted, stop := trySingleStaticReactionRule(ctx, b, extCtx, client, chatID, msgID, userID, rule)
+		if reacted {
+			return true
+		}
+		if stop {
+			return false
+		}
+	}
+	return false
+}
+
+func tryCatStickerReaction(ctx context.Context, b *gotgbot.Bot, extCtx *ext.Context, chatID, msgID, userID int64, sticker *gotgbot.Sticker) bool {
+	if sticker == nil || !isCatStickerEmoji(sticker.Emoji) {
+		return false
+	}
+	pres, err := presenceSettingsGet(ctx, chatID)
+	if err != nil || !pres.CatStickerEnabled {
+		return false
+	}
+	if !catStickerRoll() {
+		return false
+	}
+	client := presenceRedisClient()
+	if client != nil && catStickerCooldown > 0 {
+		exists, ok := presenceRedisKeyExists(ctx, client, catStickerCooldownKey(chatID))
+		if !ok || exists {
+			return false
+		}
+	}
+	if presenceIsLockedDown(chatID) {
+		return false
+	}
+	palette, ok := presenceAllowedPalette(ctx, b, chatID)
+	if !ok {
+		return false
+	}
+	var choices []string
+	for _, candidate := range []string{"👀", "❤"} {
+		if slices.Contains(palette, candidate) {
+			choices = append(choices, candidate)
+		}
+	}
+	if len(choices) == 0 {
+		return false
+	}
+	chosen := choices[rand.IntN(len(choices))] // #nosec G404 -- non-cryptographic reaction sampling
+	if catStickerCooldown > 0 && !presenceRedisClaimCooldown(ctx, client, catStickerCooldownKey(chatID), catStickerCooldown) {
+		return false
+	}
+	if presenceSetReaction(ctx, b, chatID, msgID, userID, chosen, "cat") {
+		setPresenceStaticReacted(extCtx)
+		return true
+	}
+	return false
+}
+
 func (m moduleStruct) checkReactions(b *gotgbot.Bot, ctx *ext.Context) error {
 	defer func() {
 		if r := recover(); r != nil {
@@ -325,47 +600,39 @@ func (m moduleStruct) checkReactions(b *gotgbot.Bot, ctx *ext.Context) error {
 		}
 	}()
 
+	userID, ok := presenceMessageAllowed(b, ctx)
+	if !ok {
+		return ext.ContinueGroups
+	}
 	msg := ctx.EffectiveMessage
-	if msg == nil || msg.Text == "" {
-		return ext.ContinueGroups
-	}
-
 	chat := ctx.EffectiveChat
-	if chat == nil {
+
+	fromCaption := false
+	text := msg.Text
+	if text == "" {
+		text = msg.Caption
+		fromCaption = text != ""
+	}
+	if text == "" && msg.Sticker == nil {
 		return ext.ContinueGroups
 	}
 
-	reactionsMap := reactions.GetReactionsContext(tracing.UpdateContext(ctx), chat.Id)
-	if len(reactionsMap) == 0 {
-		return ext.ContinueGroups
-	}
+	runCtx, cancel := context.WithTimeout(tracing.UpdateContext(ctx), staticReactTimeout)
+	defer cancel()
 
-	lowerText := strings.ToLower(msg.Text)
-	var matchedKeywords []string
-	for keyword := range reactionsMap {
-		if strings.Contains(lowerText, keyword) {
-			matchedKeywords = append(matchedKeywords, keyword)
+	if text != "" {
+		rules, err := reactionWrites.Rules(runCtx, chat.Id)
+		if err != nil {
+			log.WithField("chat_id", chat.Id).Debugf("[Reactions] failed to load reaction rules: %v", err)
+		} else if len(rules) > 0 {
+			if tryStaticReactionRules(runCtx, b, ctx, chat.Id, msg.MessageId, userID, text, fromCaption, rules) {
+				return ext.ContinueGroups
+			}
 		}
 	}
-	if len(matchedKeywords) == 0 {
-		return ext.ContinueGroups
-	}
-	slices.Sort(matchedKeywords)
-	emoji := reactionsMap[matchedKeywords[0]]
 
-	_, err := b.SetMessageReaction(
-		chat.Id,
-		msg.MessageId,
-		&gotgbot.SetMessageReactionOpts{
-			Reaction: []gotgbot.ReactionType{
-				gotgbot.ReactionTypeEmoji{
-					Emoji: emoji,
-				},
-			},
-		},
-	)
-	if err != nil {
-		log.Debugf("[Reactions] Failed to set reaction: %v", err)
+	if msg.Sticker != nil {
+		tryCatStickerReaction(runCtx, b, ctx, chat.Id, msg.MessageId, userID, msg.Sticker)
 	}
 
 	return ext.ContinueGroups
@@ -391,19 +658,25 @@ func reactionsHelpKb(tr *i18n.Translator) [][]gotgbot.InlineKeyboardButton {
 
 // reactionWrites is the write and read seam of the reaction apply functions, a variable only so a test can fail it.
 var reactionWrites = struct {
-	Add        func(ctx context.Context, chatID int64, keyword, emoji string, overwrite bool) (bool, error)
-	Remove     func(chatID int64, keyword string) error
-	RemoveByID func(ctx context.Context, chatID, id int64) (*models.Reactions, error)
-	Lookup     func(ctx context.Context, chatID int64) map[string]string
-	Exists     func(ctx context.Context, chatID int64, keyword string) (bool, error)
-	Count      func(ctx context.Context, chatID int64) (int64, error)
+	Add            func(ctx context.Context, chatID int64, keyword, emoji string, overwrite bool) (bool, error)
+	Remove         func(chatID int64, keyword string) error
+	RemoveByID     func(ctx context.Context, chatID, id int64) (*models.Reactions, error)
+	Lookup         func(ctx context.Context, chatID int64) map[string]string
+	Rules          func(ctx context.Context, chatID int64) ([]reactions.Rule, error)
+	Entry          func(ctx context.Context, chatID, id int64) (*models.Reactions, error)
+	SetOptionsByID func(ctx context.Context, chatID, id int64, wordBoundary, matchCaption bool, chancePct, cooldownSecs int) (*models.Reactions, error)
+	Exists         func(ctx context.Context, chatID int64, keyword string) (bool, error)
+	Count          func(ctx context.Context, chatID int64) (int64, error)
 }{
-	Add:        reactions.AddReactionContext,
-	Remove:     reactions.RemoveReaction,
-	RemoveByID: reactions.RemoveReactionByID,
-	Lookup:     reactions.GetReactionsContext,
-	Exists:     reactions.ReactionExistsFresh,
-	Count:      reactions.CountReactionsFresh,
+	Add:            reactions.AddReactionContext,
+	Remove:         reactions.RemoveReaction,
+	RemoveByID:     reactions.RemoveReactionByID,
+	Lookup:         reactions.GetReactionsContext,
+	Rules:          reactions.GetReactionRulesContext,
+	Entry:          reactions.GetReactionEntryFresh,
+	SetOptionsByID: reactions.SetReactionOptionsByID,
+	Exists:         reactions.ReactionExistsFresh,
+	Count:          reactions.CountReactionsFresh,
 }
 
 // reactionAddOutcome is what applyReactionAdd did; its zero value is added.
@@ -519,4 +792,45 @@ func applyReactionRemoveByID(ctx context.Context, chatID, id int64) reactionRemo
 		return reactionRemoveResult{Outcome: reactionRemoveAbsent}
 	}
 	return reactionRemoveResult{Outcome: reactionRemoved, Keyword: row.Keyword, Emoji: row.Emoji}
+}
+
+// reactionOptionsOutcome is what applyReactionSetOptions did; its zero value is updated.
+type reactionOptionsOutcome int
+
+const (
+	// reactionOptionsUpdated means the rule's options were stored.
+	reactionOptionsUpdated reactionOptionsOutcome = iota
+	// reactionOptionsInvalid means chancePct or cooldownSecs was out of bounds; no DB call ran.
+	reactionOptionsInvalid
+	// reactionOptionsAbsent means no row of the chat has the ID (missing or foreign chat).
+	reactionOptionsAbsent
+	// reactionOptionsFailed means the DB write failed.
+	reactionOptionsFailed
+)
+
+// reactionOptionsResult is the typed result of applyReactionSetOptions.
+type reactionOptionsResult struct {
+	Outcome reactionOptionsOutcome
+	Row     *models.Reactions
+	Err     error
+}
+
+// applyReactionSetOptions validates option bounds before any DB call and updates one rule's
+// per-rule options strictly scoped to chatID and id.
+func applyReactionSetOptions(ctx context.Context, chatID, id int64, wordBoundary, matchCaption bool, chancePct, cooldownSecs int) reactionOptionsResult {
+	if !reactions.ValidChancePct(chancePct) || !reactions.ValidCooldownSecs(cooldownSecs) {
+		return reactionOptionsResult{Outcome: reactionOptionsInvalid}
+	}
+	row, err := reactionWrites.SetOptionsByID(ctx, chatID, id, wordBoundary, matchCaption, chancePct, cooldownSecs)
+	if err != nil {
+		if errors.Is(err, reactions.ErrInvalidOption) {
+			return reactionOptionsResult{Outcome: reactionOptionsInvalid, Err: err}
+		}
+		log.Errorf("[Reactions] Failed to update reaction options of chat %d id %d: %v", chatID, id, err)
+		return reactionOptionsResult{Outcome: reactionOptionsFailed, Err: err}
+	}
+	if row == nil {
+		return reactionOptionsResult{Outcome: reactionOptionsAbsent}
+	}
+	return reactionOptionsResult{Outcome: reactionOptionsUpdated, Row: row}
 }

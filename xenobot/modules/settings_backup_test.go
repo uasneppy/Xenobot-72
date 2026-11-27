@@ -185,16 +185,16 @@ func TestSettingsBackupPage(t *testing.T) {
 			chat   gotgbot.Chat
 			fields map[string]string
 		}{
-			{env.chat, env.groupFields(owner, "a", settingsActBackupToggle, "m", "fffff")},
-			{env.chat, env.groupFields(owner, "a", settingsActBackupExport, "m", "fffff")},
+			{env.chat, env.groupFields(owner, "a", settingsActBackupToggle, "m", "1fffff")},
+			{env.chat, env.groupFields(owner, "a", settingsActBackupExport, "m", "1fffff")},
 			{env.chat, env.groupFields(owner, "a", settingsActBackupImport)},
 			{env.chat, env.groupFields(owner, "a", settingsActBackupImportCancel, "t", settingsBackupImportPart)},
 			{env.chat, env.groupFields(owner, "a", settingsActBackupImportYes, "k", "AbCdEfGhIj0123_-")},
-			{env.chat, env.groupFields(owner, "a", settingsActBackupResetAsk, "m", "fffff")},
+			{env.chat, env.groupFields(owner, "a", settingsActBackupResetAsk, "m", "1fffff")},
 			{env.chat, env.groupFields(owner, "a", settingsActBackupResetYes, "k", "AbCdEfGhIj0123_-")},
-			{settingsPrivateChat(owner), env.privateFields(env.chat.Id, "a", settingsActBackupToggle, "m", "FFFFF")},
+			{settingsPrivateChat(owner), env.privateFields(env.chat.Id, "a", settingsActBackupToggle, "m", "1FFFFF")},
 			{settingsPrivateChat(owner), env.privateFields(env.chat.Id, "a", settingsActBackupToggle, "m", "00")},
-			{settingsPrivateChat(owner), env.privateFields(env.chat.Id, "a", settingsActBackupToggle, "m", "100000")},
+			{settingsPrivateChat(owner), env.privateFields(env.chat.Id, "a", settingsActBackupToggle, "m", "200000")},
 			{settingsPrivateChat(owner), env.privateFields(env.chat.Id, "a", settingsActBackupExport, "m", "")},
 			{settingsPrivateChat(owner), env.privateFields(env.chat.Id, "a", settingsActBackupImportCancel, "t", "x")},
 			{settingsPrivateChat(owner), env.privateFields(env.chat.Id, "a", settingsActBackupImportYes, "k", "short")},
@@ -211,7 +211,7 @@ func TestSettingsBackupPage(t *testing.T) {
 			t.Errorf("step-1 forged presses made %d getChatMember calls, want 0", got)
 		}
 
-		// 2. Private menu Main has exact 17-row shape, static MainState, and opens ba with all 20 modules checked.
+		// 2. Private menu Main has exact 17-row shape, static MainState, and opens ba with all 21 modules checked.
 		privMsg := env.updateID()
 		env.pressPrivate(owner, privMsg, env.privateFields(env.chat.Id, "a", settingsActBack))
 		privMainText, privMainKB := env.lastEdit(owner.Id, privMsg)
@@ -240,11 +240,14 @@ func TestSettingsBackupPage(t *testing.T) {
 		if checkedBtns != len(settingsBackupModules()) {
 			t.Errorf("checked module buttons = %d, want %d", checkedBtns, len(settingsBackupModules()))
 		}
-		if _, ok := settingsAdvFindButton(t, baKB, map[string]string{"a": settingsActBackupExport, "m": "fffff"}); !ok {
-			t.Error("Export button missing m=fffff")
+		if settingsBackupAllMask != 0x1fffff {
+			t.Errorf("settingsBackupAllMask = %#x, want 0x1fffff", settingsBackupAllMask)
+		}
+		if _, ok := settingsAdvFindButton(t, baKB, map[string]string{"a": settingsActBackupExport, "m": "1fffff"}); !ok {
+			t.Error("Export button missing m=1fffff")
 		}
 
-		// 3. Staff Group hides ba from Main (staffOwnerRows = settingsMainOwnerRows - 4, state lines = len(settingsMainTitleKeys) - 7)
+		// 3. Staff Group hides ba from Main (staffOwnerRows = settingsMainOwnerRows - 4, state lines = len(settingsMainTitleKeys) - 8)
 		//    and refuses op, bv, be, bi, bl, bj, br, bu with common_callback_invalid_request.
 		staffChat := env.addChat()
 		cleanupBackupPageChat(t, staffChat.Id)
@@ -264,18 +267,18 @@ func TestSettingsBackupPage(t *testing.T) {
 		if got := len(staffMainKB); got != settingsMainOwnerRows-4 {
 			t.Errorf("Staff Group Main rows = %d, want %d", got, settingsMainOwnerRows-4)
 		}
-		if got := len(settingsMainLines(staffMainText)); got != len(settingsMainTitleKeys)-7 {
-			t.Errorf("Staff Group Main state lines = %d, want %d", got, len(settingsMainTitleKeys)-7)
+		if got := len(settingsMainLines(staffMainText)); got != len(settingsMainTitleKeys)-8 {
+			t.Errorf("Staff Group Main state lines = %d, want %d", got, len(settingsMainTitleKeys)-8)
 		}
 
 		for _, fields := range []map[string]string{
 			env.privateFields(staffChat.Id, "a", settingsActOpen, "p", settingsPageBackup),
-			env.privateFields(staffChat.Id, "a", settingsActBackupToggle, "m", "fffff"),
-			env.privateFields(staffChat.Id, "a", settingsActBackupExport, "m", "fffff"),
+			env.privateFields(staffChat.Id, "a", settingsActBackupToggle, "m", "1fffff"),
+			env.privateFields(staffChat.Id, "a", settingsActBackupExport, "m", "1fffff"),
 			env.privateFields(staffChat.Id, "a", settingsActBackupImport),
 			env.privateFields(staffChat.Id, "a", settingsActBackupImportCancel, "t", settingsBackupImportPart),
 			env.privateFields(staffChat.Id, "a", settingsActBackupImportYes, "k", "AbCdEfGhIj0123_-"),
-			env.privateFields(staffChat.Id, "a", settingsActBackupResetAsk, "m", "fffff"),
+			env.privateFields(staffChat.Id, "a", settingsActBackupResetAsk, "m", "1fffff"),
 			env.privateFields(staffChat.Id, "a", settingsActBackupResetYes, "k", "AbCdEfGhIj0123_-"),
 		} {
 			env.pressPrivate(owner, staffPrivMsg, fields)
@@ -321,7 +324,7 @@ func TestSettingsBackupPage(t *testing.T) {
 			t.Fatalf("Reset button did not update to mask %s", wantAfterBothOff)
 		}
 
-		// Press Clear (m=0): all 20 buttons unchecked.
+		// Press Clear (m=0): all 21 buttons unchecked.
 		clearBtn, ok := settingsAdvFindButton(t, kb, map[string]string{"a": settingsActBackupToggle, "m": "0"})
 		if !ok {
 			t.Fatal("missing Clear (m=0) button")
@@ -364,15 +367,15 @@ func TestSettingsBackupPage(t *testing.T) {
 			}
 		}
 
-		// Press Select all (m=fffff): all 20 modules selected again.
-		allBtn, ok := settingsAdvFindButton(t, kb, map[string]string{"a": settingsActBackupToggle, "m": "fffff"})
+		// Press Select all (m=1fffff): all 21 modules selected again.
+		allBtn, ok := settingsAdvFindButton(t, kb, map[string]string{"a": settingsActBackupToggle, "m": "1fffff"})
 		if !ok {
-			t.Fatal("missing Select all (m=fffff) button")
+			t.Fatal("missing Select all (m=1fffff) button")
 		}
 		env.pressRaw(settingsPrivateChat(owner), owner, privMsg, allBtn.CallbackData)
 		_, kb = env.lastEdit(owner.Id, privMsg)
-		if _, ok := settingsAdvFindButton(t, kb, map[string]string{"a": settingsActBackupExport, "m": "fffff"}); !ok {
-			t.Error("Select all did not restore m=fffff on Export button")
+		if _, ok := settingsAdvFindButton(t, kb, map[string]string{"a": settingsActBackupExport, "m": "1fffff"}); !ok {
+			t.Error("Select all did not restore m=1fffff on Export button")
 		}
 	})
 
@@ -382,14 +385,14 @@ func TestSettingsBackupPage(t *testing.T) {
 		cleanupBackupPageChat(t, env.chat.Id)
 		backupSeedSampleData(t, env.chat, owner.Id)
 
-		// Allowed non-creator admin presses be (m=fffff) -> succeeds, private delivery only, includes messages.
+		// Allowed non-creator admin presses be (m=1fffff) -> succeeds, private delivery only, includes messages.
 		admin := gotgbot.User{Id: owner.Id + 101, FirstName: "AllowedAdmin"}
 		env.fake.setMemberRaw(env.chat.Id, admin.Id, copyAdminJSON(admin.Id, true, true))
 		env.fake.listAdministrator(env.chat.Id, admin.Id)
 		env.setAdminsAllowed(env.chat.Id, true)
 
 		privMsg := env.updateID()
-		env.pressPrivate(admin, privMsg, env.privateFields(env.chat.Id, "a", settingsActBackupExport, "m", "fffff"))
+		env.pressPrivate(admin, privMsg, env.privateFields(env.chat.Id, "a", settingsActBackupExport, "m", "1fffff"))
 		afterText, _ := env.lastEdit(admin.Id, privMsg)
 		if !strings.Contains(afterText, settingsNoticeOKIcon) || !strings.Contains(afterText, staffMarker("backup_export_success_text")) {
 			t.Errorf("export redraw missing OK success notice:\n%s", afterText)
@@ -417,7 +420,7 @@ func TestSettingsBackupPage(t *testing.T) {
 		}
 
 		// Immediate second export hits AcquireExport rate limit and sends 0 additional documents.
-		env.pressPrivate(admin, privMsg, env.privateFields(env.chat.Id, "a", settingsActBackupExport, "m", "fffff"))
+		env.pressPrivate(admin, privMsg, env.privateFields(env.chat.Id, "a", settingsActBackupExport, "m", "1fffff"))
 		rateText, _ := env.lastEdit(admin.Id, privMsg)
 		if !strings.Contains(rateText, settingsNoticeWarnIcon) || !strings.Contains(rateText, staffMarker("backup_export_rate_limited")) {
 			t.Errorf("rate-limited export redraw missing warning notice:\n%s", rateText)
@@ -472,7 +475,7 @@ func TestSettingsBackupPage(t *testing.T) {
 
 		docsBefore := len(env.fake.callsFor("sendDocument"))
 		noAdminMsg := env.updateID()
-		env.pressPrivate(owner, noAdminMsg, env.privateFields(noAdminChat.Id, "a", settingsActBackupExport, "m", "fffff"))
+		env.pressPrivate(owner, noAdminMsg, env.privateFields(noAdminChat.Id, "a", settingsActBackupExport, "m", "1fffff"))
 		refusedText, _ := env.lastEdit(owner.Id, noAdminMsg)
 		if !strings.Contains(refusedText, staffMarker("chat_status_bot_not_admin")) {
 			t.Errorf("bot-not-admin export redraw = %q, want chat_status_bot_not_admin", refusedText)
@@ -1117,7 +1120,7 @@ func TestSettingsBackupPage(t *testing.T) {
 		if !alert || !strings.Contains(ans, staffMarker("settings_edit_unavailable")) {
 			t.Errorf("no-redis bi answer = (%q, alert=%v), want settings_edit_unavailable", ans, alert)
 		}
-		env.pressPrivate(owner, privMsg, env.privateFields(env.chat.Id, "a", settingsActBackupResetAsk, "m", "fffff"))
+		env.pressPrivate(owner, privMsg, env.privateFields(env.chat.Id, "a", settingsActBackupResetAsk, "m", "1fffff"))
 		ans, alert = copyLastAnswer(t, env)
 		if !alert || !strings.Contains(ans, staffMarker("settings_bkp_unavailable")) {
 			t.Errorf("no-redis br answer = (%q, alert=%v), want settings_bkp_unavailable", ans, alert)
@@ -1134,12 +1137,12 @@ func TestSettingsBackupPage(t *testing.T) {
 			fields map[string]string
 		}{
 			{"op_ba", map[string]string{"a": settingsActOpen, "c": minChat, "p": settingsPageBackup}},
-			{"bv_fffff", map[string]string{"a": settingsActBackupToggle, "c": minChat, "m": "fffff"}},
-			{"be_fffff", map[string]string{"a": settingsActBackupExport, "c": minChat, "m": "fffff"}},
+			{"bv_1fffff", map[string]string{"a": settingsActBackupToggle, "c": minChat, "m": "1fffff"}},
+			{"be_1fffff", map[string]string{"a": settingsActBackupExport, "c": minChat, "m": "1fffff"}},
 			{"bi", map[string]string{"a": settingsActBackupImport, "c": minChat}},
 			{"bl_i", map[string]string{"a": settingsActBackupImportCancel, "c": minChat, "t": settingsBackupImportPart}},
 			{"bj_token16", map[string]string{"a": settingsActBackupImportYes, "c": minChat, "k": "AbCdEfGhIj0123_-"}},
-			{"br_fffff", map[string]string{"a": settingsActBackupResetAsk, "c": minChat, "m": "fffff"}},
+			{"br_1fffff", map[string]string{"a": settingsActBackupResetAsk, "c": minChat, "m": "1fffff"}},
 			{"bu_token16", map[string]string{"a": settingsActBackupResetYes, "c": minChat, "k": "AbCdEfGhIj0123_-"}},
 			{"no_ba", map[string]string{"a": settingsActCancel, "c": minChat, "p": settingsPageBackup}},
 		}
@@ -1186,8 +1189,9 @@ func TestSettingsBackupPage(t *testing.T) {
 					OpenerName: title,
 				}
 				importNotice := settingsNoticeOK(formatBackupImportSuccess(tr, allMods, backup.ImportReport{
-					Skipped:           7,
-					LogChannelSkipped: true,
+					Skipped:               7,
+					LogChannelSkipped:     true,
+					ArchiveChannelSkipped: true,
 				}))
 				resetNotice := settingsNoticeOK(formatBackupResetSuccess(tr, allMods))
 
@@ -1199,8 +1203,8 @@ func TestSettingsBackupPage(t *testing.T) {
 					{"main_none", renderSettingsBackup(view, 0, "")},
 					{"import_wait", renderSettingsBackupImportPrompt(view, until, false)},
 					{"import_wait_replaced", renderSettingsBackupImportPrompt(view, until, true)},
-					{"import_confirm_20", renderSettingsBackupImportConfirm(view, allMods, "AbCdEfGhIj0123_-")},
-					{"reset_confirm_20", renderSettingsBackupResetConfirm(view, allMods, "AbCdEfGhIj0123_-")},
+					{"import_confirm_21", renderSettingsBackupImportConfirm(view, allMods, "AbCdEfGhIj0123_-")},
+					{"reset_confirm_21", renderSettingsBackupResetConfirm(view, allMods, "AbCdEfGhIj0123_-")},
 					{"post_import_notice", renderSettingsBackup(view, settingsBackupAllMask, importNotice)},
 					{"post_reset_notice", renderSettingsBackup(view, settingsBackupAllMask, resetNotice)},
 				}

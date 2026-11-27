@@ -196,7 +196,7 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 			providers = append(providers, button)
 		}
 	}
-	// Put at most two providers on a row so brand names stay readable on narrow screens (still <= 7 rows).
+	// Put at most two providers on a row so brand names stay readable on narrow screens (still <= 8 rows with the Presence shortcut).
 	for i := 0; i < len(providers); i += 2 {
 		end := min(i+2, len(providers))
 		k.row(providers[i:end]...)
@@ -217,6 +217,11 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 		k.row(settingsToggleButton(k, settingsPageChat, settingsChatControlLog, label, stored.LogEnabled)...)
 	}
 	k.row(settingsChatJudgeRow(k, stored.JudgeTo)...)
+	if btn, ok := k.button(settingsText(v.Tr, "settings_btn_chat_presence"), map[string]string{
+		"a": settingsActOpen, "p": settingsPagePresence,
+	}); ok {
+		k.row(btn)
+	}
 	k.navRow(false)
 	return k.screen(settingsCompose(v, "settings_page_chat", body, notice, false))
 }

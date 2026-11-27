@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spike 003 — Reaction Vision &amp; Media</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --ok:#2ea043; --warn:#d29922; --err:#f85149; --accent:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family: ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); padding:20px; line-height:1.45; }
+  h1 { margin:0 0 4px; font-size:20px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:14px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap:12px; margin-bottom:14px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:14px; }
+  .card h2 { margin:0 0 10px; font-size:14px; color:var(--accent); text-transform:uppercase; letter-spacing:.04em; }
+  label { display:block; font-size:12px; color:var(--muted); margin-top:6px; }
+  input[type=text], input[type=password], input[type=number], select { width:100%; background:#010409; border:1px solid var(--border); color:var(--text); border-radius:6px; padding:7px 9px; font-size:13px; margin-top:3px; }
+  .checks { display:flex; flex-wrap:wrap; gap:10px; margin-top:6px; font-size:13px; }
+  .checks label { display:inline-flex; align-items:center; gap:5px; margin:0; color:var(--text); cursor:pointer; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px; }
+  .btn { background:#238636; color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn:disabled { opacity:.5; cursor:wait; }
+  .btn-sec { background:#21262d; border:1px solid var(--border); color:var(--text); }
+  .fixtures { display:grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap:10px; }
+  .fx { background:#010409; border:1px solid var(--border); border-radius:8px; padding:10px; font-size:12px; }
+  .fx img { width:100%; height:115px; object-fit:contain; background:#0d1117; border-radius:4px; margin-bottom:6px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px; }
+  th, td { border-bottom:1px solid var(--border); padding:7px 8px; text-align:left; vertical-align:top; }
+  th { color:var(--muted); background:#010409; }
+  .badge { display:inline-block; padding:2px 7px; border-radius:999px; font-size:11px; font-weight:600; }
+  .b-ok { background:rgba(46,160,67,.2); color:#3fb950; }
+  .b-warn { background:rgba(210,153,34,.2); color:#e3b341; }
+  .b-err { background:rgba(248,81,73,.25); color:#ff7b72; }
+  .b-info { background:rgba(88,166,255,.2); color:#79c0ff; }
+  .emoji-big { font-size:20px; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size:12px; }
+  .logbox { max-height:200px; overflow:auto; background:#010409; border:1px solid var(--border); border-radius:6px; padding:8px; font-family:ui-monospace,monospace; font-size:11.5px; }
+  .env-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
+  .dot-on { background:var(--ok); } .dot-off { background:var(--warn); }
+  #uploadPreview { max-height:110px; max-width:100%; border-radius:6px; margin-top:6px; display:none; border:1px solid var(--border); }
+</style>
+</head>
+<body>
+  <h1>Spike 003 — Reaction Vision &amp; Media</h1>
+  <div class="sub">Photos, memes &amp; 128×128 sticker thumbnails via <code>chat_media.go</code> path · Claude &amp; Gemini vision token overhead · Featherless text-only &amp; auto-400 graceful degradation</div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>1. Provider Credentials (In-Memory Only)</h2>
+      <label><span id="dot-claude" class="env-dot dot-off"></span>Anthropic API Key / Model</label>
+      <input type="password" id="anthropic_key" placeholder="Uses ANTHROPIC_API_KEY if blank">
+      <input type="text" id="anthropic_model" value="claude-haiku-5-5">
+      <label><span id="dot-gemini" class="env-dot dot-off"></span>Gemini API Key / Model</label>
+      <input type="password" id="gemini_key" placeholder="Uses GEMINI_API_KEY if blank">
+      <input type="text" id="gemini_model" value="gemini-4-hydrogen">
+      <label><span id="dot-featherless" class="env-dot dot-off"></span>Featherless API Key / Model</label>
+      <input type="password" id="featherless_key" placeholder="Uses FEATHERLESS_API_KEY if blank">
+      <input type="text" id="featherless_model" placeholder="Text-only (Qwen/Qwen3-32B) or VL (Qwen/Qwen2.5-VL-72B-Instruct)">
+    </div>
+
+    <div class="card">
+      <h2>2. Suite Controls</h2>
+      <label>Targets</label>
+      <div class="checks">
+        <label><input type="checkbox" name="tgt" value="claude" checked> Claude Vision</label>
+        <label><input type="checkbox" name="tgt" value="gemini" checked> Gemini Vision</label>
+        <label><input type="checkbox" name="tgt" value="featherless_vision" checked> Featherless Vision (or 400→fallback)</label>
+        <label><input type="checkbox" name="tgt" value="featherless_text_fallback" checked> Featherless Text-Only Fallback</label>
+      </div>
+      <div class="checks" style="margin-top:10px">
+        <label><input type="checkbox" id="measure_baseline" checked> Measure image token overhead (runs text baseline)</label>
+        <label><input type="checkbox" id="auto_fallback" checked> Auto-degrade Featherless HTTP 400/422 to text-only</label>
+        <label><input type="checkbox" id="mock_mode"> Mock mode (offline stubs)</label>
+      </div>
+      <div class="row">
+        <label style="margin:0">MaxTokens:</label>
+        <input type="number" id="max_tokens" value="384" style="width:90px;margin:0">
+        <button class="btn" id="runBtn" onclick="runSuite()">Run 6-Fixture Suite</button>
+        <button class="btn btn-sec" onclick="exportLogs()">Export Forensic JSON</button>
+        <button class="btn btn-sec" onclick="clearLogs()">Clear</button>
+      </div>
+      <div id="statusMsg" class="sub" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h2>3. Upload Real Photo / Meme / Sticker</h2>
+      <label>Pick a local JPEG, PNG, or WebP (&le; 5 MB)</label>
+      <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp" onchange="previewFile()">
+      <img id="uploadPreview" alt="preview">
+      <div class="row" style="margin-top:6px">
+        <select id="upKind" style="width:auto">
+          <option value="photo">Photo / Meme</option>
+          <option value="sticker">Sticker Thumbnail</option>
+        </select>
+        <input type="text" id="upStickerEmoji" placeholder="Sticker emoji (e.g. 😼)" style="width:140px;margin:0">
+      </div>
+      <label>Optional Caption</label>
+      <input type="text" id="upCaption" placeholder="Optional caption text">
+      <label>Optional Preceding Thread Line</label>
+      <input type="text" id="upRecent" placeholder="e.g. Alex: How is the deployment going?">
+      <div class="row">
+        <button class="btn" id="upBtn" onclick="runUpload()">Test Uploaded Media</button>
+      </div>
+      <div id="upOut" style="margin-top:8px;font-size:12.5px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Built-In Visual Fixtures</h2>
+    <div id="fixtureGrid" class="fixtures"></div>
+  </div>
+
+  <div class="card">
+    <h2>Summary by Target (Token Overhead &amp; Degradation)</h2>
+    <table id="sumTable">
+      <thead><tr><th>Target</th><th>Clean Parses</th><th>Expect Match</th><th>Degraded / Text-FB</th><th>Avg Latency</th><th>Avg Input Tokens</th><th>Avg Image Token Overhead</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Per-Fixture Results</h2>
+    <table id="resTable">
+      <thead><tr><th>Fixture</th><th>Target / Mode</th><th>Image Sent</th><th>Reaction</th><th>Status</th><th>Latency</th><th>Input Tokens (+Image Overhead)</th><th>Raw / Error</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Forensic Event Log (<span id="logCount">0</span> events)</h2>
+    <div id="logBox" class="logbox"></div>
+  </div>
+
+<script>
+let uploadedDataURL = '';
+
+async function init() {
+  const res = await fetch('/api/config');
+  const cfg = await res.json();
+  document.getElementById('anthropic_model').value = cfg.models.claude || 'claude-haiku-5-5';
+  document.getElementById('gemini_model').value = cfg.models.gemini || 'gemini-4-hydrogen';
+  document.getElementById('featherless_model').value = cfg.models.featherless || '';
+  document.getElementById('mock_mode').checked = !!cfg.default_mock;
+  ['claude','gemini','featherless'].forEach(p => {
+    document.getElementById('dot-' + p).className = 'env-dot ' + (cfg.env_configured[p] ? 'dot-on' : 'dot-off');
+  });
+  document.getElementById('fixtureGrid').innerHTML = (cfg.fixtures || []).map(f => `
+    <div class="fx">
+      <img src="${f.data_url}" alt="${esc(f.label)}">
+      <div><b>${esc(f.label)}</b></div>
+      <div class="sub" style="margin:2px 0">${esc(f.kind)} · ${esc(f.mime_type)} · ${f.width}×${f.height} · ${(f.byte_len/1024).toFixed(1)} KB</div>
+      ${f.caption ? `<div class="mono">caption: "${esc(f.caption)}"</div>` : ''}
+      ${f.sticker_emoji ? `<div class="mono">sticker_emoji: ${esc(f.sticker_emoji)}</div>` : ''}
+      <div class="sub" style="margin:4px 0 0">${esc(f.description)}</div>
+    </div>
+  `).join('');
+  await refreshLogs();
+}
+
+function previewFile() {
+  const file = document.getElementById('fileInput').files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    uploadedDataURL = '';
+    document.getElementById('uploadPreview').style.display = 'none';
+    document.getElementById('upOut').textContent = 'File exceeds 5 MiB limit (matches chat_media.go MaxImageBytes).';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    uploadedDataURL = reader.result;
+    const img = document.getElementById('uploadPreview');
+    img.src = uploadedDataURL;
+    img.style.display = 'block';
+    document.getElementById('upOut').textContent = '';
+  };
+  reader.readAsDataURL(file);
+}
+
+function getOverrides() {
+  return {
+    anthropic_key: document.getElementById('anthropic_key').value,
+    anthropic_model: document.getElementById('anthropic_model').value,
+    gemini_key: document.getElementById('gemini_key').value,
+    gemini_model: document.getElementById('gemini_model').value,
+    featherless_key: document.getElementById('featherless_key').value,
+    featherless_model: document.getElementById('featherless_model').value,
+  };
+}
+function checked(name) { return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(e => e.value); }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function runSuite() {
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  document.getElementById('statusMsg').textContent = 'Running multimodal suite across provider lanes in parallel...';
+  try {
+    const res = await fetch('/api/run', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        targets: checked('tgt'),
+        max_tokens: Number(document.getElementById('max_tokens').value) || 384,
+        measure_baseline: document.getElementById('measure_baseline').checked,
+        auto_fallback: document.getElementById('auto_fallback').checked,
+        mock: document.getElementById('mock_mode').checked,
+        overrides: getOverrides(),
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(await res.text() || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    document.getElementById('statusMsg').textContent = `Done: ${(data.results||[]).length} evaluations completed.`;
+    await refreshLogs();
+  } catch (e) {
+    document.getElementById('statusMsg').textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function runUpload() {
+  if (!uploadedDataURL) {
+    document.getElementById('upOut').textContent = 'Pick an image file first.';
+    return;
+  }
+  const btn = document.getElementById('upBtn');
+  btn.disabled = true;
+  document.getElementById('upOut').textContent = 'Evaluating uploaded image...';
+  try {
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        targets: checked('tgt'),
+        max_tokens: Number(document.getElementById('max_tokens').value) || 384,
+        measure_baseline: document.getElementById('measure_baseline').checked,
+        auto_fallback: document.getElementById('auto_fallback').checked,
+        mock: document.getElementById('mock_mode').checked,
+        kind: document.getElementById('upKind').value,
+        caption: document.getElementById('upCaption').value,
+        sticker_emoji: document.getElementById('upStickerEmoji').value,
+        recent_line: document.getElementById('upRecent').value,
+        image_base64: uploadedDataURL,
+        overrides: getOverrides(),
+      }),
+    });
+    if (!res.ok) {
+      document.getElementById('upOut').textContent = 'Error: ' + (await res.text());
+      return;
+    }
+    const data = await res.json();
+    document.getElementById('upOut').innerHTML = (data.results || []).map(r =>
+      `<div><b>${esc(r.provider)}</b> (${esc(r.mode)}): <span class="emoji-big">${esc(r.emoji || '—')}</span> · ${r.latency_ms}ms · ${r.input_tokens} tok (+${r.image_token_overhead || 0} img) ${r.error_class ? '· ' + esc(r.error_class) : ''}</div>`
+    ).join('');
+    await refreshLogs();
+  } catch (e) {
+    document.getElementById('upOut').textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderTables(summaries, results) {
+  document.querySelector('#sumTable tbody').innerHTML = summaries.map(s => `<tr>
+    <td><b>${esc(s.target)}</b></td>
+    <td>${s.clean_parses}/${s.total}</td>
+    <td>${s.expect_matches}/${s.total}</td>
+    <td>${s.degraded_count}</td>
+    <td class="mono">${s.avg_latency_ms.toFixed(0)} ms</td>
+    <td class="mono">${s.avg_input_tokens.toFixed(0)}</td>
+    <td class="mono">${s.avg_image_overhead > 0 ? '+' + s.avg_image_overhead.toFixed(0) + ' tok' : '—'}</td>
+  </tr>`).join('');
+
+  document.querySelector('#resTable tbody').innerHTML = results.map(r => {
+    const modeBadge = r.degraded_from_http_400
+      ? `<span class="badge b-warn">400 → text_fallback</span>`
+      : r.mode === 'vision_and_fallback_failed'
+        ? `<span class="badge b-err">vision+fb failed</span>`
+        : r.mode === 'text_fallback'
+          ? `<span class="badge b-info">text_fallback</span>`
+          : `<span class="badge b-ok">vision</span>`;
+    const stBadge = (r.parse_status === 'valid_emoji' || r.parse_status === 'valid_none')
+      ? `<span class="badge b-ok">${esc(r.parse_status)}</span>`
+      : `<span class="badge b-err">${esc(r.parse_status)}</span>`;
+    return `<tr>
+      <td><b>${esc(r.fixture_label)}</b><div class="sub" style="margin:0">${esc(r.kind)} · ${esc(r.image_mime)} · ${(r.image_bytes/1024).toFixed(1)} KB</div></td>
+      <td><b>${esc(r.provider)}</b><div>${modeBadge}</div></td>
+      <td>${r.image_sent ? 'Yes' : 'No'}</td>
+      <td class="emoji-big">${esc(r.emoji || '—')}</td>
+      <td>${stBadge}</td>
+      <td class="mono">${r.latency_ms} ms</td>
+      <td class="mono">${r.input_tokens}${r.image_token_overhead > 0 ? ` (+${r.image_token_overhead} img)` : ''}</td>
+      <td class="mono">${esc(r.raw_text || r.error_class || '—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function refreshLogs() {
+  const res = await fetch('/api/logs');
+  const snap = await res.json();
+  renderTables(snap.summaries || [], snap.results || []);
+  const evs = snap.events || [];
+  document.getElementById('logCount').textContent = evs.length;
+  document.getElementById('logBox').innerHTML = evs.slice(-100).reverse().map(e =>
+    `<div>[${esc(e.timestamp)}] <b>${esc(e.category)}</b> ${esc(e.message)}</div>`
+  ).join('');
+}
+function exportLogs() { window.location.href = '/api/logs?download=1'; }
+async function clearLogs() {
+  await fetch('/api/logs/clear', {method:'POST'});
+  renderTables([], []);
+  await refreshLogs();
+}
+init();
+</script>
+</body>
+</html>

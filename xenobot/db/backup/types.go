@@ -119,6 +119,7 @@ const (
 	BackupModuleFederations = "federations"
 	BackupModuleLogChannels = "logchannels"
 	BackupModuleMessages    = "messages"
+	BackupModulePresence    = "presence"
 )
 
 func AllExportableModules() []string {
@@ -143,6 +144,7 @@ func AllExportableModules() []string {
 		BackupModuleFederations,
 		BackupModuleLogChannels,
 		BackupModuleMessages,
+		BackupModulePresence,
 	}
 }
 
@@ -230,3 +232,25 @@ type MessagesBackup struct {
 	Messages []models.ChatEventMessage       `json:"messages,omitempty"`
 	Options  *models.ChatEventMessageOptions `json:"options,omitempty"`
 }
+
+// PresencePortableBackup holds the portable fields of chat_presence, explicitly
+// omitting archive_chat_id and archive_thread_id so destination targets never leak
+// or get overwritten across chats.
+type PresencePortableBackup struct {
+	ConsensusEnabled   bool   `json:"consensus_enabled"`
+	ConsensusThreshold int    `json:"consensus_threshold"`
+	RetractEnabled     bool   `json:"retract_enabled"`
+	AIReactMode        string `json:"ai_react_mode"`
+	CatStickerEnabled  bool   `json:"cat_sticker_enabled"`
+	ArchiveEnabled     bool   `json:"archive_enabled"`
+	ArchiveThreshold   int    `json:"archive_threshold"`
+	ArchiveEmojiMode   string `json:"archive_emoji_mode"`
+	ArchiveDelivery    string `json:"archive_delivery"`
+	AmbientContext     bool   `json:"ambient_context"`
+	VocativeEnabled    bool   `json:"vocative_enabled"`
+	PMBriefReact       bool   `json:"pm_brief_react"`
+	ReferendumEnabled  bool   `json:"referendum_enabled"`
+	InspectEnabled     bool   `json:"inspect_enabled"`
+}
+
+type PresenceBackup = SettingBackup[PresencePortableBackup]
