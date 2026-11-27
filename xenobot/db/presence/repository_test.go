@@ -59,6 +59,8 @@ func TestChatPresenceSettings(t *testing.T) {
 			AmbientContext:     false,
 			VocativeEnabled:    false,
 			PMBriefReact:       false,
+			ReferendumEnabled:  false,
+			InspectEnabled:     false,
 		}
 		if Defaults() != want {
 			t.Fatalf("Defaults() = %+v, want %+v", Defaults(), want)
@@ -553,6 +555,8 @@ func TestChatPresenceSettings(t *testing.T) {
 			AmbientContext:     false,
 			VocativeEnabled:    false,
 			PMBriefReact:       false,
+			ReferendumEnabled:  false,
+			InspectEnabled:     false,
 		}
 		if got, err := Get(ctx, chatID); err != nil || got != want {
 			t.Fatalf("pre-Phase-33 cached Get = %+v, %v, want %+v", got, err, want)
@@ -687,9 +691,149 @@ func TestChatPresenceSettings(t *testing.T) {
 			AmbientContext:     false,
 			VocativeEnabled:    false,
 			PMBriefReact:       false,
+			ReferendumEnabled:  false,
+			InspectEnabled:     false,
 		}
 		if got, err := Get(ctx, chatID); err != nil || got != want {
 			t.Fatalf("pre-Phase-34 cached Get = %+v, %v, want %+v", got, err, want)
+		}
+	})
+
+	t.Run("SetReferendumEnabled and SetInspectEnabled column-targeted upserts and cache invalidation", func(t *testing.T) {
+		utilsCache.SetupTestMemoryMarshaler(t)
+		chatID := newChat(t)
+		if _, err := Get(ctx, chatID); err != nil { // warm cache
+			t.Fatal(err)
+		}
+
+		if err := SetConsensusEnabled(ctx, chatID, true, 70); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetRetractEnabled(ctx, chatID, false, 70); err != nil {
+			t.Fatal(err)
+		}
+
+		want := Defaults()
+		want.ConsensusEnabled = true
+		want.RetractEnabled = false
+
+		if err := SetReferendumEnabled(ctx, chatID, true, 71); err != nil {
+			t.Fatal(err)
+		}
+		want.ReferendumEnabled = true
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetReferendumEnabled(true): Get = %+v, %v, want %+v", got, err, want)
+		}
+		if fresh, err := GetFresh(ctx, chatID); err != nil || fresh != want {
+			t.Fatalf("after SetReferendumEnabled(true): GetFresh = %+v, %v, want %+v", fresh, err, want)
+		}
+
+		if err := SetInspectEnabled(ctx, chatID, true, 72); err != nil {
+			t.Fatal(err)
+		}
+		want.InspectEnabled = true
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetInspectEnabled(true): Get = %+v, %v, want %+v", got, err, want)
+		}
+		if fresh, err := GetFresh(ctx, chatID); err != nil || fresh != want {
+			t.Fatalf("after SetInspectEnabled(true): GetFresh = %+v, %v, want %+v", fresh, err, want)
+		}
+
+		if err := SetReferendumEnabled(ctx, chatID, false, 73); err != nil {
+			t.Fatal(err)
+		}
+		want.ReferendumEnabled = false
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetReferendumEnabled(false): Get = %+v, %v, want %+v", got, err, want)
+		}
+		if fresh, err := GetFresh(ctx, chatID); err != nil || fresh != want {
+			t.Fatalf("after SetReferendumEnabled(false): GetFresh = %+v, %v, want %+v", fresh, err, want)
+		}
+
+		if err := SetInspectEnabled(ctx, chatID, false, 74); err != nil {
+			t.Fatal(err)
+		}
+		want.InspectEnabled = false
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetInspectEnabled(false): Get = %+v, %v, want %+v", got, err, want)
+		}
+		if fresh, err := GetFresh(ctx, chatID); err != nil || fresh != want {
+			t.Fatalf("after SetInspectEnabled(false): GetFresh = %+v, %v, want %+v", fresh, err, want)
+		}
+
+		// Explicit Go false on a brand-new chat with no prior row persists false.
+		brandNewChat := newChat(t)
+		if err := SetReferendumEnabled(ctx, brandNewChat, false, 75); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetInspectEnabled(ctx, brandNewChat, false, 75); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := Get(ctx, brandNewChat); err != nil || got != Defaults() {
+			t.Fatalf("brand-new explicit false Get = %+v, %v, want Defaults() %+v", got, err, Defaults())
+		}
+		if fresh, err := GetFresh(ctx, brandNewChat); err != nil || fresh != Defaults() {
+			t.Fatalf("brand-new explicit false GetFresh = %+v, %v, want Defaults() %+v", fresh, err, Defaults())
+		}
+	})
+
+	t.Run("rolling-deploy cache normalization for pre-Phase-35 cached entries", func(t *testing.T) {
+		utilsCache.SetupTestMemoryMarshaler(t)
+		type prePhase35Settings struct {
+			ConsensusEnabled   bool   `msgpack:"ce"`
+			ConsensusThreshold int    `msgpack:"ct"`
+			RetractEnabled     bool   `msgpack:"re"`
+			AIReactMode        string `msgpack:"ar"`
+			CatStickerEnabled  bool   `msgpack:"cs"`
+			ArchiveEnabled     bool   `msgpack:"ae"`
+			ArchiveChatID      int64  `msgpack:"ac"`
+			ArchiveThreadID    int64  `msgpack:"at"`
+			ArchiveThreshold   int    `msgpack:"ah"`
+			ArchiveEmojiMode   string `msgpack:"am"`
+			ArchiveDelivery    string `msgpack:"ad"`
+			AmbientContext     bool   `msgpack:"ax"`
+			VocativeEnabled    bool   `msgpack:"ve"`
+			PMBriefReact       bool   `msgpack:"pb"`
+		}
+		chatID := newChat(t)
+		if err := utilsCache.GetMarshal().Set(ctx, CacheKey(chatID), prePhase35Settings{
+			ConsensusEnabled:   true,
+			ConsensusThreshold: 4,
+			RetractEnabled:     false,
+			AIReactMode:        AIReactModeMedium,
+			CatStickerEnabled:  true,
+			ArchiveEnabled:     true,
+			ArchiveChatID:      -100111222,
+			ArchiveThreadID:    5,
+			ArchiveThreshold:   10,
+			ArchiveEmojiMode:   ArchiveEmojiModeAll,
+			ArchiveDelivery:    ArchiveDeliveryForward,
+			AmbientContext:     true,
+			VocativeEnabled:    true,
+			PMBriefReact:       true,
+		}); err != nil {
+			t.Fatalf("seed pre-Phase-35 cache: %v", err)
+		}
+		want := Settings{
+			ConsensusEnabled:   true,
+			ConsensusThreshold: 4,
+			RetractEnabled:     false,
+			AIReactMode:        AIReactModeMedium,
+			CatStickerEnabled:  true,
+			ArchiveEnabled:     true,
+			ArchiveChatID:      -100111222,
+			ArchiveThreadID:    5,
+			ArchiveThreshold:   10,
+			ArchiveEmojiMode:   ArchiveEmojiModeAll,
+			ArchiveDelivery:    ArchiveDeliveryForward,
+			AmbientContext:     true,
+			VocativeEnabled:    true,
+			PMBriefReact:       true,
+			ReferendumEnabled:  false,
+			InspectEnabled:     false,
+		}
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("pre-Phase-35 cached Get = %+v, %v, want %+v", got, err, want)
 		}
 	})
 
@@ -740,6 +884,8 @@ func TestChatPresenceSettings(t *testing.T) {
 				AmbientContext:     true,
 				VocativeEnabled:    true,
 				PMBriefReact:       true,
+				ReferendumEnabled:  true,
+				InspectEnabled:     true,
 			}, 50)
 			return txErr
 		})
@@ -768,6 +914,8 @@ func TestChatPresenceSettings(t *testing.T) {
 			AmbientContext:     true,
 			VocativeEnabled:    true,
 			PMBriefReact:       true,
+			ReferendumEnabled:  true,
+			InspectEnabled:     true,
 		}
 		if gotUnlinked != wantUnlinked {
 			t.Fatalf("unlinked after ReplacePortableTx = %+v, want %+v", gotUnlinked, wantUnlinked)
@@ -779,6 +927,9 @@ func TestChatPresenceSettings(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := SetVocativeEnabled(ctx, linkedChat, true, 51); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetReferendumEnabled(ctx, linkedChat, true, 51); err != nil {
 			t.Fatal(err)
 		}
 		err = db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -798,6 +949,8 @@ func TestChatPresenceSettings(t *testing.T) {
 				AmbientContext:     true,
 				VocativeEnabled:    false, // must overwrite existing true with false
 				PMBriefReact:       true,
+				ReferendumEnabled:  false, // must overwrite existing true with false
+				InspectEnabled:     true,
 			}, 52)
 			return txErr
 		})
@@ -826,6 +979,8 @@ func TestChatPresenceSettings(t *testing.T) {
 			AmbientContext:     true,
 			VocativeEnabled:    false,
 			PMBriefReact:       true,
+			ReferendumEnabled:  false,
+			InspectEnabled:     true,
 		}
 		if gotLinked != wantLinked {
 			t.Fatalf("linked after ReplacePortableTx = %+v, want %+v", gotLinked, wantLinked)

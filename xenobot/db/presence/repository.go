@@ -67,12 +67,14 @@ type Settings struct {
 	AmbientContext     bool   `msgpack:"ax"`
 	VocativeEnabled    bool   `msgpack:"ve"`
 	PMBriefReact       bool   `msgpack:"pb"`
+	ReferendumEnabled  bool   `msgpack:"rf"`
+	InspectEnabled     bool   `msgpack:"in"`
 }
 
 // Defaults returns the settings of a chat with no row: Emoji Consensus off with threshold 3,
 // thumbs-down retraction on, Contextual AI Emoji Reactions off, Cat-Sticker Micro-Triggers off,
 // Highlights Archive off (threshold 5, positive emojis, copy delivery), Ambient Room Context off,
-// Vocative Name-Addressing off, and PM Brief Reaction off.
+// Vocative Name-Addressing off, PM Brief Reaction off, Referendum off, and Inspect off.
 func Defaults() Settings {
 	return Settings{
 		ConsensusEnabled:   false,
@@ -89,6 +91,8 @@ func Defaults() Settings {
 		AmbientContext:     false,
 		VocativeEnabled:    false,
 		PMBriefReact:       false,
+		ReferendumEnabled:  false,
+		InspectEnabled:     false,
 	}
 }
 
@@ -206,6 +210,8 @@ func GetFresh(ctx context.Context, chatID int64) (Settings, error) {
 		AmbientContext:     row.AmbientContext,
 		VocativeEnabled:    row.VocativeEnabled,
 		PMBriefReact:       row.PMBriefReact,
+		ReferendumEnabled:  row.ReferendumEnabled,
+		InspectEnabled:     row.InspectEnabled,
 	}), nil
 }
 
@@ -355,6 +361,20 @@ func SetPMBriefReact(ctx context.Context, chatID int64, enabled bool, by int64) 
 	return upsertColumns(ctx, row, []string{"pm_brief_react"})
 }
 
+// SetReferendumEnabled writes referendum_enabled with one column-targeted upsert and drops the cache key.
+func SetReferendumEnabled(ctx context.Context, chatID int64, enabled bool, by int64) error {
+	row := defaultRow(chatID, by)
+	row.ReferendumEnabled = enabled
+	return upsertColumns(ctx, row, []string{"referendum_enabled"})
+}
+
+// SetInspectEnabled writes inspect_enabled with one column-targeted upsert and drops the cache key.
+func SetInspectEnabled(ctx context.Context, chatID int64, enabled bool, by int64) error {
+	row := defaultRow(chatID, by)
+	row.InspectEnabled = enabled
+	return upsertColumns(ctx, row, []string{"inspect_enabled"})
+}
+
 // TryClaimArchived durably claims (chatID, msgID) in chat_presence_archived via ON CONFLICT DO
 // NOTHING, returning true iff this caller inserted the row.
 func TryClaimArchived(ctx context.Context, chatID, msgID int64) (bool, error) {
@@ -420,6 +440,8 @@ func ReplacePortableTx(tx *gorm.DB, chatID int64, s Settings, by int64) (archive
 		AmbientContext:     norm.AmbientContext,
 		VocativeEnabled:    norm.VocativeEnabled,
 		PMBriefReact:       norm.PMBriefReact,
+		ReferendumEnabled:  norm.ReferendumEnabled,
+		InspectEnabled:     norm.InspectEnabled,
 		UpdatedBy:          by,
 		UpdatedAt:          time.Now(),
 	}
@@ -436,6 +458,8 @@ func ReplacePortableTx(tx *gorm.DB, chatID int64, s Settings, by int64) (archive
 		"ambient_context",
 		"vocative_enabled",
 		"pm_brief_react",
+		"referendum_enabled",
+		"inspect_enabled",
 	}
 	if err := upsertColumnsTx(tx, row, portableCols); err != nil {
 		return false, err
@@ -473,6 +497,8 @@ func defaultRow(chatID, by int64) *models.ChatPresence {
 		AmbientContext:     d.AmbientContext,
 		VocativeEnabled:    d.VocativeEnabled,
 		PMBriefReact:       d.PMBriefReact,
+		ReferendumEnabled:  d.ReferendumEnabled,
+		InspectEnabled:     d.InspectEnabled,
 		UpdatedBy:          by,
 		UpdatedAt:          time.Now(),
 	}
