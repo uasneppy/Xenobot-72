@@ -140,7 +140,7 @@ func chatStatsSection() string {
 	return fmt.Sprintf(
 		"\n    <b>Conversations:</b> answered %d, refused %d, failed %d, shed %d, capped %d",
 		chatAnsweredCount.Load(), chatRefusedCount.Load(), chatFailedCount.Load(), chatShedCount.Load(), chatCappedCount.Load(),
-	) + chatBriefStatsSection()
+	) + chatBriefStatsSection() + chatReactStatsSection()
 }
 
 func chatEnsureWorkers() {
@@ -151,6 +151,7 @@ func chatEnsureWorkers() {
 			go chatWorker()
 		}
 		chatBriefEnsureWorkers()
+		chatPresenceEnsureWorkers()
 	})
 }
 

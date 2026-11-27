@@ -72,6 +72,7 @@ func chatWatch(b *gotgbot.Bot, ctx *ext.Context) {
 		return
 	}
 	if addressed, _ := chatAddressed(b, msg); !addressed {
+		chatReactWatch(b, ctx)
 		return
 	}
 	gate, provider := chatAccept(b, chat.Id, userID)
