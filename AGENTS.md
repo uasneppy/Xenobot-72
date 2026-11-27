@@ -177,6 +177,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`chat_media.go`, image documents in `raid_ai_media.go`) add zero goroutines, zero handler groups, and zero shutdown drains: every
   provider call and Telegram media download runs inside the existing `StopChat`, `StopRaidAI`, or `StopMemberReqJobs` pool under its
   derived context, so the 70 s worst case and `stop_grace_period: 75s` are unchanged.
+- Phase 33 (Smarter Static Reactions, Highlights Archive, Cat-Sticker Micro-Triggers, and Backup Parity) adds zero goroutines,
+  zero new handler groups (reusing group `8` in `reactions.go`, group `0` `NewReaction` + `/setarchive`/`/unsetarchive` via
+  `helpers.NewBotCommand` and group `11` `captureSetArchiveForward` in `presence_reactions.go`/`presence_archive.go`), and zero
+  shutdown drains (`handleReaction` joins `StopChat` via `chatJobs`/`chatDraining`/`chatContext()`), keeping the `70 s` webhook
+  worst-case shutdown and `stop_grace_period: 75s` unchanged.
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
 - The Turnstile web captcha is configured in `main` (`registerCaptchaWeb`) when `config.AppConfig.CaptchaWebConfigured()`
   holds: all four of `CAPTCHA_WEB_BASE_URL`, `TELEGRAM_MINI_APP_SHORT_NAME`, `TURNSTILE_SITE_KEY` and
@@ -208,7 +213,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `-1` users tracker (records real users only: no `sender_chat`, no non-positive ID, no Telegram service account, `trackableUser`) · `0` commands/help/greetings and `LoadPresence`'s `handlers.NewReaction(reaction.All, presenceModule.handleReaction)` (non-message update; does not contend with message handlers and `CommandDeletionProcessor` returns immediately when `ctx.Message == nil`; `"message_reaction"` is subscribed in `config.AppConfig.AllowedUpdates`, rolling deploys must terminate all v1.2 replicas before final `getWebhookInfo` verification, and `"message_reaction_count"` must never be added) · `1` settings typed-reply door (private messages only;
   `ext.ContinueGroups` for anyone with no wait and no marker, consumes and ends the update otherwise) · `2` raid AI candidate watcher (hands a new member's suspicious
   item to the raid AI pool, never ends an update) · `3` aispam · `4` antiflood · `5`/`6` locks · `7` blacklists ·
-  `8` reports+reactions (the `@admin` watcher, `reportWatch`, returns `nil` after reporting so groups 9 to 12 still run) · `9` filters · `10` pins · `11` log-channel · `12` late raid flood counter (slash-prefixed texts only; keep it
+  `8` reports+reactions (the `@admin` watcher, `reportWatch`, returns `nil` after reporting so groups 9 to 12 still run; `checkReactions` in `reactions.go` gates with `presenceMessageAllowed` + lazy `presenceIsLockedDown` and sets `ctx.Data[presenceStaticReactedKey] = true` on a static or cat-sticker reaction) · `9` filters · `10` pins · `11` log-channel (including `captureSetArchiveForward` for `/setarchive` forwards) · `12` late raid flood counter (slash-prefixed texts only; keep it
   after every group that can end a slash text) · `13` conversation watcher (the Chat module, the only handler of the group; handles no command,
   ignores slash texts and ends no update, which is why it may come after group 12; unaddressed messages hand off exclusively to
   `chatReactWatch` respecting `ctx.Data[presenceStaticReactedKey]` with zero operational Redis I/O when `EnableChat` is false or
@@ -1497,8 +1502,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - The Backup page (`settings_backup.go`, `backup.go`, page `ba`, `Order` 83, icon `💾`, `settings_page_backup`, Phase 30, BKP-01..03,
   MSG-10) is `PrivateOnly` (`PrivateNoteKey` `settings_bkp_group_note`), `Hidden` in Staff Groups (`settingsBackupHidden`, failing
   closed on fresh DB errors via `settingsBackupVerifyNonStaff`), and has a static zero-I/O `MainState` (`settings_state_backup`).
-  Module selection is stateless via a canonical 20-bit lowercase hex mask `m` (`0`..`fffff`) mapping bits `0..19` to
-  `backup.AllExportableModules()` (including `"messages"`), with per-module toggles plus Select all (`m=fffff`) and Clear (`m=0`)
+  Module selection is stateless via a canonical 21-bit lowercase hex mask `m` (`0`..`1fffff`) mapping bits `0..20` to
+  `backup.AllExportableModules()` (including `"messages"` and `"presence"`), with per-module toggles plus Select all (`m=1fffff`) and Clear (`m=0`)
   (`P30-04`). Action codes (every `Validate` requires private field `c` in step 1, producing 0 `getChatMember` calls on forged or
   group-menu presses): `bv` (stateless bitmask redraw `m`, `settingsRightAdmin`), `be` (Export selected modules `m`,
   `settingsRightAdminBotAdmin`, refuses `m=0` with `settings_bkp_pick_one`, delegates to `applyBackupExport` under `AcquireExport` and
@@ -1506,7 +1511,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `settingsTypedPages[settingsPageBackup]`, part `i`, `CancelCode` `bl`, `Right` `settingsRightOwnerBotAdmin`, `WaitEndedKey`
   `settings_bkp_import_wait_ended`, keeping the wait alive on plain text or invalid/corrupt files), `bl` (cancels active wait, `t=i`,
   `settingsRightAdmin`), `bj` (Import confirm Yes, `k` 16-char base64url token, `settingsRightOwnerBotAdmin`, peeks user/chat binding
-  before atomic Lua `GET+DEL` + `AcquireImport` + `applyBackupImport` / `formatBackupImportSuccess`), `bq` (Reset confirm ask, `m`,
+  before atomic Lua `GET+DEL` + `AcquireImport` + `applyBackupImport` / `formatBackupImportSuccess`, which appends
+  `backup_import_archive_skipped` when `ImportReport.ArchiveChannelSkipped` is true), `bq` (Reset confirm ask, `m`,
   `settingsRightOwnerBotAdmin`, refuses `m=0` with `settings_bkp_pick_one`, stores one-time Redis reset token), and `bu` (Reset confirm
   Yes, `k`, `settingsRightOwnerBotAdmin`, peeks user/chat binding before atomic Lua `GET+DEL` + `AcquireReset` + `applyBackupReset` /
   `formatBackupResetSuccess`). Both `/export`, `/import`, `/reset` and the Backup page call the shared apply helpers in
@@ -1552,6 +1558,32 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   writes with plain-text alert `settings_pr_ai_need_owner` when Owner Conversations is off (failing closed with `cannotOpen` on DB read
   error), disabling to `off` always succeeds even when locked, zero-AI controls stay independent, and `settingsPresenceMainState` counts AI
   reactions only when both `AIReactMode != "off"` and Owner Conversations is enabled/configured.
+  Phase 33 (**Cat-Sticker Micro-Triggers, Highlights Archive & Backup Parity**, `presence_archive.go`, `reactions.go`, `settings_presence.go`,
+  `xenobot/db/backup/`, COMM-02..05) extends `chat_presence` via `migrations/20261129130000_add_presence_stickers_and_archive.sql` with
+  `cat_sticker_enabled`, `archive_enabled`, `archive_chat_id`, `archive_thread_id`, `archive_threshold` (`2..50`, default `5`),
+  `archive_emoji_mode` (`'positive'`/`'all'`), `archive_delivery` (`'copy'`/`'forward'`), and durable composite-PK dedup table
+  `chat_presence_archived (chat_id, message_id)` (rolling-deploy safe empty-string/zero normalization in `xenobot/db/presence`).
+  Cat-sticker micro-triggers (`tryCatStickerReaction` in group `8` `reactions.go`) run only when no static rule reacted on a message with
+  `msg.Sticker` matching `catStickerEmojis`, require `CatStickerEnabled`, apply a 20% `catStickerRoll` + `xenobot:presence:{<chat>}:cat:cd`
+  (3 min) + lazy `presenceIsLockedDown`, intersect `["👀", "❤"]` with `presenceAllowedPalette`, call `presenceSetReaction(..., "cat")`
+  (zero AI calls), and set `ctx.Data[presenceStaticReactedKey] = true`.
+  Highlights Archive (`presence_archive.go`, `presenceHandleArchive` called from group `0` `handleReaction`) registers `/setarchive`
+  (`SetAllowChannel(true)`) and `/unsetarchive` via `helpers.NewBotCommand`, plus group-11 `captureSetArchiveForward`, and enables Presence
+  help (`SetModuleEnabled("Presence", true)`). `/setarchive` stores a 1 h `xenobot:setarchive:<targetChatID>:<msgID>` marker outside
+  `xenobot:cache:`, binds a forwarded post from a channel or supergroup or binds a current forum topic directly when invoked with Change
+  Info permission, verifies live admin + bot post permission, and refuses Staff Groups as both source and destination. On reactions,
+  `presenceHandleArchive` counts distinct real non-bot, non-author members (`mru.User != nil`, excluding `presenceConsensusHostile` and
+  honoring `positive`/`all`), tracks `xenobot:presence:{<chat>}:arch:u:<msgID>` (72 h) and fast latch `:arch:done:<msgID>` (7 d) outside
+  `xenobot:cache:`, checks lazy `presenceIsLockedDown`, claims once-only in PostgreSQL via `presence.TryClaimArchived` (`ON CONFLICT DO NOTHING`),
+  and delivers via `CopyMessage` (default, attaching a `t.me/c/` / `t.me/<user>/` jump button only for supergroups or public usernames)
+  or `ForwardMessage` while failing silently on `400`/`403`. On Settings page `pr` (now 7 rows), Cat Stickers toggle `cs` and Highlights
+  Archive sub-page `ph` + unlink `pu` register as `PrivateOnly` `settingsPageAction` entries on `pr` (keeping `len(settingsPages) == 31`
+  and `settingsMainOwnerRows == 17`), with archive controls `ae`/`ah`/`ap`/`ad` (`settingsRightChangeInfo`, refusing unlinked enable with
+  `settings_ph_need_target`, fail-closed Staff Group guard; `TestPhase33Codes`). `BackupModulePresence = "presence"` (21st backup module)
+  exports/imports/clears portable `chat_presence` fields via `PresencePortableBackup` (omitting `archive_chat_id`/`archive_thread_id`),
+  preserves already-linked destination targets, forces `archive_enabled = false` and sets `ImportReport.ArchiveChannelSkipped = true` on
+  unlinked targets, invalidates `presence.CacheKey(chatID)` post-commit, keeps `chat_conversations` permanently excluded
+  (`TestChatConversationsStayOutOfBackup`), and leaves `xenobot/modules/copy_settings.go` completely untouched.
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
@@ -1985,7 +2017,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   through the `reactionWrites` seam; `TestLegacyReactionRequests` was recorded before that extraction and is never re-recorded. A
   group has at most 100 reactions (`reactionsCapMax`, a soft cap read before the insert; giving an existing keyword a new emoji is
   allowed at the cap): `/addreaction` of a new keyword at the cap answers `reactions_limit_reached` and stores nothing. The
-  `reactions` table keeps what backup does with it today. `TestSettingsReactions*`, `TestSettingsParityReactionAdd` (the page and
+  `reactions` table supports per-rule smart options since Phase 33 (`migrations/20261129120000_add_static_reaction_options.sql`, COMM-01:
+  `word_boundary`, `match_caption`, `chance_pct` `1..100` default `100`, `cooldown_secs` `0..86400` default `0`; zero GORM `default:` tags on
+  booleans). `xenobot/db/reactions` caches typed `[]Rule` under `reaction_rules:<chat>` (`skipLocal` in `xenobot/db/cache/local.go`),
+  normalizes legacy `ChancePct == 0 -> 100` on read and in `importReactions`, and invalidates both `reactions:<chat>` and
+  `reaction_rules:<chat>` on every write (including `SetReactionOptionsByID`). In group `8`, `checkReactions` (`reactions.go`) enforces
+  `presenceMessageAllowed`, checks text then caption (for `MatchCaption` rules), matches via pure Go Unicode word-boundary rune decoding
+  (`matchStaticReactionKeyword` using `unicode.IsLetter`/`unicode.IsDigit`/`r == '_'`, no `regexp`), sorts matches deterministically by
+  `(Keyword, ID)`, evaluates `ChancePct` + `xenobot:presence:{<chat>}:static:cd` (10 s) and `:static:r:<id>` Redis cooldowns outside
+  `xenobot:cache:`, checks lazy `presenceIsLockedDown`, calls `presenceSetReaction(..., "static")` (honoring `AvailableReactions` and
+  24 h `bot_react` for `👎` retraction), and sets `ctx.Data[presenceStaticReactedKey] = true` to suppress group-13 AI reactions.
+  `settings_reactions.go` (page `x`) preserves 2-token `"keyword emoji"` input and `TestLegacyReactionRequests` untouched while adding
+  `xo` (options rule list), `xr` (rule detail), and `xs` (`wb`/`mc`/`ch`/`cd`, `settingsRightChangeInfo`).
+  `TestSettingsReactions*`, `TestSettingsParityReactionAdd` (the page and
   `/addreaction` store the same row, and the page draws what the commands wrote), `TestSettingsAuthorityParityReactions`,
   `TestSettingsListReactionsFits` and `TestReactionCap` hold it.
 - The Conversations page (`settings_chat.go`, page `p`, `Order` 89 with key `p`, after Anonymous admins; icon 🗨,
