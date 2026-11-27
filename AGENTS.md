@@ -115,7 +115,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   budget); a test that runs the stop restores the pool with `restoreChatPool`. Phase 31's reaction handler (`LoadPresence`,
   `handleReaction`) joins `StopChat` the same way — tracked in `chatJobs`, refused while `chatDraining`, and bounded by a 3 s context
   derived from `chatContext()` — adding zero shutdown drains and keeping the 70 s webhook worst case and `stop_grace_period: 75s`
-  unchanged (`TestShutdownEndsPresenceReaction`).
+  unchanged (`TestShutdownEndsPresenceReaction`). Phase 32's contextual AI emoji reaction worker lane (`chatPresenceQueue`, 2 workers,
+  cap 32, launched inside `chatEnsureWorkers()` in `chat_run.go`) shares `chatJobs`, `chatDraining`, and `chatContext()` under `StopChat`
+  with zero new shutdown drains and zero `main.go` changes, keeping the 70 s webhook worst case and `stop_grace_period: 75s` unchanged
+  (`TestShutdownEndsChatReact`).
 - `StopRaidAI` is a drain registered after DB-close as well, through `RegisterRaidAIDrain` (`raidAIStopWait`, 1 s, plus
   grace), in `main.go` right after `RegisterRaidPostsDrain`. Shutdown is LIFO, so it runs after `DrainAISpamChecks`
   (whose verdicts can start lockdowns) and before `StopRaidPosts` (a start can post a notice) and the database close. It
@@ -207,7 +210,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   item to the raid AI pool, never ends an update) · `3` aispam · `4` antiflood · `5`/`6` locks · `7` blacklists ·
   `8` reports+reactions (the `@admin` watcher, `reportWatch`, returns `nil` after reporting so groups 9 to 12 still run) · `9` filters · `10` pins · `11` log-channel · `12` late raid flood counter (slash-prefixed texts only; keep it
   after every group that can end a slash text) · `13` conversation watcher (the Chat module, the only handler of the group; handles no command,
-  ignores slash texts and ends no update, which is why it may come after group 12; see the `Chat` bullet) · `14` message log watcher (the Chat
+  ignores slash texts and ends no update, which is why it may come after group 12; unaddressed messages hand off exclusively to
+  `chatReactWatch` respecting `ctx.Data[presenceStaticReactedKey]` with zero operational Redis I/O when `EnableChat` is false or
+  `chat_presence.ai_react_mode == "off"`; see the `Chat` and `Presence` bullets) · `14` message log watcher (the Chat
   module, the only handler of the group; sees new messages and edits of real members, ends no update; see the `Chat` bullet).
 - gotgbot stops a group at the first matching handler. Watchers return `ext.ContinueGroups`; commands return
   `ext.EndGroups`. A group-0 watcher returning `nil` silently kills every later group-0 handler.
@@ -1524,10 +1529,29 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   claiming `cons:cd` + `cons:done:<msgID>` atomically, and never runs in Staff Groups, private chats, or channels. `LoadPresence`
   registers without `SetModuleEnabled` so `/help` stays unchanged. Private Settings page `pr` (`Order` 91, icon `✨`,
   `settings_page_presence`, `OwnerOnly: false`, `PrivateOnly: true`, `PrivateNoteKey: settings_pr_group_note`, `Hidden` + fail-closed
-  Staff Group gate without naming Staff Group, controls `c`/`ct`/`r` under `settingsRightChangeInfo`) pairs `y|pr` on Main keeping
+  Staff Group gate without naming Staff Group, controls `c`/`ct`/`r`/`ai` under `settingsRightChangeInfo`, 5 rows total) pairs `y|pr` on Main keeping
   `settingsMainOwnerRows = 17` across 31 registered pages (`staffOwnerRows = settingsMainOwnerRows - 4`, Staff Group Main state lines =
   `len(settingsMainTitleKeys) - 8`), and is linked by one shortcut row (`settings_btn_chat_presence`, `a=op&p=pr`) from Owner-only
   Conversations page `p` (staying `<= 8` rows across all 8 locales with all 3 providers configured).
+  Phase 32 (**Contextual AI Emoji Reactions**, `chat_react.go`, `xenobot/utils/chatprompt/reaction.go`, PRES-04, REACT-01..03) extends
+  `chat_presence` via `migrations/20261128120000_add_chat_presence_ai_react_mode.sql` with `ai_react_mode` (`'off'`/`'low'`/`'medium'`,
+  inline `chk_chat_presence_ai_react_mode`) and normalizes empty strings from rolling-deploy cache entries to `'off'` in `xenobot/db/presence`.
+  Unaddressed group `13` messages (`chat_watch.go`) hand off to `chatReactWatch` (strictly mutually exclusive with Conversations and
+  respecting `ctx.Data[presenceStaticReactedKey]`, performing zero operational Redis I/O when `EnableChat` is false or
+  `chat_presence.ai_react_mode == "off"`). Operational Redis keys (`xenobot:presence:{<chat>}:ai:gap`, `:ai:cd:chat`, shared `:cd:u:<user>`
+  preserving the 24 h `👎` retraction TTL in the same-slot `{<chat>}` Lua gate, and dedicated hourly budget `xenobot:chat:react:b:*` via
+  `chatReserveWith`) stay outside `xenobot:cache:`, while Featherless model `text_only` vision fallback
+  (`xenobot:cache:featherless_text_only:<model>`, 24 h TTL, set on non-auth `400`/`422` vision errors before one text-only retry) sits inside
+  `xenobot:cache:`. `chatPresenceQueue` (2 workers, cap 32, launched in `chatEnsureWorkers()`) runs under `StopChat` (`chatJobs`, `chatDraining`,
+  `chatContext()`), checks lazy fail-closed `presenceIsLockedDown`, inspects `chatBreaker(provider).isPaused` read-only with strictly
+  non-tripping silent error shedding (never calling `chatRecordFailure`), filters against `presenceAllowedPalette` (skipping custom-only
+  chats before downloads or LLM calls), assembles bounded 50-entry same-thread `chatLogRecentThread` + `ReplyTarget`/`Quote` + photo/sticker
+  vision via `chat_media.go`, and calls `xenobot/utils/chatprompt/reaction.go` (stdlib-only leaf, `ReactionMaxTokens = 512`, compact prompt
+  without comic archive, explicit lookalike warnings against `😂`/`🐱`/`😹`/`😻`/`😼`, strict `U+FE0F`-normalized JSON parser). Page `pr`
+  renders `[Off | Low | Medium]` (`t=ai`, `v=o/l/m`) with Owner×Admin `chatconv.GetFresh` double-gating: enabling `low`/`medium` refuses
+  writes with plain-text alert `settings_pr_ai_need_owner` when Owner Conversations is off (failing closed with `cannotOpen` on DB read
+  error), disabling to `off` always succeeds even when locked, zero-AI controls stay independent, and `settingsPresenceMainState` counts AI
+  reactions only when both `AIReactMode != "off"` and Owner Conversations is enabled/configured.
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
