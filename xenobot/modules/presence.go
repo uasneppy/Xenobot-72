@@ -3,6 +3,7 @@ package modules
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"strconv"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
@@ -76,6 +77,18 @@ func presenceAIReactChatCooldownKey(chatID int64) string {
 	return presenceChatTag(chatID) + "ai:cd:chat"
 }
 
+// presenceArchiveUsersKey holds the Redis SET of distinct non-bot, non-author member user IDs who
+// have an active qualifying reaction on msgID for Highlights Archive.
+func presenceArchiveUsersKey(chatID, msgID int64) string {
+	return presenceChatTag(chatID) + "arch:u:" + strconv.FormatInt(msgID, 10)
+}
+
+// presenceArchiveDoneKey is the fast per-message Redis latch indicating msgID was already claimed
+// in PostgreSQL (or permanently skipped) for Highlights Archive.
+func presenceArchiveDoneKey(chatID, msgID int64) string {
+	return presenceChatTag(chatID) + "arch:done:" + strconv.FormatInt(msgID, 10)
+}
+
 // Shared safety gate seams (PRES-02). Package variables only so tests can inject fixtures/errors.
 var (
 	// presenceStaffLookup is the cached skipLocal Staff Group gate for hot paths.
@@ -147,11 +160,25 @@ var presenceWrites = struct {
 	ConsensusThreshold func(ctx context.Context, chatID int64, threshold int, by int64) error
 	RetractEnabled     func(ctx context.Context, chatID int64, enabled bool, by int64) error
 	AIReactMode        func(ctx context.Context, chatID int64, mode string, by int64) error
+	CatStickerEnabled  func(ctx context.Context, chatID int64, enabled bool, by int64) error
+	ArchiveEnabled     func(ctx context.Context, chatID int64, enabled bool, by int64) error
+	ArchiveTarget      func(ctx context.Context, chatID, targetChatID, targetThreadID, by int64) error
+	ClearArchiveTarget func(ctx context.Context, chatID, by int64) error
+	ArchiveThreshold   func(ctx context.Context, chatID int64, threshold int, by int64) error
+	ArchiveEmojiMode   func(ctx context.Context, chatID int64, mode string, by int64) error
+	ArchiveDelivery    func(ctx context.Context, chatID int64, delivery string, by int64) error
 }{
 	ConsensusEnabled:   presence.SetConsensusEnabled,
 	ConsensusThreshold: presence.SetConsensusThreshold,
 	RetractEnabled:     presence.SetRetractEnabled,
 	AIReactMode:        presence.SetAIReactMode,
+	CatStickerEnabled:  presence.SetCatStickerEnabled,
+	ArchiveEnabled:     presence.SetArchiveEnabled,
+	ArchiveTarget:      presence.SetArchiveTarget,
+	ClearArchiveTarget: presence.ClearArchiveTarget,
+	ArchiveThreshold:   presence.SetArchiveThreshold,
+	ArchiveEmojiMode:   presence.SetArchiveEmojiMode,
+	ArchiveDelivery:    presence.SetArchiveDelivery,
 }
 
 // presenceReadFresh reads a chat's Interactive Presence settings straight from PostgreSQL after a
@@ -218,6 +245,94 @@ func applyPresenceAIReactMode(ctx context.Context, chatID int64, mode string, by
 	}
 	if err := presenceWrites.AIReactMode(ctx, chatID, mode, by); err != nil {
 		log.WithField("chat_id", chatID).Warn("[Presence] saving ai_react_mode failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceCatStickerEnabled toggles Cat-Sticker Micro-Triggers for chatID and reads back
+// the stored row.
+func applyPresenceCatStickerEnabled(ctx context.Context, chatID int64, enabled bool, by int64) presenceApplyResult {
+	if err := presenceWrites.CatStickerEnabled(ctx, chatID, enabled, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving cat_sticker_enabled failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceArchiveEnabled toggles Highlights Archive for chatID. Enabling without a linked
+// destination fails validation (presenceInvalidValue).
+func applyPresenceArchiveEnabled(ctx context.Context, chatID int64, enabled bool, by int64) presenceApplyResult {
+	if err := presenceWrites.ArchiveEnabled(ctx, chatID, enabled, by); err != nil {
+		if errors.Is(err, presence.ErrInvalidValue) {
+			return presenceApplyResult{Outcome: presenceInvalidValue}
+		}
+		log.WithField("chat_id", chatID).Warn("[Presence] saving archive_enabled failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceArchiveTarget links targetChatID (and optional targetThreadID) as chatID's
+// Highlights Archive destination, rejecting invalid target IDs before any database call.
+func applyPresenceArchiveTarget(ctx context.Context, chatID, targetChatID, targetThreadID, by int64) presenceApplyResult {
+	if targetChatID == 0 || targetThreadID < 0 {
+		return presenceApplyResult{Outcome: presenceInvalidValue}
+	}
+	if err := presenceWrites.ArchiveTarget(ctx, chatID, targetChatID, targetThreadID, by); err != nil {
+		if errors.Is(err, presence.ErrInvalidValue) {
+			return presenceApplyResult{Outcome: presenceInvalidValue}
+		}
+		log.WithField("chat_id", chatID).Warn("[Presence] saving archive target failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceClearArchiveTarget unlinks chatID's Highlights Archive destination and disables
+// archiving without overwriting unrelated presence settings.
+func applyPresenceClearArchiveTarget(ctx context.Context, chatID, by int64) presenceApplyResult {
+	if err := presenceWrites.ClearArchiveTarget(ctx, chatID, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] clearing archive target failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceArchiveThreshold stores the Highlights Archive distinct-member threshold (2..50)
+// for chatID, rejecting out-of-range values with zero database calls.
+func applyPresenceArchiveThreshold(ctx context.Context, chatID int64, threshold int, by int64) presenceApplyResult {
+	if !presence.ValidArchiveThreshold(threshold) {
+		return presenceApplyResult{Outcome: presenceInvalidValue}
+	}
+	if err := presenceWrites.ArchiveThreshold(ctx, chatID, threshold, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving archive_threshold failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceArchiveEmojiMode stores the Highlights Archive emoji filter ('positive', 'all')
+// for chatID, rejecting invalid values with zero database calls.
+func applyPresenceArchiveEmojiMode(ctx context.Context, chatID int64, mode string, by int64) presenceApplyResult {
+	if !presence.ValidArchiveEmojiMode(mode) {
+		return presenceApplyResult{Outcome: presenceInvalidValue}
+	}
+	if err := presenceWrites.ArchiveEmojiMode(ctx, chatID, mode, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving archive_emoji_mode failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceArchiveDelivery stores the Highlights Archive delivery mode ('copy', 'forward')
+// for chatID, rejecting invalid values with zero database calls.
+func applyPresenceArchiveDelivery(ctx context.Context, chatID int64, delivery string, by int64) presenceApplyResult {
+	if !presence.ValidArchiveDelivery(delivery) {
+		return presenceApplyResult{Outcome: presenceInvalidValue}
+	}
+	if err := presenceWrites.ArchiveDelivery(ctx, chatID, delivery, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving archive_delivery failed")
 		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
 	}
 	return presenceReadBack(ctx, chatID)
