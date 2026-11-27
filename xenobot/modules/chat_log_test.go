@@ -462,3 +462,266 @@ func TestChatLogRecentThread(t *testing.T) {
 		}
 	})
 }
+
+func TestChatLogThreadAndTimeQueries(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("timestamp recording and edit preservation", func(t *testing.T) {
+		env := newChatEnv(t)
+		chatLogTurnOn(t, env)
+		alice := env.member("Alice")
+
+		msg := env.message(alice, "original text")
+		msg.Date = 1700000100
+		env.deliver(msg)
+
+		raw, err := env.rc.ZRangeArgs(ctx, redis.ZRangeArgs{
+			Key:     chatLogKey(env.chatID),
+			Start:   strconv.FormatInt(msg.MessageId, 10),
+			Stop:    strconv.FormatInt(msg.MessageId, 10),
+			ByScore: true,
+		}).Result()
+		if err != nil || len(raw) != 1 {
+			t.Fatalf("ZRangeArgs = %v, %v", raw, err)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal([]byte(raw[0]), &fields); err != nil {
+			t.Fatalf("unmarshal raw JSON: %v", err)
+		}
+		if fields["at"] != float64(1700000100) {
+			t.Fatalf("stored JSON at = %v (%s), want 1700000100", fields["at"], raw[0])
+		}
+
+		entry, ok, err := chatLogEntryAt(ctx, env.rc, env.chatID, msg.MessageId)
+		if err != nil || !ok || entry.At != 1700000100 || entry.Edited {
+			t.Fatalf("chatLogEntryAt before edit = (%+v, %v, %v)", entry, ok, err)
+		}
+
+		edited := *msg
+		edited.Text = "edited via telegram"
+		edited.EditDate = 1700000999
+		env.deliverEdit(&edited)
+
+		entry, ok, err = chatLogEntryAt(ctx, env.rc, env.chatID, msg.MessageId)
+		if err != nil || !ok || entry.At != 1700000100 || !entry.Edited || entry.Text != "edited via telegram" {
+			t.Fatalf("after deliverEdit = (%+v, %v, %v)", entry, ok, err)
+		}
+
+		for _, overrideAt := range []int64{1700000999, 0} {
+			replaced, err := chatLogEdit(env.rc, env.chatID, chatLogEntry{
+				MessageID: msg.MessageId,
+				UserID:    alice.Id,
+				Name:      "Alice",
+				Text:      "direct edit " + strconv.FormatInt(overrideAt, 10),
+				At:        overrideAt,
+			})
+			if err != nil || !replaced {
+				t.Fatalf("chatLogEdit(At=%d) = (%v, %v)", overrideAt, replaced, err)
+			}
+			entry, ok, err = chatLogEntryAt(ctx, env.rc, env.chatID, msg.MessageId)
+			if err != nil || !ok || entry.At != 1700000100 || !entry.Edited {
+				t.Fatalf("after chatLogEdit(At=%d) = (%+v, %v, %v), want At=1700000100", overrideAt, entry, ok, err)
+			}
+		}
+
+		// Absent, malformed, nil-client, and non-positive IDs return (zero, false, nil).
+		if e, found, err := chatLogEntryAt(ctx, env.rc, env.chatID, 999999); err != nil || found || e.MessageID != 0 {
+			t.Fatalf("absent chatLogEntryAt = (%+v, %v, %v)", e, found, err)
+		}
+		if err := env.rc.ZAdd(ctx, chatLogKey(env.chatID), redis.Z{Score: 888, Member: "{bad-json"}).Err(); err != nil {
+			t.Fatal(err)
+		}
+		if e, found, err := chatLogEntryAt(ctx, env.rc, env.chatID, 888); err != nil || found || e.MessageID != 0 {
+			t.Fatalf("malformed chatLogEntryAt = (%+v, %v, %v)", e, found, err)
+		}
+		if e, found, err := chatLogEntryAt(ctx, nil, env.chatID, msg.MessageId); err != nil || found || e.MessageID != 0 {
+			t.Fatalf("nil client chatLogEntryAt = (%+v, %v, %v)", e, found, err)
+		}
+		if e, found, err := chatLogEntryAt(ctx, env.rc, env.chatID, 0); err != nil || found || e.MessageID != 0 {
+			t.Fatalf("zero id chatLogEntryAt = (%+v, %v, %v)", e, found, err)
+		}
+	})
+
+	t.Run("legacy At==0 entries", func(t *testing.T) {
+		_, client := withChatRedis(t)
+		chatID := uniqueModuleChatID()
+
+		// Legacy pre-Phase-34 entries without "at" in JSON.
+		if err := client.ZAdd(ctx, chatLogKey(chatID),
+			redis.Z{Score: 10, Member: `{"m":10,"u":42,"n":"Legacy","t":"old message","th":5}`},
+			redis.Z{Score: 18, Member: `{"m":18,"u":99,"n":"LegacyMid","t":"mid legacy","th":5}`},
+		).Err(); err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range []chatLogEntry{
+			{MessageID: 15, UserID: 7, Name: "New", Text: "at 200", Thread: 5, At: 1700000200},
+			{MessageID: 20, UserID: 7, Name: "New", Text: "at 500", Thread: 5, At: 1700000500},
+		} {
+			if err := chatLogRecord(client, chatID, e); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		gotEntry, ok, err := chatLogEntryAt(ctx, client, chatID, 10)
+		if err != nil || !ok || gotEntry.At != 0 || gotEntry.Text != "old message" {
+			t.Fatalf("chatLogEntryAt legacy = (%+v, %v, %v)", gotEntry, ok, err)
+		}
+
+		recent, err := chatLogRecent(ctx, client, chatID, 5, 0, 10)
+		if err != nil {
+			t.Fatalf("chatLogRecent: %v", err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(recent), 10, 15, 18, 20)
+
+		sinceUser, err := chatLogSinceUser(ctx, client, chatID, 5, 42, 0)
+		if err != nil {
+			t.Fatalf("chatLogSinceUser: %v", err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(sinceUser), 10, 15, 18, 20)
+
+		// Legacy At==0 entries must be skipped by chatLogSinceTime without blocking older valid entries.
+		sinceTime, err := chatLogSinceTime(ctx, client, chatID, 5, 1700000100, 0)
+		if err != nil {
+			t.Fatalf("chatLogSinceTime: %v", err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(sinceTime), 15, 20)
+
+		sinceTimeNarrow, err := chatLogSinceTime(ctx, client, chatID, 5, 1700000300, 0)
+		if err != nil {
+			t.Fatalf("chatLogSinceTime narrow: %v", err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(sinceTimeNarrow), 20)
+	})
+
+	t.Run("strict thread isolation, beforeMsgID, and oldest-first ordering", func(t *testing.T) {
+		_, client := withChatRedis(t)
+		chatID := uniqueModuleChatID()
+		const u1, u2, u3 = int64(100), int64(200), int64(300)
+
+		seed := []chatLogEntry{
+			{MessageID: 1, UserID: u1, Name: "U1", Text: "g1", Thread: 0, At: 1700000010},
+			{MessageID: 2, UserID: u1, Name: "U1", Text: "t10-1", Thread: 10, At: 1700000020},
+			{MessageID: 3, UserID: u1, Name: "U1", Text: "t20-1", Thread: 20, At: 1700000030},
+			{MessageID: 4, UserID: u2, Name: "U2", Text: "t10-2", Thread: 10, At: 1700000040},
+			{MessageID: 5, UserID: u2, Name: "U2", Text: "g2", Thread: 0, At: 1700000050},
+			{MessageID: 6, UserID: u1, Name: "U1", Text: "t10-3", Thread: 10, At: 1700000060},
+			{MessageID: 7, UserID: u3, Name: "U3", Text: "t20-2", Thread: 20, At: 1700000070},
+			{MessageID: 8, UserID: u2, Name: "U2", Text: "t10-4", Thread: 10, At: 1700000080},
+			{MessageID: 9, UserID: u1, Name: "U1", Text: "t10-trigger", Thread: 10, At: 1700000090},
+		}
+		for _, e := range seed {
+			if err := chatLogRecord(client, chatID, e); err != nil {
+				t.Fatalf("chatLogRecord(%d): %v", e.MessageID, err)
+			}
+		}
+		if err := client.ZAdd(ctx, chatLogKey(chatID), redis.Z{Score: 99, Member: "{bad-json"}).Err(); err != nil {
+			t.Fatal(err)
+		}
+
+		// chatLogRecent isolation + beforeMsgID + limit + oldest-first.
+		got, err := chatLogRecent(ctx, client, chatID, 10, 9, 3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(got), 4, 6, 8)
+
+		got, err = chatLogRecent(ctx, client, chatID, 10, 0, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(got), 2, 4, 6, 8, 9)
+
+		got, err = chatLogRecent(ctx, client, chatID, 0, 9, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(got), 1, 5)
+
+		got, err = chatLogRecent(ctx, client, chatID, 20, 9, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(got), 3, 7)
+
+		// chatLogSinceUser isolation + beforeMsgID + anchor inclusivity.
+		got, err = chatLogSinceUser(ctx, client, chatID, 10, u1, 9)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(got), 6, 8)
+
+		got, err = chatLogSinceUser(ctx, client, chatID, 0, u1, 9)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(got), 1, 5)
+
+		// u3 only spoke in thread 20, so thread 10 must return (nil, nil).
+		got, err = chatLogSinceUser(ctx, client, chatID, 10, u3, 9)
+		if err != nil || got != nil {
+			t.Fatalf("u3 in thread 10 = (%v, %v), want (nil, nil)", got, err)
+		}
+
+		// chatLogSinceTime isolation + beforeMsgID + cutoff.
+		got, err = chatLogSinceTime(ctx, client, chatID, 10, 1700000040, 9)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(got), 4, 6, 8)
+
+		got, err = chatLogSinceTime(ctx, client, chatID, 20, 1700000040, 9)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(got), 7)
+
+		got, err = chatLogSinceTime(ctx, client, chatID, 0, 1700000010, 9)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(got), 1, 5)
+
+		got, err = chatLogSinceTime(ctx, client, chatID, 10, 1700009999, 0)
+		if err != nil || got != nil {
+			t.Fatalf("future cutoff = (%v, %v), want (nil, nil)", got, err)
+		}
+
+		// chatLogRecentThread strict thread isolation as well.
+		got, err = chatLogRecentThread(ctx, client, chatID, 10, 9, 3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(got), 4, 6, 8)
+
+		got, err = chatLogRecentThread(ctx, client, chatID, 0, 9, 5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(got), 1, 5)
+
+		// Nil client / invalid input guards.
+		if g, err := chatLogRecent(ctx, nil, chatID, 10, 9, 5); err != nil || g != nil {
+			t.Fatalf("chatLogRecent nil client = (%v, %v)", g, err)
+		}
+		if g, err := chatLogRecent(ctx, client, chatID, 10, 9, 0); err != nil || g != nil {
+			t.Fatalf("chatLogRecent limit 0 = (%v, %v)", g, err)
+		}
+		if g, err := chatLogSinceUser(ctx, nil, chatID, 10, u1, 9); err != nil || g != nil {
+			t.Fatalf("chatLogSinceUser nil client = (%v, %v)", g, err)
+		}
+		if g, err := chatLogSinceUser(ctx, client, chatID, 10, 0, 9); err != nil || g != nil {
+			t.Fatalf("chatLogSinceUser userID 0 = (%v, %v)", g, err)
+		}
+		if g, err := chatLogSinceTime(ctx, nil, chatID, 10, 1700000040, 9); err != nil || g != nil {
+			t.Fatalf("chatLogSinceTime nil client = (%v, %v)", g, err)
+		}
+	})
+}
+
+func chatLogTestIDs(entries []chatLogEntry) []int64 {
+	ids := make([]int64, len(entries))
+	for i, e := range entries {
+		ids[i] = e.MessageID
+	}
+	return ids
+}
