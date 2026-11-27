@@ -383,6 +383,31 @@ func TestPresenceApply(t *testing.T) {
 		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.ArchiveChatID != 0 || r.Settings.ArchiveThreadID != 0 || r.Settings.ArchiveEnabled || !r.Settings.CatStickerEnabled {
 			t.Fatalf("ClearArchiveTarget: got %+v", r)
 		}
+
+		r = applyPresenceAmbientContext(ctx, chatID, true, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || !r.Settings.AmbientContext || r.Settings.VocativeEnabled || r.Settings.PMBriefReact {
+			t.Fatalf("AmbientContext true: got %+v", r)
+		}
+		r = applyPresenceVocativeEnabled(ctx, chatID, true, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || !r.Settings.VocativeEnabled || !r.Settings.AmbientContext || r.Settings.PMBriefReact {
+			t.Fatalf("VocativeEnabled true: got %+v", r)
+		}
+		r = applyPresencePMBriefReact(ctx, chatID, true, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || !r.Settings.PMBriefReact || !r.Settings.AmbientContext || !r.Settings.VocativeEnabled {
+			t.Fatalf("PMBriefReact true: got %+v", r)
+		}
+		r = applyPresenceAmbientContext(ctx, chatID, false, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.AmbientContext || !r.Settings.VocativeEnabled || !r.Settings.PMBriefReact {
+			t.Fatalf("AmbientContext false: got %+v", r)
+		}
+		r = applyPresenceVocativeEnabled(ctx, chatID, false, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.VocativeEnabled || !r.Settings.PMBriefReact {
+			t.Fatalf("VocativeEnabled false: got %+v", r)
+		}
+		r = applyPresencePMBriefReact(ctx, chatID, false, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.PMBriefReact {
+			t.Fatalf("PMBriefReact false: got %+v", r)
+		}
 	})
 
 	t.Run("invalid archive values write nothing", func(t *testing.T) {
@@ -491,6 +516,9 @@ func TestPresenceApply(t *testing.T) {
 		chatSwap(t, &presenceWrites.ArchiveThreshold, func(context.Context, int64, int, int64) error { return boom })
 		chatSwap(t, &presenceWrites.ArchiveEmojiMode, func(context.Context, int64, string, int64) error { return boom })
 		chatSwap(t, &presenceWrites.ArchiveDelivery, func(context.Context, int64, string, int64) error { return boom })
+		chatSwap(t, &presenceWrites.AmbientContext, func(context.Context, int64, bool, int64) error { return boom })
+		chatSwap(t, &presenceWrites.VocativeEnabled, func(context.Context, int64, bool, int64) error { return boom })
+		chatSwap(t, &presenceWrites.PMBriefReact, func(context.Context, int64, bool, int64) error { return boom })
 
 		if r := applyPresenceConsensusEnabled(ctx, chatID, true, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
 			t.Errorf("ConsensusEnabled failure: got %+v", r)
@@ -524,6 +552,15 @@ func TestPresenceApply(t *testing.T) {
 		}
 		if r := applyPresenceArchiveDelivery(ctx, chatID, presence.ArchiveDeliveryForward, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
 			t.Errorf("ArchiveDelivery failure: got %+v", r)
+		}
+		if r := applyPresenceAmbientContext(ctx, chatID, true, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("AmbientContext failure: got %+v", r)
+		}
+		if r := applyPresenceVocativeEnabled(ctx, chatID, true, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("VocativeEnabled failure: got %+v", r)
+		}
+		if r := applyPresencePMBriefReact(ctx, chatID, true, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("PMBriefReact failure: got %+v", r)
 		}
 	})
 

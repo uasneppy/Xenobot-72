@@ -167,6 +167,9 @@ var presenceWrites = struct {
 	ArchiveThreshold   func(ctx context.Context, chatID int64, threshold int, by int64) error
 	ArchiveEmojiMode   func(ctx context.Context, chatID int64, mode string, by int64) error
 	ArchiveDelivery    func(ctx context.Context, chatID int64, delivery string, by int64) error
+	AmbientContext     func(ctx context.Context, chatID int64, enabled bool, by int64) error
+	VocativeEnabled    func(ctx context.Context, chatID int64, enabled bool, by int64) error
+	PMBriefReact       func(ctx context.Context, chatID int64, enabled bool, by int64) error
 }{
 	ConsensusEnabled:   presence.SetConsensusEnabled,
 	ConsensusThreshold: presence.SetConsensusThreshold,
@@ -179,6 +182,9 @@ var presenceWrites = struct {
 	ArchiveThreshold:   presence.SetArchiveThreshold,
 	ArchiveEmojiMode:   presence.SetArchiveEmojiMode,
 	ArchiveDelivery:    presence.SetArchiveDelivery,
+	AmbientContext:     presence.SetAmbientContext,
+	VocativeEnabled:    presence.SetVocativeEnabled,
+	PMBriefReact:       presence.SetPMBriefReact,
 }
 
 // presenceReadFresh reads a chat's Interactive Presence settings straight from PostgreSQL after a
@@ -333,6 +339,33 @@ func applyPresenceArchiveDelivery(ctx context.Context, chatID int64, delivery st
 	}
 	if err := presenceWrites.ArchiveDelivery(ctx, chatID, delivery, by); err != nil {
 		log.WithField("chat_id", chatID).Warn("[Presence] saving archive_delivery failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceAmbientContext toggles ambient room context for chatID and reads back the stored row.
+func applyPresenceAmbientContext(ctx context.Context, chatID int64, enabled bool, by int64) presenceApplyResult {
+	if err := presenceWrites.AmbientContext(ctx, chatID, enabled, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving ambient_context failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceVocativeEnabled toggles vocative name-addressing for chatID and reads back the stored row.
+func applyPresenceVocativeEnabled(ctx context.Context, chatID int64, enabled bool, by int64) presenceApplyResult {
+	if err := presenceWrites.VocativeEnabled(ctx, chatID, enabled, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving vocative_enabled failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresencePMBriefReact toggles silent ✍ PM briefs for chatID and reads back the stored row.
+func applyPresencePMBriefReact(ctx context.Context, chatID int64, enabled bool, by int64) presenceApplyResult {
+	if err := presenceWrites.PMBriefReact(ctx, chatID, enabled, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving pm_brief_react failed")
 		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
 	}
 	return presenceReadBack(ctx, chatID)
