@@ -6,7 +6,8 @@ import "time"
 // Owner-only ChatConversation. A chat without a row means ConsensusEnabled=false,
 // ConsensusThreshold=3, RetractEnabled=true, AIReactMode="off", CatStickerEnabled=false,
 // ArchiveEnabled=false, ArchiveChatID=0, ArchiveThreadID=0, ArchiveThreshold=5,
-// ArchiveEmojiMode="positive", and ArchiveDelivery="copy". It is read through the
+// ArchiveEmojiMode="positive", ArchiveDelivery="copy", AmbientContext=false,
+// VocativeEnabled=false, and PMBriefReact=false. It is read through the
 // skipLocal cache key chat_presence:<chat> (see xenobot/db/presence).
 // All booleans carry NO GORM default: tag so a Go false is always written explicitly on
 // Create and Save.
@@ -23,6 +24,9 @@ type ChatPresence struct {
 	ArchiveThreshold   int16     `gorm:"column:archive_threshold;not null;default:5;check:chk_chat_presence_archive_threshold,archive_threshold BETWEEN 2 AND 50" json:"archive_threshold"`
 	ArchiveEmojiMode   string    `gorm:"column:archive_emoji_mode;not null;size:16;default:'positive';check:chk_chat_presence_archive_emoji_mode,archive_emoji_mode IN ('positive', 'all')" json:"archive_emoji_mode"`
 	ArchiveDelivery    string    `gorm:"column:archive_delivery;not null;size:16;default:'copy';check:chk_chat_presence_archive_delivery,archive_delivery IN ('copy', 'forward')" json:"archive_delivery"`
+	AmbientContext     bool      `gorm:"column:ambient_context;not null" json:"ambient_context"`
+	VocativeEnabled    bool      `gorm:"column:vocative_enabled;not null" json:"vocative_enabled"`
+	PMBriefReact       bool      `gorm:"column:pm_brief_react;not null" json:"pm_brief_react"`
 	UpdatedBy          int64     `gorm:"column:updated_by;not null" json:"updated_by"`
 	UpdatedAt          time.Time `gorm:"column:updated_at" json:"updated_at,omitempty"`
 }
