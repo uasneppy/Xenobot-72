@@ -2,26 +2,24 @@
 
 ## What This Is
 
-Xenobot-72 is a Go Telegram group-management bot. It runs only for my own communities, and the goal is to make it work more like GroupHelp. v1.0 shipped a **Staff Group** (one Telegram group of trusted admins that bans, mutes or kicks someone in every linked group with one command), durable raid lockdowns with automatic triggers, a Turnstile web captcha and a first button settings menu. v1.1 (shipped 2026-11-13) moved every group setting into the bot's private chat behind buttons, owner-gated, and added member screening (name, profile photo, channel and AI spam-name rules with per-rule punishments), message deletion (service messages, the bot's own messages, commands, edits, self-destruct) and list pages for blacklists, filters and notes. v1.2 (shipped 2026-11-24) added group Conversations (in-character AI replies via Anthropic/Google), per-group custom event messages and optional paced PM copies across all moderation/screening/lockdown events, punishment tuning (timed punishments, escalation ladder, warn expiry, manual command defaults, reason shortcuts, appeal button, advanced thresholds, plain tone, copy settings), and a private-chat Backup page with custom messages inside `/export` and `/import`.
+Xenobot-72 is a Go Telegram group-management bot. It runs only for my own communities, and the goal is to make it work more like GroupHelp. v1.0 shipped a **Staff Group** (one Telegram group of trusted admins that bans, mutes or kicks someone in every linked group with one command), durable raid lockdowns with automatic triggers, a Turnstile web captcha and a first button settings menu. v1.1 (shipped 2026-11-13) moved every group setting into the bot's private chat behind buttons, owner-gated, and added member screening (name, profile photo, channel and AI spam-name rules with per-rule punishments), message deletion (service messages, the bot's own messages, commands, edits, self-destruct) and list pages for blacklists, filters and notes. v1.2 (shipped 2026-11-24) added group Conversations (in-character AI replies via Anthropic/Google), per-group custom event messages and optional paced PM copies across all moderation/screening/lockdown events, punishment tuning (timed punishments, escalation ladder, warn expiry, manual command defaults, reason shortcuts, appeal button, advanced thresholds, plain tone, copy settings), and a private-chat Backup page with custom messages inside `/export` and `/import`. v1.3 (shipped 2026-11-27) added Interactive Presence: `"message_reaction"` handling, zero-AI Emoji Consensus and `👎` Retraction, restrained contextual AI emoji reactions with vision, Unicode-safe smarter static reactions and cat-sticker micro-triggers, Crowd-Picked Highlights ("Facility Archive") with `/setarchive` and Backup parity, ambient room context in Conversations, opt-in vocative addressing, reply-free `/unroll*` catch-up and silent `✍` PM briefs, AI-drafted `/referendum` polls with deadpan tie-breakers, and playful vision `/inspect` verdicts.
 
 ## Core Value
 
 My trusted staff can protect every one of my communities from one place. We act on a bad actor across all groups at once, and the bot never lets anyone act in a group where they aren't an admin.
 
-## Current Milestone: v1.3 Interactive Presence
-
-**Goal:** Make Xenobot-72 feel alive, witty, and context-aware in groups through restrained emoji reactions, room-aware replies, and opt-in community toys—without ever becoming annoying, noisy, or out of character.
-
-**Target features:**
-- **Reaction & Social Foundation (`"message_reaction"` updates):** Contextual random AI emoji reactions (photos & stickers included on vision providers; all 73 standard Telegram emojis intersected with per-chat `AvailableReactions`; strict local gate, cooldowns, and `NONE` default), zero-AI Emoji Consensus, and zero-AI `👎` Retraction.
-- **Community & Zero-AI Polish:** Smarter static reactions (word boundaries, captions, chance %, cooldowns), zero-AI cat-sticker micro-triggers (`msg.Sticker.Emoji`), and Crowd-Picked Highlights ("Facility Archive") forwarding/copying highly-reacted messages to a configured channel or forum topic.
-- **Room-Aware Conversations & Group Toys:** Ambient `chat_log` context injected into Conversations replies, frictionless catch-up (`/unrollshort <N|me|2h> [pm]` + silent `✍` PM brief), opt-in vocative name-addressing (`"Xenobot, ..."`), AI-drafted native polls (`/referendum`) + tied-poll tie-breaker, and playful `/inspect` (member sibling to `/judge` + matching reaction emoji).
-
 ## Current State
 
-**Shipped: v1.2 Conversations, Custom Messages and Tuning (2026-11-24).** Eleven phases (20 to 30), 87 plans, 40 Custom Messages & Tuning requirements plus Phase 20 Conversations. About 116,600 lines of Go in production code and 265,900 in tests. Every phase is code-verified, security-audited with 0 open threats, and code-reviewed with all actionable findings fixed; PR #23 merged to `main` with 14/14 CI checks green. Live Telegram checks for Phases 21–27 were deferred on purpose (`human_needed`, acknowledged in `STATE.md` Deferred Items).
+**Shipped: v1.3 Interactive Presence (2026-11-27).** Five phases (31 to 35), 34 plans, 23 requirements (`PRES-01..05`, `REACT-01..05`, `COMM-01..05`, `CHAT-01..05`, `TOYS-01..03`). All 5 phases are verified `passed`, security-audited (`SECURED`, 0 open threats across 81 checks), and cross-phase integration-checked (`23/23` wired); `make lint`, `make check-translations`, `make check-docs`, `make test-shard-check`, and `-race` package suites pass. Live Telegram group walkthroughs and opt-in PostgreSQL `make test-postgres-integrity` remain deferred to owner deployment.
 
-What v1.2 delivered:
+What v1.3 delivered:
+- **Presence Foundation & Zero-AI Social Reactions (Phase 31):** `"message_reaction"` updates, `chat_presence` persistence (`skipLocal`), shared Staff/lockdown gate, private `Presence` Settings page (`pr`), `AvailableReactions`-validated reaction API (`IsBig: false`, 24 h `bot_react`), Emoji Consensus (≥ 3 distinct members), and `👎` Retraction (`[]gotgbot.ReactionType{}`).
+- **Contextual AI Emoji Reactions (Phase 32):** Owner×Admin runtime double-gating, `chatPresenceQueue` under `StopChat`, cross-replica Redis gap/cooldown/roll/`react:b` gate, 3-provider JSON picker (`MaxTokens = 512`, all 73 standard emojis ∩ `AvailableReactions`, non-tripping error shedding), and `chat_media.go` vision with Featherless `text_only` fallback.
+- **Smarter Static Reactions, Highlights Archive & Backup Parity (Phase 33):** Unicode rune-boundary static matching, captions, chance %, cooldowns, `ctx.Data` AI handoff, zero-AI cat-sticker micro-triggers, `/setarchive`/`/unsetarchive` Crowd-Picked Highlights with PostgreSQL deduplication, and `BackupModulePresence` / `BackupModuleReactions` parity (excluding `chat_conversations` and keeping `copy_settings.go` untouched).
+- **Room-Aware Conversations & Frictionless Catch-Up (Phase 34):** Timestamped `chat_log` (`At: msg.Date`) with thread-isolated queries, deduplicated Ambient Room Context, opt-in vocative addressing, reply-free `/unrollshort`/`/unrolllong <N|me|2h> [pm]`, and silent `✍` react-to-brief in PM.
+- **Interactive Group Toys (Phase 35):** AI-drafted native polls (`/referendum`, `toy:b` budget) with `handlers.NewPoll` deadpan tie-breakers, plus playful vision `/inspect` verdicts paired with `bot_react`-tracked reaction emojis.
+
+Previously shipped in **v1.2 Conversations, Custom Messages and Tuning (2026-11-24)** (Phases 20–30, 87 plans):
 - **Conversations (Phase 20):** owner-enabled per-group AI replies in character as Xenobot-72 via Anthropic or Google (`ENABLE_CHAT`, 2-tap data notice card, never in private chat).
 - **Messages engine, Messages page & manual punishments (Phase 21):** per-group custom text, one media item, URL buttons, and Silent switch on one shared renderer with default fallback, characterization goldens, and private Messages page on the v1.1 editor for ban, timed ban, kick, mute, timed mute, unban, and unmute.
 - **PM copies (Phase 22):** optional best-effort private copies to punished members on a fleet-wide pacing budget with a per-group automatic cap, Details deep-link fallback, and `#PM_COPY` log line; never sent for raid-scale removals or Staff Group actions.
@@ -94,25 +92,26 @@ What v1.2 delivered:
 - ✓ AI spam deletion notice, off by default and rate-limited — v1.2 (Phase 24)
 - ✓ Per-group tuning: timed punishments (warn limit, blacklist, antiflood), escalation ladder, warn expiry, manual-command defaults, reason shortcuts, appeal button, advanced thresholds, plain tone, and copy settings — v1.2 (Phases 26–29)
 - ✓ Private-only Backup page (export, import, reset on existing command paths) and custom messages inside `/export` and `/import` — v1.2 (Phase 30)
+- ✓ `"message_reaction"` update foundation with zero-AI Emoji Consensus (3+ distinct reactions) and `👎` Retraction (author/admin) — v1.3 (Phase 31)
+- ✓ Contextual random AI emoji reactions (text, captions, and photos/stickers on vision providers; all 73 standard Telegram emojis ∩ `AvailableReactions`; `json` format + `MaxTokens = 512`; strict local gate, cooldowns, `NONE` default; reusing `StopChat`) — v1.3 (Phase 32)
+- ✓ Smarter static reactions (Unicode word boundaries, captions, chance %, cooldowns) + zero-AI cat-sticker micro-triggers (`msg.Sticker.Emoji`) — v1.3 (Phase 33)
+- ✓ Crowd-Picked Highlights ("Facility Archive") forwarding/copying highly-reacted messages to a configured channel or forum topic with PostgreSQL deduplication — v1.3 (Phase 33)
+- ✓ Ambient room context in Conversations (`chat_log` last 6–10 same-thread entries injected into `chatBuildRequest`) — v1.3 (Phase 34)
+- ✓ Frictionless catch-up (`/unrollshort`/`/unrolllong <N|me|2h> [pm]`, `At int64` in `chatLogEntry`) and silent `✍` react-to-brief in PM — v1.3 (Phase 34)
+- ✓ Opt-in vocative name-addressing (`"Xenobot, ..."` / `"Кзенобот, ..."`) — v1.3 (Phase 34)
+- ✓ AI-drafted native polls (`/referendum`) + deadpan tie-breaker on tied bot polls — v1.3 (Phase 35)
+- ✓ Playful `/inspect` (member sibling to `/judge` + matching `bot_react`-tracked reaction emoji) — v1.3 (Phase 35)
+- ✓ Admin toggles for interactive AI features (once Owner enables AI/Conversations for the group) and independent admin config for zero-AI features, with `BackupModulePresence` parity (leaving `copy_settings.go` untouched and `chat_conversations` excluded) — v1.3 (Phases 31–35)
 
-(Live Telegram checks of v1.1 and v1.2 Phases 21–27 are deferred; the code is verified and the checklists are in STATE.md Deferred Items.)
+(Live Telegram checks of v1.1, v1.2 Phases 21–27, and v1.3 Phases 31–35 are deferred; the code is verified and the checklists are in STATE.md / each VERIFICATION.md.)
 
 ### Active
 
-<!-- Milestone v1.3 Interactive Presence scope — full REQ-IDs tracked in .planning/REQUIREMENTS.md. -->
+<!-- Next milestone scope to be defined via /gsd-new-milestone. -->
 
-- [ ] `"message_reaction"` update foundation with zero-AI Emoji Consensus (3+ matching reactions) and `👎` Retraction (author/admin)
-- [ ] Contextual random AI emoji reactions (text, captions, and photos/stickers on vision providers; all 73 standard Telegram emojis ∩ `AvailableReactions`; `json` format + `MaxTokens = 512`; strict local gate, cooldowns, `NONE` default; reusing `StopChat`)
-- [ ] Smarter static reactions (word boundaries, captions, chance %, cooldowns) + zero-AI cat-sticker micro-triggers (`msg.Sticker.Emoji`)
-- [ ] Crowd-Picked Highlights ("Facility Archive") forwarding/copying highly-reacted messages to a configured channel or forum topic
-- [ ] Ambient room context in Conversations (`chat_log` last 6–10 same-thread entries injected into `chatBuildRequest`)
-- [ ] Frictionless catch-up (`/unrollshort <N|me|2h> [pm]`, `At int64` in `chatLogEntry`) and silent `✍` react-to-brief in PM
-- [ ] Opt-in vocative name-addressing (`"Xenobot, ..."` / `"Кзенобот, ..."`)
-- [ ] AI-drafted native polls (`/referendum`) + deadpan tie-breaker on tied bot polls
-- [ ] Playful `/inspect` (member sibling to `/judge` + matching reaction emoji)
-- [ ] Admin toggles for interactive AI features (once Owner enables AI/Conversations for the group) and independent admin config for zero-AI features, audited for Backup/Copy Settings parity
+(No active milestone — run `/gsd-new-milestone` to define the next milestone's requirements.)
 
-v1.0, v1.1 and v1.2 follow-ups and deferred live checks remain in STATE.md.
+v1.0, v1.1, v1.2, and v1.3 deferred live checks remain in STATE.md.
 
 ### Out of Scope
 
@@ -253,7 +252,9 @@ v1.0, v1.1 and v1.2 follow-ups and deferred live checks remain in STATE.md.
 | v1.2: plain tone is a per-group `plain_tone` switch backed by neutral locale keys across all 8 languages, and copy settings transfers messages and tuning only after live permission checks on both chats and a bound confirmation card | Keeps neutral defaults maintainable alongside themed copy and prevents cross-group privilege escalation | ✓ Verified — Phase 29 (`29-SECURITY.md` 18/18, `29-VERIFICATION.md` passed) |
 | v1.2: Backup page reuses `/export`, `/import`, and `/reset` execution paths behind private-only two-tap cards (`bq` reset-ask code), and `event_messages` travel in backups validated by shared `eventmsg.ValidateWrite` | Single source of truth for backup format and validation; old backups without `event_messages` import unchanged | ✓ Verified — Phase 30 (`30-SECURITY.md` 13/13, `30-VERIFICATION.md` passed) |
 | v1.3: Contextual AI reactions use `json` wire format (`{"emoji":"..."}`) + `MaxTokens = 512`, offer all 73 standard Telegram emojis (∩ per-chat `AvailableReactions`), include photos/stickers on vision providers, explicitly warn against non-Telegram lookalikes (`😂`, `🐱`/`😹`/`😻`/`😼`), and silently shed parse/network errors as `NONE` | Empirically proven across live Spikes 001–003 (Claude Haiku 5.5, Gemini 4 Hydrogen, Featherless `Ling-3.2-air`): eliminates Claude scratchpad leaks, Gemini `128`-token thinking truncations, and Featherless `384`-token prose overflows while hitting 15/15 red-line safety | ✓ Validated — Spikes 001–003 (2026-11-26) |
-| v1.3: Owner unlocks AI/Conversations per group (provider + 2-tap data notice); once unlocked, group admins can toggle individual interactive AI features on/off, while zero-AI features (Emoji Consensus, `👎` retraction, smarter static/sticker reactions, Highlights Archive) are admin-configurable independently | Balances owner cost/privacy gate with practical per-group admin tuning | — Pending (v1.3) |
+| v1.3: Owner unlocks AI/Conversations per group (provider + 2-tap data notice); once unlocked, group admins can toggle individual interactive AI features on/off, while zero-AI features (Emoji Consensus, `👎` retraction, smarter static/sticker reactions, Highlights Archive) are admin-configurable independently | Balances owner cost/privacy gate with practical per-group admin tuning | ✓ Shipped — v1.3 (Phases 31–35) |
+| v1.3: Store interactive presence in dedicated `chat_presence` (`skipLocal`) + Settings page `pr`/`ph`/`pc` + `BackupModulePresence` (stripping `archive_chat_id`/`archive_thread_id`) while keeping `chat_conversations` Owner-only/excluded from Backup and leaving `copy_settings.go` untouched | Prevents Owner AI consent bypass and cross-chat archive hijacking; keeps Main at 17 rows and `settingsPages` at 31 | ✓ Shipped — v1.3 (Phases 31–35) |
+| v1.3: Join all new async reaction, brief, poll, and `/inspect` lanes to `StopChat` (`chatJobs`/`chatDraining`/`chatContext()`) with zero new shutdown drains and non-tripping background reaction error shedding | Preserves 70 s webhook shutdown worst case (`stop_grace_period: 75s`) and prevents ambient reaction noise from pausing human `/ask` replies | ✓ Shipped — v1.3 (Phases 31–35) |
 
 ## Evolution
 
@@ -273,4 +274,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-26 after v1.3 milestone start*
+*Last updated: 2026-11-27 after v1.3 milestone*
