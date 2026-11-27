@@ -1003,6 +1003,12 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_btn_pc_pmbrief":         {26, 36},
 	"settings_pc_need_owner_conv_log": {110, 150},
 	"settings_pc_need_owner_log":      {90, 130},
+
+	// Interactive Group Toys (Phase 35, TOYS-01..03).
+	"settings_pc_referendum_line": {36, 48},
+	"settings_pc_inspect_line":    {36, 48},
+	"settings_btn_pc_referendum":  {28, 36},
+	"settings_btn_pc_inspect":     {28, 36},
 }
 
 // settingsAlertKeys are shown as answerCallbackQuery alerts: plain text, no tag, at most
@@ -1316,6 +1322,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 		"settings_btn_pr_cat", "settings_btn_ph_enabled",
 		"settings_btn_rct_wb", "settings_btn_rct_cap",
 		"settings_btn_pc_ambient", "settings_btn_pc_vocative", "settings_btn_pc_pmbrief",
+		"settings_btn_pc_referendum", "settings_btn_pc_inspect",
 	}
 	// The full-width toggles that carry the state icon alone in place of {state} (Phase 21, plan 21-07: an event
 	// screen's Silent switch).
