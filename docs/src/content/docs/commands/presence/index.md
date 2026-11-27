@@ -14,7 +14,7 @@ I react alongside group members, respond to cat stickers, and archive standout m
 - /unsetarchive — removes the highlights archive destination and turns archiving off.
 
 **Notes**
-Emoji consensus, 👎 retraction, cat stickers, AI emoji reactions, and highlights archive settings live in /settings in a private chat with me. To link a channel or another supergroup as the archive, send /setarchive there and forward that post into the group; or run /setarchive directly inside a forum topic.
+Emoji consensus, 👎 retraction, cat stickers, AI emoji reactions, highlights archive, and room and catch-up settings (ambient room context, name addressing, and silent ✍ PM briefs) live in /settings in a private chat with me. To link a channel or another supergroup as the archive, send /setarchive there and forward that post into the group; or run /setarchive directly inside a forum topic.
 
 ## Available Commands
 

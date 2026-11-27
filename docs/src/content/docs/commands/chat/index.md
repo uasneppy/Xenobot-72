@@ -11,8 +11,8 @@ In a group whose owner turned conversations on, I answer members who talk to me.
 
 **Commands for everyone**
 - /ask `<text>` — asks me something. /xeno works too.
-- /unrollshort — tells briefly who talked about what, from the message you reply to until now.
-- /unrolllong — gives a detailed brief of the same stretch.
+- /unrollshort `[<N|me|2h>] [pm]` — tells briefly who talked about what, from the message you reply to or over the last `N` messages, since your last message (`me`), or a window such as `2h`; add `pm` for private chat.
+- /unrolllong `[<N|me|2h>] [pm]` — gives a detailed brief of the same stretch.
 
 **Admin commands**
 - /judge `[group|pm|staff]` — gives an AI opinion of who was at fault, from the message you reply to until now, with a score for each person. `group` posts it in the group, `pm` sends it to your private chat, `staff` to the Staff Group; with no word it goes where the owner chose in /settings.
@@ -27,6 +27,7 @@ A verdict is an AI opinion and decides nothing: no one is warned, muted or banne
 
 **Example**
 `/ask what is tempe?`
+`/unrollshort 2h pm` — sends a 2-hour brief to your private chat.
 `/judge pm` — in reply to the first message of the quarrel.
 
 ## Available Commands
