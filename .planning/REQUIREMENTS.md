@@ -19,8 +19,8 @@ Requirements for Milestone v1.3 Interactive Presence. Each maps to roadmap phase
 ### Contextual AI & Social Reactions
 
 - [ ] **REACT-01**: Group admin can enable Contextual Random AI Emoji Reactions (`Off / Low / Medium`) gated before any AI call by cross-replica Redis message-gap (15–30 msgs), per-chat cooldown, per-user cooldown, probability roll, and dedicated hourly budget (`react:b`)
-- [ ] **REACT-02**: Contextual AI reaction picker uses prompt-instructed JSON (`{"emoji":"..."}` / `{"emoji":"NONE"}`) with `MaxTokens = 512` across Claude, Gemini, and Featherless, offers all 73 standard emojis (intersected with `AvailableReactions`), warns against non-Telegram lookalikes (`😂`, `🐱`/`😹`/`😻`/`😼`), defaults to `NONE` on mundane/drama/tragedies, and silently sheds parse/network/400 errors without tripping shared conversation breakers
-- [ ] **REACT-03**: Contextual AI reactions inspect recent same-thread context (`chat_log` when enabled, plus `ReplyTarget`/`Quote`) and include photos and sticker thumbnails on vision-capable providers via `chat_media.go`, degrading cleanly to text/caption/sticker-emoji on text-only Featherless models
+- [x] **REACT-02**: Contextual AI reaction picker uses prompt-instructed JSON (`{"emoji":"..."}` / `{"emoji":"NONE"}`) with `MaxTokens = 512` across Claude, Gemini, and Featherless, offers all 73 standard emojis (intersected with `AvailableReactions`), warns against non-Telegram lookalikes (`😂`, `🐱`/`😹`/`😻`/`😼`), defaults to `NONE` on mundane/drama/tragedies, and silently sheds parse/network/400 errors without tripping shared conversation breakers
+- [x] **REACT-03**: Contextual AI reactions inspect recent same-thread context (`chat_log` when enabled, plus `ReplyTarget`/`Quote`) and include photos and sticker thumbnails on vision-capable providers via `chat_media.go`, degrading cleanly to text/caption/sticker-emoji on text-only Featherless models
 - [x] **REACT-04**: Zero-AI Emoji Consensus lets the bot occasionally mirror a non-hostile standard emoji when >= 3 distinct members react with it (tracked via Redis Lua `SADD`/`SREM` diffs, with chat cooldown and once-only latch)
 - [x] **REACT-05**: Zero-AI `👎` Retraction silently clears the bot's reaction (sending explicit `[]gotgbot.ReactionType{}`) and extends that user's cooldown when the message author or a group admin reacts `👎`
 
@@ -82,8 +82,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PRES-04 | Phase 32 | Pending |
 | PRES-05 | Phase 31 | Complete |
 | REACT-01 | Phase 32 | Pending |
-| REACT-02 | Phase 32 | Pending |
-| REACT-03 | Phase 32 | Pending |
+| REACT-02 | Phase 32 | Complete |
+| REACT-03 | Phase 32 | Complete |
 | REACT-04 | Phase 31 | Complete |
 | REACT-05 | Phase 31 | Complete |
 | COMM-01 | Phase 33 | Pending |
