@@ -23,6 +23,7 @@ import (
 	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/notes"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/pins"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/reports"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/rules"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/warns"
@@ -195,18 +196,20 @@ func TestBackupTypes(t *testing.T) {
 func TestModuleValidation(t *testing.T) {
 	t.Run("AllExportableModules returns expected modules", func(t *testing.T) {
 		modules := AllExportableModules()
-		assert.Len(t, modules, 20)
+		assert.Len(t, modules, 21)
 		assert.Contains(t, modules, BackupModuleAdmin)
 		assert.Contains(t, modules, BackupModuleNotes)
 		assert.Contains(t, modules, BackupModuleFilters)
 		assert.Contains(t, modules, BackupModuleRules)
 		assert.Contains(t, modules, BackupModuleMessages)
+		assert.Contains(t, modules, BackupModulePresence)
 	})
 
 	t.Run("IsValidModule validates correctly", func(t *testing.T) {
 		assert.True(t, IsValidModule("notes"))
 		assert.True(t, IsValidModule("filters"))
 		assert.True(t, IsValidModule("messages"))
+		assert.True(t, IsValidModule("presence"))
 		assert.False(t, IsValidModule("invalid"))
 		assert.False(t, IsValidModule(""))
 		assert.True(t, IsValidModule("rules"))
@@ -370,6 +373,8 @@ func cleanupBackupChat(t *testing.T, chatID int64) {
 	if err := db.DB.Where("chat_id = ?", chatID).Delete(&models.Reactions{}).Error; err != nil {
 		t.Errorf("cleanup failed deleting Reactions: %v", err)
 	}
+	dbcache.DeleteCache(cacheKey("reactions", chatID))
+	dbcache.DeleteCache(cacheKey("reaction_rules", chatID))
 	if err := db.DB.Where("chat_id = ?", chatID).Delete(&models.FederationChat{}).Error; err != nil {
 		t.Errorf("cleanup failed deleting FederationChat: %v", err)
 	}
@@ -383,6 +388,13 @@ func cleanupBackupChat(t *testing.T, chatID int64) {
 		t.Errorf("cleanup failed deleting ChatEventMessageOptions: %v", err)
 	}
 	dbcache.DeleteCache(eventmsg.CacheKey(chatID))
+	if err := db.DB.Where("chat_id = ?", chatID).Delete(&models.ChatPresence{}).Error; err != nil {
+		t.Errorf("cleanup failed deleting ChatPresence: %v", err)
+	}
+	if err := db.DB.Where("chat_id = ?", chatID).Delete(&models.ChatPresenceArchived{}).Error; err != nil {
+		t.Errorf("cleanup failed deleting ChatPresenceArchived: %v", err)
+	}
+	dbcache.DeleteCache(presence.CacheKey(chatID))
 	if err := db.DB.Where("chat_id = ?", chatID).Delete(&models.Chat{}).Error; err != nil {
 		t.Errorf("cleanup failed deleting Chat: %v", err)
 	}
