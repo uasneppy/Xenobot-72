@@ -42,9 +42,9 @@ Requirements for Milestone v1.3 Interactive Presence. Each maps to roadmap phase
 
 ### Interactive Group Toys
 
-- [ ] **TOYS-01**: When `/referendum` is enabled, permitted members (following Conversations `Audience`) can trigger an AI-drafted native Telegram poll (`SendPoll`) from recent same-thread context or a replied debate, with strict JSON validation, text sanitization, dedicated hourly budget (`toy:b`), and Redis poll metadata (`poll_id -> {chat, msg, thread, lang}`)
-- [ ] **TOYS-02**: When a bot-created `/referendum` poll closes in a tie with `TotalVoterCount > 0`, a `handlers.NewPoll` listener claims it once-only and posts a deadpan Facility Tie-Breaker verdict in the original chat/topic
-- [ ] **TOYS-03**: When `/inspect` is enabled, permitted members (following Conversations `Audience`) can reply to a text, photo, or sticker with `/inspect` for a crisp 2–3 line deadpan "Facility Inspection" verdict (vision-enabled via `chat_media.go`) plus a validated matching reaction emoji recorded in `bot_react`
+- [x] **TOYS-01**: When `/referendum` is enabled, permitted members (following Conversations `Audience`) can trigger an AI-drafted native Telegram poll (`SendPoll`) from recent same-thread context or a replied debate, with strict JSON validation, text sanitization, dedicated hourly budget (`toy:b`), and Redis poll metadata (`poll_id -> {chat, msg, thread, lang}`)
+- [x] **TOYS-02**: When a bot-created `/referendum` poll closes in a tie with `TotalVoterCount > 0`, a `handlers.NewPoll` listener claims it once-only and posts a deadpan Facility Tie-Breaker verdict in the original chat/topic
+- [x] **TOYS-03**: When `/inspect` is enabled, permitted members (following Conversations `Audience`) can reply to a text, photo, or sticker with `/inspect` for a crisp 2–3 line deadpan "Facility Inspection" verdict (vision-enabled via `chat_media.go`) plus a validated matching reaction emoji recorded in `bot_react`
 
 ## Future Requirements
 
@@ -96,9 +96,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CHAT-03 | Phase 34 | Complete |
 | CHAT-04 | Phase 34 | Complete |
 | CHAT-05 | Phase 34 | Complete |
-| TOYS-01 | Phase 35 | Pending |
-| TOYS-02 | Phase 35 | Pending |
-| TOYS-03 | Phase 35 | Pending |
+| TOYS-01 | Phase 35 | Complete |
+| TOYS-02 | Phase 35 | Complete |
+| TOYS-03 | Phase 35 | Complete |
 
 **Coverage:**
 - v1.3 requirements: 23 total
