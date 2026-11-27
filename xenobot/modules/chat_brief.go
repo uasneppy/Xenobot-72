@@ -45,6 +45,23 @@ const (
 	chatBriefSaidAllowance   = "brief_allowance"
 	// chatBriefUnscoredNameRunes is how many runes of names the not-scored line lists at most.
 	chatBriefUnscoredNameRunes = 300
+	// chatBriefMinCount and chatBriefMaxCount bound reply-free /unroll* <N> queries.
+	chatBriefMinCount = 5
+	chatBriefMaxCount = 200
+	// chatBriefMinDurationSecs and chatBriefMaxDurationSecs bound reply-free /unroll* <duration>
+	// queries (1m..7d, matching chatLogTTL).
+	chatBriefMinDurationSecs int64 = 60
+	chatBriefMaxDurationSecs int64 = 7 * 24 * 3600
+)
+
+// chatBriefMode identifies which logged stretch a brief job reads.
+type chatBriefMode int
+
+const (
+	chatBriefModeReply chatBriefMode = iota
+	chatBriefModeCount
+	chatBriefModeMe
+	chatBriefModeTime
 )
 
 var (
@@ -90,13 +107,17 @@ type chatBriefJob struct {
 	// messageID is the command message the brief answers.
 	messageID int64
 	threadID  int64
-	// fromID is the message the stretch starts at.
+	// fromID is the message the stretch starts at (reply mode and ✍ PM brief).
 	fromID   int64
 	provider string
 	kind     chatBriefKind
-	// dest is where a /judge verdict goes (chatconv.JudgeToGroup, JudgeToPrivate or JudgeToStaff);
-	// briefs always go to the group.
+	mode     chatBriefMode
+	count    int
+	duration time.Duration
+	// dest is where a brief or /judge verdict goes (chatconv.JudgeToGroup, JudgeToPrivate or JudgeToStaff).
 	dest int
+	// silentPM suppresses all group-facing messages and typing indicators (used by ✍ PM brief).
+	silentPM bool
 	// requester is the first name of who asked for a verdict, for the header outside the group.
 	requester string
 }
@@ -154,10 +175,58 @@ func chatBriefCommand(c *helpers.CommandContext, kind chatBriefKind, usageKey st
 	return ext.EndGroups
 }
 
+// chatBriefAllDigits reports whether s is a non-empty string of ASCII digits.
+func chatBriefAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// chatBriefParseArgs parses /unrollshort and /unrolllong arguments for both reply and reply-free modes.
+func chatBriefParseArgs(arg string, hasReply bool) (mode chatBriefMode, count int, duration time.Duration, toPM bool, ok bool) {
+	tokens := strings.Fields(arg)
+	if len(tokens) > 0 && strings.EqualFold(tokens[len(tokens)-1], "pm") {
+		toPM = true
+		tokens = tokens[:len(tokens)-1]
+	}
+	if hasReply {
+		if len(tokens) != 0 {
+			return 0, 0, 0, false, false
+		}
+		return chatBriefModeReply, 0, 0, toPM, true
+	}
+	if len(tokens) != 1 {
+		return 0, 0, 0, false, false
+	}
+	tok := tokens[0]
+	if strings.EqualFold(tok, "me") {
+		return chatBriefModeMe, 0, 0, toPM, true
+	}
+	if chatBriefAllDigits(tok) {
+		n, err := strconv.Atoi(tok)
+		if err != nil || n < chatBriefMinCount || n > chatBriefMaxCount {
+			return 0, 0, 0, false, false
+		}
+		return chatBriefModeCount, n, 0, toPM, true
+	}
+	spec, matched, err := extraction.ParseDurationToken(strings.ToLower(tok))
+	if !matched || err != nil || spec.Seconds < chatBriefMinDurationSecs || spec.Seconds > chatBriefMaxDurationSecs {
+		return 0, 0, 0, false, false
+	}
+	return chatBriefModeTime, 0, time.Duration(spec.Seconds) * time.Second, toPM, true
+}
+
 // chatBriefPrepare is the shared part of every brief command. It checks, in order: a group, a
-// sender that counts and is not a bot (anonymous admins and channels get nothing), the replied-to
-// message (none answers the usage), the gate, and that the replied-to message is in the log (absent
-// answers brief_too_old and makes no provider call). It returns the job and the open gate.
+// sender that counts and is not a bot (anonymous admins and channels get nothing), the arguments
+// and reply target (invalid answers the usage), the gate, and for reply mode that the replied-to
+// message is in the log (absent answers brief_too_old and makes no provider call). It returns the
+// job and the open gate.
 func chatBriefPrepare(c *helpers.CommandContext, kind chatBriefKind, usageKey string) (chatBriefJob, chatBriefGate, bool) {
 	msg, chat := c.Msg, c.Chat
 	if chat.Type != "group" && chat.Type != "supergroup" {
@@ -168,9 +237,25 @@ func chatBriefPrepare(c *helpers.CommandContext, kind chatBriefKind, usageKey st
 		return chatBriefJob{}, chatBriefGate{}, false
 	}
 	reply := extraction.ReplyTarget(msg)
-	if reply == nil {
-		chatReplyText(c, usageKey)
-		return chatBriefJob{}, chatBriefGate{}, false
+	var (
+		mode     chatBriefMode
+		count    int
+		duration time.Duration
+		toPM     bool
+	)
+	if kind == chatBriefJudge {
+		if reply == nil {
+			chatReplyText(c, usageKey)
+			return chatBriefJob{}, chatBriefGate{}, false
+		}
+		mode = chatBriefModeReply
+	} else {
+		var parsed bool
+		mode, count, duration, toPM, parsed = chatBriefParseArgs(chatCommandArgument(chatMessageText(msg)), reply != nil)
+		if !parsed {
+			chatReplyText(c, usageKey)
+			return chatBriefJob{}, chatBriefGate{}, false
+		}
 	}
 	gate := chatBriefGateOf(chat.Id)
 	if !gate.open {
@@ -179,20 +264,28 @@ func chatBriefPrepare(c *helpers.CommandContext, kind chatBriefKind, usageKey st
 		}
 		return chatBriefJob{}, gate, false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), chatWatchTimeout)
-	defer cancel()
-	present, err := chatLogHas(ctx, chatRedisClient(), chat.Id, reply.MessageId)
-	if err != nil {
-		log.WithField("chat_id", chat.Id).Debugf("[Chat] the message log could not be read: %s", chatRedisErrClass(err))
-		return chatBriefJob{}, gate, false
-	}
-	if !present {
-		chatReplyText(c, "brief_too_old")
-		return chatBriefJob{}, gate, false
+	var fromID int64
+	if mode == chatBriefModeReply {
+		ctx, cancel := context.WithTimeout(context.Background(), chatWatchTimeout)
+		defer cancel()
+		present, err := chatLogHas(ctx, chatRedisClient(), chat.Id, reply.MessageId)
+		if err != nil {
+			log.WithField("chat_id", chat.Id).Debugf("[Chat] the message log could not be read: %s", chatRedisErrClass(err))
+			return chatBriefJob{}, gate, false
+		}
+		if !present {
+			chatReplyText(c, "brief_too_old")
+			return chatBriefJob{}, gate, false
+		}
+		fromID = reply.MessageId
 	}
 	job := chatBriefJob{
 		bot: c.Bot, chatID: chat.Id, chatTitle: chat.Title, userID: userID, messageID: msg.MessageId,
-		fromID: reply.MessageId, provider: gate.provider, kind: kind,
+		fromID: fromID, provider: gate.provider, kind: kind,
+		mode: mode, count: count, duration: duration,
+	}
+	if toPM {
+		job.dest = chatconv.JudgeToPrivate
 	}
 	if msg.IsTopicMessage {
 		job.threadID = msg.MessageThreadId
@@ -376,30 +469,59 @@ func chatBriefProcessJob(job chatBriefJob) {
 	breaker := chatBreaker(job.provider)
 	if breaker.isPaused(job.chatID, raidNow()) {
 		chatBriefShedCount.Add(1)
-		chatSayGated(ctx, job.bot, client, chat, chatBriefSaidMalfunction, "brief_malfunction", chatMalfunctionGate)
+		if !job.silentPM {
+			chatSayGated(ctx, job.bot, client, chat, chatBriefSaidMalfunction, "brief_malfunction", chatMalfunctionGate)
+		}
 		return
 	}
 	switch chatReserveWith(client, job.chatID, job.userID, "brief:b",
 		chatBriefUserHourlyBudget, chatBriefChatHourlyBudget, chatBriefGlobalHourlyBudget) {
 	case chatBudgetCapped:
 		chatBriefCappedCount.Add(1)
-		chatSayGated(ctx, job.bot, client, chat, chatBriefSaidAllowance, "brief_allowance", chatAllowanceGate)
+		if !job.silentPM {
+			chatSayGated(ctx, job.bot, client, chat, chatBriefSaidAllowance, "brief_allowance", chatAllowanceGate)
+		}
 		return
 	case chatBudgetFault:
 		chatBriefShedCount.Add(1)
 		return
 	}
 
-	chatSendTyping(ctx, job.bot, chat)
-	entries, err := chatLogSince(ctx, client, job.chatID, job.fromID)
+	if !job.silentPM {
+		chatSendTyping(ctx, job.bot, chat)
+	}
+	var (
+		stretch []chatLogEntry
+		err     error
+	)
+	switch job.mode {
+	case chatBriefModeCount:
+		stretch, err = chatLogRecent(ctx, client, job.chatID, job.threadID, job.messageID, job.count)
+	case chatBriefModeMe:
+		stretch, err = chatLogSinceUser(ctx, client, job.chatID, job.threadID, job.userID, job.messageID)
+	case chatBriefModeTime:
+		cutoff := raidNow().Add(-job.duration).Unix()
+		stretch, err = chatLogSinceTime(ctx, client, job.chatID, job.threadID, cutoff, job.messageID)
+	default:
+		var entries []chatLogEntry
+		entries, err = chatLogSince(ctx, client, job.chatID, job.fromID)
+		if err == nil {
+			stretch = chatBriefStretch(entries, job.fromID)
+		}
+	}
 	if err != nil {
 		chatBriefShedCount.Add(1)
 		log.WithField("chat_id", job.chatID).Debugf("[Chat] the message log could not be read: %s", chatRedisErrClass(err))
 		return
 	}
-	stretch := chatBriefStretch(entries, job.fromID)
-	if stretch == nil {
-		chatBriefSay(ctx, job, "brief_too_old")
+	if len(stretch) == 0 {
+		if !job.silentPM {
+			emptyKey := "brief_empty"
+			if job.mode == chatBriefModeReply {
+				emptyKey = "brief_too_old"
+			}
+			chatBriefSay(ctx, job, emptyKey)
+		}
 		return
 	}
 	_, language := chatLanguageName(ctx, job.chatID)
@@ -414,7 +536,9 @@ func chatBriefProcessJob(job chatBriefJob) {
 		}
 		chatBriefFailedCount.Add(1)
 		chatRecordFailure(chat, err)
-		chatSayGated(ctx, job.bot, client, chat, chatBriefSaidMalfunction, "brief_malfunction", chatMalfunctionGate)
+		if !job.silentPM {
+			chatSayGated(ctx, job.bot, client, chat, chatBriefSaidMalfunction, "brief_malfunction", chatMalfunctionGate)
+		}
 		return
 	}
 	breaker.clear(job.chatID)
@@ -428,7 +552,9 @@ func chatBriefFinish(ctx context.Context, job chatBriefJob, client *redis.Client
 	chat := job.asChat()
 	if answer.Outcome == chatRefused {
 		chatBriefRefusedCount.Add(1)
-		chatBriefSay(ctx, job, "brief_refused")
+		if !job.silentPM {
+			chatBriefSay(ctx, job, "brief_refused")
+		}
 		return
 	}
 	text := chatSanitizeText(answer.Text)
@@ -438,7 +564,9 @@ func chatBriefFinish(ctx context.Context, job chatBriefJob, client *redis.Client
 	parts := chatBriefParts(text, chatBriefPartUnits)
 	if len(parts) == 0 {
 		chatBriefFailedCount.Add(1)
-		chatSayGated(ctx, job.bot, client, chat, chatBriefSaidMalfunction, "brief_malfunction", chatMalfunctionGate)
+		if !job.silentPM {
+			chatSayGated(ctx, job.bot, client, chat, chatBriefSaidMalfunction, "brief_malfunction", chatMalfunctionGate)
+		}
 		return
 	}
 	for i := range parts {
@@ -448,7 +576,11 @@ func chatBriefFinish(ctx context.Context, job chatBriefJob, client *redis.Client
 	messages := chatBriefMessages(header, parts, closing)
 	switch job.dest {
 	case chatconv.JudgeToPrivate:
-		chatJudgeDeliverPrivate(ctx, job, client, messages)
+		if job.kind == chatBriefJudge {
+			chatJudgeDeliverPrivate(ctx, job, client, messages)
+		} else {
+			chatDeliverPrivate(ctx, job, client, messages, job.silentPM)
+		}
 	case chatconv.JudgeToStaff:
 		chatJudgeDeliverStaff(ctx, job, messages)
 	default:
@@ -473,6 +605,16 @@ func chatCannedTextWith(chatID int64, key string, params i18n.TranslationParams)
 // roster (chatBriefParticipants) and always ends with the AI-opinion notice.
 func chatBriefFrame(job chatBriefJob, stretch []chatLogEntry) (header, closing string) {
 	if job.kind != chatBriefJudge {
+		if job.dest == chatconv.JudgeToPrivate {
+			headerKey := "brief_header_short_pm"
+			if job.kind == chatBriefLong {
+				headerKey = "brief_header_long_pm"
+			}
+			header = chatCannedTextWith(job.chatID, headerKey, i18n.TranslationParams{
+				"group": html.EscapeString(chatprompt.Clean(job.chatTitle, 64)),
+			})
+			return header, chatCannedText(job.chatID, "brief_ai_notice")
+		}
 		headerKey := "brief_header_short"
 		if job.kind == chatBriefLong {
 			headerKey = "brief_header_long"
@@ -526,24 +668,44 @@ func chatBriefDeliver(ctx context.Context, job chatBriefJob, messages []string) 
 	chatBriefAnsweredCount.Add(1)
 }
 
-// chatJudgeDeliverPrivate sends a verdict to the requester's own private chat (the user ID from the
-// update's sender, never from text) with no reply target and no topic. A 403 (the requester never
-// started the bot or blocked it) answers judge_pm_blocked in the group and nothing else; any other
-// error is counted failed with brief_malfunction. A delivered verdict leaves one note in the group.
-func chatJudgeDeliverPrivate(ctx context.Context, job chatBriefJob, client *redis.Client, messages []string) {
+// chatDeliverPrivate sends a brief or verdict to the requester's own private chat (the user ID
+// from the update's sender, never from text) with no reply target and no topic. When silent is
+// false, a 403 answers judge_pm_blocked or brief_pm_blocked in the group, any other error answers
+// brief_malfunction, and a delivered message leaves one note in the group. When silent is true
+// (✍ PM brief), all group-facing notices are suppressed on both success and failure.
+func chatDeliverPrivate(ctx context.Context, job chatBriefJob, client *redis.Client, messages []string, silent bool) {
 	err := chatBriefSendAll(ctx, job, job.userID, 0, false, messages)
 	switch {
 	case err == nil:
 		chatBriefAnsweredCount.Add(1)
-		chatBriefSay(ctx, job, "judge_note_pm")
+		if !silent {
+			key := "brief_note_pm"
+			if job.kind == chatBriefJudge {
+				key = "judge_note_pm"
+			}
+			chatBriefSay(ctx, job, key)
+		}
 	case settingsEditIsForbidden(err):
 		chatBriefFailedCount.Add(1)
-		chatBriefSay(ctx, job, "judge_pm_blocked")
+		if !silent {
+			key := "brief_pm_blocked"
+			if job.kind == chatBriefJudge {
+				key = "judge_pm_blocked"
+			}
+			chatBriefSay(ctx, job, key)
+		}
 	default:
 		chatBriefFailedCount.Add(1)
-		log.WithFields(log.Fields{"chat_id": job.chatID, "user_id": job.userID}).Warnf("[Chat] the verdict could not be sent in private: %s", chatSendErrClass(err))
-		chatSayGated(ctx, job.bot, client, job.asChat(), chatBriefSaidMalfunction, "brief_malfunction", chatMalfunctionGate)
+		log.WithFields(log.Fields{"chat_id": job.chatID, "user_id": job.userID}).Warnf("[Chat] the brief/verdict could not be sent in private: %s", chatSendErrClass(err))
+		if !silent {
+			chatSayGated(ctx, job.bot, client, job.asChat(), chatBriefSaidMalfunction, "brief_malfunction", chatMalfunctionGate)
+		}
 	}
+}
+
+// chatJudgeDeliverPrivate sends a verdict to the requester's own private chat.
+func chatJudgeDeliverPrivate(ctx context.Context, job chatBriefJob, client *redis.Client, messages []string) {
+	chatDeliverPrivate(ctx, job, client, messages, false)
 }
 
 // chatJudgeDeliverStaff sends a verdict to the linked Staff Group, read fresh again right before the
