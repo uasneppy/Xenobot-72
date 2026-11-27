@@ -245,6 +245,7 @@ func TestPresenceKeys(t *testing.T) {
 		chatID int64 = -1001234567890
 		msgID  int64 = 456
 		userID int64 = 789
+		pollID       = "5432109876543210"
 	)
 	emoji := "🔥"
 	wantTag := "{-1001234567890}"
@@ -289,6 +290,28 @@ func TestPresenceKeys(t *testing.T) {
 			got:  presenceArchiveDoneKey(chatID, msgID),
 			want: "xenobot:presence:{-1001234567890}:arch:done:456",
 		},
+		"toy_chat_cooldown": {
+			got:  presenceToyChatCooldownKey(chatID),
+			want: "xenobot:presence:{-1001234567890}:toy:cd",
+		},
+		"toy_user_cooldown": {
+			got:  presenceToyUserCooldownKey(chatID, userID),
+			want: "xenobot:presence:{-1001234567890}:toy:cd:u:789",
+		},
+	}
+
+	pollKeys := map[string]struct {
+		got  string
+		want string
+	}{
+		"poll_meta": {
+			got:  presencePollKey(pollID),
+			want: "xenobot:presence:poll:" + pollID,
+		},
+		"poll_tie": {
+			got:  presencePollTieKey(pollID),
+			want: "xenobot:presence:poll:tie:" + pollID,
+		},
 	}
 
 	if presenceStaticReactedKey != "presence.static_reacted" {
@@ -307,6 +330,18 @@ func TestPresenceKeys(t *testing.T) {
 		}
 		if !strings.Contains(tc.got, wantTag) {
 			t.Errorf("%s: key %q missing Cluster hash tag %q", name, tc.got, wantTag)
+		}
+	}
+
+	for name, tc := range pollKeys {
+		if tc.got != tc.want {
+			t.Errorf("%s: got %q, want %q", name, tc.got, tc.want)
+		}
+		if !strings.HasPrefix(tc.got, presenceKeyPrefix) {
+			t.Errorf("%s: key %q does not have prefix %q", name, tc.got, presenceKeyPrefix)
+		}
+		if strings.HasPrefix(tc.got, utilsCache.DataCachePrefix) {
+			t.Errorf("%s: key %q must sit outside %q", name, tc.got, utilsCache.DataCachePrefix)
 		}
 	}
 }
@@ -407,6 +442,22 @@ func TestPresenceApply(t *testing.T) {
 		r = applyPresencePMBriefReact(ctx, chatID, false, 10)
 		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.PMBriefReact {
 			t.Fatalf("PMBriefReact false: got %+v", r)
+		}
+		r = applyPresenceReferendumEnabled(ctx, chatID, true, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || !r.Settings.ReferendumEnabled || r.Settings.InspectEnabled {
+			t.Fatalf("ReferendumEnabled true: got %+v", r)
+		}
+		r = applyPresenceInspectEnabled(ctx, chatID, true, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || !r.Settings.InspectEnabled || !r.Settings.ReferendumEnabled {
+			t.Fatalf("InspectEnabled true: got %+v", r)
+		}
+		r = applyPresenceReferendumEnabled(ctx, chatID, false, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.ReferendumEnabled || !r.Settings.InspectEnabled {
+			t.Fatalf("ReferendumEnabled false: got %+v", r)
+		}
+		r = applyPresenceInspectEnabled(ctx, chatID, false, 10)
+		if r.Outcome != presenceApplied || r.Settings == nil || r.Settings.InspectEnabled {
+			t.Fatalf("InspectEnabled false: got %+v", r)
 		}
 	})
 
@@ -519,6 +570,8 @@ func TestPresenceApply(t *testing.T) {
 		chatSwap(t, &presenceWrites.AmbientContext, func(context.Context, int64, bool, int64) error { return boom })
 		chatSwap(t, &presenceWrites.VocativeEnabled, func(context.Context, int64, bool, int64) error { return boom })
 		chatSwap(t, &presenceWrites.PMBriefReact, func(context.Context, int64, bool, int64) error { return boom })
+		chatSwap(t, &presenceWrites.ReferendumEnabled, func(context.Context, int64, bool, int64) error { return boom })
+		chatSwap(t, &presenceWrites.InspectEnabled, func(context.Context, int64, bool, int64) error { return boom })
 
 		if r := applyPresenceConsensusEnabled(ctx, chatID, true, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
 			t.Errorf("ConsensusEnabled failure: got %+v", r)
@@ -561,6 +614,12 @@ func TestPresenceApply(t *testing.T) {
 		}
 		if r := applyPresencePMBriefReact(ctx, chatID, true, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
 			t.Errorf("PMBriefReact failure: got %+v", r)
+		}
+		if r := applyPresenceReferendumEnabled(ctx, chatID, true, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("ReferendumEnabled failure: got %+v", r)
+		}
+		if r := applyPresenceInspectEnabled(ctx, chatID, true, 10); r.Outcome != presenceSaveFailed || !errors.Is(r.Err, boom) {
+			t.Errorf("InspectEnabled failure: got %+v", r)
 		}
 	})
 

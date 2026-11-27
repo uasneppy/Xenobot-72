@@ -89,6 +89,28 @@ func presenceArchiveDoneKey(chatID, msgID int64) string {
 	return presenceChatTag(chatID) + "arch:done:" + strconv.FormatInt(msgID, 10)
 }
 
+// presencePollKey holds JSON metadata ({chat_id, message_id, thread_id, lang, question}) for an
+// active /referendum poll so closed Update.Poll payloads (which omit chat_id) route back to their
+// origin chat and thread.
+func presencePollKey(pollID string) string {
+	return presenceKeyPrefix + "poll:" + pollID
+}
+
+// presencePollTieKey is the atomic cross-replica once-only tie-breaker claim key for a closed poll.
+func presencePollTieKey(pollID string) string {
+	return presenceKeyPrefix + "poll:tie:" + pollID
+}
+
+// presenceToyChatCooldownKey gates per-chat Interactive Group Toys invocations across replicas.
+func presenceToyChatCooldownKey(chatID int64) string {
+	return presenceChatTag(chatID) + "toy:cd"
+}
+
+// presenceToyUserCooldownKey gates per-user Interactive Group Toys invocations within a chat.
+func presenceToyUserCooldownKey(chatID, userID int64) string {
+	return presenceChatTag(chatID) + "toy:cd:u:" + strconv.FormatInt(userID, 10)
+}
+
 // Shared safety gate seams (PRES-02). Package variables only so tests can inject fixtures/errors.
 var (
 	// presenceStaffLookup is the cached skipLocal Staff Group gate for hot paths.
@@ -170,6 +192,8 @@ var presenceWrites = struct {
 	AmbientContext     func(ctx context.Context, chatID int64, enabled bool, by int64) error
 	VocativeEnabled    func(ctx context.Context, chatID int64, enabled bool, by int64) error
 	PMBriefReact       func(ctx context.Context, chatID int64, enabled bool, by int64) error
+	ReferendumEnabled  func(ctx context.Context, chatID int64, enabled bool, by int64) error
+	InspectEnabled     func(ctx context.Context, chatID int64, enabled bool, by int64) error
 }{
 	ConsensusEnabled:   presence.SetConsensusEnabled,
 	ConsensusThreshold: presence.SetConsensusThreshold,
@@ -185,6 +209,8 @@ var presenceWrites = struct {
 	AmbientContext:     presence.SetAmbientContext,
 	VocativeEnabled:    presence.SetVocativeEnabled,
 	PMBriefReact:       presence.SetPMBriefReact,
+	ReferendumEnabled:  presence.SetReferendumEnabled,
+	InspectEnabled:     presence.SetInspectEnabled,
 }
 
 // presenceReadFresh reads a chat's Interactive Presence settings straight from PostgreSQL after a
@@ -366,6 +392,24 @@ func applyPresenceVocativeEnabled(ctx context.Context, chatID int64, enabled boo
 func applyPresencePMBriefReact(ctx context.Context, chatID int64, enabled bool, by int64) presenceApplyResult {
 	if err := presenceWrites.PMBriefReact(ctx, chatID, enabled, by); err != nil {
 		log.WithField("chat_id", chatID).Warn("[Presence] saving pm_brief_react failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceReferendumEnabled toggles /referendum polls for chatID and reads back the stored row.
+func applyPresenceReferendumEnabled(ctx context.Context, chatID int64, enabled bool, by int64) presenceApplyResult {
+	if err := presenceWrites.ReferendumEnabled(ctx, chatID, enabled, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving referendum_enabled failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceInspectEnabled toggles /inspect verdicts for chatID and reads back the stored row.
+func applyPresenceInspectEnabled(ctx context.Context, chatID int64, enabled bool, by int64) presenceApplyResult {
+	if err := presenceWrites.InspectEnabled(ctx, chatID, enabled, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving inspect_enabled failed")
 		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
 	}
 	return presenceReadBack(ctx, chatID)
