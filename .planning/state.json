@@ -1,61 +1,31 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v1.2 — Conversations, Custom Messages and Tuning",
+  "milestone": "v1.3 — Interactive Presence",
   "phases": [
     {
-      "number": "20",
-      "name": "Conversations",
+      "number": "31",
+      "name": "Presence Foundation, Settings Page and Zero-AI Social Reactions",
       "status": "complete"
     },
     {
-      "number": "21",
-      "name": "Message Engine, Messages Page and Manual Punishments",
-      "status": "pending"
-    },
-    {
-      "number": "22",
-      "name": "PM Copies",
-      "status": "in_progress"
-    },
-    {
-      "number": "23",
-      "name": "Warn, Flood, Blacklist and Forward Blocklist Messages",
-      "status": "pending"
-    },
-    {
-      "number": "24",
-      "name": "Captcha, AI Spam and Member Requirement Notices",
-      "status": "pending"
-    },
-    {
-      "number": "25",
-      "name": "Lockdown Messages",
-      "status": "pending"
-    },
-    {
-      "number": "26",
-      "name": "Timed Punishments, Escalation and Warn Expiry",
-      "status": "pending"
-    },
-    {
-      "number": "27",
-      "name": "Manual Command Defaults, Reason Shortcuts and Appeal Button",
-      "status": "in_progress"
-    },
-    {
-      "number": "28",
-      "name": "Advanced Thresholds",
+      "number": "32",
+      "name": "Contextual AI Emoji Reactions",
       "status": "complete"
     },
     {
-      "number": "29",
-      "name": "Plain Tone and Copy Settings",
+      "number": "33",
+      "name": "Smarter Static Reactions, Highlights Archive and Backup Parity",
       "status": "complete"
     },
     {
-      "number": "30",
-      "name": "Backup Page and Custom Messages in Backups",
+      "number": "34",
+      "name": "Room-Aware Conversations and Frictionless Catch-Up",
+      "status": "complete"
+    },
+    {
+      "number": "35",
+      "name": "Interactive Group Toys",
       "status": "complete"
     }
   ],
@@ -64,5 +34,5 @@
     "label": "Show progress",
     "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-11-24T16:53:08.689Z"
+  "updated_at": "2026-11-27T13:31:38.563Z"
 }
