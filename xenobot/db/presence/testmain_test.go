@@ -11,5 +11,5 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(testdb.Run(m, &models.ChatPresence{}))
+	os.Exit(testdb.Run(m, &models.ChatPresence{}, &models.ChatPresenceArchived{}))
 }
