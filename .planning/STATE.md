@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: Interactive Presence
 current_phase: 32
 current_phase_name: Contextual AI Emoji Reactions
-status: executing
-stopped_at: Completed 32-05-PLAN.md
-last_updated: "2026-11-27T00:09:34.865Z"
+status: verifying
+stopped_at: Completed 32-06-PLAN.md
+last_updated: "2026-11-27T00:16:55.871Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 31 complete, transitioned to Phase 32
-state_head: 0874c396007ab8a21a8cc251c0a634f63edc5ab4
+state_head: 0e13fc3acc8098e3a79364ce9cdc047cce93625d
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
   percent: 20
 ---
 
@@ -32,7 +32,7 @@ See: .planning/ROADMAP.md (v1.3 Interactive Presence — Phases 31–35)
 
 Phase: 32 of 35 (Contextual AI Emoji Reactions)
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-27 — Completed Plan 32-01 (AI react mode persistence & rolling-deploy cache safety)
 
 Progress: [██░░░░░░░░] 20%
@@ -234,6 +234,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 32 P03 | 3 min | 3 tasks | 9 files |
 | Phase 32 P04 | 5 min | 3 tasks | 6 files |
 | Phase 32 P05 | 7 min | 3 tasks | 4 files |
+| Phase 32 P06 | 6 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -389,6 +390,7 @@ Recent decisions affecting current work:
 - [Phase 32]: 32-03: Added all 6 Presence AI reaction UI keys across 8 locales matching each locale's settings_page_chat Conversations term, registered settingsLocaleLimits and plain-text settingsAlertKeys for settings_pr_ai_need_owner, and added <= 16-rune segmented button guard in TestSettingsLabelLengths
 - [Phase 32]: 32-04: Placed AI reaction operational keys (:ai:gap, :ai:cd:chat) under presenceChatTag(chatID) outside xenobot:cache: alongside :cd:u:<user>, extracted cloned fail-closed presenceAllowedPalette reusing the 20m avail_react cache, and added bounded 50-entry topic-isolated chatLogRecentThread
 - [Phase 32]: 32-05: Wired dedicated 2-worker/32-cap chatPresenceQueue under StopChat with group 13 mutually exclusive chatReactWatch (zero operational Redis I/O on default/off groups), same-slot Redis Lua throttle preserving 24h retraction cooldown TTL, dedicated react:b hourly budget, read-only chatBreakers, and 24h Featherless text_only fallback
+- [Phase 32]: 32-06: Added 5-row Settings page pr [Off | Low | Medium] AI reactions control (t=ai) with fresh chatconv.GetFresh Owner×Admin double-gating, fail-closed cannotOpen on DB read error, unconditional Off disable, accurate Main state counting, and updated AGENTS.md with Phase 32 invariants
 
 ### Pending Todos
 
@@ -534,8 +536,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-27T00:09:34.780Z
-Stopped at: Completed 32-05-PLAN.md
+Last session: 2026-11-27T00:16:55.780Z
+Stopped at: Completed 32-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

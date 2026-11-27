@@ -13,12 +13,12 @@ Requirements for Milestone v1.3 Interactive Presence. Each maps to roadmap phase
 - [x] **PRES-01**: Bot subscribes to `"message_reaction"` updates in `AllowedUpdates` and processes reaction and poll events safely across replicas under `StopChat` with zero new shutdown drains
 - [x] **PRES-02**: Every ambient interactive path enforces a shared safety gate skipping private chats, Staff Groups (`staff.GetStaffGroup`), active lockdowns (`lockdown.GetActiveFresh`), bots, anonymous channels, and slash commands
 - [x] **PRES-03**: Group admin can configure v1.3 interactive settings from a private-only `Presence` Settings page (`pr`, hidden in Staff Groups, 8 locales), linked from Conversations page `p` (keeping page `p` <= 8 rows and Main grid at 17 rows)
-- [ ] **PRES-04**: AI-backed interactive features are double-gated at runtime (Owner-enabled `chat_conversations` with 2-tap data notice AND admin per-feature toggles); zero-AI features are admin-configurable independently
+- [x] **PRES-04**: AI-backed interactive features are double-gated at runtime (Owner-enabled `chat_conversations` with 2-tap data notice AND admin per-feature toggles); zero-AI features are admin-configurable independently
 - [x] **PRES-05**: Bot normalizes (`U+FE0F`-stripped) and validates every outgoing reaction against `supportedReactionEmoji` intersected with cached per-chat `AvailableReactions` (20 min Redis TTL), sends `IsBig: false`, and stores 24 h `bot_react` metadata (`emoji`, `author_id`, `source`)
 
 ### Contextual AI & Social Reactions
 
-- [ ] **REACT-01**: Group admin can enable Contextual Random AI Emoji Reactions (`Off / Low / Medium`) gated before any AI call by cross-replica Redis message-gap (15–30 msgs), per-chat cooldown, per-user cooldown, probability roll, and dedicated hourly budget (`react:b`)
+- [x] **REACT-01**: Group admin can enable Contextual Random AI Emoji Reactions (`Off / Low / Medium`) gated before any AI call by cross-replica Redis message-gap (15–30 msgs), per-chat cooldown, per-user cooldown, probability roll, and dedicated hourly budget (`react:b`)
 - [x] **REACT-02**: Contextual AI reaction picker uses prompt-instructed JSON (`{"emoji":"..."}` / `{"emoji":"NONE"}`) with `MaxTokens = 512` across Claude, Gemini, and Featherless, offers all 73 standard emojis (intersected with `AvailableReactions`), warns against non-Telegram lookalikes (`😂`, `🐱`/`😹`/`😻`/`😼`), defaults to `NONE` on mundane/drama/tragedies, and silently sheds parse/network/400 errors without tripping shared conversation breakers
 - [x] **REACT-03**: Contextual AI reactions inspect recent same-thread context (`chat_log` when enabled, plus `ReplyTarget`/`Quote`) and include photos and sticker thumbnails on vision-capable providers via `chat_media.go`, degrading cleanly to text/caption/sticker-emoji on text-only Featherless models
 - [x] **REACT-04**: Zero-AI Emoji Consensus lets the bot occasionally mirror a non-hostile standard emoji when >= 3 distinct members react with it (tracked via Redis Lua `SADD`/`SREM` diffs, with chat cooldown and once-only latch)
@@ -79,9 +79,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PRES-01 | Phase 31 | Complete |
 | PRES-02 | Phase 31 | Complete |
 | PRES-03 | Phase 31 | Complete |
-| PRES-04 | Phase 32 | Pending |
+| PRES-04 | Phase 32 | Complete |
 | PRES-05 | Phase 31 | Complete |
-| REACT-01 | Phase 32 | Pending |
+| REACT-01 | Phase 32 | Complete |
 | REACT-02 | Phase 32 | Complete |
 | REACT-03 | Phase 32 | Complete |
 | REACT-04 | Phase 31 | Complete |

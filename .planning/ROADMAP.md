@@ -130,7 +130,7 @@ Plans:
   2. Ordinary group traffic is filtered before any AI call by cross-replica Redis message-gap (15–30 messages), per-chat cooldown, per-user cooldown, probability roll, and a dedicated hourly reaction budget (`react:b`).
   3. On eligible messages, the AI picker across Claude, Gemini, and Featherless uses prompt-instructed JSON (`MaxTokens = 512`) over all 73 standard emojis intersected with `AvailableReactions`, rejects non-Telegram lookalikes, defaults to `NONE` on mundane chatter, drama, or tragedies, and silently sheds parse, network, or `400` errors without tripping shared conversation breakers.
   4. Eligible replies, quoted messages, photos, and stickers pass recent same-thread `chat_log` context (when enabled) and visual thumbnails on vision-capable providers via `chat_media.go`, degrading cleanly to text, caption, or sticker emoji on text-only Featherless models.
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans executed
 
 Plans:
 - [x] 32-01-PLAN.md — `chat_presence.ai_react_mode` append-only migration, model, rolling-deploy normalization & repository
@@ -138,7 +138,7 @@ Plans:
 - [x] 32-03-PLAN.md — 8-locale translations and `settings_locale_test.go` ceilings/alert/3-button caps for Presence AI reactions
 - [x] 32-04-PLAN.md — Shared `presence.go` AI keys & apply helper, `presenceAllowedPalette`, and bounded thread-isolated `chatLogRecentThread`
 - [x] 32-05-PLAN.md — `chatPresenceQueue` under `StopChat`, group 13 Lua gate, context/vision + Featherless `text_only` fallback & non-tripping shedding
-- [ ] 32-06-PLAN.md — Private Settings page `pr` `[Off | Low | Medium]` Owner×Admin double-gating, tests, `AGENTS.md` update & final gate
+- [x] 32-06-PLAN.md — Private Settings page `pr` `[Off | Low | Medium]` Owner×Admin double-gating, tests, `AGENTS.md` update & final gate
 **UI hint**: yes
 
 ### Phase 33: Smarter Static Reactions, Highlights Archive and Backup Parity
@@ -199,7 +199,7 @@ Phases execute in numeric order: 31 → 32 → 33 → 34 → 35
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 31. Presence Foundation, Settings Page and Zero-AI Social Reactions | v1.3 | 5/5 | Complete    | 2026-11-27 |
-| 32. Contextual AI Emoji Reactions | v1.3 | 5/6 | In Progress | - |
+| 32. Contextual AI Emoji Reactions | v1.3 | 6/6 | In Progress | - |
 | 33. Smarter Static Reactions, Highlights Archive and Backup Parity | v1.3 | 0/TBD | Not started | - |
 | 34. Room-Aware Conversations and Frictionless Catch-Up | v1.3 | 0/TBD | Not started | - |
 | 35. Interactive Group Toys | v1.3 | 0/TBD | Not started | - |
