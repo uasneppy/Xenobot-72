@@ -166,6 +166,9 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 		ArchiveThreshold:   9,
 		ArchiveEmojiMode:   presence.ArchiveEmojiModeAll,
 		ArchiveDelivery:    presence.ArchiveDeliveryForward,
+		AmbientContext:     true,
+		VocativeEnabled:    false,
+		PMBriefReact:       true,
 	}).Error)
 	require.NoError(t, db.DB.Create(&models.ChatPresence{
 		ChatID:             dstChat,
@@ -180,6 +183,9 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 		ArchiveThreshold:   3,
 		ArchiveEmojiMode:   presence.ArchiveEmojiModePositive,
 		ArchiveDelivery:    presence.ArchiveDeliveryCopy,
+		AmbientContext:     false,
+		VocativeEnabled:    true,
+		PMBriefReact:       false,
 	}).Error)
 
 	// Existing destination data must be replaced, not merged.
@@ -430,6 +436,9 @@ func TestAllModulesRoundTripEveryMeaningfulField(t *testing.T) {
 	assert.Equal(t, 9, presenceData.Settings.ArchiveThreshold)
 	assert.Equal(t, presence.ArchiveEmojiModeAll, presenceData.Settings.ArchiveEmojiMode)
 	assert.Equal(t, presence.ArchiveDeliveryForward, presenceData.Settings.ArchiveDelivery)
+	assert.True(t, presenceData.Settings.AmbientContext)
+	assert.False(t, presenceData.Settings.VocativeEnabled)
+	assert.True(t, presenceData.Settings.PMBriefReact)
 
 	dstPresenceRow, err := findChatSetting[models.ChatPresence](dstChat)
 	require.NoError(t, err)

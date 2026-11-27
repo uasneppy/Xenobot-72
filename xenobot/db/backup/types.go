@@ -246,6 +246,9 @@ type PresencePortableBackup struct {
 	ArchiveThreshold   int    `json:"archive_threshold"`
 	ArchiveEmojiMode   string `json:"archive_emoji_mode"`
 	ArchiveDelivery    string `json:"archive_delivery"`
+	AmbientContext     bool   `json:"ambient_context"`
+	VocativeEnabled    bool   `json:"vocative_enabled"`
+	PMBriefReact       bool   `json:"pm_brief_react"`
 }
 
 type PresenceBackup = SettingBackup[PresencePortableBackup]

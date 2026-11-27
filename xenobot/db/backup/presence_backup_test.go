@@ -57,6 +57,9 @@ func TestBackupPresenceArchiveStripped(t *testing.T) {
 			ArchiveThreshold:   8,
 			ArchiveEmojiMode:   presence.ArchiveEmojiModeAll,
 			ArchiveDelivery:    presence.ArchiveDeliveryForward,
+			AmbientContext:     true,
+			VocativeEnabled:    true,
+			PMBriefReact:       true,
 		}).Error)
 
 		// Prime destination cache before import so cache invalidation is verified.
@@ -89,6 +92,9 @@ func TestBackupPresenceArchiveStripped(t *testing.T) {
 		assert.Equal(t, 8, got.ArchiveThreshold)
 		assert.Equal(t, presence.ArchiveEmojiModeAll, got.ArchiveEmojiMode)
 		assert.Equal(t, presence.ArchiveDeliveryForward, got.ArchiveDelivery)
+		assert.True(t, got.AmbientContext)
+		assert.True(t, got.VocativeEnabled)
+		assert.True(t, got.PMBriefReact)
 	})
 
 	t.Run("tampered JSON archive target ignored on unlinked and linked targets", func(t *testing.T) {
@@ -146,6 +152,9 @@ func TestBackupPresenceArchiveStripped(t *testing.T) {
 		assert.Equal(t, presence.DefaultArchiveThreshold, unlinkedGot.ArchiveThreshold)
 		assert.Equal(t, presence.ArchiveEmojiModePositive, unlinkedGot.ArchiveEmojiMode)
 		assert.Equal(t, presence.ArchiveDeliveryCopy, unlinkedGot.ArchiveDelivery)
+		assert.False(t, unlinkedGot.AmbientContext)
+		assert.False(t, unlinkedGot.VocativeEnabled)
+		assert.False(t, unlinkedGot.PMBriefReact)
 
 		linkedReport, err := ImportChatDataReport(linkedChat, bkp, nil)
 		require.NoError(t, err)
@@ -157,6 +166,9 @@ func TestBackupPresenceArchiveStripped(t *testing.T) {
 		assert.Equal(t, ownThread, linkedGot.ArchiveThreadID)
 		assert.True(t, linkedGot.ArchiveEnabled)
 		assert.True(t, linkedGot.CatStickerEnabled)
+		assert.False(t, linkedGot.AmbientContext)
+		assert.False(t, linkedGot.VocativeEnabled)
+		assert.False(t, linkedGot.PMBriefReact)
 	})
 
 	t.Run("nil settings leaves target untouched and ClearModuleData resets row and cache", func(t *testing.T) {

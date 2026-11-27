@@ -1443,6 +1443,9 @@ func exportPresenceData(chatID int64) (*PresenceBackup, error) {
 			ArchiveThreshold:   int(row.ArchiveThreshold),
 			ArchiveEmojiMode:   row.ArchiveEmojiMode,
 			ArchiveDelivery:    row.ArchiveDelivery,
+			AmbientContext:     row.AmbientContext,
+			VocativeEnabled:    row.VocativeEnabled,
+			PMBriefReact:       row.PMBriefReact,
 		},
 	}, nil
 }
@@ -1471,6 +1474,9 @@ func importPresence(tx *gorm.DB, chatID int64, payload interface{}, report *Impo
 		ArchiveThreshold:   data.Settings.ArchiveThreshold,
 		ArchiveEmojiMode:   data.Settings.ArchiveEmojiMode,
 		ArchiveDelivery:    data.Settings.ArchiveDelivery,
+		AmbientContext:     data.Settings.AmbientContext,
+		VocativeEnabled:    data.Settings.VocativeEnabled,
+		PMBriefReact:       data.Settings.PMBriefReact,
 	}
 	archiveSkipped, err := presence.ReplacePortableTx(tx, chatID, s, 0)
 	if err != nil {
