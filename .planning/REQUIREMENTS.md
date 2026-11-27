@@ -34,11 +34,11 @@ Requirements for Milestone v1.3 Interactive Presence. Each maps to roadmap phase
 
 ### Room-Aware Conversations & Catch-Up
 
-- [ ] **CHAT-01**: `chatLogEntry` stores backward-compatible timestamps (`At: msg.Date`, `json:"at,omitempty"`) and provides strict same-thread query helpers (`Recent`, `SinceUser`, `SinceTime`) without corrupting timestamps on message edits
-- [ ] **CHAT-02**: When Ambient Room Context is enabled (with `LogEnabled` on), Conversations injects the last 6–10 same-thread `chat_log` entries into `chatBuildRequest`, deduplicated against `chatReadHistory` and the triggering message
-- [ ] **CHAT-03**: When Vocative Name-Addressing is enabled, members can start a non-forwarded message with Xenobot's name (`"Xenobot, ..."` / `"Кзенобот, ..."`, pure Unicode prefix check) to converse without `@mention` or Reply, mutually exclusive with ambient AI reactions
-- [ ] **CHAT-04**: Members can run `/unrollshort` and `/unrolllong` without replying using count (`50`), self-anchor (`me`), or duration (`2h`), plus optional `pm` delivery
-- [ ] **CHAT-05**: When `✍` PM Briefs are enabled (with `LogEnabled` on), reacting `✍` to a logged message silently delivers a private `/unrollshort` from that message to the reactor's PM, posting zero group messages on success or `403`
+- [x] **CHAT-01**: `chatLogEntry` stores backward-compatible timestamps (`At: msg.Date`, `json:"at,omitempty"`) and provides strict same-thread query helpers (`Recent`, `SinceUser`, `SinceTime`) without corrupting timestamps on message edits
+- [x] **CHAT-02**: When Ambient Room Context is enabled (with `LogEnabled` on), Conversations injects the last 6–10 same-thread `chat_log` entries into `chatBuildRequest`, deduplicated against `chatReadHistory` and the triggering message
+- [x] **CHAT-03**: When Vocative Name-Addressing is enabled, members can start a non-forwarded message with Xenobot's name (`"Xenobot, ..."` / `"Кзенобот, ..."`, pure Unicode prefix check) to converse without `@mention` or Reply, mutually exclusive with ambient AI reactions
+- [x] **CHAT-04**: Members can run `/unrollshort` and `/unrolllong` without replying using count (`50`), self-anchor (`me`), or duration (`2h`), plus optional `pm` delivery
+- [x] **CHAT-05**: When `✍` PM Briefs are enabled (with `LogEnabled` on), reacting `✍` to a logged message silently delivers a private `/unrollshort` from that message to the reactor's PM, posting zero group messages on success or `403`
 
 ### Interactive Group Toys
 
@@ -91,11 +91,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | COMM-03 | Phase 33 | Complete |
 | COMM-04 | Phase 33 | Complete |
 | COMM-05 | Phase 33 | Complete |
-| CHAT-01 | Phase 34 | Pending |
-| CHAT-02 | Phase 34 | Pending |
-| CHAT-03 | Phase 34 | Pending |
-| CHAT-04 | Phase 34 | Pending |
-| CHAT-05 | Phase 34 | Pending |
+| CHAT-01 | Phase 34 | Complete |
+| CHAT-02 | Phase 34 | Complete |
+| CHAT-03 | Phase 34 | Complete |
+| CHAT-04 | Phase 34 | Complete |
+| CHAT-05 | Phase 34 | Complete |
 | TOYS-01 | Phase 35 | Pending |
 | TOYS-02 | Phase 35 | Pending |
 | TOYS-03 | Phase 35 | Pending |

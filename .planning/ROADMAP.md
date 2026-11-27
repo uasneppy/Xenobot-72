@@ -183,17 +183,17 @@ Plans:
   3. When Vocative Name-Addressing is enabled, a member starting a non-forwarded message with Xenobot's name (`"Xenobot, ..."` / `"Кзенобот, ..."`) triggers a Conversations reply without `@mention` or Reply, and that message does not also trigger an ambient AI reaction.
   4. Members can run `/unrollshort` and `/unrolllong` without replying by passing a count (`50`), self-anchor (`me`), or duration (`2h`), plus optional `pm` delivery.
   5. When `✍` PM Briefs and Message Log are enabled, reacting `✍` to a logged message delivers a private `/unrollshort` starting from that message to the reactor's PM and posts zero group messages whether PM delivery succeeds or fails with `403`.
-**Plans:** 8 plans
+**Plans:** 8/8 plans complete
 
 Plans:
-- [ ] 34-01-PLAN.md — `chat_presence` room & catch-up migration (`ambient_context`, `vocative_enabled`, `pm_brief_react`), model, `skipLocal` repo & `BackupModulePresence` parity
-- [ ] 34-02-PLAN.md — Leaf `chatprompt.UserWithAmbient` prompt builder & pure Unicode `ParseVocativePrefix` parser (`TestChatpromptPackageIsLeaf`)
-- [ ] 34-03-PLAN.md — 8-locale translations & `xenobot/i18n` ceilings/alert/help validation for Room & Catch-Up (`pc`) and reply-free/PM briefs
-- [ ] 34-04-PLAN.md — Timestamped `chat_log` (`At: msg.Date`), edit timestamp preservation, legacy `At == 0` handling & strict topic-isolated query helpers
-- [ ] 34-05-PLAN.md — Ambient Room Context (`chat_run.go`, `chatReadHistoryWithIDs` dedup) & opt-in vocative name-addressing (`chat_watch.go`, mutually exclusive with `chatReactWatch`)
-- [ ] 34-06-PLAN.md — Reply-free `/unrollshort` & `/unrolllong <N|me|duration> [pm]` (`chat_brief.go`) & silent `✍` PM brief (`presence_reactions.go` → `chatBriefQueue` under `StopChat`)
-- [ ] 34-07-PLAN.md — `presence.go` apply layer & private Settings sub-page `pc` under `pr` (`8` rows, `31` pages, `17` Main rows) with Owner×Admin double-gating
-- [ ] 34-08-PLAN.md — `Makefile` PG integrity list, `make generate-docs` / `make check-docs`, `AGENTS.md` update & full Phase 34 verification gate
+- [x] 34-01-PLAN.md — `chat_presence` room & catch-up migration (`ambient_context`, `vocative_enabled`, `pm_brief_react`), model, `skipLocal` repo & `BackupModulePresence` parity
+- [x] 34-02-PLAN.md — Leaf `chatprompt.UserWithAmbient` prompt builder & pure Unicode `ParseVocativePrefix` parser (`TestChatpromptPackageIsLeaf`)
+- [x] 34-03-PLAN.md — 8-locale translations & `xenobot/i18n` ceilings/alert/help validation for Room & Catch-Up (`pc`) and reply-free/PM briefs
+- [x] 34-04-PLAN.md — Timestamped `chat_log` (`At: msg.Date`), edit timestamp preservation, legacy `At == 0` handling & strict topic-isolated query helpers
+- [x] 34-05-PLAN.md — Ambient Room Context (`chat_run.go`, `chatReadHistoryWithIDs` dedup) & opt-in vocative name-addressing (`chat_watch.go`, mutually exclusive with `chatReactWatch`)
+- [x] 34-06-PLAN.md — Reply-free `/unrollshort` & `/unrolllong <N|me|duration> [pm]` (`chat_brief.go`) & silent `✍` PM brief (`presence_reactions.go` → `chatBriefQueue` under `StopChat`)
+- [x] 34-07-PLAN.md — `presence.go` apply layer & private Settings sub-page `pc` under `pr` (`8` rows, `31` pages, `17` Main rows) with Owner×Admin double-gating
+- [x] 34-08-PLAN.md — `Makefile` PG integrity list, `make generate-docs` / `make check-docs`, `AGENTS.md` update & full Phase 34 verification gate
 **UI hint**: yes
 
 ### Phase 35: Interactive Group Toys
@@ -221,5 +221,5 @@ Phases execute in numeric order: 31 → 32 → 33 → 34 → 35
 | 31. Presence Foundation, Settings Page and Zero-AI Social Reactions | v1.3 | 5/5 | Complete    | 2026-11-27 |
 | 32. Contextual AI Emoji Reactions | v1.3 | 6/6 | Complete    | 2026-11-27 |
 | 33. Smarter Static Reactions, Highlights Archive and Backup Parity | v1.3 | 8/8 | Complete    | 2026-11-27 |
-| 34. Room-Aware Conversations and Frictionless Catch-Up | v1.3 | 0/8 | Planned | - |
+| 34. Room-Aware Conversations and Frictionless Catch-Up | v1.3 | 8/8 | Executed | - |
 | 35. Interactive Group Toys | v1.3 | 0/TBD | Not started | - |
