@@ -61,6 +61,7 @@ var (
 // that starts a username is followed by a zero-width space so nobody is pinged. The result is
 // trimmed and is "" for a text that is blank.
 func chatSanitizeText(text string) string {
+	text = chatStripReasoning(text)
 	text = chatLinkPattern.ReplaceAllString(text, chatLinkRemoved)
 	text = chatHandlePattern.ReplaceAllString(text, "@\u200b$1")
 	return strings.TrimSpace(text)
