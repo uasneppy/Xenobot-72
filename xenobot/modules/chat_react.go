@@ -2,8 +2,10 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -13,10 +15,13 @@ import (
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/uasneppy/Xenobot-72/xenobot/config"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/chatconv"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/chatprompt"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/error_handling"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/extraction"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/featherless"
 )
 
 // Contextual AI Emoji Reactions (Phase 32): unaddressed group messages that pass the Owner×Admin
@@ -338,6 +343,178 @@ func chatReactWatch(b *gotgbot.Bot, ctx *ext.Context) {
 	chatPresenceEnqueue(job)
 }
 
-func chatReactProcessJob(_ chatReactJob) {
-	chatReactShedCount.Add(1)
+func chatFeatherlessModelName() string {
+	if config.AppConfig == nil {
+		return ""
+	}
+	return strings.TrimSpace(config.AppConfig.ChatFeatherlessModel)
+}
+
+func chatFeatherlessTextOnlyKey(model string) string {
+	return chatReactFeatherlessTextOnlyPrefix + strings.TrimSpace(model)
+}
+
+func chatIsFeatherlessTextOnly(ctx context.Context, client *redis.Client, model string) bool {
+	model = strings.TrimSpace(model)
+	if client == nil || model == "" {
+		return false
+	}
+	rCtx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
+	defer cancel()
+	n, err := client.Exists(rCtx, chatFeatherlessTextOnlyKey(model)).Result()
+	return err == nil && n > 0
+}
+
+func chatMarkFeatherlessTextOnly(ctx context.Context, client *redis.Client, model string) {
+	model = strings.TrimSpace(model)
+	if client == nil || model == "" {
+		return
+	}
+	wCtx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
+	defer cancel()
+	if err := client.Set(wCtx, chatFeatherlessTextOnlyKey(model), "1", chatReactFeatherlessTextOnlyTTL).Err(); err != nil {
+		log.Debugf("[Presence] caching featherless text_only failed: %s", chatRedisErrClass(err))
+	}
+}
+
+func chatIsFeatherlessVisionReject(err error) bool {
+	var fErr *featherless.HTTPError
+	return errors.As(err, &fErr) &&
+		(fErr.Status == http.StatusBadRequest || fErr.Status == http.StatusUnprocessableEntity) &&
+		!fErr.KeyRejected()
+}
+
+func chatReactRecentTurns(ctx context.Context, client *redis.Client, job chatReactJob) []chatprompt.Turn {
+	if !job.logEnabled {
+		return nil
+	}
+	entries, err := chatLogRecentThread(ctx, client, job.chatID, job.threadID, job.messageID, chatReactRecentLogLimit)
+	if err != nil {
+		log.WithField("chat_id", job.chatID).Debugf("[Presence] recent thread log lookup skipped: %s", chatRedisErrClass(err))
+		return nil
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	turns := make([]chatprompt.Turn, 0, len(entries))
+	for _, entry := range entries {
+		var text string
+		switch {
+		case entry.Media != "" && entry.Text != "":
+			text = entry.Media + " " + entry.Text
+		case entry.Text != "":
+			text = entry.Text
+		default:
+			text = entry.Media
+		}
+		if text == "" {
+			continue
+		}
+		turns = append(turns, chatprompt.Turn{Name: entry.Name, Text: text})
+	}
+	return turns
+}
+
+func chatReactDownloadVision(ctx context.Context, client *redis.Client, job chatReactJob) chatDownloadedMedia {
+	if job.media == nil {
+		return chatDownloadedMedia{}
+	}
+	if job.provider == chatconv.ProviderFeatherless && chatIsFeatherlessTextOnly(ctx, client, chatFeatherlessModelName()) {
+		return chatDownloadedMedia{}
+	}
+	return chatDownloadMedia(ctx, job.bot, job.chatID, job.userID, job.provider, []chatMediaRef{*job.media})
+}
+
+func chatReactCallProvider(ctx, root context.Context, client *redis.Client, provider string, req chatRequest) (chatAnswer, error) {
+	answer, err := chatProviderOf(provider).converse(ctx, req)
+	if err != nil && root.Err() == nil && provider == chatconv.ProviderFeatherless && len(req.Attachments) > 0 && chatIsFeatherlessVisionReject(err) {
+		chatMarkFeatherlessTextOnly(ctx, client, chatFeatherlessModelName())
+		req.Attachments = nil
+		return chatProviderOf(provider).converse(ctx, req)
+	}
+	return answer, err
+}
+
+func chatReactApplyAnswer(ctx context.Context, job chatReactJob, palette []string, answer chatAnswer) {
+	if answer.Outcome == chatRefused {
+		chatReactNoneCount.Add(1)
+		return
+	}
+	emoji, status := chatprompt.ParseReactionJSON(answer.Text, palette)
+	switch status {
+	case chatprompt.ReactionParseNone:
+		chatReactNoneCount.Add(1)
+	case chatprompt.ReactionParseEmoji:
+		if presenceSetReaction(ctx, job.bot, job.chatID, job.messageID, job.userID, emoji, "ai") {
+			chatReactSentCount.Add(1)
+		} else {
+			chatReactShedCount.Add(1)
+		}
+	default:
+		log.WithFields(log.Fields{"chat_id": job.chatID, "user_id": job.userID}).Debug("[Presence] AI reaction parse error")
+		chatReactShedCount.Add(1)
+	}
+}
+
+// chatReactProcessJob runs one background contextual AI reaction job under chatContext().
+// It enforces lazy fail-closed lockdown, read-only breaker status, dedicated "react:b" budgets,
+// allowed chat palette, same-thread context + photo/sticker vision with Featherless 400/422
+// text-only fallback, and silent non-tripping error shedding (never mutating chatBreakers).
+func chatReactProcessJob(job chatReactJob) {
+	root := chatContext()
+	ctx, cancel := context.WithTimeout(root, chatReactJobTimeout)
+	defer cancel()
+
+	client := presenceRedisClient()
+	if client == nil || !chatProviderConfigured(job.provider) {
+		chatReactShedCount.Add(1)
+		return
+	}
+	if presenceIsLockedDown(job.chatID) {
+		chatReactShedCount.Add(1)
+		return
+	}
+	if chatBreaker(job.provider).isPaused(job.chatID, raidNow()) {
+		chatReactShedCount.Add(1)
+		return
+	}
+	switch chatReserveWith(client, job.chatID, job.userID, "react:b",
+		chatReactUserHourlyBudget, chatReactChatHourlyBudget, chatReactGlobalHourlyBudget) {
+	case chatBudgetCapped:
+		chatReactCappedCount.Add(1)
+		return
+	case chatBudgetFault:
+		chatReactShedCount.Add(1)
+		return
+	}
+
+	palette, ok := presenceAllowedPalette(ctx, job.bot, job.chatID)
+	if !ok || len(palette) == 0 {
+		chatReactShedCount.Add(1)
+		return
+	}
+
+	recentTurns := chatReactRecentTurns(ctx, client, job)
+	media := chatReactDownloadVision(ctx, client, job)
+	if root.Err() != nil {
+		chatReactShedCount.Add(1)
+		return
+	}
+
+	_, language := chatLanguageName(ctx, job.chatID)
+	req := chatRequest{
+		Static:      chatprompt.ReactionStatic(),
+		Dynamic:     chatprompt.ReactionDynamic(job.chatTitle, language, palette),
+		User:        chatprompt.ReactionUser(recentTurns, job.quoted, job.quoteText, job.turn),
+		MaxTokens:   chatprompt.ReactionMaxTokens,
+		Attachments: media.Attachments,
+	}
+
+	answer, err := chatReactCallProvider(ctx, root, client, job.provider, req)
+	if err != nil {
+		log.WithFields(log.Fields{"chat_id": job.chatID, "user_id": job.userID}).Debugf("[Presence] AI reaction provider error: %s", chatErrorClass(err))
+		chatReactShedCount.Add(1)
+		return
+	}
+	chatReactApplyAnswer(ctx, job, palette, answer)
 }
