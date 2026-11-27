@@ -15,6 +15,7 @@ import (
 
 	"github.com/uasneppy/Xenobot-72/xenobot/db"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/cache"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/chatconv"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
 	"github.com/uasneppy/Xenobot-72/xenobot/i18n"
@@ -63,21 +64,24 @@ func TestSettingsPresenceCallbackBytes(t *testing.T) {
 		Tr: tr, Private: true, OwnerKey: "c", OwnerValue: "-1001234567890",
 		GroupID: -1001234567890, GroupTitle: "G", OpenerName: "N", Owner: true,
 	}
-	for _, consensus := range []bool{false, true} {
-		for _, retract := range []bool{false, true} {
-			for _, threshold := range []int{2, 3, 20} {
-				stored := presence.Settings{
-					ConsensusEnabled:   consensus,
-					ConsensusThreshold: threshold,
-					RetractEnabled:     retract,
-				}
-				screen := renderSettingsPresence(view, stored, "")
-				label := fmt.Sprintf("cons=%t retract=%t thr=%d", consensus, retract, threshold)
+	baseStates := []presence.Settings{
+		{ConsensusEnabled: false, ConsensusThreshold: 2, RetractEnabled: false},
+		{ConsensusEnabled: true, ConsensusThreshold: 3, RetractEnabled: true},
+		{ConsensusEnabled: true, ConsensusThreshold: 20, RetractEnabled: false},
+	}
+	for _, base := range baseStates {
+		for _, aiMode := range []string{presence.AIReactModeOff, presence.AIReactModeLow, presence.AIReactModeMedium} {
+			for _, convUnlocked := range []bool{false, true} {
+				stored := base
+				stored.AIReactMode = aiMode
+				screen := renderSettingsPresence(view, stored, convUnlocked, "")
+				label := fmt.Sprintf("cons=%t retract=%t thr=%d ai=%s unlocked=%t",
+					stored.ConsensusEnabled, stored.RetractEnabled, stored.ConsensusThreshold, aiMode, convUnlocked)
 				if screen.Omitted != 0 {
 					t.Errorf("%s omitted %d buttons", label, screen.Omitted)
 				}
-				if got := len(screen.Keyboard.InlineKeyboard); got != 4 {
-					t.Errorf("%s rows = %d, want 4", label, got)
+				if got := len(screen.Keyboard.InlineKeyboard); got != 5 {
+					t.Errorf("%s rows = %d, want 5", label, got)
 				}
 				for _, button := range settingsAllButtons(screen.Keyboard.InlineKeyboard) {
 					if n := len(button.CallbackData); n < 1 || n > 64 {
@@ -92,9 +96,22 @@ func TestSettingsPresenceCallbackBytes(t *testing.T) {
 func TestSettingsPresencePageFitsEveryLocale(t *testing.T) {
 	withRealLocales(t)
 	title := strings.Repeat("&<ж😀", 16)
-	states := []presence.Settings{
-		{ConsensusEnabled: false, ConsensusThreshold: 2, RetractEnabled: false},
-		{ConsensusEnabled: true, ConsensusThreshold: 20, RetractEnabled: true},
+	cases := []struct {
+		stored       presence.Settings
+		convUnlocked bool
+	}{
+		{
+			stored:       presence.Settings{ConsensusEnabled: false, ConsensusThreshold: 2, RetractEnabled: false, AIReactMode: presence.AIReactModeOff},
+			convUnlocked: false,
+		},
+		{
+			stored:       presence.Settings{ConsensusEnabled: true, ConsensusThreshold: 20, RetractEnabled: true, AIReactMode: presence.AIReactModeMedium},
+			convUnlocked: false,
+		},
+		{
+			stored:       presence.Settings{ConsensusEnabled: true, ConsensusThreshold: 20, RetractEnabled: true, AIReactMode: presence.AIReactModeMedium},
+			convUnlocked: true,
+		},
 	}
 	for _, code := range []string{"uk", "en", "es", "fr", "hi", "id", "pt", "ru"} {
 		t.Run(code, func(t *testing.T) {
@@ -104,8 +121,8 @@ func TestSettingsPresencePageFitsEveryLocale(t *testing.T) {
 				Tr: tr, Private: true, OwnerKey: "c", OwnerValue: "-1001234567890",
 				GroupID: -1001234567890, GroupTitle: title, OpenerName: "N", Owner: true,
 			}
-			for _, stored := range states {
-				screen := renderSettingsPresence(view, stored, notice)
+			for _, tc := range cases {
+				screen := renderSettingsPresence(view, tc.stored, tc.convUnlocked, notice)
 				if screen.Omitted != 0 {
 					t.Errorf("omitted %d buttons", screen.Omitted)
 				}
@@ -140,7 +157,7 @@ func TestSettingsPresenceFlows(t *testing.T) {
 		for _, want := range []string{
 			"settings_page_presence", "settings_pr_intro",
 			"settings_pr_consensus_line", "settings_pr_threshold_line",
-			"settings_pr_retract_line", "settings_pr_hint",
+			"settings_pr_retract_line", "settings_pr_ai_line", "settings_pr_hint",
 		} {
 			if !strings.Contains(text, staffMarker(want)) {
 				t.Fatalf("page pr missing %s:\n%s", want, text)
@@ -305,6 +322,7 @@ func TestSettingsPresenceFlows(t *testing.T) {
 			{"a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlConsensus, "v", "0"},
 			{"a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlThreshold, "v", "9"},
 			{"a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlRetract, "v", "0"},
+			{"a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlAIReact, "v", "l"},
 		} {
 			env.press(owner, groupMsg, env.groupFields(owner, kv...))
 			if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker("common_callback_invalid_request")) {
@@ -369,6 +387,7 @@ func TestSettingsPresenceFlows(t *testing.T) {
 			env.privateFields(staffChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlConsensus, "v", "1"),
 			env.privateFields(staffChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlThreshold, "v", "5"),
 			env.privateFields(staffChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlRetract, "v", "0"),
+			env.privateFields(staffChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlAIReact, "v", "l"),
 		} {
 			env.pressPrivate(owner, staffPrivMsg, fields)
 			ans, alert := env.lastAnswer()
@@ -406,6 +425,153 @@ func TestSettingsPresenceFlows(t *testing.T) {
 		}
 		if settingsPresenceRows(t, errChat.Id) != 0 {
 			t.Fatal("staff lookup error still wrote a presence row")
+		}
+	})
+
+	// 6. Owner×Admin double-gating on Contextual AI Reactions, independent zero-AI controls,
+	//    disable-when-locked, Main state counting, fail-closed DB read error, and forged t=ai inputs.
+	t.Run("ai_reactions_owner_admin_double_gate_and_forged_inputs", func(t *testing.T) {
+		aiChat := env.addChat()
+		settingsPresenceCleanup(t, aiChat.Id)
+		chatConvCleanup(t, aiChat.Id)
+		withChatProviders(t, true, true, false)
+
+		env.fake.setMemberRaw(aiChat.Id, owner.Id, copyCreatorJSON(owner.Id))
+		env.fake.setCreator(aiChat.Id, owner.Id)
+		env.setAdminsAllowed(aiChat.Id, true)
+
+		allowedAdmin := gotgbot.User{Id: env.admin.Id + 20, FirstName: "AIAllowedAdmin"}
+		env.fake.setMemberRaw(aiChat.Id, allowedAdmin.Id, copyAdminJSON(allowedAdmin.Id, true, false))
+		deniedAdmin := gotgbot.User{Id: env.admin.Id + 21, FirstName: "AIDeniedAdmin"}
+		env.fake.setMemberRaw(aiChat.Id, deniedAdmin.Id, copyAdminJSON(deniedAdmin.Id, false, true))
+
+		// Open page pr while Owner Conversations is off: locked note shown, low/medium refused with alert.
+		env.sendPrivate(allowedAdmin, fmt.Sprintf("/start settings_%d", aiChat.Id))
+		msgID := settingsPrivateOnlySent(t, env, allowedAdmin).MessageID
+		env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActOpen, "p", settingsPagePresence))
+		lockedText, lockedKB := env.lastEdit(allowedAdmin.Id, msgID)
+		if !strings.Contains(lockedText, staffMarker("settings_pr_ai_line")) || !strings.Contains(lockedText, staffMarker("settings_pr_ai_locked_note")) {
+			t.Fatalf("locked page pr missing AI line or locked note:\n%s", lockedText)
+		}
+		if len(lockedKB) != 5 {
+			t.Fatalf("page pr keyboard rows = %d, want 5", len(lockedKB))
+		}
+		for _, code := range []string{"l", "m"} {
+			env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlAIReact, "v", code))
+			if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker("settings_pr_ai_need_owner")) {
+				t.Errorf("locked t=ai v=%s answered (%q, alert=%v), want settings_pr_ai_need_owner alert", code, ans, alert)
+			}
+		}
+		if settingsPresenceRows(t, aiChat.Id) != 0 {
+			t.Fatal("refused AI reaction enables created a presence row")
+		}
+
+		// Fail-closed: settingsPresenceChatRead error answers settings_cannot_open with zero writes.
+		origChatRead := settingsPresenceChatRead
+		settingsPresenceChatRead = func(context.Context, int64) (chatconv.Settings, error) {
+			return chatconv.Settings{}, errors.New("chatconv db down")
+		}
+		env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlAIReact, "v", "l"))
+		if errText, _ := env.lastEdit(allowedAdmin.Id, msgID); !strings.Contains(errText, staffMarker("settings_cannot_open")) {
+			t.Errorf("chatconv read error drew %q, want settings_cannot_open", errText)
+		}
+		settingsPresenceChatRead = origChatRead
+		if settingsPresenceRows(t, aiChat.Id) != 0 {
+			t.Fatal("chatconv read error still created a presence row")
+		}
+
+		// Zero-AI Consensus and Retract controls stay completely independent while Conversations is off.
+		env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlConsensus, "v", "1"))
+		env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActToggle, "p", settingsPagePresence, "t", settingsPresenceControlRetract, "v", "0"))
+		if got := settingsPresenceStored(t, aiChat.Id); !got.ConsensusEnabled || got.RetractEnabled || got.AIReactMode != presence.AIReactModeOff {
+			t.Fatalf("zero-AI controls while Conversations off: %+v, want Consensus=true Retract=false AI=off", got)
+		}
+
+		// Owner enables Conversations (with configured Anthropic provider): locked note disappears,
+		// admin with CanChangeInfo switches off -> low -> medium cleanly, denied admin is refused.
+		if err := chatconv.SetEnabled(context.Background(), aiChat.Id, true, owner.Id); err != nil {
+			t.Fatalf("chatconv.SetEnabled(true) = %v", err)
+		}
+		env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActOpen, "p", settingsPagePresence))
+		unlockedText, _ := env.lastEdit(allowedAdmin.Id, msgID)
+		if strings.Contains(unlockedText, staffMarker("settings_pr_ai_locked_note")) {
+			t.Errorf("unlocked page pr still shows settings_pr_ai_locked_note:\n%s", unlockedText)
+		}
+
+		env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlAIReact, "v", "l"))
+		if got := settingsPresenceStored(t, aiChat.Id); got.AIReactMode != presence.AIReactModeLow {
+			t.Fatalf("after v=l: AIReactMode = %q, want low", got.AIReactMode)
+		}
+		env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlAIReact, "v", "m"))
+		if got := settingsPresenceStored(t, aiChat.Id); got.AIReactMode != presence.AIReactModeMedium {
+			t.Fatalf("after v=m: AIReactMode = %q, want medium", got.AIReactMode)
+		}
+		_, medKB := env.lastEdit(allowedAdmin.Id, msgID)
+		medBtn, ok := settingsChatFind(t, medKB, func(f map[string]string) bool {
+			return f["a"] == settingsActSet && f["t"] == settingsPresenceControlAIReact && f["v"] == "m"
+		})
+		if !ok || !strings.HasPrefix(medBtn.Text, settingsSelectedPrefix) {
+			t.Errorf("medium button = %+v (found=%v), want selected prefix", medBtn, ok)
+		}
+
+		// Denied admin (no CanChangeInfo) cannot change AI react mode.
+		env.sendPrivate(deniedAdmin, fmt.Sprintf("/start settings_%d", aiChat.Id))
+		deniedMsg := settingsPrivateOnlySent(t, env, deniedAdmin).MessageID
+		env.pressPrivate(deniedAdmin, deniedMsg, env.privateFields(aiChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlAIReact, "v", "l"))
+		if _, alert := env.lastAnswer(); !alert {
+			t.Error("admin without CanChangeInfo did not get refusal alert on t=ai")
+		}
+		if got := settingsPresenceStored(t, aiChat.Id); got.AIReactMode != presence.AIReactModeMedium {
+			t.Fatalf("denied admin mutated AIReactMode to %q, want medium", got.AIReactMode)
+		}
+
+		// Main state counts AI reactions when both AIReactMode != off and Conversations is unlocked:
+		// Consensus=true + Retract=false + AI=medium (unlocked) => 2 on.
+		env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActBack))
+		mainUnlocked, _ := env.lastEdit(allowedAdmin.Id, msgID)
+		if line, ok := settingsMainStateLine(mainUnlocked, "settings_page_presence"); !ok || !strings.Contains(line, staffMarker("settings_state_presence_on")+" 2") {
+			t.Errorf("Main state with unlocked AI=medium = %q (found=%v), want 2 on", line, ok)
+		}
+
+		// Owner disables Conversations: Main state immediately drops AI reactions (2 -> 1 on),
+		// and admin can STILL disable AI reactions (medium -> off), while re-enabling is refused.
+		if err := chatconv.SetEnabled(context.Background(), aiChat.Id, false, owner.Id); err != nil {
+			t.Fatalf("chatconv.SetEnabled(false) = %v", err)
+		}
+		env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActBack))
+		mainLocked, _ := env.lastEdit(allowedAdmin.Id, msgID)
+		if line, ok := settingsMainStateLine(mainLocked, "settings_page_presence"); !ok || !strings.Contains(line, staffMarker("settings_state_presence_on")+" 1") {
+			t.Errorf("Main state after Owner disables Conversations = %q (found=%v), want 1 on", line, ok)
+		}
+
+		env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlAIReact, "v", "o"))
+		if got := settingsPresenceStored(t, aiChat.Id); got.AIReactMode != presence.AIReactModeOff {
+			t.Fatalf("disabling AI reactions while Conversations off failed: AIReactMode = %q, want off", got.AIReactMode)
+		}
+		env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlAIReact, "v", "l"))
+		if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker("settings_pr_ai_need_owner")) {
+			t.Errorf("re-enabling while Conversations off answered (%q, alert=%v), want settings_pr_ai_need_owner", ans, alert)
+		}
+		if got := settingsPresenceStored(t, aiChat.Id); got.AIReactMode != presence.AIReactModeOff {
+			t.Fatalf("re-enabling while Conversations off mutated AIReactMode to %q, want off", got.AIReactMode)
+		}
+
+		// Forged invalid t=ai values are rejected before any DB reads/writes.
+		var reads atomic.Int32
+		origRead := settingsPresenceRead
+		settingsPresenceRead = func(ctx context.Context, chatID int64) (presence.Settings, error) {
+			reads.Add(1)
+			return origRead(ctx, chatID)
+		}
+		t.Cleanup(func() { settingsPresenceRead = origRead })
+		for _, bad := range []string{"x", "high", ""} {
+			env.pressPrivate(allowedAdmin, msgID, env.privateFields(aiChat.Id, "a", settingsActSet, "p", settingsPagePresence, "t", settingsPresenceControlAIReact, "v", bad))
+			if ans, alert := env.lastAnswer(); !alert || !strings.Contains(ans, staffMarker("common_callback_invalid_request")) {
+				t.Errorf("forged t=ai v=%q answered (%q, alert=%v), want common_callback_invalid_request", bad, ans, alert)
+			}
+		}
+		if reads.Load() != 0 {
+			t.Errorf("forged t=ai presses called settingsPresenceRead %d times, want 0", reads.Load())
 		}
 	})
 }
