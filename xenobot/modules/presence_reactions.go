@@ -15,6 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/uasneppy/Xenobot-72/xenobot/db/chatconv"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/chat_status"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/error_handling"
@@ -34,6 +35,10 @@ var (
 	// presenceConsensusCooldown gates per-chat Emoji Consensus firing across replicas.
 	// Package variable only so tests can shorten it.
 	presenceConsensusCooldown = 5 * time.Minute
+
+	// presencePMBriefCooldown gates per-user ✍ PM brief reactions in one chat.
+	// Package variable only so tests can shorten it.
+	presencePMBriefCooldown = 60 * time.Second
 
 	// presenceSettingsGet reads a chat's skipLocal cached Interactive Presence settings.
 	// Package variable only so tests can inject errors or fixtures.
@@ -211,6 +216,9 @@ func presenceHandleReaction(runCtx context.Context, b *gotgbot.Bot, ctx *ext.Con
 	if settings.ArchiveEnabled && settings.ArchiveChatID != 0 && mru.User != nil {
 		presenceHandleArchive(runCtx, b, mru, settings)
 	}
+	if settings.PMBriefReact && mru.User != nil && slices.Contains(added, "✍") {
+		presenceHandlePMBrief(runCtx, b, mru)
+	}
 }
 
 // presenceHandleRetract handles thumbs-down retraction (REACT-05): checks Redis bot_react before
@@ -345,4 +353,55 @@ func presenceConsensusClaim(ctx context.Context, client *redis.Client, chatID, m
 		return false
 	}
 	return claimed == 1
+}
+
+// presencePMBriefCooldownKey gates per-user ✍ PM brief reactions in one chat, outside xenobot:cache:.
+func presencePMBriefCooldownKey(chatID, userID int64) string {
+	return presenceKeyPrefix + "pmbrief:cd:{" + strconv.FormatInt(chatID, 10) + "}:" + strconv.FormatInt(userID, 10)
+}
+
+// presenceHandlePMBrief handles a ✍ reaction (CHAT-05): enforces Owner LogEnabled + provider,
+// lazy fail-closed lockdown check, Audience gate, per-user Redis cooldown, and logged message
+// resolution before queueing a silent PM brief under StopChat. Posts zero group messages.
+func presenceHandlePMBrief(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.MessageReactionUpdated) {
+	if mru == nil || mru.User == nil || !chatAnyProviderConfigured() {
+		return
+	}
+	client := presenceRedisClient()
+	if client == nil {
+		return
+	}
+	conv, err := chatSettingsLookup(ctx, mru.Chat.Id)
+	if err != nil || !conv.LogEnabled || !chatProviderConfigured(conv.Provider) {
+		return
+	}
+	if presenceIsLockedDown(mru.Chat.Id) {
+		return
+	}
+	if !chatAudienceAllows(ctx, b, conv.Audience, mru.Chat.Id, mru.User.Id) {
+		return
+	}
+	rCtx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
+	defer cancel()
+	claimed, err := client.SetNX(rCtx, presencePMBriefCooldownKey(mru.Chat.Id, mru.User.Id), "1", presencePMBriefCooldown).Result()
+	if err != nil || !claimed {
+		return
+	}
+	entry, found, err := chatLogEntryAt(ctx, client, mru.Chat.Id, mru.MessageId)
+	if err != nil || !found {
+		return
+	}
+	chatBriefEnqueue(chatBriefJob{
+		bot:       b,
+		chatID:    mru.Chat.Id,
+		chatTitle: mru.Chat.Title,
+		userID:    mru.User.Id,
+		messageID: mru.MessageId,
+		threadID:  entry.Thread,
+		fromID:    mru.MessageId,
+		provider:  conv.Provider,
+		kind:      chatBriefShort,
+		dest:      chatconv.JudgeToPrivate,
+		silentPM:  true,
+	})
 }
