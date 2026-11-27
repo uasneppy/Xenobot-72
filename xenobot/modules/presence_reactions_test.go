@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,6 +20,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/uasneppy/Xenobot-72/xenobot/db/chatconv"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
 	utilsCache "github.com/uasneppy/Xenobot-72/xenobot/utils/cache"
@@ -945,4 +947,292 @@ func TestShutdownEndsPresenceReaction(t *testing.T) {
 	if got := serverCalls.Load(); got != 1 {
 		t.Fatalf("server setMessageReaction calls = %d, want 1 (late reaction must be shed)", got)
 	}
+}
+
+func TestPresencePMBriefReaction(t *testing.T) {
+	const (
+		chatID int64 = -100888777
+		userID int64 = 4201
+		msgID  int64 = 500
+	)
+	groupChat := gotgbot.Chat{Id: chatID, Type: "supergroup", Title: "Room <A>"}
+
+	setupPMBrief := func(t *testing.T, pmBriefEnabled, logEnabled bool, audience int, refuseUserID int64) (*presenceReactionTestEnv, *chatFakeProvider) {
+		t.Helper()
+		withRealLocales(t)
+		withChatProviders(t, true, true, true)
+		withChatRuntime(t)
+
+		env := newPresenceReactionEnv(t, chatID)
+		provider := &chatFakeProvider{}
+		chatSwap(t, &chatProviderOf, func(string) chatProvider { return provider })
+		chatSwap(t, &presencePMBriefCooldown, presencePMBriefCooldown)
+		chatSwap(t, &presenceSettingsGet, func(context.Context, int64) (presence.Settings, error) {
+			return presence.Settings{PMBriefReact: pmBriefEnabled, RetractEnabled: true, ConsensusThreshold: 3}, nil
+		})
+		chatSwap(t, &chatSettingsLookup, func(context.Context, int64) (chatconv.Settings, error) {
+			return chatconv.Settings{
+				Provider:   chatconv.ProviderAnthropic,
+				LogEnabled: logEnabled,
+				Audience:   audience,
+			}, nil
+		})
+		if refuseUserID != 0 {
+			env.bot = newWireTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+				params, err := decodeTelegramWireParams(r)
+				env.recordCall(r.URL.Path, params, err)
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/bottest/sendMessage" && params["chat_id"] == strconv.FormatInt(refuseUserID, 10) {
+					w.WriteHeader(http.StatusForbidden)
+					_, _ = w.Write([]byte(`{"ok":false,"error_code":403,"description":"Forbidden: bot was blocked by the user"}`))
+					return
+				}
+				_, _ = w.Write([]byte(`{"ok":true,"result":{}}`))
+			})
+		}
+		return env, provider
+	}
+
+	seedTopicTalk := func(t *testing.T, rc *redis.Client) {
+		t.Helper()
+		for _, entry := range []chatLogEntry{
+			{MessageID: msgID - 1, UserID: 101, Name: "Alice", Text: "before-anchor-t7", Thread: 7, At: 1700000000},
+			{MessageID: msgID, UserID: 102, Name: "Bob", Text: "anchor-t7", Thread: 7, At: 1700000010},
+			{MessageID: msgID + 1, UserID: 103, Name: "Carol", Text: "other-topic-t9", Thread: 9, At: 1700000020},
+			{MessageID: msgID + 2, UserID: 101, Name: "Alice", Text: "followup-t7", Thread: 7, At: 1700000030},
+		} {
+			if err := chatLogRecord(rc, chatID, entry); err != nil {
+				t.Fatalf("chatLogRecord(%d): %v", entry.MessageID, err)
+			}
+		}
+	}
+
+	t.Run("happy path sends PM brief for same topic and zero group messages", func(t *testing.T) {
+		env, provider := setupPMBrief(t, true, true, chatconv.AudienceEveryone, 0)
+		seedTopicTalk(t, env.rc)
+		provider.script(chatAnswerText("Bob & Alice discussed topic 7."))
+
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat:        groupChat,
+			MessageId:   msgID,
+			User:        &gotgbot.User{Id: userID, FirstName: "Reader"},
+			NewReaction: emojiReactions("✍"),
+		})
+		chatJobs.wait()
+
+		calls := provider.calls()
+		if len(calls) != 1 {
+			t.Fatalf("provider calls = %d, want 1", len(calls))
+		}
+		if strings.Contains(calls[0].User, "before-anchor-t7") || strings.Contains(calls[0].User, "other-topic-t9") {
+			t.Fatalf("PM brief request leaked earlier or other-topic messages:\n%s", calls[0].User)
+		}
+		if !strings.Contains(calls[0].User, "anchor-t7") || !strings.Contains(calls[0].User, "followup-t7") {
+			t.Fatalf("PM brief request missing topic 7 stretch:\n%s", calls[0].User)
+		}
+
+		if actions := env.callsFor("sendChatAction"); len(actions) != 0 {
+			t.Fatalf("sendChatAction calls = %d, want 0 (silent PM)", len(actions))
+		}
+		sends := env.callsFor("sendMessage")
+		if len(sends) != 1 {
+			t.Fatalf("sendMessage calls = %d, want 1 PM only", len(sends))
+		}
+		if sends[0].Params["chat_id"] != strconv.FormatInt(userID, 10) {
+			t.Fatalf("sendMessage chat_id = %q, want %d", sends[0].Params["chat_id"], userID)
+		}
+		if tid := sends[0].Params["message_thread_id"]; tid != "" && tid != "0" {
+			t.Fatalf("PM message_thread_id = %q, want empty/0", tid)
+		}
+		if !strings.Contains(sends[0].Params["text"], "Room &lt;A&gt;") || !strings.Contains(sends[0].Params["text"], "Bob &amp; Alice discussed topic 7.") {
+			t.Fatalf("PM text = %q", sends[0].Params["text"])
+		}
+	})
+
+	t.Run("403 PM blocked posts zero group messages or typing", func(t *testing.T) {
+		env, provider := setupPMBrief(t, true, true, chatconv.AudienceEveryone, userID)
+		seedTopicTalk(t, env.rc)
+		provider.script(chatAnswerText("Silent fail on 403."))
+		failedBefore := chatBriefFailedCount.Load()
+
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat:        groupChat,
+			MessageId:   msgID,
+			User:        &gotgbot.User{Id: userID, FirstName: "Blocked"},
+			NewReaction: emojiReactions("✍️"),
+		})
+		chatJobs.wait()
+
+		if len(provider.calls()) != 1 {
+			t.Fatalf("provider calls = %d, want 1", len(provider.calls()))
+		}
+		if chatBriefFailedCount.Load() != failedBefore+1 {
+			t.Fatalf("chatBriefFailedCount did not increment on 403")
+		}
+		if actions := env.callsFor("sendChatAction"); len(actions) != 0 {
+			t.Fatalf("sendChatAction calls = %d, want 0", len(actions))
+		}
+		for _, call := range env.callsFor("sendMessage") {
+			if call.Params["chat_id"] == strconv.FormatInt(chatID, 10) {
+				t.Fatalf("403 PM leaked message to group: %+v", call)
+			}
+		}
+	})
+
+	t.Run("safety gates, double-gating, unlogged message, and per-user cooldown", func(t *testing.T) {
+		// 1. PMBriefReact=false
+		env, provider := setupPMBrief(t, false, true, chatconv.AudienceEveryone, 0)
+		seedTopicTalk(t, env.rc)
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat: groupChat, MessageId: msgID, User: &gotgbot.User{Id: userID, FirstName: "U"}, NewReaction: emojiReactions("✍"),
+		})
+		chatJobs.wait()
+		if len(provider.calls()) != 0 || len(env.allCalls()) != 0 {
+			t.Fatalf("PMBriefReact=false triggered work")
+		}
+
+		// 2. LogEnabled=false
+		env, provider = setupPMBrief(t, true, false, chatconv.AudienceEveryone, 0)
+		seedTopicTalk(t, env.rc)
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat: groupChat, MessageId: msgID, User: &gotgbot.User{Id: userID, FirstName: "U"}, NewReaction: emojiReactions("✍"),
+		})
+		chatJobs.wait()
+		if len(provider.calls()) != 0 || len(env.allCalls()) != 0 {
+			t.Fatalf("LogEnabled=false triggered work")
+		}
+
+		// 3. Anonymous user, bot user, Staff Group, lockdown, AudienceAdminsApproved, unlogged msg
+		env, provider = setupPMBrief(t, true, true, chatconv.AudienceEveryone, 0)
+		seedTopicTalk(t, env.rc)
+
+		// Anonymous admin (User == nil)
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat: groupChat, MessageId: msgID, User: nil, ActorChat: &groupChat, NewReaction: emojiReactions("✍"),
+		})
+		// Bot user
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat: groupChat, MessageId: msgID, User: &gotgbot.User{Id: userID, IsBot: true, FirstName: "Bot"}, NewReaction: emojiReactions("✍"),
+		})
+		// Unlogged message
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat: groupChat, MessageId: msgID + 999, User: &gotgbot.User{Id: userID + 1, FirstName: "U"}, NewReaction: emojiReactions("✍"),
+		})
+		chatJobs.wait()
+		if len(provider.calls()) != 0 || len(env.allCalls()) != 0 {
+			t.Fatalf("anon/bot/unlogged triggered work: calls=%d tg=%d", len(provider.calls()), len(env.allCalls()))
+		}
+
+		// Staff Group
+		chatSwap(t, &presenceStaffLookup, func(int64) *models.StaffGroup { return &models.StaffGroup{ChatID: chatID} })
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat: groupChat, MessageId: msgID, User: &gotgbot.User{Id: userID + 2, FirstName: "U"}, NewReaction: emojiReactions("✍"),
+		})
+		chatJobs.wait()
+		chatSwap(t, &presenceStaffLookup, func(int64) *models.StaffGroup { return nil })
+
+		// Active lockdown
+		chatSwap(t, &presenceLockdownLookup, func(int64) (*models.ChatLockdown, error) {
+			return &models.ChatLockdown{ChatID: chatID, State: models.LockdownStateActive}, nil
+		})
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat: groupChat, MessageId: msgID, User: &gotgbot.User{Id: userID + 3, FirstName: "U"}, NewReaction: emojiReactions("✍"),
+		})
+		chatJobs.wait()
+		chatSwap(t, &presenceLockdownLookup, func(int64) (*models.ChatLockdown, error) { return nil, nil })
+
+		if len(provider.calls()) != 0 || len(env.allCalls()) != 0 {
+			t.Fatalf("staff/lockdown triggered work")
+		}
+
+		// AudienceAdminsApproved rejects non-approved non-admin user
+		env, provider = setupPMBrief(t, true, true, chatconv.AudienceAdminsApproved, 0)
+		seedTopicTalk(t, env.rc)
+		chatSwap(t, &chatAudienceAdmin, func(*gotgbot.Bot, int64, int64) bool { return false })
+		chatSwap(t, &chatAudienceApproved, func(context.Context, int64, int64) (bool, error) { return false, nil })
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat: groupChat, MessageId: msgID, User: &gotgbot.User{Id: userID + 4, FirstName: "U"}, NewReaction: emojiReactions("✍"),
+		})
+		chatJobs.wait()
+		if len(provider.calls()) != 0 || len(env.allCalls()) != 0 {
+			t.Fatalf("AudienceAdminsApproved non-approved triggered work")
+		}
+
+		// Per-user cooldown prevents rapid tapping from draining brief budgets
+		env, provider = setupPMBrief(t, true, true, chatconv.AudienceEveryone, 0)
+		seedTopicTalk(t, env.rc)
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat: groupChat, MessageId: msgID, User: &gotgbot.User{Id: userID, FirstName: "Tapper"}, NewReaction: emojiReactions("✍"),
+		})
+		chatJobs.wait()
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat: groupChat, MessageId: msgID + 2, User: &gotgbot.User{Id: userID, FirstName: "Tapper"}, NewReaction: emojiReactions("✍"),
+		})
+		chatJobs.wait()
+		if got := len(provider.calls()); got != 1 {
+			t.Fatalf("rapid tap provider calls = %d, want 1", got)
+		}
+		if got := len(env.callsFor("sendMessage")); got != 1 {
+			t.Fatalf("rapid tap sendMessage calls = %d, want 1", got)
+		}
+	})
+
+	t.Run("StopChat cancels and drains in-flight ✍ PM brief job with zero new drains", func(t *testing.T) {
+		restoreChatPool(t)
+		env, provider := setupPMBrief(t, true, true, chatconv.AudienceEveryone, 0)
+		chatSwap(t, &chatStopWait, 2*time.Second)
+		seedTopicTalk(t, env.rc)
+
+		started := make(chan struct{})
+		provider.script(func(ctx context.Context, _ chatRequest) (chatAnswer, error) {
+			close(started)
+			<-ctx.Done()
+			return chatAnswer{}, ctx.Err()
+		})
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+				Chat:        groupChat,
+				MessageId:   msgID,
+				User:        &gotgbot.User{Id: userID, FirstName: "Reader"},
+				NewReaction: emojiReactions("✍"),
+			})
+		}()
+
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for ✍ PM brief provider call to start")
+		}
+
+		stopStart := time.Now()
+		if !StopChat() {
+			t.Fatal("StopChat() timed out during ✍ PM brief job")
+		}
+		if elapsed := time.Since(stopStart); elapsed >= chatStopWait {
+			t.Errorf("StopChat() took %v, expected well inside %v", elapsed, chatStopWait)
+		}
+
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("dispatchReaction goroutine did not exit")
+		}
+
+		// Late ✍ reaction while draining is shed immediately.
+		env.dispatchReaction(&gotgbot.MessageReactionUpdated{
+			Chat:        groupChat,
+			MessageId:   msgID,
+			User:        &gotgbot.User{Id: userID + 1, FirstName: "Late"},
+			NewReaction: emojiReactions("✍"),
+		})
+		if len(provider.calls()) != 1 {
+			t.Fatalf("provider calls = %d, want 1", len(provider.calls()))
+		}
+		if len(env.callsFor("sendMessage")) != 0 {
+			t.Fatalf("sendMessage calls = %d, want 0 after StopChat", len(env.callsFor("sendMessage")))
+		}
+	})
 }
