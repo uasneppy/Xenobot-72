@@ -11,6 +11,7 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/message"
+	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/poll"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext/handlers/filters/reaction"
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
@@ -96,6 +97,7 @@ return 1
 // and /unsetarchive commands, and the group-11 forward capture watcher.
 func LoadPresence(dispatcher *ext.Dispatcher) {
 	dispatcher.AddHandler(handlers.NewReaction(reaction.All, presenceModule.handleReaction))
+	dispatcher.AddHandler(handlers.NewPoll(poll.All, chatModule.handlePollUpdate))
 	dispatcher.AddHandler(helpers.NewBotCommand("setarchive", presenceModule.setArchive).SetAllowChannel(true))
 	dispatcher.AddHandler(helpers.NewBotCommand("unsetarchive", presenceModule.unsetArchive))
 	dispatcher.AddHandlerToGroup(

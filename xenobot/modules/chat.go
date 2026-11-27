@@ -48,7 +48,15 @@ var judgeDesc = helpers.CommandDescriptor{
 	},
 }
 
-// LoadChat registers /ask (alias /xeno), /unrollshort, /unrolllong, /judge, the conversation watcher, alone at its own
+// referendumDesc is /referendum: everyone allowed by chat Audience may spark an AI-drafted
+// native poll when Owner Conversations and Admin Referendum are both on.
+var referendumDesc = helpers.CommandDescriptor{
+	Name:           "referendum",
+	Disableable:    true,
+	RequiredChecks: []helpers.CheckFunc{helpers.CheckDisabled("referendum"), helpers.RequireGroup()},
+}
+
+// LoadChat registers /ask (alias /xeno), /unrollshort, /unrolllong, /judge, /referendum, the conversation watcher, alone at its own
 // handler group after every other group, with no setter (new messages of real users only), and the
 // message log watcher at the group after it.
 func LoadChat(dispatcher *ext.Dispatcher) {
@@ -66,13 +74,14 @@ func LoadChat(dispatcher *ext.Dispatcher) {
 	helpers.WrapCommand(dispatcher, unrollShortDesc, chatModule.unrollShort)
 	helpers.WrapCommand(dispatcher, unrollLongDesc, chatModule.unrollLong)
 	helpers.WrapCommand(dispatcher, judgeDesc, chatModule.judgeCommand)
+	helpers.WrapCommand(dispatcher, referendumDesc, chatModule.referendumCommand)
 	dispatcher.AddHandlerToGroup(handlers.NewMessage(message.All, chatModule.chatWatcher), chatWatchGroup)
 	// The log watcher is the only handler of its group. It sees edits, which the conversation
 	// watcher does not, and ends no update.
 	dispatcher.AddHandlerToGroup(handlers.NewMessage(message.All, chatModule.chatLogWatcher).SetAllowEdited(true), chatLogGroup)
 
 	SetModuleEnabled(chatModule.moduleName, true)
-	DefaultHelpRegistry().AltHelpOptions["Chat"] = []string{"conversations", "ask", "xeno", "unrollshort", "unrolllong", "judge", "messagelog"}
+	DefaultHelpRegistry().AltHelpOptions["Chat"] = []string{"conversations", "ask", "xeno", "unrollshort", "unrolllong", "judge", "messagelog", "referendum"}
 	log.Info("[Modules] Chat module loaded")
 }
 
