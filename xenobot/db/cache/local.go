@@ -61,6 +61,7 @@ var (
 
 	chatAdvancedThresholdsPrefix = CacheKey("chat_advanced_thresholds") + ":"
 	chatPresencePrefix           = CacheKey("chat_presence") + ":"
+	reactionRulesPrefix          = CacheKey("reaction_rules") + ":"
 )
 
 // skipLocal reports whether key must never be served from process memory.
@@ -115,6 +116,9 @@ func skipLocal(key string) bool {
 	// The chat_presence key holds per-group Interactive Presence settings: an admin's toggle or
 	// threshold change must reach every replica on the very next reaction or message, not after
 	// CACHE_LOCAL_TTL seconds.
+	//
+	// The reaction_rules key holds per-rule static reaction options: option edits in private
+	// settings must reach every replica on the next message, not after CACHE_LOCAL_TTL seconds.
 	return strings.HasPrefix(key, captchaPendingPrefix) ||
 		strings.HasPrefix(key, staffGroupPrefix) ||
 		strings.HasPrefix(key, staffLinkOfPrefix) ||
@@ -128,7 +132,8 @@ func skipLocal(key string) bool {
 		strings.HasPrefix(key, chatManualDefaultsPrefix) ||
 		strings.HasPrefix(key, chatReasonShortcutsPrefix) ||
 		strings.HasPrefix(key, chatAdvancedThresholdsPrefix) ||
-		strings.HasPrefix(key, chatPresencePrefix)
+		strings.HasPrefix(key, chatPresencePrefix) ||
+		strings.HasPrefix(key, reactionRulesPrefix)
 }
 
 func localSettings() (ttl, size int) {
