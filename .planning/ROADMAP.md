@@ -78,7 +78,7 @@ Every phase is implemented, security-audited with no open threat, code-reviewed 
 - [x] **Phase 31: Presence Foundation, Settings Page and Zero-AI Social Reactions** - `"message_reaction"` subscription, `chat_presence` storage, shared Staff/lockdown safety gate, private `Presence` Settings page (`pr`), validated `AvailableReactions`-safe reaction API + `bot_react` tracking, zero-AI Emoji Consensus, and `👎` Retraction (completed 2026-11-27)
 - [x] **Phase 32: Contextual AI Emoji Reactions** - Owner×Admin runtime double-gating, `chatPresenceQueue` worker lane under `StopChat`, cross-replica Redis throttle/budget gate, 3-provider JSON picker (`MaxTokens = 512`) over all 73 standard emojis ∩ `AvailableReactions`, vision support via `chat_media.go` with text-only Featherless fallback, and non-tripping error shedding (completed 2026-11-27)
 - [x] **Phase 33: Smarter Static Reactions, Highlights Archive and Backup Parity** - Unicode word-boundary/caption/chance/cooldown static reactions with `ctx.Data` AI handoff, zero-AI cat-sticker micro-triggers, Crowd-Picked Highlights ("Facility Archive") with `/setarchive` proof and durable PostgreSQL dedup, and `BackupModulePresence` / `BackupModuleReactions` parity (completed 2026-11-27)
-- [ ] **Phase 34: Room-Aware Conversations and Frictionless Catch-Up** - Timestamped `chat_log` (`At: msg.Date`) with thread-isolated query helpers, Ambient Room Context injected into Conversations, opt-in vocative name-addressing, reply-free `/unrollshort`/`/unrolllong <N|me|2h> [pm]`, and silent `✍` react-to-brief in PM
+- [x] **Phase 34: Room-Aware Conversations and Frictionless Catch-Up** - Timestamped `chat_log` (`At: msg.Date`) with thread-isolated query helpers, Ambient Room Context injected into Conversations, opt-in vocative name-addressing, reply-free `/unrollshort`/`/unrolllong <N|me|2h> [pm]`, and silent `✍` react-to-brief in PM (completed 2026-11-27)
 - [ ] **Phase 35: Interactive Group Toys** - AI-drafted native polls (`/referendum`) with dedicated `toy:b` budget and `handlers.NewPoll` deadpan tie-breaker, plus playful `/inspect` vision verdicts paired with validated reaction emojis
 
 ### Cross-Cutting Constraints
@@ -221,5 +221,5 @@ Phases execute in numeric order: 31 → 32 → 33 → 34 → 35
 | 31. Presence Foundation, Settings Page and Zero-AI Social Reactions | v1.3 | 5/5 | Complete    | 2026-11-27 |
 | 32. Contextual AI Emoji Reactions | v1.3 | 6/6 | Complete    | 2026-11-27 |
 | 33. Smarter Static Reactions, Highlights Archive and Backup Parity | v1.3 | 8/8 | Complete    | 2026-11-27 |
-| 34. Room-Aware Conversations and Frictionless Catch-Up | v1.3 | 8/8 | Executed | - |
+| 34. Room-Aware Conversations and Frictionless Catch-Up | v1.3 | 8/8 | Complete    | 2026-11-27 |
 | 35. Interactive Group Toys | v1.3 | 0/TBD | Not started | - |
