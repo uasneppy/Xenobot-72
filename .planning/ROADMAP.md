@@ -208,7 +208,16 @@ Plans:
   1. When `/referendum` is enabled (and Owner Conversations is on), a permitted member (following `Audience`) runs `/referendum` from recent same-thread context or a replied debate and gets a validated, sanitized native Telegram poll (`SendPoll`) bounded by the dedicated `toy:b` hourly budget.
   2. When a bot-created `/referendum` poll closes in a tie with at least one vote (`TotalVoterCount > 0`), the bot claims it once-only across replicas and posts one deadpan Facility Tie-Breaker verdict in the original chat and forum topic; zero-vote or non-tied polls post nothing.
   3. When `/inspect` is enabled (and Owner Conversations is on), a permitted member replying `/inspect` to a text message, photo, or sticker receives a crisp 2–3 line deadpan "Facility Inspection" verdict (with vision via `chat_media.go` when available) plus a validated matching reaction emoji recorded in `bot_react` so `👎` retraction clears it.
-**Plans**: TBD
+**Plans:** 7 plans
+
+Plans:
+- [ ] 35-01-PLAN.md — `chat_presence` toys migration (`referendum_enabled`, `inspect_enabled`), model, `skipLocal` repo & `BackupModulePresence` parity
+- [ ] 35-02-PLAN.md — Leaf `chatprompt/toys.go` prompt builders (`ReferendumMaxTokens = 768`, `InspectMaxTokens = 512`), lookalike warnings & strict JSON parsers
+- [ ] 35-03-PLAN.md — 8-locale translations, `chat_help_msg` update & `xenobot/i18n` ceilings/button-width/tag validation (`settings_locale_test.go`, `chat_toys_locale_test.go`)
+- [ ] 35-04-PLAN.md — `presence.go` apply layer & toy Redis keys + Private Settings sub-page `pc` (`rf`/`in`, 6 rows `<= 8`, `pr` 8 rows, `31` pages, `17` Main rows) with Owner×Admin gating
+- [ ] 35-05-PLAN.md — Shared `StopChat` toy lane & `"toy:b"` budget, `/referendum` (`SendPollWithContext` + `xenobot:presence:poll:<id>`) & group `0` `handlers.NewPoll` tie-breaker (`TOYS-01`, `TOYS-02`)
+- [ ] 35-06-PLAN.md — `/inspect` reply command (`chat_media.go` vision + Featherless `text_only` fallback, `AllowSendingWithoutReply: false` verdict + `presenceSetReaction(..., "inspect")` 24h `bot_react` / `👎` retraction) (`TOYS-03`)
+- [ ] 35-07-PLAN.md — `Makefile` PG integrity list, `make generate-docs` / `make check-docs`, `AGENTS.md` update & full Phase 35 verification gate
 **UI hint**: yes
 
 ## Progress
@@ -222,4 +231,4 @@ Phases execute in numeric order: 31 → 32 → 33 → 34 → 35
 | 32. Contextual AI Emoji Reactions | v1.3 | 6/6 | Complete    | 2026-11-27 |
 | 33. Smarter Static Reactions, Highlights Archive and Backup Parity | v1.3 | 8/8 | Complete    | 2026-11-27 |
 | 34. Room-Aware Conversations and Frictionless Catch-Up | v1.3 | 8/8 | Complete    | 2026-11-27 |
-| 35. Interactive Group Toys | v1.3 | 0/TBD | Not started | - |
+| 35. Interactive Group Toys | v1.3 | 0/7 | Planned | - |
