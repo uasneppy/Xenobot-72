@@ -34,13 +34,14 @@ type settingsPhase30Code struct {
 }
 
 func settingsPhase30Codes() []settingsPhase30Code {
+	allMask := settingsBackupFormatMask(settingsBackupAllMask)
 	return []settingsPhase30Code{
-		{settingsActBackupToggle, settingsPageBackup, []string{"m", "fffff"}},
-		{settingsActBackupExport, settingsPageBackup, []string{"m", "fffff"}},
+		{settingsActBackupToggle, settingsPageBackup, []string{"m", allMask}},
+		{settingsActBackupExport, settingsPageBackup, []string{"m", allMask}},
 		{settingsActBackupImport, settingsPageBackup, nil},
 		{settingsActBackupImportCancel, settingsPageBackup, []string{"t", settingsBackupImportPart}},
 		{settingsActBackupImportYes, settingsPageBackup, []string{"k", "0123456789abcdef"}},
-		{settingsActBackupResetAsk, settingsPageBackup, []string{"m", "fffff"}},
+		{settingsActBackupResetAsk, settingsPageBackup, []string{"m", allMask}},
 		{settingsActBackupResetYes, settingsPageBackup, []string{"k", "0123456789abcdef"}},
 	}
 }
@@ -222,12 +223,13 @@ func TestPhase30ReadsCreateNothing(t *testing.T) {
 	group("a", settingsActOpen, "p", settingsPageBackup)
 	group("a", settingsActBack)
 
-	// Private menu: Main -> open ba -> toggle bv (m=1, m=0, m=fffff) -> Back.
+	// Private menu: Main -> open ba -> toggle bv (m=1, m=0, m=allMask) -> Back.
+	allMask := settingsBackupFormatMask(settingsBackupAllMask)
 	private("a", settingsActBack)
 	private("a", settingsActOpen, "p", settingsPageBackup)
 	private("a", settingsActBackupToggle, "m", "1")
 	private("a", settingsActBackupToggle, "m", "0")
-	private("a", settingsActBackupToggle, "m", "fffff")
+	private("a", settingsActBackupToggle, "m", allMask)
 	private("a", settingsActBack)
 
 	if got := rows(env.chat.Id); len(got) != 0 {
@@ -319,12 +321,13 @@ func TestPhase30StaffPrivacyAndLogs(t *testing.T) {
 	press := func(kv ...string) { env.pressPrivate(owner, msgID, env.privateFields(group.Id, kv...)) }
 
 	// 1. Open ba and toggle modules (bv).
+	allMask := settingsBackupFormatMask(settingsBackupAllMask)
 	press("a", settingsActOpen, "p", settingsPageBackup)
 	press("a", settingsActBackupToggle, "m", "7ffff")
-	press("a", settingsActBackupToggle, "m", "fffff")
+	press("a", settingsActBackupToggle, "m", allMask)
 
-	// 2. Export (be) all 20 modules containing sentinels -> capture exported backup JSON.
-	press("a", settingsActBackupExport, "m", "fffff")
+	// 2. Export (be) all modules containing sentinels -> capture exported backup JSON.
+	press("a", settingsActBackupExport, "m", allMask)
 	docs := env.fake.callsFor("sendDocument")
 	if len(docs) != 1 {
 		t.Fatalf("sendDocument calls = %d, want 1", len(docs))
@@ -341,7 +344,7 @@ func TestPhase30StaffPrivacyAndLogs(t *testing.T) {
 	}
 
 	// 3. Reset (br -> capture 16-char reset token -> bu).
-	press("a", settingsActBackupResetAsk, "m", "fffff")
+	press("a", settingsActBackupResetAsk, "m", allMask)
 	_, resetCardKB := env.lastEdit(owner.Id, msgID)
 	resetYesBtn, ok := settingsAdvFindButton(t, resetCardKB, map[string]string{"a": settingsActBackupResetYes})
 	if !ok {
@@ -500,9 +503,9 @@ func TestPhase30StaffPrivacyAndLogs(t *testing.T) {
 	staffPrivMsg := env.updateID()
 	for _, fields := range []map[string]string{
 		env.privateFields(staffChat.Id, "a", settingsActOpen, "p", settingsPageBackup),
-		env.privateFields(staffChat.Id, "a", settingsActBackupExport, "m", "fffff"),
+		env.privateFields(staffChat.Id, "a", settingsActBackupExport, "m", allMask),
 		env.privateFields(staffChat.Id, "a", settingsActBackupImport),
-		env.privateFields(staffChat.Id, "a", settingsActBackupResetAsk, "m", "fffff"),
+		env.privateFields(staffChat.Id, "a", settingsActBackupResetAsk, "m", allMask),
 	} {
 		env.pressPrivate(owner, staffPrivMsg, fields)
 		ans, alert := copyLastAnswer(t, env)

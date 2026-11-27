@@ -173,8 +173,9 @@ func TestPhase30EndToEnd(t *testing.T) {
 		env.pressPrivate(allowedAdmin, adminPrivMsg, env.privateFields(chat.Id, kv...))
 	}
 
+	allMask := settingsBackupFormatMask(settingsBackupAllMask)
 	pressAdmin("a", settingsActOpen, "p", settingsPageBackup)
-	pressAdmin("a", settingsActBackupExport, "m", "fffff")
+	pressAdmin("a", settingsActBackupExport, "m", allMask)
 
 	docs := env.fake.callsFor("sendDocument")
 	if len(docs) != 1 {
@@ -185,8 +186,9 @@ func TestPhase30EndToEnd(t *testing.T) {
 		t.Fatalf("Part 2 page export chat_id = %d, want admin private chat %d (never group %d)", gotChat, allowedAdmin.Id, chat.Id)
 	}
 	pageBkp, _ := backupDecodeSentDocument(t, docs[0])
-	if len(pageBkp.Modules) != 20 {
-		t.Errorf("Part 2 exported module count = %d, want 20 (%v)", len(pageBkp.Modules), pageBkp.Modules)
+	wantModuleCount := len(backup.AllExportableModules())
+	if len(pageBkp.Modules) != wantModuleCount {
+		t.Errorf("Part 2 exported module count = %d, want %d (%v)", len(pageBkp.Modules), wantModuleCount, pageBkp.Modules)
 	}
 	if !slices.Contains(pageBkp.Modules, backup.BackupModuleMessages) || !slices.Contains(pageBkp.Modules, backup.BackupModuleRules) {
 		t.Fatalf("Part 2 exported modules missing messages/rules: %v", pageBkp.Modules)
@@ -235,7 +237,7 @@ func TestPhase30EndToEnd(t *testing.T) {
 	wantExpired, _ := enTr.GetString("settings_card_expired")
 
 	// Non-owner admin presses br -> refused with chat_status_owner_button_error; nothing changes.
-	pressAdmin("a", settingsActBackupResetAsk, "m", "fffff")
+	pressAdmin("a", settingsActBackupResetAsk, "m", allMask)
 	if ans, alert := copyLastAnswer(t, env); !alert || ans != wantOwnerErr {
 		t.Errorf("Part 3 non-owner br answer = (%q, alert=%v), want (%q, true)", ans, alert, wantOwnerErr)
 	}
@@ -243,7 +245,7 @@ func TestPhase30EndToEnd(t *testing.T) {
 		t.Fatalf("Part 3 non-owner br altered rules: %q", gotRules)
 	}
 
-	// Live owner opens private /settings -> ba -> presses br (m=fffff) -> two-tap confirm card -> bu.
+	// Live owner opens private /settings -> ba -> presses br (allMask) -> two-tap confirm card -> bu.
 	ownerPrivMsg := settingsPrivateOnlyMessage(t, env, owner)
 	pressOwner := func(kv ...string) {
 		t.Helper()
@@ -251,7 +253,7 @@ func TestPhase30EndToEnd(t *testing.T) {
 	}
 
 	pressOwner("a", settingsActOpen, "p", settingsPageBackup)
-	pressOwner("a", settingsActBackupResetAsk, "m", "fffff")
+	pressOwner("a", settingsActBackupResetAsk, "m", allMask)
 	resetCardText, resetCardKB := env.lastEdit(owner.Id, ownerPrivMsg)
 	if !strings.Contains(resetCardText, "• messages") || !strings.Contains(resetCardText, "• rules") {
 		t.Errorf("Part 3 reset confirm card missing module list:\n%s", resetCardText)
@@ -410,13 +412,14 @@ func TestPhase30EndToEnd(t *testing.T) {
 		t.Fatalf("Part 4 Redis key %q missing", settingsBackupImportTokenKey(importToken))
 	}
 
-	// Live owner presses Yes (bj) -> 20 modules imported, 2 invalid entries skipped!
+	// Live owner presses Yes (bj) -> all exportable modules imported, 2 invalid entries skipped!
 	importCardMsgID := env.updateID()
 	env.pressRaw(settingsPrivateChat(owner), owner, importCardMsgID, importYesBtn.CallbackData)
 	doneImportText, _ := env.lastEdit(owner.Id, importCardMsgID)
 	wantSkipped2, _ := enTr.GetString("backup_import_skipped_entries", i18n.TranslationParams{"count": 2})
-	if !strings.Contains(doneImportText, "20") || !strings.Contains(doneImportText, wantSkipped2) {
-		t.Errorf("Part 4 post-import notice missing 20 modules / %q:\n%s", wantSkipped2, doneImportText)
+	wantCountStr := strconv.Itoa(wantModuleCount)
+	if !strings.Contains(doneImportText, wantCountStr) || !strings.Contains(doneImportText, wantSkipped2) {
+		t.Errorf("Part 4 post-import notice missing %s modules / %q:\n%s", wantCountStr, wantSkipped2, doneImportText)
 	}
 	restoredMsgs, err := eventmsg.GetFresh(ctx, chat.Id)
 	if err != nil {

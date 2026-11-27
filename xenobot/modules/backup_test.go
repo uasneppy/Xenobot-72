@@ -31,6 +31,7 @@ import (
 	"github.com/uasneppy/Xenobot-72/xenobot/db/eventmsg"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/notes"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/rules"
 	"github.com/uasneppy/Xenobot-72/xenobot/i18n"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/ratelimit"
@@ -939,9 +940,12 @@ func cleanupSharedBackupTestChat(t *testing.T, chatID int64) {
 			db.DB.Where("chat_id = ?", chatID).Delete(&models.RulesSettings{})
 			db.DB.Where("chat_id = ?", chatID).Delete(&models.ChatEventMessage{})
 			db.DB.Where("chat_id = ?", chatID).Delete(&models.ChatEventMessageOptions{})
+			db.DB.Where("chat_id = ?", chatID).Delete(&models.ChatPresence{})
+			db.DB.Where("chat_id = ?", chatID).Delete(&models.ChatPresenceArchived{})
 			db.DB.Where("chat_id = ?", chatID).Delete(&db.Chat{})
 		}
 		dbcache.DeleteCache(eventmsg.CacheKey(chatID))
+		dbcache.DeleteCache(presence.CacheKey(chatID))
 		dbcache.DeleteCache(fmt.Sprintf("rules_%d", chatID))
 	})
 }
@@ -1165,14 +1169,26 @@ func TestSharedBackupApplyHelpers(t *testing.T) {
 		summary := formatBackupImportSuccess(tr, modules, report)
 		wantSkippedHint, _ := tr.GetString("backup_import_skipped_entries", i18n.TranslationParams{"count": 1})
 		wantLogHint, _ := tr.GetString("backup_import_log_skipped")
+		wantArchiveHint, _ := tr.GetString("backup_import_archive_skipped")
 		assert.Contains(t, summary, "• rules")
 		assert.Contains(t, summary, "• messages")
 		assert.Contains(t, summary, wantSkippedHint)
 		assert.NotContains(t, summary, wantLogHint)
+		assert.NotContains(t, summary, wantArchiveHint)
 
 		withLogHint := formatBackupImportSuccess(tr, modules, backup.ImportReport{Skipped: 1, LogChannelSkipped: true})
 		assert.Contains(t, withLogHint, wantSkippedHint)
 		assert.Contains(t, withLogHint, wantLogHint)
+		assert.NotContains(t, withLogHint, wantArchiveHint)
+
+		withBothHints := formatBackupImportSuccess(tr, modules, backup.ImportReport{
+			Skipped:               1,
+			LogChannelSkipped:     true,
+			ArchiveChannelSkipped: true,
+		})
+		assert.Contains(t, withBothHints, wantSkippedHint)
+		assert.Contains(t, withBothHints, wantLogHint)
+		assert.Contains(t, withBothHints, wantArchiveHint)
 	})
 
 	t.Run("applyBackupReset_and_formatBackupResetSuccess", func(t *testing.T) {

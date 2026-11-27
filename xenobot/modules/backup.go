@@ -849,7 +849,7 @@ func applyBackupImport(chatID int64, bkp *backup.BackupFormat, modules []string)
 	return report, nil
 }
 
-// formatBackupImportSuccess formats the import completion summary and skipped/log-channel hints.
+// formatBackupImportSuccess formats the import completion summary and skipped/log-channel/archive-channel hints.
 func formatBackupImportSuccess(tr *i18n.Translator, modules []string, report backup.ImportReport) string {
 	text, _ := tr.GetString("backup_import_success", i18n.TranslationParams{
 		"modules": fmt.Sprintf("%d", len(modules)),
@@ -863,6 +863,10 @@ func formatBackupImportSuccess(tr *i18n.Translator, modules []string, report bac
 	if report.LogChannelSkipped {
 		logSkipped, _ := tr.GetString("backup_import_log_skipped")
 		hints = append(hints, logSkipped)
+	}
+	if report.ArchiveChannelSkipped {
+		archiveSkipped, _ := tr.GetString("backup_import_archive_skipped")
+		hints = append(hints, archiveSkipped)
 	}
 	if len(hints) > 0 {
 		text = strings.TrimRight(text, "\n") + "\n\n" + strings.Join(hints, "\n")
