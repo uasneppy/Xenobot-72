@@ -5,16 +5,16 @@ milestone_name: Interactive Presence
 current_phase: 32
 current_phase_name: Contextual AI Emoji Reactions
 status: executing
-stopped_at: Completed 32-03-PLAN.md
-last_updated: "2026-11-26T23:53:39.031Z"
+stopped_at: Completed 32-04-PLAN.md
+last_updated: "2026-11-27T00:00:22.790Z"
 last_activity: 2026-11-27
 last_activity_desc: Phase 31 complete, transitioned to Phase 32
-state_head: 837beea1da27128974bf58c406f917bea741cf92
+state_head: 41a7ecc61cde1da427cff739aeeaaa86647ec989
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 9
   percent: 20
 ---
 
@@ -31,7 +31,7 @@ See: .planning/ROADMAP.md (v1.3 Interactive Presence — Phases 31–35)
 ## Current Position
 
 Phase: 32 of 35 (Contextual AI Emoji Reactions)
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-11-27 — Completed Plan 32-01 (AI react mode persistence & rolling-deploy cache safety)
 
@@ -232,6 +232,7 @@ Progress: [██░░░░░░░░] 20%
 | Phase 32 P01 | 4 min | 3 tasks | 5 files |
 | Phase 32 P02 | 3 min | 2 tasks | 2 files |
 | Phase 32 P03 | 3 min | 3 tasks | 9 files |
+| Phase 32 P04 | 5 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -385,6 +386,7 @@ Recent decisions affecting current work:
 - [Phase 32]: 32-01: Added append-only chat_presence.ai_react_mode migration with inline chk_chat_presence_ai_react_mode CHECK constraint, zero GORM default tags on booleans, column-targeted SetAIReactMode upsert, and rolling-deploy empty-mode normalization to "off" in presence.Get/GetFresh
 - [Phase 32]: 32-02: Added stdlib-only reaction prompt builder (ReactionMaxTokens=512, compact <3000B ReactionStatic, palette-filtered lookalike warnings in ReactionDynamic, sanitized ReactionUser) and fail-closed strict ParseReactionJSON with U+FE0F normalization in xenobot/utils/chatprompt
 - [Phase 32]: 32-03: Added all 6 Presence AI reaction UI keys across 8 locales matching each locale's settings_page_chat Conversations term, registered settingsLocaleLimits and plain-text settingsAlertKeys for settings_pr_ai_need_owner, and added <= 16-rune segmented button guard in TestSettingsLabelLengths
+- [Phase 32]: 32-04: Placed AI reaction operational keys (:ai:gap, :ai:cd:chat) under presenceChatTag(chatID) outside xenobot:cache: alongside :cd:u:<user>, extracted cloned fail-closed presenceAllowedPalette reusing the 20m avail_react cache, and added bounded 50-entry topic-isolated chatLogRecentThread
 
 ### Pending Todos
 
@@ -530,8 +532,8 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-26T23:53:38.945Z
-Stopped at: Completed 32-03-PLAN.md
+Last session: 2026-11-27T00:00:22.708Z
+Stopped at: Completed 32-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
