@@ -186,6 +186,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   drains: the silent `✍` PM brief routes from group `0` `handleReaction` (`presenceHandlePMBrief`) into `chatBriefQueue` under
   `StopChat` (`chatJobs`, `chatDraining`, `chatContext()`), keeping the `70 s` webhook worst-case shutdown and
   `stop_grace_period: 75s` unchanged.
+- Phase 35 (Interactive Group Toys) adds zero goroutines outside `StopChat`, zero new message handler groups
+  (`handlers.NewPoll(poll.All, chatModule.handlePollUpdate)` sits at group `0` in `LoadPresence`), and zero shutdown drains (both
+  the shared `chatToyQueue` worker lane and `handlePollUpdate` join `StopChat` via `chatJobs`/`chatDraining`/`chatContext()`,
+  proved by `TestShutdownEndsChatToys` and `TestShutdownEndsInspect`), keeping the `70 s` webhook worst-case shutdown and
+  `stop_grace_period: 75s` unchanged.
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
 - The Turnstile web captcha is configured in `main` (`registerCaptchaWeb`) when `config.AppConfig.CaptchaWebConfigured()`
   holds: all four of `CAPTCHA_WEB_BASE_URL`, `TELEGRAM_MINI_APP_SHORT_NAME`, `TURNSTILE_SITE_KEY` and
@@ -214,7 +219,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
 - Group numbers are execution order: `-10` captcha sweeper · `-9` forward blocklist watcher (the only handler of the group, never ends an update; see the `StaffForwardBlock` bullet) · `-8` member deletion (two handlers: the edit handler and the self-destruct watcher, a `handlers.NewMessage(message.All, ...)` with no setter; neither ends an update, see the `MemberDeletion` bullet) · `-7` lockdown join guard (it also counts the join surge
   before it reads the lockdown) · `-6` fed-ban · `-5` service message deletion watcher (the only handler of the group, never ends an update, `SetAllowBot`; a deletable service type is deleted now or queued by the group's stored rule) · `-4` raid flood counter (counts everything but slash-prefixed texts, never ends an update; there is no
   antiraid handler any more) · `-3` staff watchers (chat-migration re-key; later ownership and bot health) · `-2` admin-cache (`my_chat_member` only) and the member requirements watcher (supergroup messages only, the only message handler of the group, `ext.ContinueGroups` on every path; never add another message handler to group -2) ·
-  `-1` users tracker (records real users only: no `sender_chat`, no non-positive ID, no Telegram service account, `trackableUser`) · `0` commands/help/greetings and `LoadPresence`'s `handlers.NewReaction(reaction.All, presenceModule.handleReaction)` (non-message update; does not contend with message handlers and `CommandDeletionProcessor` returns immediately when `ctx.Message == nil`; `"message_reaction"` is subscribed in `config.AppConfig.AllowedUpdates`, rolling deploys must terminate all v1.2 replicas before final `getWebhookInfo` verification, and `"message_reaction_count"` must never be added) · `1` settings typed-reply door (private messages only;
+  `-1` users tracker (records real users only: no `sender_chat`, no non-positive ID, no Telegram service account, `trackableUser`) · `0` commands/help/greetings and `LoadPresence`'s `handlers.NewReaction(reaction.All, presenceModule.handleReaction)` plus `handlers.NewPoll(poll.All, chatModule.handlePollUpdate)` (non-message updates; neither contends with message handlers and `CommandDeletionProcessor` returns immediately when `ctx.Message == nil`; `"message_reaction"` and `"poll"` are subscribed in `config.AppConfig.AllowedUpdates`, rolling deploys must terminate all v1.2 replicas before final `getWebhookInfo` verification, and `"message_reaction_count"` must never be added) · `1` settings typed-reply door (private messages only;
   `ext.ContinueGroups` for anyone with no wait and no marker, consumes and ends the update otherwise) · `2` raid AI candidate watcher (hands a new member's suspicious
   item to the raid AI pool, never ends an update) · `3` aispam · `4` antiflood · `5`/`6` locks · `7` blacklists ·
   `8` reports+reactions (the `@admin` watcher, `reportWatch`, returns `nil` after reporting so groups 9 to 12 still run; `checkReactions` in `reactions.go` gates with `presenceMessageAllowed` + lazy `presenceIsLockedDown` and sets `ctx.Data[presenceStaticReactedKey] = true` on a static or cat-sticker reaction) · `9` filters · `10` pins · `11` log-channel (including `captureSetArchiveForward` for `/setarchive` forwards) · `12` late raid flood counter (slash-prefixed texts only; keep it
@@ -554,7 +559,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `chat_ask_usage`, for an anonymous admin, a channel, an unreadable setting, no Redis or an audience the sender is not in nothing,
   and otherwise the text after the command is handed to the pool after the same checks as a mention (`chatAccept`, shared with the
   watcher). The module's help page is `chat_help_msg` (`help_module_name_chat`, icon 🗨, alt names `conversations`, `ask`, `xeno`,
-  `unrollshort`, `unrolllong`, `judge` and `messagelog`), which says how to talk to the bot, that the owner turns conversations
+  `unrollshort`, `unrolllong`, `judge`, `messagelog`, `referendum` and `inspect`), which says how to talk to the bot, that the owner turns conversations
   and the message log on in private, what the log keeps (the newest 1000 messages, deleted when it is turned off), the brief
   commands for everyone and `/judge` with its `group`, `pm` and `staff` words for admins, what goes to the provider (no IDs, no
   usernames) and that a verdict decides nothing; `TestChatHelpFitsOneMessage` (`xenobot/i18n`) holds it to one Telegram message
@@ -1625,6 +1630,29 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   success or `403`). On Settings page `pr` (now `8` rows `<= 8`), `Room & Catch-Up` sub-page `pc` (`settingsActPresenceRoom`,
   `PrivateOnly`) keeps `len(settingsPages) == 31` and `settingsMainOwnerRows == 17`, exposing Owner×Admin double-gated toggles
   `ax`/`ve`/`pb` where authorized admins can still disable (`v=0`) even when locked (`TestPhase33Codes`, `TestSettingsPresenceRoomCatchup`).
+  Phase 35 (**Interactive Group Toys**, `chat_polls.go`, `chat_inspect.go`, `chat.go`, `chat_run.go`, `presence.go`,
+  `presence_reactions.go`, `settings_presence.go`, `xenobot/utils/chatprompt/toys.go`, `xenobot/db/presence/`, `xenobot/db/backup/`,
+  TOYS-01..03) extends `chat_presence` via `migrations/20261201120000_add_presence_toys.sql` with `referendum_enabled` and
+  `inspect_enabled` (`BOOLEAN NOT NULL DEFAULT FALSE`, zero GORM `default:` tags on booleans, `msgpack` tags `rf`/`in`,
+  column-targeted `SetReferendumEnabled`/`SetInspectEnabled`, `applyPresence*` helpers, and full `BackupModulePresence` parity in
+  `PresencePortableBackup`), while keeping `xenobot/modules/copy_settings.go` completely untouched. Both `/referendum` and `/inspect`
+  share the `StopChat`-joined toy lane (`chatToyQueue`, 2 workers, cap 16, `chatJobs`/`chatDraining`/`chatContext()`), dedicated
+  hourly budget `"toy:b"` via `chatReserveWith` (`6` user / `30` chat / `300` global), `chatToyChatCooldown` (`30 s`) /
+  `chatToyUserCooldown` (`20 s`), `chatToysStatsSection` in `/stats`, and `chatToyGateOf` (real non-bot user, `!presenceIsStaffGroup`,
+  `!presenceIsLockedDown`, Owner×Admin double-gating, and `chatAudienceAllows`). `xenobot/utils/chatprompt/toys.go` preserves the
+  stdlib-only leaf invariant (`TestChatpromptPackageIsLeaf`) with `ReferendumMaxTokens = 768`, `InspectMaxTokens = 512`,
+  `TieBreakerMaxTokens = 512`, `ParseReferendumJSON`, `ParseInspectJSON` (`U+FE0F` strip + non-Telegram lookalike rejection), and
+  `ParseTieBreakerText`. `/referendum` (`TOYS-01`) extracts optional reply target + same-thread `chatLogRecentThread` (when
+  `LogEnabled`) + command argument, sends sanitized polls via `SendPollWithContext` (`OpenPeriod = 900`, `DisableNotification: true`,
+  `AllowAddingOptions: false`), and persists `xenobot:presence:poll:<poll_id>` (outside `xenobot:cache:`, 25 h TTL). Group-`0`
+  `handlers.NewPoll(poll.All, chatModule.handlePollUpdate)` (`TOYS-02`, joining `StopChat`) triggers only when `IsClosed &&
+  TotalVoterCount > 0 && tiedCount >= 2`, claims once-only cross-replica via `SETNX` `xenobot:presence:poll:tie:<poll_id>` (24 h TTL),
+  and posts a deadpan Facility Tie-Breaker (with localized fallback if AI fails/disabled) via `AllowSendingWithoutReply: false`.
+  `/inspect` (`TOYS-03`) requires `extraction.ReplyTarget` (`inspect_usage`), reuses `chatReactDownloadVision` + `chatReactCallProvider`
+  (`chat_media.go` photo/sticker/image-doc vision + Featherless `400`/`422` `text_only` fallback), replies with
+  `AllowSendingWithoutReply: false`, and calls `presenceSetReaction(..., targetAuthorID, "inspect")` for 24 h `bot_react` / `👎`
+  retraction parity. Sub-page `pc` adds `rf` (`referendum_enabled`) and `in` (`inspect_enabled`) under `settingsPresenceNeedConv` (now
+  `6` rows `<= 8`, `pr` stays `8` rows, `len(settingsPages) == 31`, `settingsMainOwnerRows == 17`).
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
