@@ -71,15 +71,36 @@ func chatWatch(b *gotgbot.Bot, ctx *ext.Context) {
 	if !ok || ctx.EffectiveSender.User.IsBot {
 		return
 	}
-	if addressed, _ := chatAddressed(b, msg); !addressed {
-		chatReactWatch(b, ctx)
+	if addressed, _ := chatAddressed(b, msg); addressed {
+		gate, provider := chatAccept(b, chat.Id, userID)
+		if gate != chatGateOpen {
+			return
+		}
+		chatEnqueue(chatJobOf(b, msg, userID, provider))
 		return
 	}
-	gate, provider := chatAccept(b, chat.Id, userID)
-	if gate != chatGateOpen {
-		return
+	if msg.ForwardOrigin == nil {
+		if stripped, isVocative := chatprompt.ParseVocativePrefix(chatMessageText(msg), b.FirstName); isVocative && !presenceIsStaffGroup(chat.Id) {
+			lookupCtx, cancel := context.WithTimeout(context.Background(), chatWatchTimeout)
+			pres, err := presenceSettingsGet(lookupCtx, chat.Id)
+			cancel()
+			if err == nil && pres.VocativeEnabled {
+				gate, provider := chatAccept(b, chat.Id, userID)
+				if gate == chatGateOpen {
+					job := chatJobOf(b, msg, userID, provider)
+					text := strings.TrimSpace(stripped)
+					job.hasText = text != ""
+					if !job.hasText {
+						text = chatMediaLabel(msg)
+					}
+					job.turn.Text = text
+					chatEnqueue(job)
+				}
+				return
+			}
+		}
 	}
-	chatEnqueue(chatJobOf(b, msg, userID, provider))
+	chatReactWatch(b, ctx)
 }
 
 // chatGate is what the group's settings and the server say about one addressed message.
@@ -219,20 +240,23 @@ func chatJobOf(b *gotgbot.Bot, msg *gotgbot.Message, userID int64, provider stri
 	if ref, ok := chatExtractMediaRef(msg); ok {
 		job.media = append(job.media, ref)
 	}
-	if reply := extraction.ReplyTarget(msg); reply != nil && (reply.From == nil || reply.From.Id != b.Id) {
-		quotedText := strings.TrimSpace(chatMessageText(reply))
-		if quotedText == "" {
-			quotedText = chatMediaLabel(reply)
-		}
-		quoted := chatprompt.Turn{Text: quotedText}
-		if reply.From != nil {
-			quoted.Name = reply.From.FirstName
-		}
-		if strings.TrimSpace(quoted.Text) != "" {
-			job.quoted = &quoted
-		}
-		if ref, ok := chatExtractMediaRef(reply); ok {
-			job.media = append(job.media, ref)
+	if reply := extraction.ReplyTarget(msg); reply != nil {
+		job.quotedMessageID = reply.MessageId
+		if reply.From == nil || reply.From.Id != b.Id {
+			quotedText := strings.TrimSpace(chatMessageText(reply))
+			if quotedText == "" {
+				quotedText = chatMediaLabel(reply)
+			}
+			quoted := chatprompt.Turn{Text: quotedText}
+			if reply.From != nil {
+				quoted.Name = reply.From.FirstName
+			}
+			if strings.TrimSpace(quoted.Text) != "" {
+				job.quoted = &quoted
+			}
+			if ref, ok := chatExtractMediaRef(reply); ok {
+				job.media = append(job.media, ref)
+			}
 		}
 	}
 	return job
