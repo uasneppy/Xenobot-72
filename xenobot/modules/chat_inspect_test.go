@@ -71,7 +71,9 @@ func newChatInspectEnv(t *testing.T) *chatInspectEnv {
 	withChatProviders(t, true, true, true)
 	withChatFeatherless(t, "test-featherless-secret-key", "Qwen/Qwen3-32B")
 
-	chatSwap(t, &chatToyChatCooldown, chatToyChatCooldown)
+	// The shared per-chat cooldown is off by default so a test can run /inspect several times;
+	// TestInspectChatCooldown turns it back on.
+	chatSwap(t, &chatToyChatCooldown, 0)
 	chatSwap(t, &chatToyUserCooldown, chatToyUserCooldown)
 	chatSwap(t, &chatToyUserHourlyBudget, chatToyUserHourlyBudget)
 	chatSwap(t, &chatToyChatHourlyBudget, chatToyChatHourlyBudget)
@@ -481,7 +483,7 @@ func TestInspectGatesAndUsage(t *testing.T) {
 }
 
 func TestInspectVisionAndRetraction(t *testing.T) {
-	t.Run("photo and sticker vision, MaxTokens=512, U+FE0F strip, AllowSendingWithoutReply=false, bot_react, and thumbs-down retraction", func(t *testing.T) {
+	t.Run("photo and sticker vision, MaxTokens=InspectMaxTokens, U+FE0F strip, AllowSendingWithoutReply=false, bot_react, and thumbs-down retraction", func(t *testing.T) {
 		env := newChatInspectEnv(t)
 		chatSwap(t, &chatToyUserCooldown, 0)
 		alice := env.member("Alice")
@@ -493,7 +495,7 @@ func TestInspectVisionAndRetraction(t *testing.T) {
 		env.files["files/thumb1"] = raidAITestWebP("inspect-sticker")
 		env.mu.Unlock()
 
-		// 1. Photo reply in topic 12 -> downloads photo, sends 512 max tokens, strips U+FE0F ("🔥\ufe0f" -> "🔥"),
+		// 1. Photo reply in topic 12 -> downloads photo, sends the inspect token cap, strips U+FE0F ("🔥\ufe0f" -> "🔥"),
 		// sanitizes links/mentions, replies to targetMsgID with AllowSendingWithoutReply=false, stamps bot_react.
 		photoTarget := env.message(bob, 12, "")
 		photoTarget.Caption = "check https://evil.example @bob"
@@ -506,8 +508,8 @@ func TestInspectVisionAndRetraction(t *testing.T) {
 		if len(calls) != 1 {
 			t.Fatalf("provider calls = %d, want 1", len(calls))
 		}
-		if calls[0].MaxTokens != chatprompt.InspectMaxTokens || chatprompt.InspectMaxTokens != 512 {
-			t.Fatalf("MaxTokens = %d, want 512", calls[0].MaxTokens)
+		if calls[0].MaxTokens != chatprompt.InspectMaxTokens {
+			t.Fatalf("MaxTokens = %d, want %d", calls[0].MaxTokens, chatprompt.InspectMaxTokens)
 		}
 		if len(calls[0].Attachments) != 1 || calls[0].Attachments[0].MIMEType != "image/jpeg" {
 			t.Fatalf("photo attachments = %+v, want 1 image/jpeg", calls[0].Attachments)
@@ -615,9 +617,10 @@ func TestInspectVisionAndRetraction(t *testing.T) {
 		}
 	})
 
-	t.Run("Featherless 400/422 vision rejection retries text-only and caches text_only", func(t *testing.T) {
+	t.Run("Featherless 400/422 vision rejection retries without the image, posts no invented verdict, and remembers nothing", func(t *testing.T) {
 		env := newChatInspectEnv(t)
 		chatSwap(t, &chatToyUserCooldown, 0)
+		chatSwap(t, &chatToyChatCooldown, 0)
 		alice := env.member("Alice")
 		bob := env.member("Bob")
 
@@ -634,8 +637,8 @@ func TestInspectVisionAndRetraction(t *testing.T) {
 
 		env.provider.script(
 			chatAnswerErr(&featherless.HTTPError{Status: http.StatusUnprocessableEntity, Type: "invalid_request_error"}),
-			chatAnswerText(`{"verdict":"Text fallback verdict.","emoji":"👀"}`),
-			chatAnswerText(`{"verdict":"Cached text-only verdict.","emoji":"🔥"}`),
+			chatAnswerText(`{"verdict":"Text-only guess about a picture it never saw.","emoji":"👀"}`),
+			chatAnswerText(`{"verdict":"Verdict from a model that saw the image.","emoji":"🔥"}`),
 		)
 		downloadsBefore := env.downloads()
 		env.deliverMessage(env.inspectCmd(alice, 0, photoTarget1))
@@ -650,23 +653,30 @@ func TestInspectVisionAndRetraction(t *testing.T) {
 		if env.downloads() != downloadsBefore+1 {
 			t.Fatalf("downloads = %d, want %d", env.downloads(), downloadsBefore+1)
 		}
-		cacheKey := chatFeatherlessTextOnlyKey(model)
-		if !env.mr.Exists(cacheKey) || env.mr.TTL(cacheKey) < 23*time.Hour {
-			t.Fatalf("featherless text_only cache key %q missing or short TTL (%v)", cacheKey, env.mr.TTL(cacheKey))
+		if env.mr.Exists("xenobot:cache:featherless_text_only:" + model) {
+			t.Fatal("a vision rejection must not leave a text-only marker behind")
+		}
+		for _, send := range env.callsFor("sendMessage") {
+			if strings.Contains(send.Params["text"], "never saw") {
+				t.Fatalf("a verdict built on a text-only retry was posted: %s", send.Params["text"])
+			}
+		}
+		if got := len(env.callsFor("sendMessage")); got != 1 {
+			t.Fatalf("sendMessage calls = %d, want exactly the malfunction line", got)
 		}
 		assertChatBreakersClean(t)
 
-		// Subsequent photo skips image download completely.
+		// The next photo is attempted with its image again.
 		photoTarget2 := env.message(bob, 0, "")
 		photoTarget2.Caption = "second rack"
 		photoTarget2.Photo = photoSizes()
 		downloadsBefore2 := env.downloads()
 		env.deliverMessage(env.inspectCmd(alice, 0, photoTarget2))
-		if env.downloads() != downloadsBefore2 {
-			t.Fatalf("cached text_only unexpectedly downloaded photo: before=%d after=%d", downloadsBefore2, env.downloads())
+		if env.downloads() != downloadsBefore2+1 {
+			t.Fatalf("second photo downloads = %d, want %d (vision is attempted every time)", env.downloads()-downloadsBefore2, 1)
 		}
-		if len(env.provider.calls()[2].Attachments) != 0 {
-			t.Fatal("cached text_only unexpectedly sent attachments")
+		if len(env.provider.calls()[2].Attachments) != 1 {
+			t.Fatal("second photo was sent without its image")
 		}
 	})
 
@@ -747,5 +757,32 @@ func TestShutdownEndsInspect(t *testing.T) {
 	}
 	if len(env.callsFor("sendMessage")) != 0 || len(env.callsFor("setMessageReaction")) != 0 {
 		t.Fatal("expected zero messages or reactions during shutdown")
+	}
+}
+
+// TestInspectChatCooldown: /inspect shares the per-chat toy cooldown with /referendum (AGENTS.md), so
+// several members cannot run it back to back and flood the chat with verdicts.
+func TestInspectChatCooldown(t *testing.T) {
+	env := newChatInspectEnv(t)
+	chatSwap(t, &chatToyUserCooldown, 0)
+	chatSwap(t, &chatToyChatCooldown, 30*time.Second)
+	alice := env.member("Alice")
+	bob := env.member("Bob")
+	carol := env.member("Carol")
+	target := env.message(carol, 0, "the break room fridge")
+
+	env.provider.script(
+		chatAnswerText(`{"verdict":"First verdict.","emoji":"👀"}`),
+		chatAnswerText(`{"verdict":"Second verdict.","emoji":"🔥"}`),
+	)
+	env.deliverMessage(env.inspectCmd(alice, 0, target))
+	env.deliverMessage(env.inspectCmd(bob, 0, target))
+	if got := len(env.provider.calls()); got != 1 {
+		t.Fatalf("provider calls = %d, want 1: the second member is inside the chat cooldown", got)
+	}
+	env.mr.FastForward(31 * time.Second)
+	env.deliverMessage(env.inspectCmd(bob, 0, target))
+	if got := len(env.provider.calls()); got != 2 {
+		t.Fatalf("provider calls after the cooldown = %d, want 2", got)
 	}
 }

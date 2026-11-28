@@ -355,6 +355,9 @@ type archiveReactionEnv struct {
 
 	mu    sync.Mutex
 	calls []presenceWireCall
+	// copyCode, when set, makes copyMessage fail with this Telegram error code and copyDesc.
+	copyCode int
+	copyDesc string
 }
 
 func newArchiveReactionEnv(t *testing.T) *archiveReactionEnv {
@@ -385,6 +388,13 @@ func newArchiveReactionEnv(t *testing.T) *archiveReactionEnv {
 		}
 		switch r.URL.Path {
 		case "/bottest/copyMessage":
+			env.mu.Lock()
+			code, desc := env.copyCode, env.copyDesc
+			env.mu.Unlock()
+			if code != 0 {
+				_, _ = fmt.Fprintf(w, `{"ok":false,"error_code":%d,"description":%q}`, code, desc)
+				return
+			}
 			_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":9991}}`))
 		case "/bottest/forwardMessage":
 			_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":9992,"date":1,"chat":{"id":-1002,"type":"channel"}}}`))

@@ -59,19 +59,20 @@ var (
 
 // chatSanitizeText makes a provider's text safe to post: link-like tokens are replaced and every @
 // that starts a username is followed by a zero-width space so nobody is pinged. The result is
-// trimmed and is "" for a text that is blank.
+// trimmed and is "" for a text that is blank. It does not look for leaked reasoning (see
+// chatFilterReply): a brief, a verdict or a poll text is member conversation the model summarises.
 func chatSanitizeText(text string) string {
-	text = chatStripReasoning(text)
 	text = chatLinkPattern.ReplaceAllString(text, chatLinkRemoved)
 	text = chatHandlePattern.ReplaceAllString(text, "@\u200b$1")
 	return strings.TrimSpace(text)
 }
 
-// chatFilterReply makes a conversation reply safe to post: the text is sanitized and cut to
+// chatFilterReply makes a conversation reply safe to post: leaked reasoning is removed, the text is
+// sanitized and cut to
 // chatReplyMaxRunes at the last sentence end before the cap. It returns "" for a text that is
 // blank after filtering, which is never sent.
 func chatFilterReply(text string) string {
-	text = chatSanitizeText(text)
+	text = chatSanitizeText(chatStripReasoning(text))
 	if utf8.RuneCountInString(text) <= chatReplyMaxRunes {
 		return text
 	}

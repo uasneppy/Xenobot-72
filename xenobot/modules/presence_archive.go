@@ -25,6 +25,12 @@ var (
 	// presenceArchiveClaim atomically claims (chat_id, message_id) in PostgreSQL so each
 	// message is archived at most once across restarts and replicas. Swappable in tests.
 	presenceArchiveClaim = presence.TryClaimArchived
+	// presenceArchiveRelease gives a claim back after a delivery that failed for a reason that may
+	// pass. Swappable in tests.
+	presenceArchiveRelease = presence.ReleaseArchived
+	// presenceArchiveDeliverTimeout bounds one delivery (copy or forward), which runs on its own
+	// context from chatContext() and not on what is left of the reaction handler's budget.
+	presenceArchiveDeliverTimeout = 10 * time.Second
 	// presenceArchiveSetTTL is how long per-message distinct reactor sets live outside xenobot:cache:.
 	presenceArchiveSetTTL = 72 * time.Hour
 	// presenceArchiveDoneTTL is how long the fast Redis once-only latch lives outside xenobot:cache:.
@@ -333,17 +339,18 @@ func presenceArchiveAlreadyDone(ctx context.Context, client *redis.Client, doneK
 	return err == nil && exists > 0
 }
 
-func presenceArchiveTrackAndCheck(ctx context.Context, client *redis.Client, mru *gotgbot.MessageReactionUpdated, settings presence.Settings, op string) bool {
+func presenceArchiveTrackAndCheck(ctx context.Context, client *redis.Client, mru *gotgbot.MessageReactionUpdated, settings presence.Settings, op string, updateID int64) bool {
 	chatID, msgID := mru.Chat.Id, mru.MessageId
 	setTTLSecs := max(int(presenceArchiveSetTTL.Seconds()), 1)
 	rCtx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
 	count, err := presenceConsensusUpdateScript.Run(
 		rCtx,
 		client,
-		[]string{presenceArchiveUsersKey(chatID, msgID)},
+		[]string{presenceArchiveUsersKey(chatID, msgID), presenceReactionStampKey(chatID, msgID, mru.User.Id)},
 		op,
 		strconv.FormatInt(mru.User.Id, 10),
 		setTTLSecs,
+		updateID,
 	).Int64()
 	cancel()
 	if err != nil {
@@ -354,7 +361,7 @@ func presenceArchiveTrackAndCheck(ctx context.Context, client *redis.Client, mru
 	if !presence.ValidArchiveThreshold(threshold) {
 		threshold = presence.DefaultArchiveThreshold
 	}
-	if op != "add" || count < int64(threshold) {
+	if count < 0 || op != "add" || count < int64(threshold) { // count < 0: a newer update of this user was applied
 		return false
 	}
 	doneKey := presenceArchiveDoneKey(chatID, msgID)
@@ -376,7 +383,7 @@ func presenceArchiveTrackAndCheck(ctx context.Context, client *redis.Client, mru
 // Highlights Archive (COMM-04). When the distinct count reaches settings.ArchiveThreshold, it checks
 // the fast Redis latch, lazily verifies active lockdown status (fail-closed), claims (chat_id,
 // message_id) once in PostgreSQL, and delivers the highlight via CopyMessage or ForwardMessage.
-func presenceHandleArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.MessageReactionUpdated, settings presence.Settings) {
+func presenceHandleArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.MessageReactionUpdated, settings presence.Settings, updateID int64) {
 	if b == nil || mru == nil || mru.User == nil || mru.User.IsBot || !presenceChatTypeAllowed(&mru.Chat) {
 		return
 	}
@@ -398,10 +405,35 @@ func presenceHandleArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.Mes
 	if op == "" || ctx.Err() != nil {
 		return
 	}
-	if !presenceArchiveTrackAndCheck(ctx, client, mru, settings, op) {
+	if !presenceArchiveTrackAndCheck(ctx, client, mru, settings, op, updateID) {
 		return
 	}
-	presenceDeliverArchive(ctx, b, mru, settings)
+	presenceArchiveDeliverAndSettle(ctx, client, b, mru, settings)
+}
+
+// presenceArchiveDeliverAndSettle delivers a highlight whose claim this caller holds, on its own
+// bounded context: the claim and the latch were written before the send, and the send is a paced
+// Telegram call that must not share what is left of the handler's budget. When the delivery fails
+// for a reason that may pass (a timeout, a rate limit, a 5xx, a transport error) both the durable
+// claim and the Redis latch are given back, so the next reaction on the message tries again; a
+// definitive refusal (a Telegram 4xx other than 429: the message is gone, the bot may not post in
+// the archive) keeps them, as retrying cannot succeed.
+func presenceArchiveDeliverAndSettle(ctx context.Context, client *redis.Client, b *gotgbot.Bot, mru *gotgbot.MessageReactionUpdated, settings presence.Settings) {
+	deliverCtx, cancel := context.WithTimeout(chatContext(), presenceArchiveDeliverTimeout)
+	defer cancel()
+	err := presenceDeliverArchive(deliverCtx, b, mru, settings)
+	if err == nil || isTelegramClientError(err) {
+		return
+	}
+	chatID, msgID := mru.Chat.Id, mru.MessageId
+	settleCtx, settleCancel := context.WithTimeout(context.WithoutCancel(ctx), chatRedisTimeout)
+	defer settleCancel()
+	if _, relErr := presenceArchiveRelease(settleCtx, chatID, msgID); relErr != nil {
+		log.WithField("chat_id", chatID).Debug("[Presence] archive claim release failed")
+	}
+	if delErr := client.Del(settleCtx, presenceArchiveDoneKey(chatID, msgID)).Err(); delErr != nil {
+		log.WithField("chat_id", chatID).Debugf("[Presence] archive latch release failed: %s", chatRedisErrClass(delErr))
+	}
 }
 
 func presenceArchiveJumpURL(chat *gotgbot.Chat, msgID int64) string {
@@ -417,9 +449,9 @@ func presenceArchiveJumpURL(chat *gotgbot.Chat, msgID int64) string {
 	return ""
 }
 
-func presenceDeliverArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.MessageReactionUpdated, settings presence.Settings) {
+func presenceDeliverArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.MessageReactionUpdated, settings presence.Settings) error {
 	if b == nil || mru == nil {
-		return
+		return nil
 	}
 	chatID, msgID := mru.Chat.Id, mru.MessageId
 	if settings.ArchiveDelivery == presence.ArchiveDeliveryForward {
@@ -434,7 +466,7 @@ func presenceDeliverArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.Me
 		if err != nil {
 			log.WithField("chat_id", chatID).Debugf("[Presence] archive forward failed: %s", chatSendErrClass(err))
 		}
-		return
+		return err
 	}
 
 	jumpURL := presenceArchiveJumpURL(&mru.Chat, msgID)
@@ -463,4 +495,5 @@ func presenceDeliverArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.Me
 	if err != nil {
 		log.WithField("chat_id", chatID).Debugf("[Presence] archive copy failed: %s", chatSendErrClass(err))
 	}
+	return err
 }

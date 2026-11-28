@@ -528,7 +528,7 @@ func chatBriefProcessJob(job chatBriefJob) {
 	date := time.Now().In(chatClock(ctx, job.chatID)).Format("2006-01-02")
 	request := chatBriefRequest(job.kind, stretch, job.chatTitle, language, date)
 
-	answer, err := chatProviderOf(job.provider).converse(ctx, request)
+	answer, err := chatConverse(ctx, root, chatCall{Lane: "brief", ChatID: job.chatID}, job.provider, request)
 	if err != nil {
 		if root.Err() != nil || errors.Is(err, context.Canceled) {
 			chatBriefShedCount.Add(1)

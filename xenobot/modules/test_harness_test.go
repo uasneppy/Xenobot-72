@@ -378,6 +378,7 @@ func TestMain(m *testing.M) {
 		&models.ChatSettingsAccess{},
 		&models.ChatTimezone{},
 		&models.ChatConversation{},
+		&models.ChatMemberMemory{},
 		&models.ChatPresence{},
 		&models.ChatPresenceArchived{},
 		&models.GreetedMember{},

@@ -36,9 +36,18 @@ const (
 	chatLogTextRunes = 400
 	// chatLogReadTimeout bounds the read of a stretch (up to a ring's worth of entries).
 	chatLogReadTimeout = 2 * time.Second
-	// chatLogRecentScanLimit bounds the reverse scan used for background AI reaction context.
+	// chatLogRecentScanLimit is the least the reverse scan of chatLogRecentThread reads. The scan
+	// grows with the number of entries asked for (chatLogRecentScanPerEntry each), because in a forum
+	// the topic's own messages are a small part of the newest ones.
 	chatLogRecentScanLimit = 50
+	// chatLogRecentScanPerEntry is how many newest ring entries are read per entry asked for.
+	chatLogRecentScanPerEntry = 8
 )
+
+// chatLogRecentMaxAge is how old a message may be and still count as recent room chatter. A quiet
+// chat's week-old messages are not "recent", and a model told they are would answer off a stale
+// room. An entry with no date (written before dates were kept) is kept. A variable only for tests.
+var chatLogRecentMaxAge = 3 * time.Hour
 
 // chatLogMax is how many messages the ring keeps; a variable only so a test can shrink it.
 var chatLogMax = 1000
@@ -182,19 +191,25 @@ func chatLogZRevRange(ctx context.Context, client *redis.Client, chatID, start, 
 	}).Result()
 }
 
-// chatLogRecentThread performs a bounded reverse scan of the newest chatLogRecentScanLimit entries
-// in chatID's log ring, strictly filtering to entry.Thread == threadID && entry.MessageID < beforeMsgID
-// so forum topics never bleed and the triggering message is never duplicated. It returns up to limit
-// matching entries ordered oldest-first, or (nil, nil) when none match.
+// chatLogRecentThread performs a bounded reverse scan of the newest max(chatLogRecentScanLimit,
+// limit*chatLogRecentScanPerEntry) entries in chatID's log ring, strictly filtering to
+// entry.Thread == threadID && entry.MessageID < beforeMsgID so forum topics never bleed and the
+// triggering message is never duplicated, and dropping entries older than chatLogRecentMaxAge. It
+// returns up to limit matching entries ordered oldest-first, or (nil, nil) when none match.
 func chatLogRecentThread(ctx context.Context, client *redis.Client, chatID, threadID, beforeMsgID int64, limit int) ([]chatLogEntry, error) {
 	if client == nil || limit <= 0 {
 		return nil, nil
 	}
 	rCtx, cancel := context.WithTimeout(ctx, chatLogReadTimeout)
 	defer cancel()
-	raw, err := chatLogZRevRange(rCtx, client, chatID, 0, chatLogRecentScanLimit-1)
+	scan := max(chatLogRecentScanLimit, limit*chatLogRecentScanPerEntry)
+	raw, err := chatLogZRevRange(rCtx, client, chatID, 0, int64(scan)-1)
 	if err != nil {
 		return nil, err
+	}
+	oldest := int64(0)
+	if chatLogRecentMaxAge > 0 {
+		oldest = time.Now().Add(-chatLogRecentMaxAge).Unix()
 	}
 	entries := make([]chatLogEntry, 0, min(limit, len(raw)))
 	for _, item := range raw {
@@ -203,6 +218,9 @@ func chatLogRecentThread(ctx context.Context, client *redis.Client, chatID, thre
 			continue
 		}
 		if entry.Thread != threadID || entry.MessageID >= beforeMsgID {
+			continue
+		}
+		if entry.At > 0 && entry.At < oldest {
 			continue
 		}
 		entries = append(entries, entry)

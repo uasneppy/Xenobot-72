@@ -210,6 +210,12 @@ func TestConverseStopReasons(t *testing.T) {
 				if !errors.Is(err, ErrNoReply) {
 					t.Fatalf("err = %v, want ErrNoReply", err)
 				}
+				// A blank normal finish is the empty-answer sentinel (not a
+				// provider fault); every other no-reply shape is not.
+				wantEmpty := strings.HasPrefix(tc.name, "blank ") || tc.name == "max_tokens blank" || tc.name == "no content"
+				if got := errors.Is(err, ErrEmptyAnswer); got != wantEmpty {
+					t.Fatalf("errors.Is(ErrEmptyAnswer) = %v, want %v", got, wantEmpty)
+				}
 				return
 			}
 			if err != nil {

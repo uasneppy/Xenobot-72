@@ -371,7 +371,7 @@ func chatReferendumProcess(job chatReferendumJob) {
 		User:      chatprompt.ReferendumUser(job.reply, job.recent, job.topic),
 		MaxTokens: chatprompt.ReferendumMaxTokens,
 	}
-	answer, err := chatProviderOf(job.provider).converse(ctx, req)
+	answer, err := chatConverse(ctx, root, chatCall{Lane: "referendum", ChatID: job.chatID}, job.provider, req)
 	if err != nil {
 		if root.Err() != nil || errors.Is(err, context.Canceled) {
 			chatToyShedCount.Add(1)
@@ -690,7 +690,7 @@ func chatPollTieBreakerVerdict(runCtx context.Context, meta chatPollMeta, p *got
 		User:      chatprompt.TieBreakerUser(question, tiedOptions, maxVotes, p.TotalVoterCount),
 		MaxTokens: chatprompt.TieBreakerMaxTokens,
 	}
-	answer, err := chatProviderOf(conv.Provider).converse(runCtx, req)
+	answer, err := chatConverse(runCtx, chatContext(), chatCall{Lane: "tiebreak", ChatID: meta.ChatID}, conv.Provider, req)
 	if err != nil {
 		if chatContext().Err() != nil || errors.Is(err, context.Canceled) {
 			return "", true

@@ -62,6 +62,12 @@ type chatAnswer struct {
 	Outcome      chatOutcome
 	InputTokens  int
 	OutputTokens int
+	// CacheReadTokens is the part of InputTokens served from the provider's prompt cache.
+	CacheReadTokens int
+	// ThoughtTokens is the thinking the provider billed on top of OutputTokens (Gemini).
+	ThoughtTokens int
+	// TextOnly is set when the answer came from a retry that dropped the request's images.
+	TextOnly bool
 }
 
 // chatProvider is one provider's conversation call.
@@ -111,8 +117,10 @@ func (p chatAnthropicProvider) converse(ctx context.Context, req chatRequest) (c
 	if err != nil {
 		return chatAnswer{}, err
 	}
-	return chatAnswerOf(reply.Text, reply.Outcome == claude.OutcomeRefused, reply.Outcome == claude.OutcomeTruncated,
-		reply.InputTokens, reply.OutputTokens), nil
+	answer := chatAnswerOf(reply.Text, reply.Outcome == claude.OutcomeRefused, reply.Outcome == claude.OutcomeTruncated,
+		reply.InputTokens, reply.OutputTokens)
+	answer.CacheReadTokens = reply.CacheReadTokens
+	return answer, nil
 }
 
 type chatGeminiProvider struct{ client *gemini.Client }
@@ -128,8 +136,11 @@ func (p chatGeminiProvider) converse(ctx context.Context, req chatRequest) (chat
 	if err != nil {
 		return chatAnswer{}, err
 	}
-	return chatAnswerOf(reply.Text, reply.Outcome == gemini.OutcomeRefused, reply.Outcome == gemini.OutcomeTruncated,
-		reply.InputTokens, reply.OutputTokens), nil
+	answer := chatAnswerOf(reply.Text, reply.Outcome == gemini.OutcomeRefused, reply.Outcome == gemini.OutcomeTruncated,
+		reply.InputTokens, reply.OutputTokens)
+	answer.CacheReadTokens = reply.CacheReadTokens
+	answer.ThoughtTokens = reply.ThoughtsTokens
+	return answer, nil
 }
 
 type chatFeatherlessProvider struct{ client *featherless.Client }
@@ -147,8 +158,10 @@ func (p chatFeatherlessProvider) converse(ctx context.Context, req chatRequest) 
 	if err != nil {
 		return chatAnswer{}, err
 	}
-	return chatAnswerOf(reply.Text, reply.Outcome == featherless.OutcomeRefused, reply.Outcome == featherless.OutcomeTruncated,
-		reply.InputTokens, reply.OutputTokens), nil
+	answer := chatAnswerOf(reply.Text, reply.Outcome == featherless.OutcomeRefused, reply.Outcome == featherless.OutcomeTruncated,
+		reply.InputTokens, reply.OutputTokens)
+	answer.CacheReadTokens = reply.CacheReadTokens
+	return answer, nil
 }
 
 // chatAnswerOf builds the runtime's answer from a provider's reply.
@@ -183,6 +196,8 @@ func chatErrorClass(err error) string {
 		return "timeout"
 	case errors.Is(err, context.Canceled):
 		return "cancelled"
+	case chatEmptyAnswer(err):
+		return "empty answer"
 	case errors.Is(err, claude.ErrNoReply), errors.Is(err, gemini.ErrNoReply), errors.Is(err, featherless.ErrNoReply):
 		return "no reply"
 	}
@@ -253,7 +268,7 @@ func chatBuildRequest(ctx context.Context, job chatJob, botUsername string, ambi
 		Dynamic: chatprompt.Dynamic(chatprompt.Chat{
 			Title: job.chatTitle, Language: language, Date: date, BotUsername: botUsername,
 		}),
-		User:        chatprompt.UserWithAmbient(ambient, history, job.quoted, job.turn, media.Files),
+		User:        chatprompt.UserWithMemory(job.memoryNotes, chatprompt.UserWithAmbient(ambient, history, job.quoted, job.turn, media.Files)),
 		Attachments: media.Attachments,
 	}
 }

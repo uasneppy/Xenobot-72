@@ -1,12 +1,14 @@
 package modules
 
 import (
+	"context"
 	"testing"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 
 	"github.com/uasneppy/Xenobot-72/xenobot/db"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/reactions"
 	"github.com/uasneppy/Xenobot-72/xenobot/i18n"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/cache"
@@ -275,5 +277,23 @@ func TestLoadReactionsRegistersHelpAndHandlers(t *testing.T) {
 	}
 	if got := DefaultHelpRegistry().moduleHelpKb("Reactions", i18n.MustNewTranslator("en")); len(got) != 1 || len(got[0]) != 2 {
 		t.Fatalf("reactions help keyboard = %#v, want one row with two buttons", got)
+	}
+}
+
+// TestCheckReactionsPanicContinuesGroup: a panic inside the static reaction path is recovered and
+// must still continue handler group 8, so the @admin report watcher beside it is not skipped.
+func TestCheckReactionsPanicContinuesGroup(t *testing.T) {
+	client := newModuleBotClient()
+	bot := newModuleTestBot(client)
+	chat := gotgbot.Chat{Id: uniqueModuleChatID(), Type: "supergroup", Title: "Reaction Chat"}
+	user := gotgbot.User{Id: 4308, FirstName: "Member"}
+	chatSwap(t, &presenceStaffLookup, func(int64) *models.StaffGroup { return nil })
+	rules := reactionWrites.Rules
+	t.Cleanup(func() { reactionWrites.Rules = rules })
+	reactionWrites.Rules = func(context.Context, int64) ([]reactions.Rule, error) { panic("rules exploded") }
+
+	ctx := newModuleMessageContext(bot, chat, user, "well hello there")
+	if err := reactionsModule.checkReactions(bot, ctx); err != ext.ContinueGroups {
+		t.Fatalf("checkReactions() after a recovered panic = %v, want ContinueGroups (nil would skip the rest of group 8)", err)
 	}
 }

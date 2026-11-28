@@ -216,7 +216,7 @@ func chatInspectProcess(job chatInspectJob) {
 		chatToyShedCount.Add(1)
 		return
 	}
-	media := chatReactDownloadVision(ctx, client, job.asReactJob())
+	media := chatReactDownloadVision(ctx, job.asReactJob())
 	if root.Err() != nil {
 		chatToyShedCount.Add(1)
 		return
@@ -230,7 +230,7 @@ func chatInspectProcess(job chatInspectJob) {
 		MaxTokens:   chatprompt.InspectMaxTokens,
 		Attachments: media.Attachments,
 	}
-	answer, err := chatReactCallProvider(ctx, root, client, job.provider, req)
+	answer, err := chatConverse(ctx, root, chatCall{Lane: "inspect", ChatID: job.chatID}, job.provider, req)
 	if err != nil {
 		if root.Err() != nil || errors.Is(err, context.Canceled) {
 			chatToyShedCount.Add(1)
@@ -243,6 +243,14 @@ func chatInspectProcess(job chatInspectJob) {
 	}
 	chatBreaker(job.provider).clear(job.chatID)
 
+	if answer.TextOnly {
+		// The model rejected the image and only a retry without it answered. A verdict about a picture
+		// it never saw would be invented, so say so with the malfunction line instead. Not a breaker
+		// failure: the provider is healthy, the model just cannot see.
+		chatToyFailedCount.Add(1)
+		chatSayGated(ctx, job.bot, client, job.asChat(), chatInspectSaidMalfunction, "inspect_malfunction", chatMalfunctionGate)
+		return
+	}
 	if answer.Outcome == chatRefused {
 		chatInspectReplyRefusal(ctx, job)
 		return
@@ -264,6 +272,12 @@ func chatInspectProcess(job chatInspectJob) {
 }
 
 func chatInspectReserve(ctx context.Context, client *redis.Client, job chatInspectJob) bool {
+	// The per-chat cooldown is shared with /referendum (AGENTS.md: both toys use chatToyChatCooldown),
+	// so several members cannot each run /inspect back to back and flood the chat with verdicts.
+	if chatToyChatCooldown > 0 && !chatClaimCooldown(ctx, client, presenceToyChatCooldownKey(job.chatID), chatToyChatCooldown) {
+		chatToyShedCount.Add(1)
+		return false
+	}
 	if chatToyUserCooldown > 0 && !chatClaimCooldown(ctx, client, presenceToyUserCooldownKey(job.chatID, job.userID), chatToyUserCooldown) {
 		chatToyShedCount.Add(1)
 		return false

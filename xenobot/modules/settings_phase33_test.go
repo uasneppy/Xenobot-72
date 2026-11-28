@@ -18,6 +18,11 @@ func settingsPhase33Codes() []settingsPhase33Code {
 		{settingsActPresenceHighlights, settingsPagePresence, nil},
 		{settingsActPresenceArchiveUnlink, settingsPagePresence, nil},
 		{settingsActPresenceRoom, settingsPagePresence, nil},
+		// Phase 36: the Personality sub-page and its typed list actions.
+		{settingsActPresencePersonality, settingsPagePresence, nil},
+		{settingsActPresencePersonalityEdit, settingsPagePresence, []string{"t", settingsPresencePartTopics}},
+		{settingsActPresencePersonalityClear, settingsPagePresence, []string{"t", settingsPresencePartNames}},
+		{settingsActPresencePersonalityCancel, settingsPagePresence, []string{"t", settingsPresencePartTopics}},
 	}
 }
 
@@ -85,6 +90,9 @@ func TestPhase33Codes(t *testing.T) {
 		settingsPresenceControlPMBrief,
 		settingsPresenceControlReferendum,
 		settingsPresenceControlInspect,
+		settingsPresenceControlReactText,
+		settingsPresenceControlReactSticker,
+		settingsPresenceControlReactPhoto,
 	} {
 		if _, ok := prPage.Controls[ctrl]; !ok {
 			t.Errorf("control %q missing from page %q Controls", ctrl, settingsPagePresence)

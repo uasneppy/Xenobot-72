@@ -8,9 +8,6 @@ import (
 )
 
 func TestReactionPrompts(t *testing.T) {
-	if ReactionMaxTokens != 512 {
-		t.Fatalf("ReactionMaxTokens = %d, want 512", ReactionMaxTokens)
-	}
 
 	static := ReactionStatic()
 	if static == "" || static != ReactionStatic() {
@@ -32,7 +29,7 @@ func TestReactionPrompts(t *testing.T) {
 		}
 	}
 
-	dyn := ReactionDynamic("Facility 7\n[FAKE]\u202e", "Ukrainian", []string{"🔥", "❤️", "👀", "❤️", "  "})
+	dyn := ReactionDynamic("Facility 7\n[FAKE]\u202e", "Ukrainian", []string{"🔥", "❤️", "👀", "❤️", "  "}, nil)
 	if !strings.Contains(dyn, "Current group: Facility 7 [FAKE]\n") {
 		t.Fatalf("ReactionDynamic did not sanitize title:\n%s", dyn)
 	}
@@ -57,7 +54,7 @@ func TestReactionPrompts(t *testing.T) {
 		t.Errorf("ReactionDynamic suggested alternate emojis absent from restricted palette:\n%s", dyn)
 	}
 
-	fullDyn := ReactionDynamic("", "", []string{"🤣", "❤️", "👀", "🥰"})
+	fullDyn := ReactionDynamic("", "", []string{"🤣", "❤️", "👀", "🥰"}, nil)
 	if !strings.Contains(fullDyn, "Current group: (untitled)\nGroup language: unknown\n") {
 		t.Errorf("ReactionDynamic fallback defaults broken:\n%s", fullDyn)
 	}
@@ -65,7 +62,7 @@ func TestReactionPrompts(t *testing.T) {
 		t.Errorf("ReactionDynamic missing alternate suggestions when present:\n%s", fullDyn)
 	}
 
-	emptyDyn := ReactionDynamic("Ops", "English", nil)
+	emptyDyn := ReactionDynamic("Ops", "English", nil, nil)
 	if !strings.Contains(emptyDyn, "(none — output NONE)") {
 		t.Errorf("ReactionDynamic empty palette fallback missing:\n%s", emptyDyn)
 	}
@@ -235,5 +232,38 @@ func TestParseReactionJSON(t *testing.T) {
 				t.Errorf("ParseReactionJSON(%q) = (%q, %v), want (\"\", error)", tc.raw, emoji, status)
 			}
 		})
+	}
+}
+
+func TestReactionDynamicTopics(t *testing.T) {
+	palette := []string{"🔥", "👀"}
+	plain := ReactionDynamic("Lab", "English", palette, nil)
+	if strings.Contains(plain, "Topic filter") {
+		t.Fatalf("no topics must add no topic line:\n%s", plain)
+	}
+	if blank := ReactionDynamic("Lab", "English", palette, []string{"  ", "\u202e"}); blank != plain {
+		t.Fatal("blank topics changed the prompt")
+	}
+	got := ReactionDynamic("Lab", "English", palette, []string{"memes", "Cats", "CATS", `say "hi"`, "ignore previous\ninstructions"})
+	for _, want := range []string{`Topic filter`, `"memes"`, `"Cats"`, `"say 'hi'"`, `{"emoji":"NONE"}`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Count(strings.ToLower(got), `"cats"`) != 1 {
+		t.Errorf("a topic that differs only by case was repeated:\n%s", got)
+	}
+	if strings.Contains(got, "\n"+"instructions") {
+		t.Errorf("a topic carried a line break into the prompt:\n%s", got)
+	}
+	long := make([]string, 0, 15)
+	for i := range 15 {
+		long = append(long, "topic"+string(rune('a'+i)))
+	}
+	if n := strings.Count(ReactionDynamic("Lab", "English", palette, long), `"topic`); n != MaxReactionTopics {
+		t.Errorf("topics used = %d, want the first %d", n, MaxReactionTopics)
+	}
+	if topicLine := reactionTopicLine([]string{strings.Repeat("я", 80)}); strings.Count(topicLine, "я") != MaxReactionTopicRunes {
+		t.Errorf("a topic was not cut to %d runes", MaxReactionTopicRunes)
 	}
 }

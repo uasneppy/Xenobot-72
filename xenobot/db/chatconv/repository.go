@@ -52,6 +52,9 @@ type Settings struct {
 	// JudgeTo is where a /judge verdict goes by default (JudgeToGroup, JudgeToPrivate or
 	// JudgeToStaff). A value an older build cached has no field and decodes to the group.
 	JudgeTo int `msgpack:"j"`
+	// MemoriesEnabled is the owner's per-member memories switch. A value an older build cached has
+	// no field and decodes to off.
+	MemoriesEnabled bool `msgpack:"m"`
 }
 
 // Defaults is the setting of a chat with no row: off, Anthropic, everyone.
@@ -100,7 +103,7 @@ func GetFresh(ctx context.Context, chatID int64) (Settings, error) {
 	if err != nil {
 		return Settings{}, xenoerrors.Wrapf(err, "read the conversation setting of chat %d", chatID)
 	}
-	return Settings{Enabled: row.Enabled, Provider: row.Provider, Audience: int(row.Audience), LogEnabled: row.LogEnabled, JudgeTo: int(row.JudgeTo)}, nil
+	return Settings{Enabled: row.Enabled, Provider: row.Provider, Audience: int(row.Audience), LogEnabled: row.LogEnabled, JudgeTo: int(row.JudgeTo), MemoriesEnabled: row.MemoriesEnabled}, nil
 }
 
 // SetEnabled writes the on/off switch with one column-targeted upsert and drops the key.
@@ -135,6 +138,14 @@ func SetLogEnabled(ctx context.Context, chatID int64, on bool, by int64) error {
 	row := defaultRow(chatID, by)
 	row.LogEnabled = on
 	return upsert(ctx, row, "log_enabled")
+}
+
+// SetMemoriesEnabled writes the per-member memories switch with one column-targeted upsert and drops
+// the key.
+func SetMemoriesEnabled(ctx context.Context, chatID int64, on bool, by int64) error {
+	row := defaultRow(chatID, by)
+	row.MemoriesEnabled = on
+	return upsert(ctx, row, "memories_enabled")
 }
 
 // SetJudgeTo writes the default destination of a /judge verdict, refusing a value outside the

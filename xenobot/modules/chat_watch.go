@@ -79,24 +79,28 @@ func chatWatch(b *gotgbot.Bot, ctx *ext.Context) {
 		chatEnqueue(chatJobOf(b, msg, userID, provider))
 		return
 	}
-	if msg.ForwardOrigin == nil {
-		if stripped, isVocative := chatprompt.ParseVocativePrefix(chatMessageText(msg), b.FirstName); isVocative && !presenceIsStaffGroup(chat.Id) {
-			lookupCtx, cancel := context.WithTimeout(context.Background(), chatWatchTimeout)
-			pres, err := presenceSettingsGet(lookupCtx, chat.Id)
-			cancel()
+	if msg.ForwardOrigin == nil && chatAnyProviderConfigured() {
+		// Name addressing. The group's own names live in its cached presence settings, so the read is
+		// needed before the prefix can be judged; it and the Staff Group answer are memoised for the
+		// update, so the reaction watcher below asks neither again (the per-message cost of an
+		// unaddressed text is what it was before extra names existed).
+		if text := chatMessageText(msg); text != "" && !presenceIsStaffGroupMemo(ctx, chat.Id) {
+			pres, err := presenceSettingsOnce(ctx, chat.Id, chatWatchTimeout)
 			if err == nil && pres.VocativeEnabled {
-				gate, provider := chatAccept(b, chat.Id, userID)
-				if gate == chatGateOpen {
-					job := chatJobOf(b, msg, userID, provider)
-					text := strings.TrimSpace(stripped)
-					job.hasText = text != ""
-					if !job.hasText {
-						text = chatMediaLabel(msg)
+				if stripped, isVocative := chatprompt.ParseVocativePrefix(text, b.FirstName, pres.BotNameList()...); isVocative {
+					gate, provider := chatAccept(b, chat.Id, userID)
+					if gate == chatGateOpen {
+						job := chatJobOf(b, msg, userID, provider)
+						stripped = strings.TrimSpace(stripped)
+						job.hasText = stripped != ""
+						if !job.hasText {
+							stripped = chatMediaLabel(msg)
+						}
+						job.turn.Text = stripped
+						chatEnqueue(job)
 					}
-					job.turn.Text = text
-					chatEnqueue(job)
+					return
 				}
-				return
 			}
 		}
 	}

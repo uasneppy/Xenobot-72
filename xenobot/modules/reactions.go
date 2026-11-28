@@ -24,6 +24,7 @@ import (
 
 	"github.com/uasneppy/Xenobot-72/xenobot/db/lang"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/reactions"
 	"github.com/uasneppy/Xenobot-72/xenobot/i18n"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/chat_status"
@@ -339,6 +340,11 @@ var (
 	catStickerRoll = func() bool {
 		return rand.IntN(100) < 20 // #nosec G404 -- non-cryptographic reaction sampling
 	}
+	// catStickerCoin is the extra coin a Rare sticker frequency adds to the roll (about half as often).
+	// Package variable only so tests can make it deterministic.
+	catStickerCoin = func() bool {
+		return rand.IntN(2) == 0 // #nosec G404 -- non-cryptographic reaction sampling
+	}
 	// catStickerCooldown gates per-chat cat-sticker micro-triggers across replicas.
 	catStickerCooldown = 3 * time.Minute
 	// staticChatCooldown gates per-chat static reaction bursts across replicas.
@@ -548,6 +554,24 @@ func tryStaticReactionRules(
 	return false
 }
 
+// catStickerRollFor applies the group's sticker frequency to the cat-sticker roll: Off never fires,
+// Rare needs one more coin (about half as often), Often gets a second roll (about 36% instead of
+// 20%), Normal is the roll as it was.
+func catStickerRollFor(freq int) bool {
+	switch freq {
+	case presence.ReactFreqOff:
+		return false
+	case presence.ReactFreqRare:
+		return catStickerRoll() && catStickerCoin()
+	case presence.ReactFreqOften:
+		if catStickerRoll() {
+			return true
+		}
+		return catStickerRoll()
+	}
+	return catStickerRoll()
+}
+
 func tryCatStickerReaction(ctx context.Context, b *gotgbot.Bot, extCtx *ext.Context, chatID, msgID, userID int64, sticker *gotgbot.Sticker) bool {
 	if sticker == nil || !isCatStickerEmoji(sticker.Emoji) {
 		return false
@@ -556,7 +580,7 @@ func tryCatStickerReaction(ctx context.Context, b *gotgbot.Bot, extCtx *ext.Cont
 	if err != nil || !pres.CatStickerEnabled {
 		return false
 	}
-	if !catStickerRoll() {
+	if !catStickerRollFor(pres.ReactFreqOf(presence.KindSticker)) {
 		return false
 	}
 	client := presenceRedisClient()
@@ -593,7 +617,10 @@ func tryCatStickerReaction(ctx context.Context, b *gotgbot.Bot, extCtx *ext.Cont
 	return false
 }
 
-func (m moduleStruct) checkReactions(b *gotgbot.Bot, ctx *ext.Context) error {
+func (m moduleStruct) checkReactions(b *gotgbot.Bot, ctx *ext.Context) (result error) {
+	// A recovered panic must not return nil: that would leave handler group 8 and skip the @admin
+	// report watcher beside it. The result is preset, so every path continues the group.
+	result = ext.ContinueGroups
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("[Reactions][checkReactions] Recovered from panic: %v", r)

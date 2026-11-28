@@ -82,6 +82,7 @@ func TestMain(m *testing.M) {
 			&models.FederationSub{},
 			&models.LogChannel{},
 			&models.ChatConversation{},
+			&models.ChatMemberMemory{},
 			&models.ChatEscalation{},
 			&models.ChatOffence{},
 			&models.ChatManualDefaults{},

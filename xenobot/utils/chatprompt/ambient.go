@@ -71,12 +71,16 @@ func UserWithAmbient(ambient, history []Turn, quoted *Turn, message Turn, files 
 // optional sanitized botFirstName) case-insensitively at a Unicode word
 // boundary, strips any immediately following delimiter/whitespace runes, and
 // returns the remaining message text and whether a vocative prefix matched.
-func ParseVocativePrefix(text, botFirstName string) (stripped string, matched bool) {
+//
+// extraNames are the group's own names for the bot (set by its admins); each is cleaned the same way
+// and tried together with the built-in ones, longest first. A name that is only a prefix of a longer
+// word never matches: the next rune must be a delimiter.
+func ParseVocativePrefix(text, botFirstName string, extraNames ...string) (stripped string, matched bool) {
 	s := strings.TrimSpace(text)
 	if s == "" {
 		return "", false
 	}
-	for _, cand := range vocativeCandidates(botFirstName) {
+	for _, cand := range vocativeCandidates(botFirstName, extraNames) {
 		rest, ok := matchFoldPrefix(s, cand)
 		if !ok {
 			continue
@@ -102,28 +106,37 @@ func ParseVocativePrefix(text, botFirstName string) (stripped string, matched bo
 	return "", false
 }
 
-func vocativeCandidates(botFirstName string) []string {
+func vocativeCandidates(botFirstName string, extraNames []string) []string {
+	// The Ukrainian and Russian vocative and diminutive forms ("Ксеноботе, ...") are names too: the
+	// nominative alone never matched how people actually address someone.
 	candidates := []string{
 		BotName,
 		"Xenobot",
 		"Кзенобот",
 		"Ксенобот",
+		"Кзеноботе",
+		"Ксеноботе",
+		"Ксеноботик",
 	}
-	if extra := Clean(botFirstName, MaxNameRunes); utf8.RuneCountInString(extra) > 1 {
-		dup := false
+	add := func(name string) {
+		name = Clean(name, MaxNameRunes)
+		if utf8.RuneCountInString(name) < 2 {
+			return
+		}
 		for _, c := range candidates {
-			if strings.EqualFold(c, extra) {
-				dup = true
-				break
+			if strings.EqualFold(c, name) {
+				return
 			}
 		}
-		if !dup {
-			candidates = append(candidates, extra)
-			slices.SortStableFunc(candidates, func(a, b string) int {
-				return cmp.Compare(utf8.RuneCountInString(b), utf8.RuneCountInString(a))
-			})
-		}
+		candidates = append(candidates, name)
 	}
+	add(botFirstName)
+	for _, name := range extraNames {
+		add(name)
+	}
+	slices.SortStableFunc(candidates, func(a, b string) int {
+		return cmp.Compare(utf8.RuneCountInString(b), utf8.RuneCountInString(a))
+	})
 	return candidates
 }
 

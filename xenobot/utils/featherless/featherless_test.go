@@ -472,3 +472,160 @@ func TestErrorsAndSecurity(t *testing.T) {
 		}
 	})
 }
+
+// TestEmptyAnswerIsNotAFailure pins the empty-answer sentinel (a deliberate
+// change from the earlier plain ErrNoReply): a normal finish with no visible
+// text, an unclosed reasoning block and "no choices" are ErrEmptyAnswer, while
+// an unreadable body and an unknown finish stay plain ErrNoReply.
+func TestEmptyAnswerIsNotAFailure(t *testing.T) {
+	cases := []struct {
+		name  string
+		body  string
+		empty bool
+	}{
+		{"unclosed think", chatAnswer("length", "<think>still thinking..."), true},
+		{"blank length", chatAnswer("length", "   "), true},
+		{"blank stop", chatAnswer("stop", "  "), true},
+		{"closing tag only, nothing after", chatAnswer("stop", "plan</think>  "), true},
+		{"no choices", `{"usage":{"prompt_tokens":3}}`, true},
+		{"tool_calls", chatAnswer("tool_calls", "x"), false},
+		{"unreadable", `nope`, false},
+		{"no message", `{"choices":[{"finish_reason":"stop"}]}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server, _ := newServer(t, func(w http.ResponseWriter, _ *http.Request) { respond(w, http.StatusOK, tc.body) })
+			_, err := newClient(server).Converse(context.Background(), sampleRequest())
+			if !errors.Is(err, ErrNoReply) {
+				t.Fatalf("err = %v, want ErrNoReply", err)
+			}
+			if got := errors.Is(err, ErrEmptyAnswer); got != tc.empty {
+				t.Fatalf("errors.Is(ErrEmptyAnswer) = %v, want %v (err %v)", got, tc.empty, err)
+			}
+			var empty *EmptyAnswerError
+			if tc.empty && !errors.As(err, &empty) {
+				t.Fatalf("err %v does not unwrap to *EmptyAnswerError", err)
+			}
+		})
+	}
+}
+
+func TestStripLeadingThink(t *testing.T) {
+	cases := map[string]string{
+		"Final reply.":                                  "Final reply.",
+		"<think>a</think>\nFinal reply.":                "Final reply.",
+		"<THINK>a</THINK> Final reply.":                 "Final reply.",
+		"<think>a</think><think>b</think>Final reply.":  "Final reply.",
+		"<think>still thinking":                         "",
+		"Гаразд, подумаю...\n</think>\n\nВідповідь.":    "Відповідь.",
+		"plan one</think>x</think>  Last wins.":         "Last wins.",
+		"Okay, the user wants a joke.</THINK>The joke.": "The joke.",
+		"no tags at all":                                "no tags at all",
+	}
+	for in, want := range cases {
+		if got := stripLeadingThink(in); got != want {
+			t.Errorf("stripLeadingThink(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestVerdictStripsUntaggedOpeningThink(t *testing.T) {
+	body := chatAnswer("stop", "Let me think about the names.\n</think>\n{\"spam_probability\": 0.25}")
+	v, err := parseVerdict([]byte(body))
+	if err != nil || v.SpamProbability != 0.25 {
+		t.Fatalf("verdict %+v err %v", v, err)
+	}
+}
+
+func TestClassifyAsksForAtLeast512Tokens(t *testing.T) {
+	if maxClassifyOutputTokens < 512 {
+		t.Fatalf("classify cap %d is below the 512-token floor reasoning models need", maxClassifyOutputTokens)
+	}
+}
+
+// TestTransportErrorIsRetriedOnce covers a reset connection: the first
+// attempt dies before any HTTP answer, the second succeeds, and a persistent
+// failure is tried exactly twice.
+func TestTransportErrorIsRetriedOnce(t *testing.T) {
+	drop := func(w http.ResponseWriter) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("no hijacker")
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = conn.Close()
+	}
+
+	t.Run("recovers on the second attempt", func(t *testing.T) {
+		var mu sync.Mutex
+		calls := 0
+		server, _ := newServer(t, func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			calls++
+			n := calls
+			mu.Unlock()
+			if n == 1 {
+				drop(w)
+				return
+			}
+			respond(w, http.StatusOK, chatAnswer("stop", "Back."))
+		})
+		reply, err := newClient(server).Converse(context.Background(), sampleRequest())
+		if err != nil || reply.Text != "Back." {
+			t.Fatalf("reply %+v err %v", reply, err)
+		}
+		mu.Lock()
+		got := calls
+		mu.Unlock()
+		if got != 2 {
+			t.Fatalf("calls = %d, want 2", got)
+		}
+	})
+
+	t.Run("a persistent reset is tried twice", func(t *testing.T) {
+		var mu sync.Mutex
+		calls := 0
+		server, _ := newServer(t, func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			calls++
+			mu.Unlock()
+			drop(w)
+		})
+		_, err := newClient(server).Converse(context.Background(), sampleRequest())
+		if err == nil {
+			t.Fatal("want an error")
+		}
+		if strings.Contains(err.Error(), server.URL) || strings.Contains(err.Error(), testKey) {
+			t.Fatalf("error leaks the URL or key: %v", err)
+		}
+		mu.Lock()
+		got := calls
+		mu.Unlock()
+		if got != 2 {
+			t.Fatalf("calls = %d, want 2", got)
+		}
+	})
+
+	t.Run("a cancelled context is not retried", func(t *testing.T) {
+		var mu sync.Mutex
+		calls := 0
+		server, _ := newServer(t, func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			calls++
+			mu.Unlock()
+			drop(w)
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, _ = newClient(server).Converse(ctx, sampleRequest())
+		mu.Lock()
+		got := calls
+		mu.Unlock()
+		if got > 1 {
+			t.Fatalf("calls = %d, want at most 1", got)
+		}
+	})
+}

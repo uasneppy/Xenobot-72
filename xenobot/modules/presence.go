@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
@@ -53,6 +54,12 @@ func presenceUserCooldownKey(chatID, userID int64) string {
 // on msgID. Hex-encoding the UTF-8 emoji avoids colons or whitespace issues in Redis keys.
 func presenceConsensusUsersKey(chatID, msgID int64, emoji string) string {
 	return presenceChatTag(chatID) + "cons:u:" + strconv.FormatInt(msgID, 10) + ":" + hex.EncodeToString([]byte(emoji))
+}
+
+// presenceReactionStampKey holds the update_id of the newest reaction update applied for one user on
+// one message (consensus and archive share it), so a late update is recognised and dropped.
+func presenceReactionStampKey(chatID, msgID, userID int64) string {
+	return presenceChatTag(chatID) + "react:stamp:" + strconv.FormatInt(msgID, 10) + ":" + strconv.FormatInt(userID, 10)
 }
 
 // presenceConsensusCooldownKey gates per-chat Emoji Consensus firing across replicas.
@@ -131,6 +138,49 @@ func presenceIsStaffGroup(chatID int64) bool {
 	return presenceStaffLookup(chatID) != nil
 }
 
+// The update's own memo of the two per-message reads the group 13 watchers share, kept in ctx.Data:
+// chatWatch (name addressing) and chatReactWatch (reactions) both need the chat's presence settings and
+// the Staff Group answer, so each is asked once per update, whichever watcher asks first.
+const (
+	presenceStaffMemoKey    = "xenobot:presence:staffmemo"
+	presenceSettingsMemoKey = "xenobot:presence:settingsmemo"
+)
+
+type presenceSettingsMemo struct {
+	settings presence.Settings
+	err      error
+}
+
+// presenceIsStaffGroupMemo is presenceIsStaffGroup answered once per update.
+func presenceIsStaffGroupMemo(ctx *ext.Context, chatID int64) bool {
+	if ctx == nil || ctx.Data == nil {
+		return presenceIsStaffGroup(chatID)
+	}
+	if known, ok := ctx.Data[presenceStaffMemoKey].(bool); ok {
+		return known
+	}
+	staffGroup := presenceIsStaffGroup(chatID)
+	ctx.Data[presenceStaffMemoKey] = staffGroup
+	return staffGroup
+}
+
+// presenceSettingsOnce reads the chat's presence settings once per update (an error is memoised too, so a
+// failing read is not retried by the second watcher).
+func presenceSettingsOnce(ctx *ext.Context, chatID int64, timeout time.Duration) (presence.Settings, error) {
+	if ctx != nil && ctx.Data != nil {
+		if memo, ok := ctx.Data[presenceSettingsMemoKey].(presenceSettingsMemo); ok {
+			return memo.settings, memo.err
+		}
+	}
+	readCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	settings, err := presenceSettingsGet(readCtx, chatID)
+	if ctx != nil && ctx.Data != nil {
+		ctx.Data[presenceSettingsMemoKey] = presenceSettingsMemo{settings: settings, err: err}
+	}
+	return settings, err
+}
+
 // presenceIsLockedDown checks whether chatID has an active lockdown in PostgreSQL. It fails closed
 // (returns true) on any database error so Interactive Presence stays silent during outages.
 func presenceIsLockedDown(chatID int64) bool {
@@ -162,7 +212,7 @@ func presenceMessageAllowed(b *gotgbot.Bot, ctx *ext.Context) (int64, bool) {
 	if !ok || ctx.EffectiveSender.User.IsBot {
 		return 0, false
 	}
-	if presenceIsStaffGroup(chat.Id) {
+	if presenceIsStaffGroupMemo(ctx, chat.Id) {
 		return 0, false
 	}
 	return userID, true
@@ -194,6 +244,9 @@ var presenceWrites = struct {
 	PMBriefReact       func(ctx context.Context, chatID int64, enabled bool, by int64) error
 	ReferendumEnabled  func(ctx context.Context, chatID int64, enabled bool, by int64) error
 	InspectEnabled     func(ctx context.Context, chatID int64, enabled bool, by int64) error
+	ReactFreq          func(ctx context.Context, chatID int64, kind string, freq int, by int64) error
+	ReactTopics        func(ctx context.Context, chatID int64, raw string, by int64) error
+	BotNames           func(ctx context.Context, chatID int64, raw string, by int64) error
 }{
 	ConsensusEnabled:   presence.SetConsensusEnabled,
 	ConsensusThreshold: presence.SetConsensusThreshold,
@@ -211,6 +264,9 @@ var presenceWrites = struct {
 	PMBriefReact:       presence.SetPMBriefReact,
 	ReferendumEnabled:  presence.SetReferendumEnabled,
 	InspectEnabled:     presence.SetInspectEnabled,
+	ReactFreq:          presence.SetReactFreq,
+	ReactTopics:        presence.SetReactTopics,
+	BotNames:           presence.SetBotNames,
 }
 
 // presenceReadFresh reads a chat's Interactive Presence settings straight from PostgreSQL after a
@@ -401,6 +457,46 @@ func applyPresencePMBriefReact(ctx context.Context, chatID int64, enabled bool, 
 func applyPresenceReferendumEnabled(ctx context.Context, chatID int64, enabled bool, by int64) presenceApplyResult {
 	if err := presenceWrites.ReferendumEnabled(ctx, chatID, enabled, by); err != nil {
 		log.WithField("chat_id", chatID).Warn("[Presence] saving referendum_enabled failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceReactFreq stores how often the bot reacts to one kind of message (presence.KindText,
+// KindSticker or KindPhoto), rejecting an unknown kind or frequency with zero database calls.
+func applyPresenceReactFreq(ctx context.Context, chatID int64, kind string, freq int, by int64) presenceApplyResult {
+	if !presence.ValidReactKind(kind) || !presence.ValidReactFreq(freq) {
+		return presenceApplyResult{Outcome: presenceInvalidValue}
+	}
+	if err := presenceWrites.ReactFreq(ctx, chatID, kind, freq, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving a reaction frequency failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceReactTopics stores the topics AI reactions are limited to (raw is a typed list; empty
+// clears it). A list the repository refuses is an invalid value with nothing written; the refusal's
+// reason is the returned Err (presence.ErrListTooMany, ErrListTooLong or ErrListInvalid).
+func applyPresenceReactTopics(ctx context.Context, chatID int64, raw string, by int64) presenceApplyResult {
+	if _, err := presence.NormalizeTopics(raw); err != nil {
+		return presenceApplyResult{Outcome: presenceInvalidValue, Err: err}
+	}
+	if err := presenceWrites.ReactTopics(ctx, chatID, raw, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving react_topics failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceBotNames stores the extra names the bot answers to (raw is a typed list; empty clears
+// it), with the same refusals as applyPresenceReactTopics.
+func applyPresenceBotNames(ctx context.Context, chatID int64, raw string, by int64) presenceApplyResult {
+	if _, err := presence.NormalizeBotNames(raw); err != nil {
+		return presenceApplyResult{Outcome: presenceInvalidValue, Err: err}
+	}
+	if err := presenceWrites.BotNames(ctx, chatID, raw, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving bot_names failed")
 		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
 	}
 	return presenceReadBack(ctx, chatID)

@@ -9,14 +9,16 @@ import "time"
 // group, 1 the admin's private chat, 2 the linked Staff Group). It is read through the cache key chat_conv:<chat> (see xenobot/db/chatconv).
 // The boolean carries no default tag, so a Go false is always written.
 type ChatConversation struct {
-	ChatID     int64     `gorm:"column:chat_id;primaryKey;autoIncrement:false" json:"chat_id"`
-	Enabled    bool      `gorm:"column:enabled;not null" json:"enabled"`
-	Provider   string    `gorm:"column:provider;not null;size:16;check:chk_chat_conversations_provider,provider IN ('anthropic', 'google', 'featherless')" json:"provider"`
-	Audience   int16     `gorm:"column:audience;not null;check:chk_chat_conversations_audience,audience BETWEEN 0 AND 1" json:"audience"`
-	LogEnabled bool      `gorm:"column:log_enabled;not null" json:"log_enabled"`
-	JudgeTo    int16     `gorm:"column:judge_to;not null;check:chk_chat_conversations_judge_to,judge_to BETWEEN 0 AND 2" json:"judge_to"`
-	UpdatedBy  int64     `gorm:"column:updated_by;not null" json:"updated_by"`
-	UpdatedAt  time.Time `gorm:"column:updated_at" json:"updated_at,omitempty"`
+	ChatID     int64  `gorm:"column:chat_id;primaryKey;autoIncrement:false" json:"chat_id"`
+	Enabled    bool   `gorm:"column:enabled;not null" json:"enabled"`
+	Provider   string `gorm:"column:provider;not null;size:16;check:chk_chat_conversations_provider,provider IN ('anthropic', 'google', 'featherless')" json:"provider"`
+	Audience   int16  `gorm:"column:audience;not null;check:chk_chat_conversations_audience,audience BETWEEN 0 AND 1" json:"audience"`
+	LogEnabled bool   `gorm:"column:log_enabled;not null" json:"log_enabled"`
+	JudgeTo    int16  `gorm:"column:judge_to;not null;check:chk_chat_conversations_judge_to,judge_to BETWEEN 0 AND 2" json:"judge_to"`
+	// MemoriesEnabled is the owner's switch for per-member memories (see ChatMemberMemory).
+	MemoriesEnabled bool      `gorm:"column:memories_enabled;not null" json:"memories_enabled"`
+	UpdatedBy       int64     `gorm:"column:updated_by;not null" json:"updated_by"`
+	UpdatedAt       time.Time `gorm:"column:updated_at" json:"updated_at,omitempty"`
 }
 
 // TableName returns the migration's table name.

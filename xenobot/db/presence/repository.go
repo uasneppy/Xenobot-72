@@ -5,6 +5,7 @@ package presence
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -69,6 +70,15 @@ type Settings struct {
 	PMBriefReact       bool   `msgpack:"pb"`
 	ReferendumEnabled  bool   `msgpack:"rf"`
 	InspectEnabled     bool   `msgpack:"in"`
+	// ReactTextFreq, ReactStickerFreq and ReactPhotoFreq are how often AI reactions fire for each kind
+	// of message: ReactFreqNormal (0, the default), Off, Rare or Often.
+	ReactTextFreq    int `msgpack:"rt"`
+	ReactStickerFreq int `msgpack:"rs"`
+	ReactPhotoFreq   int `msgpack:"rp"`
+	// ReactTopics limits AI reactions to messages about these topics, one per line; empty is no limit.
+	ReactTopics string `msgpack:"rtp"`
+	// BotNames are extra names the bot answers to under name addressing, one per line.
+	BotNames string `msgpack:"bn"`
 }
 
 // Defaults returns the settings of a chat with no row: Emoji Consensus off with threshold 3,
@@ -93,6 +103,9 @@ func Defaults() Settings {
 		PMBriefReact:       false,
 		ReferendumEnabled:  false,
 		InspectEnabled:     false,
+		ReactTextFreq:      ReactFreqNormal,
+		ReactStickerFreq:   ReactFreqNormal,
+		ReactPhotoFreq:     ReactFreqNormal,
 	}
 }
 
@@ -162,6 +175,9 @@ func normalizeSettings(s Settings) Settings {
 	s.ArchiveThreshold = normalizeArchiveThreshold(s.ArchiveThreshold)
 	s.ArchiveEmojiMode = normalizeArchiveEmojiMode(s.ArchiveEmojiMode)
 	s.ArchiveDelivery = normalizeArchiveDelivery(s.ArchiveDelivery)
+	s.ReactTextFreq = normalizeReactFreq(s.ReactTextFreq)
+	s.ReactStickerFreq = normalizeReactFreq(s.ReactStickerFreq)
+	s.ReactPhotoFreq = normalizeReactFreq(s.ReactPhotoFreq)
 	return s
 }
 
@@ -212,6 +228,11 @@ func GetFresh(ctx context.Context, chatID int64) (Settings, error) {
 		PMBriefReact:       row.PMBriefReact,
 		ReferendumEnabled:  row.ReferendumEnabled,
 		InspectEnabled:     row.InspectEnabled,
+		ReactTextFreq:      int(row.ReactTextFreq),
+		ReactStickerFreq:   int(row.ReactStickerFreq),
+		ReactPhotoFreq:     int(row.ReactPhotoFreq),
+		ReactTopics:        row.ReactTopics,
+		BotNames:           row.BotNames,
 	}), nil
 }
 
@@ -398,6 +419,25 @@ func TryClaimArchived(ctx context.Context, chatID, msgID int64) (bool, error) {
 	return res.RowsAffected == 1, nil
 }
 
+// ReleaseArchived removes the claim TryClaimArchived made for (chatID, msgID), so a highlight whose
+// delivery failed for a reason that may pass (a timeout, a 5xx, a rate limit) can be claimed and
+// delivered again by a later reaction. It reports whether a row was removed.
+func ReleaseArchived(ctx context.Context, chatID, msgID int64) (bool, error) {
+	if chatID == 0 || msgID <= 0 {
+		return false, ErrInvalidValue
+	}
+	if db.DB == nil {
+		return false, xenoerrors.Wrap(errNoDatabase, "release archived presence message")
+	}
+	res := db.DB.WithContext(ctx).
+		Where("chat_id = ? AND message_id = ?", chatID, msgID).
+		Delete(&models.ChatPresenceArchived{})
+	if res.Error != nil {
+		return false, xenoerrors.Wrapf(res.Error, "release archived message %d in chat %d", msgID, chatID)
+	}
+	return res.RowsAffected == 1, nil
+}
+
 // ReplacePortableTx writes all portable presence settings into tx for chatID while preserving
 // the target chat's own archive_chat_id and archive_thread_id. When s.ArchiveEnabled is true
 // and the target chat has no linked archive target, archive_enabled is forced false and
@@ -442,6 +482,11 @@ func ReplacePortableTx(tx *gorm.DB, chatID int64, s Settings, by int64) (archive
 		PMBriefReact:       norm.PMBriefReact,
 		ReferendumEnabled:  norm.ReferendumEnabled,
 		InspectEnabled:     norm.InspectEnabled,
+		ReactTextFreq:      int16(norm.ReactTextFreq),    // #nosec G115 -- normalized to 0..3
+		ReactStickerFreq:   int16(norm.ReactStickerFreq), // #nosec G115 -- normalized to 0..3
+		ReactPhotoFreq:     int16(norm.ReactPhotoFreq),   // #nosec G115 -- normalized to 0..3
+		ReactTopics:        normalizedStoredList(norm.ReactTopics, NormalizeTopics),
+		BotNames:           normalizedStoredList(norm.BotNames, NormalizeBotNames),
 		UpdatedBy:          by,
 		UpdatedAt:          time.Now(),
 	}
@@ -460,6 +505,11 @@ func ReplacePortableTx(tx *gorm.DB, chatID int64, s Settings, by int64) (archive
 		"pm_brief_react",
 		"referendum_enabled",
 		"inspect_enabled",
+		"react_text_freq",
+		"react_sticker_freq",
+		"react_photo_freq",
+		"react_topics",
+		"bot_names",
 	}
 	if err := upsertColumnsTx(tx, row, portableCols); err != nil {
 		return false, err
@@ -499,6 +549,9 @@ func defaultRow(chatID, by int64) *models.ChatPresence {
 		PMBriefReact:       d.PMBriefReact,
 		ReferendumEnabled:  d.ReferendumEnabled,
 		InspectEnabled:     d.InspectEnabled,
+		ReactTextFreq:      int16(d.ReactTextFreq),    // #nosec G115 -- ReactFreqNormal is 0
+		ReactStickerFreq:   int16(d.ReactStickerFreq), // #nosec G115 -- ReactFreqNormal is 0
+		ReactPhotoFreq:     int16(d.ReactPhotoFreq),   // #nosec G115 -- ReactFreqNormal is 0
 		UpdatedBy:          by,
 		UpdatedAt:          time.Now(),
 	}
@@ -532,4 +585,17 @@ func upsertColumnsTx(tx *gorm.DB, row *models.ChatPresence, cols []string) error
 		return xenoerrors.Wrapf(err, "write presence settings of chat %d", row.ChatID)
 	}
 	return nil
+}
+
+// normalizedStoredList returns stored cleaned by normalize (one entry per line), or "" when it does
+// not pass: an imported or hand-written value never reaches the table unvalidated.
+func normalizedStoredList(stored string, normalize func(string) ([]string, error)) string {
+	if strings.TrimSpace(stored) == "" {
+		return ""
+	}
+	list, err := normalize(stored)
+	if err != nil {
+		return ""
+	}
+	return strings.Join(list, "\n")
 }

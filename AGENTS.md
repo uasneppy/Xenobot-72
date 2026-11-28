@@ -113,7 +113,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   proves it: a job inside a hung provider call is ended inside the wait, sends nothing, writes no memory, and a later message starts
   no job; `TestShutdownEndsChatBriefs` proves the same for a brief (and that a later `/unrollshort` starts no job and spends no
   budget); a test that runs the stop restores the pool with `restoreChatPool`. Phase 31's reaction handler (`LoadPresence`,
-  `handleReaction`) joins `StopChat` the same way — tracked in `chatJobs`, refused while `chatDraining`, and bounded by a 3 s context
+  `handleReaction`) joins `StopChat` the same way — tracked in `chatJobs`, refused while `chatDraining`, and bounded by a 3 s context per sub-feature
   derived from `chatContext()` — adding zero shutdown drains and keeping the 70 s webhook worst case and `stop_grace_period: 75s`
   unchanged (`TestShutdownEndsPresenceReaction`). Phase 32's contextual AI emoji reaction worker lane (`chatPresenceQueue`, 2 workers,
   cap 32, launched inside `chatEnsureWorkers()` in `chat_run.go`) shares `chatJobs`, `chatDraining`, and `chatContext()` under `StopChat`
@@ -191,6 +191,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the shared `chatToyQueue` worker lane and `handlePollUpdate` join `StopChat` via `chatJobs`/`chatDraining`/`chatContext()`,
   proved by `TestShutdownEndsChatToys` and `TestShutdownEndsInspect`), keeping the `70 s` webhook worst-case shutdown and
   `stop_grace_period: 75s` unchanged.
+- Phase 36's per-member memories add zero shutdown drains, zero handler groups and zero `main.go` changes: the writer lane
+  (`chatMemoryQueue`, one worker, capacity 16, started inside `chatEnsureWorkers()`) shares `chatJobs`, `chatDraining` and
+  `chatContext()` under `StopChat`, so a note cut off at shutdown is simply not written and nothing needs resuming, keeping the
+  `70 s` webhook worst case and `stop_grace_period: 75s` unchanged (`TestShutdownEndsChatMemory`).
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
 - The Turnstile web captcha is configured in `main` (`registerCaptchaWeb`) when `config.AppConfig.CaptchaWebConfigured()`
   holds: all four of `CAPTCHA_WEB_BASE_URL`, `TELEGRAM_MINI_APP_SHORT_NAME`, `TURNSTILE_SITE_KEY` and
@@ -512,7 +516,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `extraction.ReplyTarget`, to a message the conversation feature sent (one Redis `ZSCORE` of `xenobot:chat:{<chat>}:mine`, only for
   a reply to the bot, so a reply to a ban notice, a welcome or a captcha is no address), else opt-in vocative prefix addressing
   (Phase 34, CHAT-03: `msg.ForwardOrigin == nil`, `chatprompt.ParseVocativePrefix` pure Unicode rune prefix matching across UK/RU/EN
-  and optional `b.FirstName`, `!presenceIsStaffGroup`, and `chat_presence.vocative_enabled`, returning early from `chatWatch` before
+  and optional `b.FirstName` and, since Phase 36, the group's own extra names from `chat_presence.bot_names`, `!presenceIsStaffGroup`, and `chat_presence.vocative_enabled`, returning early from `chatWatch` before
   `chatReactWatch` for strict mutual exclusion whenever `vocative_enabled` is enabled); the server can converse at all
   (`chatAnyProviderConfigured`); the cached setting (`chatconv.Get`; an error answers nothing); enabled and its provider configured
   (`chatProviderConfigured`); Redis present; the audience (`chatAudienceAllows`: everyone, or an administrator by
@@ -521,7 +525,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`chatReserve`: the member's unit, then the group's, then the fleet's, 12, 80 and 800 per UTC hour, through `raidAIBudgetTake`;
   a counter error makes no call), one paced typing action, the transcript (`chatReadHistoryWithIDs` preserving `MessageID`s) and
   optional ambient room context (`chatAmbientContextTurns`, Phase 34, CHAT-02: Owner×Admin+Log double-gated via
-  `!presenceIsStaffGroup && conv.Enabled && conv.LogEnabled && pres.AmbientContext`, reading up to `chatAmbientContextLimit` = 8
+  `!presenceIsStaffGroup && conv.Enabled && conv.LogEnabled && pres.AmbientContext`, reading up to `chatAmbientContextLimit` = 16
   same-thread entries from `chatLogRecentThread` and deduplicating against `historyIDs`, `job.quotedMessageID`, and `job.messageID`),
   the request (`chatBuildRequest`, through the leaf `chatprompt` via `chatprompt.UserWithAmbient` in
   `xenobot/utils/chatprompt/ambient.go`: the static persona and archive, the group's title, language name, today's date in the
@@ -533,7 +537,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   ID, `TestChatProvidersRequest`, `TestChatMediaRecognitionAllProviders`), the provider call behind `chatProvider` (three
   adapters, `chatAnthropicProvider` over `claude.Client.Converse`, `chatGeminiProvider` over `gemini.Client.Generate`, and
   `chatFeatherlessProvider` over `featherless.Client.Converse`, so the
-  runtime never branches on the provider), the output filter (`chatFilterReply`: link-like tokens become `[link removed]`, a
+  runtime never branches on the provider), the output filter (`chatFilterReply`: leaked reasoning is removed first by `chatStripReasoning`, which acts only when the text shows at least two planning cues, the first within `chatDraftCueWindow` (240 bytes) of the start, and never on a brief, verdict or poll text (`chatSanitizeText` is links and handles only); link-like tokens become `[link removed]`, a
   zero-width space follows every `@` that starts a username, a hard cap of 1,200 runes at the last sentence end; blank is never
   sent), the reply and the record of the exchange. The reply is plain text, link previews off, a reply to the addressed message
   sent through the feature's own pacer (`chatPacer`, `xenobot:chat:pace:*`), and never sent without its reply target
@@ -606,7 +610,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the typing action (skipped when `job.silentPM`); `chatLogSince` then `chatBriefStretch` in reply mode or thread-isolated
   `chatLogRecent`/`chatLogSinceUser`/`chatLogSinceTime` in reply-free mode (nothing answers `brief_too_old` in reply mode or
   `brief_empty` in reply-free mode, or stays silent when `job.silentPM`); `chatBriefRequest`; the provider call through `chatProviderOf` (a cancelled root is shed with no line; any other
-  error is `chatRecordFailure` plus `brief_malfunction`; a refusal answers `brief_refused`; `job.silentPM` suppresses every group
+  error is `chatRecordFailure` plus `brief_malfunction`; an empty answer (`chatEmptyAnswer`: a finished answer with no visible text) shows
+  `brief_malfunction` but is never recorded as a failure, here and in every other lane (`chatRecordFailure` returns first); a refusal answers `brief_refused`; `job.silentPM` suppresses every group
   send); the text through `chatSanitizeText`
   (links replaced, a zero-width space after an at-handle; blank is `brief_malfunction`, a truncated answer gets an ellipsis);
   `chatBriefParts`; delivery. The prompt is the brief's own and never uses the conversation persona and archive: the static text is
@@ -676,6 +681,49 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   ("the admins", never the Staff Group's title or ID). The canned group lines of the worker are plain text through `chatSendReply`. Every
   send goes through `chatPaced` and derives from the job context, so `StopChat` ends it. A verdict is an AI opinion: nothing automated
   reads or writes a warn, mute, ban or approval from it (`TestChatJudgeNeverActs`).
+- Member memories (Phase 36, `chat_memory.go`, `xenobot/db/membermem/`, `xenobot/utils/chatprompt/memory.go`). With the owner's
+  Memories switch on (`chat_conversations.memories_enabled`, off by default, the owner's page `p`) and conversations on, the
+  conversation lane keeps up to 12 short notes (`membermem.MaxNotes`, each at most 200 runes) about a member **in that group only**,
+  and reads them back only for that member's next conversation turn. Provisional owner decisions, each reversible in one commit:
+  - **P36-01 (scope):** a note is keyed `(chat_id, user_id)` and every query carries both, so nothing is ever read across groups or
+    members. Notes reach exactly one prompt, the conversation request (`chatBuildRequest` through `chatprompt.UserWithMemory`, in
+    the User part after a label that calls them untrusted, possibly outdated and never to be mentioned; never in the cached Static or
+    Dynamic parts, so the prompt cache survives): `/ask`, `@mention`, a reply to the bot and name addressing. Briefs, `/judge`,
+    reactions, toys, Emoji Consensus and the archive never see a note (`TestChatMemoryGuards` scans the package: `UserWithMemory`,
+    `MemorySection` and `memoryNotes` appear only in the conversation path).
+  - **P36-02 (switch and deletion):** the toggle is one tap with no card, needs a configured provider (as the Message log does) and
+    shares its row with the Presence shortcut (`[✅ Memory | ✨ Presence →]`, so page `p` keeps its 8-row budget). Off, and turning
+    conversations off, delete every member's notes of the chat (`applyChatMemories`, `applyChatEnabled`, seam `chatNotesDeleteChat`);
+    a failed delete is a failed save (the owner is told and presses Off again), and conversations Off leaves the memories switch as
+    the owner set it. A writer that already passed its checks can write once after Off (it re-reads the switch from the database right
+    before the write, `chatMemorySettingsFresh`, which shrinks the window to one statement): the row is unread while the switch is off
+    and the next Off deletes it.
+  - **P36-03 (writer):** after a reply was sent and recorded, `chatMemoryOffer` queues one job for a message with text of at least 25
+    runes (`chatMemoryMinRunes`). The job sees only that message, the bot's reply and the member's current notes, asks the group's
+    provider through `chatConverse` (lane `memory`, `chatprompt.MemoryMaxTokens` 1500) and takes a strict `{"notes":[...]}` object
+    (`ParseMemoryJSON`: one key, at most 12 strings, a note over 200 runes dropped, anything else is no answer) as the member's
+    complete new list, written by `membermem.ReplaceIf`, a compare-and-swap in one transaction with the row locked that writes only while the stored list is still the one the run read (an empty list deletes the row), so a `/forgetme` or any other change that lands while the provider is thinking is never undone by the run (`TestChatMemoryForgetDuringWriter`, `TestMemberMemoryReplaceIf`; a discarded write counts as shed). `chatMemoryAcceptNotes` then
+    drops, never edits, a note with a link, an `@handle`, angle brackets or seven digits. The code-owned instruction keeps only stable
+    facts the member volunteered about themselves and never health, religion, politics, sexuality, ethnicity, money, a precise
+    location, an address, contact details, other people or an instruction for the bot.
+  - **P36-04 (cost and failure):** one writer call per member per 15 minutes (`SET NX` on `xenobot:chat:{<chat>}:mem:cd:<user>`) and
+    its own hourly budgets, 4 per member, 20 per group and 200 in all (`xenobot:chat:mem:b:u|c|g:...` through `chatReserveWith`, the
+    family `mem:b`); a paused breaker, no Redis, an unreadable existing list or a Staff Group sheds the job with no call. A provider
+    error, an empty or refused answer, a malformed list and a shutdown leave the stored notes as they were and are never a provider
+    failure of the group (`chat_memory.go` never calls `chatRecordFailure`, and `TestChatMemoryGuards` forbids it and every Telegram
+    call there: the writer sends nothing, so it can never reply to a command a wrapper deleted). Off-topic idle chatter costs nothing:
+    a message under the threshold or inside the cooldown makes no call.
+  - **P36-05 (/forgetme):** every member may run `/forgetme` (`helpers.WrapCommand`, `Disableable`, checks its own name,
+    `RequireGroup`; a `sender_chat`, an anonymous admin or a bot gets nothing) whatever the owner's switches say. It deletes the
+    sender's own notes of this group and answers `chat_forgetme_done`, `chat_forgetme_nothing` or `chat_forgetme_failed`.
+  - **P36-06 (retention, open for the owner):** there is no expiry timer and nothing deletes a member's notes when they leave the
+    group; they stay until the member's `/forgetme` or the owner's Off. The disclosure is `settings_chat_memory_notice` on page `p`
+    and a paragraph of `chat_help_msg` in all 8 languages.
+  `TestChatMemoryWriterAndPrompt`, `TestChatMemoryNotOffered`, `TestChatMemoryFailuresChangeNothing`, `TestChatMemoryAcceptNotes`,
+  `TestChatMemoryLogsCarryIDsOnly`, `TestShutdownEndsChatMemory`, `TestChatMemoryGuards`, `TestForgetMeCommand`,
+  `TestApplyChatMemories` and `TestSettingsChatMemories` hold it; `TestParseMemoryJSON`, `TestMemoryPrompts` and `TestMemorySection`
+  (`xenobot/utils/chatprompt`), `TestNormalize` and `TestMemberMemoryStorage` (`xenobot/db/membermem`),
+  `TestMemberMemoriesMigrationStatements` and `TestChatMemoriesStayOutOfBackup` complete it.
 - The web captcha adds no handler group: its routes are HTTP routes on the bot's server, not dispatcher handlers.
 - The Settings module (priority 239, `settings.go`) adds one handler group, `1`, for the typed-reply door below; its other entry points are `/settings`, the callbacks and the deep link. `/settings` goes through `helpers.WrapCommand`
   with `settingsDesc.RequiredChecks` of `requireSettingsAccess()` alone (`settings_gate.go`: a private chat passes at
@@ -1555,8 +1603,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   retraction MUST send explicit non-nil `[]gotgbot.ReactionType{}` (`"reaction":[]` on the wire). `👎` retraction checks `bot_react` in
   Redis before any Telegram call, authorizes the message author, a live group admin, or an anonymous group admin (`mru.User == nil &&
   mru.ActorChat.Id == mru.Chat.Id`), clears silently, and extends the user cooldown; Emoji Consensus counts real non-anonymous members
-  only (`mru.User != nil`), excludes hostile emojis, checks `lockdown.GetActiveFresh` lazily fail-closed at threshold crossing before
-  claiming `cons:cd` + `cons:done:<msgID>` atomically, and never runs in Staff Groups, private chats, or channels. `LoadPresence`
+  only (`mru.User != nil`), excludes hostile emojis, and never runs in Staff Groups, private chats, or channels. At a threshold crossing
+  `presenceConsensusTry` checks `lockdown.GetActiveFresh` (fail-closed) and the chat's palette *before* claiming (the first crossed emoji the
+  chat allows is the one mirrored), then claims `cons:cd` + `cons:done:<msgID>` atomically (the script answers won, already mirrored, or
+  cooldown running with its PTTL) and **gives both back when the reaction could not be set**, so one failure (a disallowed emoji, a shed
+  pacer call, a Telegram 400) never locks the chat or the message out. A message that crossed while the cooldown ran is retried by a timer
+  (`presenceConsensusScheduleRetry`, remaining cooldown plus `presenceConsensusRetryJitter`, one per chat and message, at most
+  `presenceConsensusRetryMax` 256 per replica, 3 attempts; no goroutine while it waits, lost on restart, joins `StopChat` when it fires) that
+  re-reads the settings and the reactor counts first. Reaction updates are handled concurrently, so the reactor-SET script also keeps a
+  per-(message, user) stamp `react:stamp:<msg>:<user>` of the newest `update_id` applied (shared with the Highlights Archive) and drops an
+  older update (`-1`); the same `update_id` may touch several emojis. A mirror made with the log off keeps the author an earlier bot
+  reaction stored. Retraction, consensus, archive and the ✍ PM brief each run under their own 3 s budget from `presenceStepContext`. `LoadPresence`
   registers without `SetModuleEnabled` so `/help` stays unchanged. Private Settings page `pr` (`Order` 91, icon `✨`,
   `settings_page_presence`, `OwnerOnly: false`, `PrivateOnly: true`, `PrivateNoteKey: settings_pr_group_note`, `Hidden` + fail-closed
   Staff Group gate without naming Staff Group, controls `c`/`ct`/`r`/`ai` under `settingsRightChangeInfo`, 5 rows total) pairs `y|pr` on Main keeping
@@ -1570,13 +1627,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   respecting `ctx.Data[presenceStaticReactedKey]`, performing zero operational Redis I/O when `EnableChat` is false or
   `chat_presence.ai_react_mode == "off"`). Operational Redis keys (`xenobot:presence:{<chat>}:ai:gap`, `:ai:cd:chat`, shared `:cd:u:<user>`
   preserving the 24 h `👎` retraction TTL in the same-slot `{<chat>}` Lua gate, and dedicated hourly budget `xenobot:chat:react:b:*` via
-  `chatReserveWith`) stay outside `xenobot:cache:`, while Featherless model `text_only` vision fallback
-  (`xenobot:cache:featherless_text_only:<model>`, 24 h TTL, set on non-auth `400`/`422` vision errors before one text-only retry) sits inside
-  `xenobot:cache:`. `chatPresenceQueue` (2 workers, cap 32, launched in `chatEnsureWorkers()`) runs under `StopChat` (`chatJobs`, `chatDraining`,
+  `chatReserveWith`) stay outside `xenobot:cache:`. There is no Featherless text-only marker any more: every provider call of every lane goes
+  through `chatConverse` (`chat_converse.go`), which on a Featherless `400`/`422` for a request with images retries once without them and
+  returns only the retry's result (`chatAnswer.TextOnly`), remembering nothing, so an unrelated `400` (context length, an unsupported
+  parameter) can never switch vision off for other chats or later requests; a shutdown skips the retry. `chatConverse` also writes the one
+  `[Chat] provider call` Debug line (lane, provider, model, `duration_ms`, input, output, `cache_read` and `thoughts` tokens, outcome, the
+  finish reason of an empty answer; IDs, numbers and an error class only). A job that ends without reacting (shed, capped, provider error,
+  empty answer, refusal, parse error, failed set) gives the chat and user cooldowns back (`chatReactReleaseCooldowns`, deleting the user key
+  only while its TTL is no longer than the gate's own, so a 24 h retraction cooldown survives); a reaction or a deliberate `NONE` keeps them.
+  `chatPresenceQueue` (2 workers, cap 32, launched in `chatEnsureWorkers()`) runs under `StopChat` (`chatJobs`, `chatDraining`,
   `chatContext()`), checks lazy fail-closed `presenceIsLockedDown`, inspects `chatBreaker(provider).isPaused` read-only with strictly
   non-tripping silent error shedding (never calling `chatRecordFailure`), filters against `presenceAllowedPalette` (skipping custom-only
-  chats before downloads or LLM calls), assembles bounded 50-entry same-thread `chatLogRecentThread` + `ReplyTarget`/`Quote` + photo/sticker
-  vision via `chat_media.go`, and calls `xenobot/utils/chatprompt/reaction.go` (stdlib-only leaf, `ReactionMaxTokens = 512`, compact prompt
+  chats before downloads or LLM calls), assembles bounded same-thread `chatLogRecentThread` (5 entries, a 50-entry scan) + `ReplyTarget`/`Quote` + photo/sticker
+  vision via `chat_media.go`, and calls `xenobot/utils/chatprompt/reaction.go` (stdlib-only leaf, `ReactionMaxTokens = 1500`, compact prompt
   without comic archive, explicit lookalike warnings against `😂`/`🐱`/`😹`/`😻`/`😼`, strict `U+FE0F`-normalized JSON parser). Page `pr`
   renders `[Off | Low | Medium]` (`t=ai`, `v=o/l/m`) with Owner×Admin `chatconv.GetFresh` double-gating: enabling `low`/`medium` refuses
   writes with plain-text alert `settings_pr_ai_need_owner` when Owner Conversations is off (failing closed with `cannotOpen` on DB read
@@ -1600,7 +1663,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   honoring `positive`/`all`), tracks `xenobot:presence:{<chat>}:arch:u:<msgID>` (72 h) and fast latch `:arch:done:<msgID>` (7 d) outside
   `xenobot:cache:`, checks lazy `presenceIsLockedDown`, claims once-only in PostgreSQL via `presence.TryClaimArchived` (`ON CONFLICT DO NOTHING`),
   and delivers via `CopyMessage` (default, attaching a `t.me/c/` / `t.me/<user>/` jump button only for supergroups or public usernames)
-  or `ForwardMessage` while failing silently on `400`/`403`. On Settings page `pr` (now 7 rows), Cat Stickers toggle `cs` and Highlights
+  or `ForwardMessage`, on its own 10 s context from `chatContext()` (`presenceArchiveDeliverAndSettle`), not on what is left of the handler's
+  budget. The claim and the Redis latch are written before the send, so a delivery that fails for a reason that may pass (a timeout, a rate
+  limit, a `5xx`, a transport error) gives both back (`presence.ReleaseArchived`, `DEL` of the latch) and the next reaction retries, while a
+  definitive refusal (a Telegram 4xx other than 429: the message is gone, the bot may not post in the archive) keeps them and is only logged. On Settings page `pr` (now 7 rows), Cat Stickers toggle `cs` and Highlights
   Archive sub-page `ph` + unlink `pu` register as `PrivateOnly` `settingsPageAction` entries on `pr` (keeping `len(settingsPages) == 31`
   and `settingsMainOwnerRows == 17`), with archive controls `ae`/`ah`/`ap`/`ad` (`settingsRightChangeInfo`, refusing unlinked enable with
   `settings_ph_need_target`, fail-closed Staff Group guard; `TestPhase33Codes`). `BackupModulePresence = "presence"` (21st backup module)
@@ -1616,8 +1682,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `SetAmbientContext`/`SetVocativeEnabled`/`SetPMBriefReact`, `applyPresence*` helpers, and full `BackupModulePresence` parity in
   `PresencePortableBackup`), while keeping `xenobot/modules/copy_settings.go` completely untouched.
   Ambient Room Context (`CHAT-02`, `chatAmbientContextTurns` in `chat_run.go`, `chatprompt.UserWithAmbient`) double-gates on
-  `!presenceIsStaffGroup && conv.Enabled && conv.LogEnabled && pres.AmbientContext`, reads up to `chatAmbientContextLimit` (`8`,
-  within `6..10`) same-thread entries via `chatLogRecentThread`, and deduplicates against `chatReadHistoryWithIDs`,
+  `!presenceIsStaffGroup && conv.Enabled && conv.LogEnabled && pres.AmbientContext`, reads up to `chatAmbientContextLimit` (`16`, doubled from 8; `/referendum` reads the same constant) same-thread entries via `chatLogRecentThread`
+  (which scans the newest `max(50, 8 × limit)` ring entries, so a forum topic's own lines are reached, and drops entries older than
+  `chatLogRecentMaxAge`, 3 h, so a quiet chat's old messages are not labelled recent; an undated legacy entry is kept), and deduplicates against `chatReadHistoryWithIDs`,
   `job.quotedMessageID`, and `job.messageID`. Opt-In Vocative Addressing (`CHAT-03`, `chatprompt.ParseVocativePrefix`, group `13`
   `chatWatch`) uses pure Unicode rune prefix matching across UK/RU/EN (plus optional `b.FirstName`), skips `msg.ForwardOrigin != nil`
   and Staff Groups, requires `pres.VocativeEnabled`, and returns early before `chatReactWatch` for strict mutual exclusion.
@@ -1640,19 +1707,59 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   hourly budget `"toy:b"` via `chatReserveWith` (`6` user / `30` chat / `300` global), `chatToyChatCooldown` (`30 s`) /
   `chatToyUserCooldown` (`20 s`), `chatToysStatsSection` in `/stats`, and `chatToyGateOf` (real non-bot user, `!presenceIsStaffGroup`,
   `!presenceIsLockedDown`, Owner×Admin double-gating, and `chatAudienceAllows`). `xenobot/utils/chatprompt/toys.go` preserves the
-  stdlib-only leaf invariant (`TestChatpromptPackageIsLeaf`) with `ReferendumMaxTokens = 768`, `InspectMaxTokens = 512`,
-  `TieBreakerMaxTokens = 512`, `ParseReferendumJSON`, `ParseInspectJSON` (`U+FE0F` strip + non-Telegram lookalike rejection), and
+  stdlib-only leaf invariant (`TestChatpromptPackageIsLeaf`) with `ReferendumMaxTokens = 2000`, `InspectMaxTokens = 1500`,
+  `TieBreakerMaxTokens = 1500` (thinking counts against the cap, so a toy's cap sits far above its visible answer; `TestToyTokenFloors`), `ParseReferendumJSON`, `ParseInspectJSON` (`U+FE0F` strip + non-Telegram lookalike rejection), and
   `ParseTieBreakerText`. `/referendum` (`TOYS-01`) extracts optional reply target + same-thread `chatLogRecentThread` (when
   `LogEnabled`) + command argument, sends sanitized polls via `SendPollWithContext` (`OpenPeriod = 900`, `DisableNotification: true`,
   `AllowAddingOptions: false`), and persists `xenobot:presence:poll:<poll_id>` (outside `xenobot:cache:`, 25 h TTL). Group-`0`
   `handlers.NewPoll(poll.All, chatModule.handlePollUpdate)` (`TOYS-02`, joining `StopChat`) triggers only when `IsClosed &&
   TotalVoterCount > 0 && tiedCount >= 2`, claims once-only cross-replica via `SETNX` `xenobot:presence:poll:tie:<poll_id>` (24 h TTL),
   and posts a deadpan Facility Tie-Breaker (with localized fallback if AI fails/disabled) via `AllowSendingWithoutReply: false`.
-  `/inspect` (`TOYS-03`) requires `extraction.ReplyTarget` (`inspect_usage`), reuses `chatReactDownloadVision` + `chatReactCallProvider`
-  (`chat_media.go` photo/sticker/image-doc vision + Featherless `400`/`422` `text_only` fallback), replies with
+  `/inspect` (`TOYS-03`) requires `extraction.ReplyTarget` (`inspect_usage`), reuses `chatReactDownloadVision` + `chatConverse`
+  (`chat_media.go` photo/sticker/image-doc vision + the Featherless image retry; a verdict is never posted from a retry that dropped the
+  image: the answer is `inspect_malfunction`, not a breaker failure), replies with
   `AllowSendingWithoutReply: false`, and calls `presenceSetReaction(..., targetAuthorID, "inspect")` for 24 h `bot_react` / `👎`
   retraction parity. Sub-page `pc` adds `rf` (`referendum_enabled`) and `in` (`inspect_enabled`) under `settingsPresenceNeedConv` (now
   `6` rows `<= 8`, `pr` stays `8` rows, `len(settingsPages) == 31`, `settingsMainOwnerRows == 17`).
+  Phase 36 (**Personality**, `settings_presence_personality.go`, `xenobot/db/presence/personality.go`, `chat_react.go`, `reactions.go`,
+  `chat_watch.go`, `xenobot/utils/chatprompt/reaction.go`, `ambient.go`) extends `chat_presence` via
+  `migrations/20261202120000_add_presence_personality.sql` with `react_text_freq`, `react_sticker_freq` and `react_photo_freq`
+  (`SMALLINT NOT NULL DEFAULT 0` under inline CHECKs `0..3`: 0 Normal, 1 Off, 2 Rare, 3 Often, so an unset column and an old cached
+  value read as today's behaviour) and `react_topics` and `bot_names` (`TEXT NOT NULL DEFAULT ''`, one entry per line, `<= 400`;
+  topics: at most `MaxReactTopics` 10 of at most 24 runes with no brackets, braces, backticks, backslash or bar; names: at most 8
+  one-word names of 2 to 32 runes starting with a letter or digit, so a name can never start with `/` or `@`), with no GORM `default:`
+  tags, msgpack tags `rt rs rp rtp bn`, column-targeted `SetReactFreq`/`SetReactTopics`/`SetBotNames` (normalised and validated by the
+  repository before any write) behind `applyPresenceReactFreq`/`applyPresenceReactTopics`/`applyPresenceBotNames`, and full
+  `BackupModulePresence` parity (`PresencePortableBackup`, `omitempty` JSON, imports normalise again), while keeping
+  `xenobot/modules/copy_settings.go` completely untouched. `chatReactWatch` reads the message's kind (`chatReactKindOf`: sticker,
+  photo, else text) and its frequency before any Redis I/O: Off returns with zero operational I/O, Rare and Often scale the AI
+  mode's profile (`chatReactScaleProfile`: Rare halves the chance (at least 1) and doubles the gap and both cooldowns, Often doubles
+  the chance (at most 100) and halves them) and the cat-sticker roll scales the same way (`catStickerRollFor`: Off never fires,
+  Rare needs the extra `catStickerCoin`, Often gets a second roll); the static keyword reactions, Emoji Consensus and the archive
+  ignore these frequencies. The topics reach the reaction prompt (`chatprompt.ReactionDynamic(..., topics)`: cleaned, quoted, "react
+  ONLY if clearly about ... else NONE") and a NONE answer to a topic-limited job gives its cooldowns back (`chatReactApplyAnswer`
+  returns false) so the next message is tried: the gap counter and the probability roll still throttle it and the hourly budgets (6 per member, 20 per group) still cap it, so off-topic chatter in a busy group can spend a group's hour before an on-topic message arrives (accepted, no extra chat cooldown); without topics a NONE stays a turn. The extra names
+  join the vocative path: `chatWatch` reads the cached `chat_presence` row (only when a provider is configured, for a non-empty text that is
+  not a forward and outside Staff Groups; the settings read and the Staff Group answer are memoised per update in `ctx.Data` by
+  `presenceSettingsOnce` and `presenceIsStaffGroupMemo`, which `chatReactWatch` and `presenceMessageAllowed` use too, so an unaddressed
+  message costs one of each exactly as before extra names existed, `TestChatWatchSharesPresenceReads`), `chatprompt.ParseVocativePrefix(text, b.FirstName, pres.BotNameList()...)` matches
+  the built-in names (now also the Ukrainian vocatives Ксеноботе, Кзеноботе, Ксеноботик) and the group's own longest first, and the
+  whole path is still behind `vocative_enabled`. The private Personality sub-page `pf` (`settingsActPresencePersonality`, a page action
+  of `pr`; it shares the Room & catch-up row, whose label lost its arrow to fit a two-column cell, so `pr` stays `8` rows,
+  `len(settingsPages) == 31` and `settingsMainOwnerRows == 17`) has three cycle buttons, the controls `qt`, `qs` and `qp` (`st` only,
+  `v` exactly one digit 0..3, the absolute target of the cycle Never, Rare, Normal, Often) and two typed lists: `pw` (Set), `px`
+  (Clear) and `pv` (Cancel) with the field `t` (`k` topics, `n` names). Every one needs the private owner field `c`; writes declare
+  `settingsRightChangeInfo`, opening and Cancel `settingsRightAdmin`; a group menu or a Staff Group is refused before any read
+  (`settingsPresenceGroupRefused`, `settingsPresenceStaffGate`) and the typed handler checks the Staff Group again and ends the wait.
+  The typed door finds the two parts through `settingsTypedLookup(page, part)` (a single-part page is in `settingsTypedPages`, a page
+  with several parts in `settingsTypedParts`, keyed by `settingsTypedPartKey`; both parts of `pr` register there, `WaitEndedKey`
+  `settings_pf_wait_ended`). A refusal keeps the wait (`settings_pf_refuse_*`), an empty list is refused (`settings_pf_refuse_blank`:
+  Clear is the way to empty one), a saved list sends the sub-page as a new message and closes the prompt, and Clear of an empty list
+  writes nothing. The sub-page's rows are `[1 1 1 2 2 2]`; while neither AI reactions (mode not off with the owner's Conversations switch on) nor cat stickers can use the frequencies and topics it says so (`settings_pf_inactive_note`). `TestSettingsPresencePersonality*`, `TestSettingsPresenceReactFreq`,
+  `TestChatReactScaleProfile`, `TestChatReactKindOf`, `TestChatReactFrequencyPerKind`, `TestChatReactTopics`, `TestChatBotNamesAddressing`,
+  `TestCatStickerRollFor` and the extended `TestPhase33Codes` hold it; the Phase 36 migration is held by
+  `TestChatPresencePersonalityMigrationStatements` (`xenobot/db/migrations`), the repository by `TestNormalizeTopics`,
+  `TestNormalizeBotNames` and `TestPersonalitySettings` (`xenobot/db/presence`) and the backup by `TestBackupPresencePersonality` (`xenobot/db/backup`).
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`
@@ -3642,6 +3749,18 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   through the `chatConvWrites.LogEnabled` seam, judges no person's rights and, on a successful Off, deletes the chat's ring
   `xenobot:chat:{<chat>}:log` (`chatWipeLog`, best effort, no-op without Redis; `chatWipeMemory` and `chatWipeLog` share
   `chatWipeKeys`); On deletes nothing. Neither column is part of backup, export, import or reset.
+- `chat_member_memories` (migration 20261203120000, Phase 36) holds the notes the conversation feature keeps about one member of one
+  group: `chat_id` and `user_id` (primary key `pk_chat_member_memories` on both), `notes` (`TEXT NOT NULL`, the notes joined by new
+  lines, `chk_chat_member_memories_notes` at most 2500 characters: 12 notes of 200 plus the separators) and `updated_at`, no foreign
+  key. The same migration adds `chat_conversations.memories_enabled` (`BOOLEAN NOT NULL DEFAULT FALSE`, no `default:` tag, in
+  `chatconv.Settings` as `MemoriesEnabled` with msgpack tag `m`, so a value an older build cached decodes to off; written by the
+  column-targeted `chatconv.SetMemoriesEnabled`). The notes are read fresh (`membermem.Get`, one primary-key read per answered
+  message of a group with the switch on) and never cached, so no key needs dropping and a delete is seen by every replica at once;
+  `Replace` is one upsert of the whole list (an empty list deletes), `Delete` removes one member's row of one group and `DeleteChat`
+  a group's. A note is plain text: `membermem.Clean` drops control, format and private-use characters and collapses white space.
+  The table is never part of backup, export, import or reset (`TestChatMemoriesStayOutOfBackup`). Its Redis companions sit outside
+  the cache prefix: `xenobot:chat:{<chat>}:mem:cd:<user>` (the writer's per-member cooldown) and `xenobot:chat:mem:b:u:<chat>:<user>:<hour>`,
+  `:c:<chat>:<hour>` and `:g:<hour>` (its hourly budgets).
 - `chat_event_messages` (migration 20261120110000) holds a group's custom event messages, one row per `(chat_id, event,
   dest)` under the inline primary key `pk_chat_event_messages`: `text`, `file_id` and `media_type` (one media item, 0 for
   none, the `db.*` media constants the greetings and rules rows use), `buttons` (jsonb, `'[]'` for none,
@@ -6146,7 +6265,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   A change to the canonical form bumps `mrn1` and `mrv1`, and a change to `claude.NamesInstruction` bumps `mrv1`, in the
   same commit, so no old baseline or cached verdict is read under a new meaning; `TestCanonHash` and
   `TestCanonVerdictKey` pin one vector each for that reason.
-- The conversation feature's provider clients (Phase 20). `claude.Client.Converse` (`xenobot/utils/claude/converse.go`) sends
+- The conversation feature's provider clients (Phase 20). `claude.Client.Converse` (`xenobot/utils/claude/converse.go`; a blank `end_turn` or `max_tokens` answer wraps `claude.ErrEmptyAnswer` as well as `ErrNoReply`) sends
   `system` as two text blocks, the static persona and archive first with `cache_control` ephemeral and the dynamic block
   after it unmarked, one user message, `output_config.effort` `low`, and no `thinking`, sampling, `tools` or prefill; it
   uses its own transport (`ConverseTimeout` 40 s, no redirect) and the package's one retry (a retryable error whose wait
@@ -6161,7 +6280,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `thinkingConfig.thinkingLevel` `low` and nothing else, and the four classic `safetySettings` at `BLOCK_ONLY_HIGH`. Its
   parser accepts enum values in any case and both blocked-prompt shapes (no candidates or an empty list with
   `promptFeedback.blockReason`, refused); `STOP` joins non-thought parts, `MAX_TOKENS` keeps non-blank text, `SAFETY`,
-  `PROHIBITED_CONTENT`, `BLOCKLIST`, `SPII` and `RECITATION` are refused, anything else wraps `gemini.ErrNoReply`. Its
+  `PROHIBITED_CONTENT`, `BLOCKLIST`, `SPII` and `RECITATION` are refused, a blank `STOP` or `MAX_TOKENS` answer (thinking used the whole
+  budget) is a `*gemini.EmptyAnswerError` (wraps `ErrEmptyAnswer`, so also `ErrNoReply`, and keeps the finish reason and thought tokens),
+  anything else wraps `gemini.ErrNoReply`. A transport failure (reset, TLS, dropped body; never a context error) is retried once after
+  500 ms, in the Gemini and Featherless clients. Its
   `HTTPError` is retryable for 408, 5xx and a 429 that names no per-day quota, reads `RetryInfo.retryDelay` (or a
   `retry-after` header) when present and never relies on it, and reports a rejected key for 401, 402, 403 and an
   `API_KEY_INVALID` 400. Both `claude.ConverseRequest` and `gemini.Request` accept optional `Attachments` (`image/jpeg`, `image/png`,
@@ -6171,9 +6293,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   retryable 408/429/5xx within 2 s (never when `KeyRejected()`, e.g., `429 insufficient_quota`), `ValidModel` enforcing Hugging Face `owner/model` `<= 128` bytes with no built-in default):
   `Converse` sends a single `system` message `Static + "\n\n" + Dynamic` (preserving KV prefix caching and Jinja templates),
   `max_completion_tokens`, plain string `user` content or text-before-`image_url` data URLs (`image/jpeg`, `image/png`,
-  `image/webp`, `<= 5 MiB`), ignores `reasoning_content`, strips leading `<think>...</think>` blocks (unclosed `<think>` returns
-  `ErrNoReply`), maps `content_filter`/`refusal` to `OutcomeRefused`, and parses `prompt_tokens_details.cached_tokens`/`cached_tokens`;
-  `Classify` and `ClassifyNames` use `response_format: {"type": "json_object"}` and strictly validate a single
+  `image/webp`, `<= 5 MiB`), ignores `reasoning_content`, strips leading `<think>...</think>` blocks (any letter case) and, when only a
+  closing tag is present (templates that put `<think>` into the prompt), everything up to the last `</think>`; an unclosed `<think>`,
+  a blank stop or length answer and a `no choices` answer are a `*featherless.EmptyAnswerError` (`ErrEmptyAnswer`, which wraps
+  `ErrNoReply`); plain prose reasoning with no tag cannot be stripped by the client. Maps `content_filter`/`refusal` to `OutcomeRefused`, and parses `prompt_tokens_details.cached_tokens`/`cached_tokens`;
+  `Classify` and `ClassifyNames` (512 output tokens: reasoning models truncate at 256) use `response_format: {"type": "json_object"}` and strictly validate a single
   `{"spam_probability": <0..1>}` JSON object. None of the three packages logs; no error carries the key or the URL. All are tested only against
   `httptest` servers. The runtime's `chatRequest` carries an optional `MaxTokens` (0 means `chatMaxOutputTokens`, 2000) that all three
   adapters pass as `max_tokens`, `maxOutputTokens`, and `max_completion_tokens`: a conversation turn keeps the default, a brief sets its own cap

@@ -1448,6 +1448,11 @@ func exportPresenceData(chatID int64) (*PresenceBackup, error) {
 			PMBriefReact:       row.PMBriefReact,
 			ReferendumEnabled:  row.ReferendumEnabled,
 			InspectEnabled:     row.InspectEnabled,
+			ReactTextFreq:      int(row.ReactTextFreq),
+			ReactStickerFreq:   int(row.ReactStickerFreq),
+			ReactPhotoFreq:     int(row.ReactPhotoFreq),
+			ReactTopics:        row.ReactTopics,
+			BotNames:           row.BotNames,
 		},
 	}, nil
 }
@@ -1481,6 +1486,11 @@ func importPresence(tx *gorm.DB, chatID int64, payload interface{}, report *Impo
 		PMBriefReact:       data.Settings.PMBriefReact,
 		ReferendumEnabled:  data.Settings.ReferendumEnabled,
 		InspectEnabled:     data.Settings.InspectEnabled,
+		ReactTextFreq:      data.Settings.ReactTextFreq,
+		ReactStickerFreq:   data.Settings.ReactStickerFreq,
+		ReactPhotoFreq:     data.Settings.ReactPhotoFreq,
+		ReactTopics:        data.Settings.ReactTopics,
+		BotNames:           data.Settings.BotNames,
 	}
 	archiveSkipped, err := presence.ReplacePortableTx(tx, chatID, s, 0)
 	if err != nil {

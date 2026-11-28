@@ -7,7 +7,7 @@ import (
 
 // Reasoning leak guard. A provider sometimes writes its planning into the visible answer instead of
 // the thinking channel ("Ukrainian reply, short, in character. ... Something like: ... Final: ...").
-// Every provider text passes chatSanitizeText, which calls chatStripReasoning first: the text after
+// A conversation reply passes chatFilterReply, which calls chatStripReasoning first: the text after
 // the last "Final:" style marker is the answer; a draft with no marker is dropped (blank, never sent).
 
 var (
@@ -18,15 +18,28 @@ var (
 	chatDraftCue = regexp.MustCompile(`(?i)(?:\bsomething like\s*:|\bmaybe add\b|\bkeep it (?:brief|short)\b|\bavoid gendered forms\b|\b(?:ukrainian|english|russian|polish|german|french|spanish|italian|turkish) (?:reply|response|answer)\b[^.\n]{0,40}\bin character\b|\bthe user (?:is asking|wants|said|asked)\b|\bi (?:should|need to|must) (?:reply|respond|answer|keep|avoid|use)\b)`)
 )
 
+// chatDraftCueWindow is how far into the text the first planning cue may start. A leak opens with
+// its planning, so a phrase like "maybe add" deep inside a long, ordinary answer is not one.
+const chatDraftCueWindow = 240
+
 // chatStripReasoning returns the answer inside a leaked planning draft, "" for a draft with no
-// marked answer, and text unchanged when it shows no sign of a leak.
+// marked answer, and text unchanged when it shows no sign of a leak. A leak needs at least two
+// distinct planning cues, the first near the start of the text: one ordinary phrase such as
+// "maybe add some salt" is a normal reply. It is applied to conversation replies only; a brief, a
+// verdict or a poll quotes members and is never run through it.
 func chatStripReasoning(text string) string {
-	if locs := chatFinalMarker.FindAllStringIndex(text, -1); len(locs) > 0 && chatDraftCue.MatchString(text[:locs[len(locs)-1][0]]) {
-		answer := strings.TrimSpace(text[locs[len(locs)-1][1]:])
-		return strings.TrimSpace(strings.Trim(answer, "\"“”"))
+	locs := chatFinalMarker.FindAllStringIndex(text, -1)
+	draftEnd := len(text)
+	if len(locs) > 0 {
+		draftEnd = locs[len(locs)-1][0]
 	}
-	if chatDraftCue.MatchString(text) {
+	cues := chatDraftCue.FindAllStringIndex(text[:draftEnd], -1)
+	if len(cues) < 2 || cues[0][0] > chatDraftCueWindow {
+		return text
+	}
+	if len(locs) == 0 {
 		return ""
 	}
-	return text
+	answer := strings.TrimSpace(text[locs[len(locs)-1][1]:])
+	return strings.TrimSpace(strings.Trim(answer, "\"“”"))
 }

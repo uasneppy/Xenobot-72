@@ -30,6 +30,11 @@ type ChatPresence struct {
 	PMBriefReact       bool      `gorm:"column:pm_brief_react;not null" json:"pm_brief_react"`
 	ReferendumEnabled  bool      `gorm:"column:referendum_enabled;not null" json:"referendum_enabled"`
 	InspectEnabled     bool      `gorm:"column:inspect_enabled;not null" json:"inspect_enabled"`
+	ReactTextFreq      int16     `gorm:"column:react_text_freq;not null;check:chk_chat_presence_react_text_freq,react_text_freq BETWEEN 0 AND 3" json:"react_text_freq"`
+	ReactStickerFreq   int16     `gorm:"column:react_sticker_freq;not null;check:chk_chat_presence_react_sticker_freq,react_sticker_freq BETWEEN 0 AND 3" json:"react_sticker_freq"`
+	ReactPhotoFreq     int16     `gorm:"column:react_photo_freq;not null;check:chk_chat_presence_react_photo_freq,react_photo_freq BETWEEN 0 AND 3" json:"react_photo_freq"`
+	ReactTopics        string    `gorm:"column:react_topics;not null;type:text;check:chk_chat_presence_react_topics,length(react_topics) <= 400" json:"react_topics"`
+	BotNames           string    `gorm:"column:bot_names;not null;type:text;check:chk_chat_presence_bot_names,length(bot_names) <= 400" json:"bot_names"`
 	UpdatedBy          int64     `gorm:"column:updated_by;not null" json:"updated_by"`
 	UpdatedAt          time.Time `gorm:"column:updated_at" json:"updated_at,omitempty"`
 }

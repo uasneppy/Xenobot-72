@@ -141,6 +141,12 @@ func withChatRuntime(t *testing.T) {
 	chatSwap(t, &chatBriefGlobalHourlyBudget, chatBriefGlobalHourlyBudget)
 	chatSwap(t, &chatLogMax, chatLogMax)
 	chatSwap(t, &chatBriefMaxInputRunes, chatBriefMaxInputRunes)
+	chatSwap(t, &chatMemoryCooldown, chatMemoryCooldown)
+	chatSwap(t, &chatMemoryUserHourlyBudget, chatMemoryUserHourlyBudget)
+	chatSwap(t, &chatMemoryChatHourlyBudget, chatMemoryChatHourlyBudget)
+	chatSwap(t, &chatMemoryGlobalHourlyBudget, chatMemoryGlobalHourlyBudget)
+	chatSwap(t, &chatMemorySettingsFresh, chatMemorySettingsFresh)
+	chatSwap(t, &chatNotesDeleteChat, chatNotesDeleteChat)
 	t.Cleanup(chatJobs.wait)
 }
 

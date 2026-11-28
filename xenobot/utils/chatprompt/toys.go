@@ -13,13 +13,14 @@ import (
 const (
 	// ReferendumMaxTokens gives Claude, Gemini thinking tokens, and Featherless
 	// reasoning prose enough headroom so localized Ukrainian/Russian poll
-	// questions and 2-5 options never truncate.
-	ReferendumMaxTokens = 768
+	// questions and 2-5 options never truncate. Thinking counts against the cap.
+	ReferendumMaxTokens = 2000
 	// InspectMaxTokens matches ReactionMaxTokens for short 2-3 line verdict +
 	// emoji JSON without truncating reasoning/thinking models.
-	InspectMaxTokens = 512
-	// TieBreakerMaxTokens bounds short 1-2 line Facility Tie-Breaker rulings.
-	TieBreakerMaxTokens = 512
+	InspectMaxTokens = 1500
+	// TieBreakerMaxTokens bounds short 1-2 line Facility Tie-Breaker rulings; the
+	// visible text is short but thinking counts against the cap.
+	TieBreakerMaxTokens = 1500
 
 	// ReferendumQuestionMaxRunes is Telegram's maximum poll question length.
 	ReferendumQuestionMaxRunes = 300

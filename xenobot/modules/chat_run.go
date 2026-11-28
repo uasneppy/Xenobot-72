@@ -32,8 +32,9 @@ const (
 	// chatJobTimeout bounds one job: the provider call (40 s with its retry) and the reply.
 	chatJobTimeout = 60 * time.Second
 	// chatAmbientContextLimit is how many recent same-thread room log entries are offered as
-	// ambient context when double-gated Owner + Admin switches are on.
-	chatAmbientContextLimit = 8
+	// ambient context when double-gated Owner + Admin switches are on. It was 8 and is doubled;
+	// /referendum reads the same constant for the stretch it quotes.
+	chatAmbientContextLimit = 16
 )
 
 var (
@@ -71,6 +72,9 @@ type chatJob struct {
 	// keeps a conversation reply silent for a deleted message; a brief sets it because the
 	// command it answers is deleted right after the handler returns.
 	allowMissingReply bool
+	// memoryNotes are the speaker's own notes of this group, read by chatProcessJob when the owner has
+	// memories on; the request builder puts them in the user text.
+	memoryNotes []string
 }
 
 var (
@@ -144,7 +148,7 @@ func chatStatsSection() string {
 	return fmt.Sprintf(
 		"\n    <b>Conversations:</b> answered %d, refused %d, failed %d, shed %d, capped %d",
 		chatAnsweredCount.Load(), chatRefusedCount.Load(), chatFailedCount.Load(), chatShedCount.Load(), chatCappedCount.Load(),
-	) + chatBriefStatsSection() + chatReactStatsSection() + chatToysStatsSection()
+	) + chatBriefStatsSection() + chatReactStatsSection() + chatToysStatsSection() + chatMemoryStatsSection()
 }
 
 func chatEnsureWorkers() {
@@ -157,6 +161,7 @@ func chatEnsureWorkers() {
 		chatBriefEnsureWorkers()
 		chatPresenceEnsureWorkers()
 		chatToysEnsureWorkers()
+		chatMemoryEnsureWorkers()
 	})
 }
 
@@ -287,6 +292,10 @@ func chatProcessJob(job chatJob) {
 		return
 	}
 
+	memories := chatMemoriesOn(ctx, job.chatID)
+	if memories {
+		job.memoryNotes = chatMemoryNotesFor(ctx, job.chatID, job.userID)
+	}
 	chatSendTyping(ctx, job.bot, job)
 	history, historyIDs := chatReadHistoryWithIDs(ctx, client, job.chatID)
 	ambient := chatAmbientContextTurns(ctx, client, job, historyIDs)
@@ -304,7 +313,7 @@ func chatProcessJob(job chatJob) {
 		}
 	}
 	request := chatBuildRequest(ctx, job, job.bot.Username, ambient, history, media)
-	answer, err := chatProviderOf(job.provider).converse(ctx, request)
+	answer, err := chatConverse(ctx, root, chatCall{Lane: "conversation", ChatID: job.chatID}, job.provider, request)
 	if err != nil {
 		if root.Err() != nil || errors.Is(err, context.Canceled) {
 			// Shutdown: neither a failure nor a success, and nothing is said.
@@ -360,6 +369,9 @@ func chatProcessJob(job chatJob) {
 		log.WithFields(fields).Debug("[Chat] the exchange could not be recorded")
 	}
 	log.WithFields(fields).Debugf("[Chat] answered (%d input, %d output tokens)", answer.InputTokens, answer.OutputTokens)
+	if memories {
+		chatMemoryOfferHook(job, text)
+	}
 }
 
 // chatAmbientContextTurns returns recent same-thread room chatter when both Owner
@@ -408,10 +420,19 @@ func chatAmbientContextTurns(ctx context.Context, client *redis.Client, job chat
 	return turns
 }
 
-// chatRecordFailure counts one provider failure toward the group on the provider's breaker and
+// chatRecordFailure counts one provider failure toward the group on the provider's breaker (an
+// empty answer is not one) and
 // pauses the provider for every group when the error calls for it. Each pause logs one warning
 // naming the status and the error type; nothing names text, a name or a key.
 func chatRecordFailure(job chatJob, err error) {
+	if chatEmptyAnswer(err) {
+		// The provider answered, but with no visible text (thinking used the whole output budget, a
+		// blank completion). That is a capacity signal, not a provider fault: the caller still shows
+		// its malfunction line, but the answer is neither a failure nor a success for the breaker.
+		log.WithFields(log.Fields{"chat_id": job.chatID, "user_id": job.userID}).
+			Infof("[Chat] the %s provider returned an empty answer", job.provider)
+		return
+	}
 	now := raidNow()
 	breaker := chatBreaker(job.provider)
 	class := chatErrorClass(err)
