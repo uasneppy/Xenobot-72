@@ -512,7 +512,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `extraction.ReplyTarget`, to a message the conversation feature sent (one Redis `ZSCORE` of `xenobot:chat:{<chat>}:mine`, only for
   a reply to the bot, so a reply to a ban notice, a welcome or a captcha is no address), else opt-in vocative prefix addressing
   (Phase 34, CHAT-03: `msg.ForwardOrigin == nil`, `chatprompt.ParseVocativePrefix` pure Unicode rune prefix matching across UK/RU/EN
-  and optional `b.FirstName`, `!presenceIsStaffGroup`, and `chat_presence.vocative_enabled`, returning early from `chatWatch` before
+  and optional `b.FirstName` and, since Phase 36, the group's own extra names from `chat_presence.bot_names`, `!presenceIsStaffGroup`, and `chat_presence.vocative_enabled`, returning early from `chatWatch` before
   `chatReactWatch` for strict mutual exclusion whenever `vocative_enabled` is enabled); the server can converse at all
   (`chatAnyProviderConfigured`); the cached setting (`chatconv.Get`; an error answers nothing); enabled and its provider configured
   (`chatProviderConfigured`); Redis present; the audience (`chatAudienceAllows`: everyone, or an administrator by
@@ -1674,6 +1674,43 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `AllowSendingWithoutReply: false`, and calls `presenceSetReaction(..., targetAuthorID, "inspect")` for 24 h `bot_react` / `👎`
   retraction parity. Sub-page `pc` adds `rf` (`referendum_enabled`) and `in` (`inspect_enabled`) under `settingsPresenceNeedConv` (now
   `6` rows `<= 8`, `pr` stays `8` rows, `len(settingsPages) == 31`, `settingsMainOwnerRows == 17`).
+  Phase 36 (**Personality**, `settings_presence_personality.go`, `xenobot/db/presence/personality.go`, `chat_react.go`, `reactions.go`,
+  `chat_watch.go`, `xenobot/utils/chatprompt/reaction.go`, `ambient.go`) extends `chat_presence` via
+  `migrations/20261202120000_add_presence_personality.sql` with `react_text_freq`, `react_sticker_freq` and `react_photo_freq`
+  (`SMALLINT NOT NULL DEFAULT 0` under inline CHECKs `0..3`: 0 Normal, 1 Off, 2 Rare, 3 Often, so an unset column and an old cached
+  value read as today's behaviour) and `react_topics` and `bot_names` (`TEXT NOT NULL DEFAULT ''`, one entry per line, `<= 400`;
+  topics: at most `MaxReactTopics` 10 of at most 24 runes with no brackets, braces, backticks, backslash or bar; names: at most 8
+  one-word names of 2 to 32 runes starting with a letter or digit, so a name can never start with `/` or `@`), with no GORM `default:`
+  tags, msgpack tags `rt rs rp rtp bn`, column-targeted `SetReactFreq`/`SetReactTopics`/`SetBotNames` (normalised and validated by the
+  repository before any write) behind `applyPresenceReactFreq`/`applyPresenceReactTopics`/`applyPresenceBotNames`, and full
+  `BackupModulePresence` parity (`PresencePortableBackup`, `omitempty` JSON, imports normalise again), while keeping
+  `xenobot/modules/copy_settings.go` completely untouched. `chatReactWatch` reads the message's kind (`chatReactKindOf`: sticker,
+  photo, else text) and its frequency before any Redis I/O: Off returns with zero operational I/O, Rare and Often scale the AI
+  mode's profile (`chatReactScaleProfile`: Rare halves the chance (at least 1) and doubles the gap and both cooldowns, Often doubles
+  the chance (at most 100) and halves them) and the cat-sticker roll scales the same way (`catStickerRollFor`: Off never fires,
+  Rare needs the extra `catStickerCoin`, Often gets a second roll); the static keyword reactions, Emoji Consensus and the archive
+  ignore these frequencies. The topics reach the reaction prompt (`chatprompt.ReactionDynamic(..., topics)`: cleaned, quoted, "react
+  ONLY if clearly about ... else NONE") and a NONE answer to a topic-limited job gives its cooldowns back (`chatReactApplyAnswer`
+  returns false) so the next message is tried, still inside the hourly budgets; without topics a NONE stays a turn. The extra names
+  join the vocative path: `chatWatch` reads the cached `chat_presence` row once (only when a provider is configured, outside Staff
+  Groups and for a message that is not a forward), `chatprompt.ParseVocativePrefix(text, b.FirstName, pres.BotNameList()...)` matches
+  the built-in names (now also the Ukrainian vocatives Ксеноботе, Кзеноботе, Ксеноботик) and the group's own longest first, and the
+  whole path is still behind `vocative_enabled`. The private Personality sub-page `pf` (`settingsActPresencePersonality`, a page action
+  of `pr`; it shares the Room & catch-up row, whose label lost its arrow to fit a two-column cell, so `pr` stays `8` rows,
+  `len(settingsPages) == 31` and `settingsMainOwnerRows == 17`) has three cycle buttons, the controls `qt`, `qs` and `qp` (`st` only,
+  `v` exactly one digit 0..3, the absolute target of the cycle Never, Rare, Normal, Often) and two typed lists: `pw` (Set), `px`
+  (Clear) and `pv` (Cancel) with the field `t` (`k` topics, `n` names). Every one needs the private owner field `c`; writes declare
+  `settingsRightChangeInfo`, opening and Cancel `settingsRightAdmin`; a group menu or a Staff Group is refused before any read
+  (`settingsPresenceGroupRefused`, `settingsPresenceStaffGate`) and the typed handler checks the Staff Group again and ends the wait.
+  The typed door finds the two parts through `settingsTypedLookup(page, part)` (a single-part page is in `settingsTypedPages`, a page
+  with several parts in `settingsTypedParts`, keyed by `settingsTypedPartKey`; both parts of `pr` register there, `WaitEndedKey`
+  `settings_pf_wait_ended`). A refusal keeps the wait (`settings_pf_refuse_*`), an empty list is refused (`settings_pf_refuse_blank`:
+  Clear is the way to empty one), a saved list sends the sub-page as a new message and closes the prompt, and Clear of an empty list
+  writes nothing. The sub-page's rows are `[1 1 1 2 2 2]`. `TestSettingsPresencePersonality*`, `TestSettingsPresenceReactFreq`,
+  `TestChatReactScaleProfile`, `TestChatReactKindOf`, `TestChatReactFrequencyPerKind`, `TestChatReactTopics`, `TestChatBotNamesAddressing`,
+  `TestCatStickerRollFor` and the extended `TestPhase33Codes` hold it; the Phase 36 migration is held by
+  `TestChatPresencePersonalityMigrationStatements` (`xenobot/db/migrations`), the repository by `TestNormalizeTopics`,
+  `TestNormalizeBotNames` and `TestPersonalitySettings` (`xenobot/db/presence`) and the backup by `TestBackupPresencePersonality` (`xenobot/db/backup`).
 - The shared duration screen (`settings_duration.go`, Phase 26, D-19) is where a timed mute or ban set from a settings page picks
   its duration: `settingsDurationPresets` (600, 3600, 21600, 43200, 86400, 259200, 604800 and 2592000 s: 10 min to 30 days,
   P-04), drawn two to a row by the pure `renderSettingsDuration(v, titleKey, action, selected, press, backFields, notice)`

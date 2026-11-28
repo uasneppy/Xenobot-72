@@ -200,6 +200,9 @@ var presenceWrites = struct {
 	PMBriefReact       func(ctx context.Context, chatID int64, enabled bool, by int64) error
 	ReferendumEnabled  func(ctx context.Context, chatID int64, enabled bool, by int64) error
 	InspectEnabled     func(ctx context.Context, chatID int64, enabled bool, by int64) error
+	ReactFreq          func(ctx context.Context, chatID int64, kind string, freq int, by int64) error
+	ReactTopics        func(ctx context.Context, chatID int64, raw string, by int64) error
+	BotNames           func(ctx context.Context, chatID int64, raw string, by int64) error
 }{
 	ConsensusEnabled:   presence.SetConsensusEnabled,
 	ConsensusThreshold: presence.SetConsensusThreshold,
@@ -217,6 +220,9 @@ var presenceWrites = struct {
 	PMBriefReact:       presence.SetPMBriefReact,
 	ReferendumEnabled:  presence.SetReferendumEnabled,
 	InspectEnabled:     presence.SetInspectEnabled,
+	ReactFreq:          presence.SetReactFreq,
+	ReactTopics:        presence.SetReactTopics,
+	BotNames:           presence.SetBotNames,
 }
 
 // presenceReadFresh reads a chat's Interactive Presence settings straight from PostgreSQL after a
@@ -407,6 +413,46 @@ func applyPresencePMBriefReact(ctx context.Context, chatID int64, enabled bool, 
 func applyPresenceReferendumEnabled(ctx context.Context, chatID int64, enabled bool, by int64) presenceApplyResult {
 	if err := presenceWrites.ReferendumEnabled(ctx, chatID, enabled, by); err != nil {
 		log.WithField("chat_id", chatID).Warn("[Presence] saving referendum_enabled failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceReactFreq stores how often the bot reacts to one kind of message (presence.KindText,
+// KindSticker or KindPhoto), rejecting an unknown kind or frequency with zero database calls.
+func applyPresenceReactFreq(ctx context.Context, chatID int64, kind string, freq int, by int64) presenceApplyResult {
+	if !presence.ValidReactKind(kind) || !presence.ValidReactFreq(freq) {
+		return presenceApplyResult{Outcome: presenceInvalidValue}
+	}
+	if err := presenceWrites.ReactFreq(ctx, chatID, kind, freq, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving a reaction frequency failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceReactTopics stores the topics AI reactions are limited to (raw is a typed list; empty
+// clears it). A list the repository refuses is an invalid value with nothing written; the refusal's
+// reason is the returned Err (presence.ErrListTooMany, ErrListTooLong or ErrListInvalid).
+func applyPresenceReactTopics(ctx context.Context, chatID int64, raw string, by int64) presenceApplyResult {
+	if _, err := presence.NormalizeTopics(raw); err != nil {
+		return presenceApplyResult{Outcome: presenceInvalidValue, Err: err}
+	}
+	if err := presenceWrites.ReactTopics(ctx, chatID, raw, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving react_topics failed")
+		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
+	}
+	return presenceReadBack(ctx, chatID)
+}
+
+// applyPresenceBotNames stores the extra names the bot answers to (raw is a typed list; empty clears
+// it), with the same refusals as applyPresenceReactTopics.
+func applyPresenceBotNames(ctx context.Context, chatID int64, raw string, by int64) presenceApplyResult {
+	if _, err := presence.NormalizeBotNames(raw); err != nil {
+		return presenceApplyResult{Outcome: presenceInvalidValue, Err: err}
+	}
+	if err := presenceWrites.BotNames(ctx, chatID, raw, by); err != nil {
+		log.WithField("chat_id", chatID).Warn("[Presence] saving bot_names failed")
 		return presenceApplyResult{Outcome: presenceSaveFailed, Err: err}
 	}
 	return presenceReadBack(ctx, chatID)

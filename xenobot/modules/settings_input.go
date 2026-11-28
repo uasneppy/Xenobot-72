@@ -285,7 +285,7 @@ func settingsInputValidPart(page, part string) bool {
 	if def, ok := settingsEditPageByKey(page); ok && settingsEditPartByCode(def, part) != nil {
 		return true
 	}
-	if typed, ok := settingsTypedPages[page]; ok && typed.Part == part {
+	if _, ok := settingsTypedLookup(page, part); ok {
 		return true
 	}
 	return settingsListPartByCode(page, part) != nil
@@ -304,6 +304,23 @@ type settingsTypedPage struct {
 
 // settingsTypedPages records the single-value pages by page key; each registers from its own init.
 var settingsTypedPages = map[string]settingsTypedPage{}
+
+// settingsTypedParts records the typed parts of a page that has several (the Presence page's topics and
+// names), keyed by settingsTypedPartKey; each registers from its own init.
+var settingsTypedParts = map[string]settingsTypedPage{}
+
+// settingsTypedPartKey is the key of settingsTypedParts for a page and a part.
+func settingsTypedPartKey(page, part string) string { return page + "|" + part }
+
+// settingsTypedLookup finds the typed page of a wait's page and part: a single-value page registered in
+// settingsTypedPages, or one part of a page registered in settingsTypedParts.
+func settingsTypedLookup(page, part string) (settingsTypedPage, bool) {
+	if typed, ok := settingsTypedPages[page]; ok && typed.Part == part {
+		return typed, true
+	}
+	typed, ok := settingsTypedParts[settingsTypedPartKey(page, part)]
+	return typed, ok
+}
 
 // settingsInputMarkerValue is the marker's value for a wait: "c|p|t".
 func settingsInputMarkerValue(groupID int64, page, part string) string {

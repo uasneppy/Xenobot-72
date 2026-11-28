@@ -251,6 +251,13 @@ type PresencePortableBackup struct {
 	PMBriefReact       bool   `json:"pm_brief_react"`
 	ReferendumEnabled  bool   `json:"referendum_enabled"`
 	InspectEnabled     bool   `json:"inspect_enabled"`
+	// The personality fields are omitted at their defaults, so a group that never set them exports
+	// the file it always did and an old file imports them as defaults.
+	ReactTextFreq    int    `json:"react_text_freq,omitempty"`
+	ReactStickerFreq int    `json:"react_sticker_freq,omitempty"`
+	ReactPhotoFreq   int    `json:"react_photo_freq,omitempty"`
+	ReactTopics      string `json:"react_topics,omitempty"`
+	BotNames         string `json:"bot_names,omitempty"`
 }
 
 type PresenceBackup = SettingBackup[PresencePortableBackup]

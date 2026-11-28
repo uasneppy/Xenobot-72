@@ -79,21 +79,24 @@ func chatWatch(b *gotgbot.Bot, ctx *ext.Context) {
 		chatEnqueue(chatJobOf(b, msg, userID, provider))
 		return
 	}
-	if msg.ForwardOrigin == nil {
-		if stripped, isVocative := chatprompt.ParseVocativePrefix(chatMessageText(msg), b.FirstName); isVocative && !presenceIsStaffGroup(chat.Id) {
-			lookupCtx, cancel := context.WithTimeout(context.Background(), chatWatchTimeout)
-			pres, err := presenceSettingsGet(lookupCtx, chat.Id)
-			cancel()
-			if err == nil && pres.VocativeEnabled {
+	if msg.ForwardOrigin == nil && chatAnyProviderConfigured() && !presenceIsStaffGroup(chat.Id) {
+		// Name addressing: the built-in names are tried first with no I/O; the group's own names live
+		// in its cached presence settings, read once here (the reaction watcher below reads them too).
+		text := chatMessageText(msg)
+		lookupCtx, cancel := context.WithTimeout(context.Background(), chatWatchTimeout)
+		pres, err := presenceSettingsGet(lookupCtx, chat.Id)
+		cancel()
+		if err == nil && pres.VocativeEnabled {
+			if stripped, isVocative := chatprompt.ParseVocativePrefix(text, b.FirstName, pres.BotNameList()...); isVocative {
 				gate, provider := chatAccept(b, chat.Id, userID)
 				if gate == chatGateOpen {
 					job := chatJobOf(b, msg, userID, provider)
-					text := strings.TrimSpace(stripped)
-					job.hasText = text != ""
+					stripped = strings.TrimSpace(stripped)
+					job.hasText = stripped != ""
 					if !job.hasText {
-						text = chatMediaLabel(msg)
+						stripped = chatMediaLabel(msg)
 					}
-					job.turn.Text = text
+					job.turn.Text = stripped
 					chatEnqueue(job)
 				}
 				return

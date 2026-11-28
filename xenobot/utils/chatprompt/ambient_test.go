@@ -130,3 +130,34 @@ func TestParseVocativePrefix(t *testing.T) {
 		})
 	}
 }
+
+// TestParseVocativePrefixGroupNames: the group's own names for the bot, and the Ukrainian vocative
+// forms nobody could address the bot with before ("Ксеноботе, ...").
+func TestParseVocativePrefixGroupNames(t *testing.T) {
+	cases := []struct {
+		name         string
+		text         string
+		extra        []string
+		wantStripped string
+		wantMatched  bool
+	}{
+		{"uk vocative", "Ксеноботе, що там?", nil, "що там?", true},
+		{"uk diminutive", "Ксеноботик: допоможи", nil, "допоможи", true},
+		{"uk vocative upper", "КЗЕНОБОТЕ! тут?", nil, "тут?", true},
+		{"custom name", "Хуліо, привіт", []string{"Хуліо"}, "привіт", true},
+		{"custom name is case-insensitive", "xeno: ping", []string{"Xeno"}, "ping", true},
+		{"several custom names", "Бот-72 тут?", []string{"Ксюша", "Бот-72"}, "тут?", true},
+		{"custom name alone", "Ксюша", []string{"Ксюша"}, "", true},
+		{"a custom name that is only the start of a longer word does not match", "Ксюшенька, привіт", []string{"Ксюша"}, "", false},
+		{"no custom name, no match", "Хуліо, привіт", nil, "", false},
+		{"a one-character custom name is ignored", "Х, привіт", []string{"Х"}, "", false},
+		{"blank custom names are ignored", "привіт всім", []string{"", "  "}, "", false},
+		{"a custom name is sanitised", "Ксюша: ok", []string{"  Ксюша‮\n"}, "ok", true},
+	}
+	for _, tc := range cases {
+		stripped, matched := ParseVocativePrefix(tc.text, "", tc.extra...)
+		if matched != tc.wantMatched || stripped != tc.wantStripped {
+			t.Errorf("%s: ParseVocativePrefix(%q, %q) = (%q, %v), want (%q, %v)", tc.name, tc.text, tc.extra, stripped, matched, tc.wantStripped, tc.wantMatched)
+		}
+	}
+}

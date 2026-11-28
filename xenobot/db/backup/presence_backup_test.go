@@ -308,3 +308,71 @@ func TestBackupReactionsLegacyNormalization(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, clearedRules)
 }
+
+// TestBackupPresencePersonality: the reaction frequencies, topics and bot names travel in the
+// presence module, are validated on import, and an export of a chat that never set them is the file
+// it always was (the fields are omitted at their defaults).
+func TestBackupPresencePersonality(t *testing.T) {
+	skipIfNoDb(t)
+	utilscache.SetupTestMemoryMarshaler(t)
+	ctx := context.Background()
+	srcChat := time.Now().UnixNano()
+	dstChat := srcChat + 1
+	plainChat := srcChat + 2
+	for _, c := range []int64{srcChat, dstChat, plainChat} {
+		require.NoError(t, chats.EnsureChatInDb(c, fmt.Sprintf("presence_personality_%d", c)))
+	}
+	t.Cleanup(func() {
+		for _, c := range []int64{srcChat, dstChat, plainChat} {
+			cleanupBackupChat(t, c)
+		}
+	})
+
+	require.NoError(t, db.DB.Create(&models.ChatPresence{
+		ChatID: srcChat, ConsensusThreshold: 3, AIReactMode: presence.AIReactModeMedium, ArchiveThreshold: 5,
+		ArchiveEmojiMode: presence.ArchiveEmojiModePositive, ArchiveDelivery: presence.ArchiveDeliveryCopy,
+		ReactTextFreq: presence.ReactFreqRare, ReactStickerFreq: presence.ReactFreqOff, ReactPhotoFreq: presence.ReactFreqOften,
+		ReactTopics: "memes\ncats", BotNames: "Xeno\nКсенобот",
+	}).Error)
+	exported, err := ExportChatData(srcChat, "src", 1, []string{BackupModulePresence})
+	require.NoError(t, err)
+	raw, err := exported.ToJSON()
+	require.NoError(t, err)
+	decoded, err := BackupFormatFromJSON(raw)
+	require.NoError(t, err)
+	_, err = ImportChatDataReport(dstChat, decoded, []string{BackupModulePresence})
+	require.NoError(t, err)
+	got, err := presence.Get(ctx, dstChat)
+	require.NoError(t, err)
+	assert.Equal(t, presence.ReactFreqRare, got.ReactFreqOf(presence.KindText))
+	assert.Equal(t, presence.ReactFreqOff, got.ReactFreqOf(presence.KindSticker))
+	assert.Equal(t, presence.ReactFreqOften, got.ReactFreqOf(presence.KindPhoto))
+	assert.Equal(t, []string{"memes", "cats"}, got.TopicList())
+	assert.Equal(t, []string{"Xeno", "Ксенобот"}, got.BotNameList())
+
+	// A chat that never set them exports none of the new keys.
+	require.NoError(t, db.DB.Create(&models.ChatPresence{
+		ChatID: plainChat, ConsensusThreshold: 3, AIReactMode: presence.AIReactModeOff, ArchiveThreshold: 5,
+		ArchiveEmojiMode: presence.ArchiveEmojiModePositive, ArchiveDelivery: presence.ArchiveDeliveryCopy,
+	}).Error)
+	plain, err := ExportChatData(plainChat, "plain", 1, []string{BackupModulePresence})
+	require.NoError(t, err)
+	plainRaw, err := plain.ToJSON()
+	require.NoError(t, err)
+	for _, key := range []string{"react_text_freq", "react_sticker_freq", "react_photo_freq", "react_topics", "bot_names"} {
+		assert.NotContains(t, string(plainRaw), key)
+	}
+
+	// A tampered file cannot put an unvalidated list or an out-of-range frequency in the table.
+	decoded.Data[BackupModulePresence] = map[string]interface{}{"settings": map[string]interface{}{
+		"consensus_threshold": 3, "ai_react_mode": "off", "archive_threshold": 5, "archive_emoji_mode": "positive",
+		"archive_delivery": "copy", "react_text_freq": 9, "react_topics": "<b>x</b>", "bot_names": "/evil",
+	}}
+	_, err = ImportChatDataReport(dstChat, decoded, []string{BackupModulePresence})
+	require.NoError(t, err)
+	after, err := presence.GetFresh(ctx, dstChat)
+	require.NoError(t, err)
+	assert.Equal(t, presence.ReactFreqNormal, after.ReactFreqOf(presence.KindText))
+	assert.Empty(t, after.TopicList())
+	assert.Empty(t, after.BotNameList())
+}

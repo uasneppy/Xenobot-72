@@ -3,6 +3,7 @@ package modules
 import (
 	"context"
 	"errors"
+	"maps"
 	"strconv"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
@@ -184,7 +185,7 @@ func init() {
 		Hidden:         settingsPresenceHidden,
 		MainState:      settingsPresenceMainState,
 		Open:           settingsPresenceOpen,
-		Controls: map[string]settingsControl{
+		Controls: settingsPresenceMergeControls(map[string]settingsControl{
 			settingsPresenceControlConsensus: {
 				Right: settingsRightChangeInfo, Set: settingsPresenceSetConsensus,
 				Actions: []string{settingsActToggle}, Validate: settingsEditSwitchValue,
@@ -244,8 +245,8 @@ func init() {
 				Right: settingsRightChangeInfo, Set: settingsPresenceSetInspect,
 				Actions: []string{settingsActToggle}, Validate: settingsEditSwitchValue,
 			},
-		},
-		Actions: map[string]settingsPageAction{
+		}),
+		Actions: settingsPresenceMergeActions(map[string]settingsPageAction{
 			settingsActPresenceHighlights: {
 				Right: settingsRightAdmin, Validate: private, Run: settingsPresenceRunHighlights,
 			},
@@ -255,8 +256,20 @@ func init() {
 			settingsActPresenceRoom: {
 				Right: settingsRightAdmin, Validate: private, Run: settingsPresenceRunRoom,
 			},
-		},
+		}),
 	})
+}
+
+// settingsPresenceMergeControls adds the Personality sub-page's frequency controls to the page's own.
+func settingsPresenceMergeControls(own map[string]settingsControl) map[string]settingsControl {
+	maps.Copy(own, settingsPresencePersonalityControls())
+	return own
+}
+
+// settingsPresenceMergeActions adds the Personality sub-page's actions to the page's own.
+func settingsPresenceMergeActions(own map[string]settingsPageAction) map[string]settingsPageAction {
+	maps.Copy(own, settingsPresencePersonalityActions())
+	return own
 }
 
 // settingsPresenceValidThreshold accepts only canonical base-10 integers in 2..20 (rejecting
@@ -546,9 +559,14 @@ func renderSettingsPresence(v settingsView, stored presence.Settings, convUnlock
 	if archBtn, ok := k.button(settingsText(v.Tr, "settings_btn_pr_archive"), map[string]string{"a": settingsActPresenceHighlights}); ok {
 		k.row(archBtn)
 	}
+	var roomRow []gotgbot.InlineKeyboardButton
 	if roomBtn, ok := k.button(settingsText(v.Tr, "settings_btn_pr_room"), map[string]string{"a": settingsActPresenceRoom}); ok {
-		k.row(roomBtn)
+		roomRow = append(roomRow, roomBtn)
 	}
+	if personalityBtn, ok := k.button(settingsText(v.Tr, "settings_btn_pr_personality"), map[string]string{"a": settingsActPresencePersonality}); ok {
+		roomRow = append(roomRow, personalityBtn)
+	}
+	k.row(roomRow...)
 	k.navRow(false)
 
 	return k.screen(settingsCompose(v, "settings_page_presence", body, notice, false))

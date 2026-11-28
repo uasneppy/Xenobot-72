@@ -114,6 +114,41 @@ type chatReactJob struct {
 	// userCooldownSecs is the per-user cooldown the gate started, so a job that never reacts can
 	// give it back (chatReactReleaseCooldowns).
 	userCooldownSecs int
+	// topics limit the reaction to messages about them (the group's admins set them); empty is no
+	// limit. A NONE answer to a topic-limited job is an off-topic message, not a turn: the job gives
+	// its cooldowns back, so the next message is tried, within the hourly budgets.
+	topics []string
+}
+
+// chatReactKindOf is the kind of message a reaction frequency is set for.
+func chatReactKindOf(msg *gotgbot.Message) string {
+	switch {
+	case msg.Sticker != nil:
+		return presence.KindSticker
+	case len(msg.Photo) > 0:
+		return presence.KindPhoto
+	}
+	return presence.KindText
+}
+
+// chatReactScaleProfile applies a group's frequency for one kind of message to the AI reaction
+// mode's own throttle: Rare halves the chance and doubles the gap and both cooldowns, Often doubles
+// the chance (at most 100) and halves them. Normal (the default) and Off (which never gets here)
+// leave the profile as it is.
+func chatReactScaleProfile(p chatReactProfile, freq int) chatReactProfile {
+	switch freq {
+	case presence.ReactFreqRare:
+		p.minGap *= 2
+		p.chatCooldown *= 2
+		p.userCooldown *= 2
+		p.chancePct = max(1, p.chancePct/2)
+	case presence.ReactFreqOften:
+		p.minGap = max(1, p.minGap/2)
+		p.chatCooldown /= 2
+		p.userCooldown /= 2
+		p.chancePct = min(100, p.chancePct*2)
+	}
+	return p
 }
 
 // chatReactGateScript atomically checks and updates three same-slot {<chatID>} keys:
@@ -366,6 +401,13 @@ func chatReactWatch(b *gotgbot.Bot, ctx *ext.Context) {
 	if err != nil || !conv.Enabled || !chatProviderConfigured(conv.Provider) {
 		return
 	}
+	// The group's frequency for this kind of message is decided before any Redis I/O: Off never
+	// reacts to it, Rare and Often scale the throttle.
+	kind := chatReactKindOf(msg)
+	freq := pres.ReactFreqOf(kind)
+	if freq == presence.ReactFreqOff {
+		return
+	}
 	client := presenceRedisClient()
 	if client == nil {
 		return
@@ -374,6 +416,7 @@ func chatReactWatch(b *gotgbot.Bot, ctx *ext.Context) {
 	if !ok {
 		return
 	}
+	profile = chatReactScaleProfile(profile, freq)
 	win := 0
 	if chatReactRoll(profile.chancePct) {
 		win = 1
@@ -384,6 +427,7 @@ func chatReactWatch(b *gotgbot.Bot, ctx *ext.Context) {
 
 	job := chatReactBuildJob(b, msg, chat, userID, conv, text, mediaRef, hasMedia)
 	job.userCooldownSecs = chatReactCooldownSecs(profile.userCooldown)
+	job.topics = pres.TopicList()
 	if !chatPresenceEnqueue(job) {
 		chatReactReleaseCooldowns(client, job)
 	}
@@ -446,7 +490,7 @@ func chatReactApplyAnswer(ctx context.Context, job chatReactJob, palette []strin
 	switch status {
 	case chatprompt.ReactionParseNone:
 		chatReactNoneCount.Add(1)
-		return true
+		return len(job.topics) == 0
 	case chatprompt.ReactionParseEmoji:
 		if presenceSetReaction(ctx, job.bot, job.chatID, job.messageID, job.userID, emoji, "ai") {
 			chatReactSentCount.Add(1)
@@ -518,7 +562,7 @@ func chatReactProcessJob(job chatReactJob) {
 	_, language := chatLanguageName(ctx, job.chatID)
 	req := chatRequest{
 		Static:      chatprompt.ReactionStatic(),
-		Dynamic:     chatprompt.ReactionDynamic(job.chatTitle, language, palette),
+		Dynamic:     chatprompt.ReactionDynamic(job.chatTitle, language, palette, job.topics),
 		User:        chatprompt.ReactionUser(recentTurns, job.quoted, job.quoteText, job.turn),
 		MaxTokens:   chatprompt.ReactionMaxTokens,
 		Attachments: media.Attachments,

@@ -196,7 +196,7 @@ func (r *settingsInputReply) waitEnded() bool {
 	}
 	if listPart := settingsListPartByCode(page, part); listPart != nil {
 		r.plain(r.text("settings_entries_wait_ended_note", i18n.TranslationParams{"part": r.text(listPart.WordKey)}))
-	} else if typed, ok := settingsTypedPages[page]; ok && typed.Part == part {
+	} else if typed, ok := settingsTypedLookup(page, part); ok {
 		key := typed.WaitEndedKey
 		if key == "" {
 			key = "settings_tz_wait_ended_note"
@@ -223,7 +223,7 @@ func (r *settingsInputReply) run() {
 	}
 	// A wait of a single-value page (the Timezone page) is run by that page's own handler, after the same
 	// authority and slash checks.
-	if typed, ok := settingsTypedPages[r.wait.Page]; ok && typed.Part == r.wait.Part {
+	if typed, ok := settingsTypedLookup(r.wait.Page, r.wait.Part); ok {
 		r.typed = &typed
 		if !r.authorize(typed.Right) || r.refuseSlash() {
 			return

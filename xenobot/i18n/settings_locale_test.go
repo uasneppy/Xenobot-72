@@ -989,20 +989,54 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_rct_cd_val":           {12, 16},
 
 	// Room-Aware Conversations & Frictionless Catch-Up (Phase 34, CHAT-02..05).
-	"settings_pr_room_line":           {32, 42},
-	"settings_btn_pr_room":            {28, 36},
-	"settings_pc_title":               {24, 36},
-	"settings_pc_intro":               {180, 240},
-	"settings_pc_ambient_line":        {36, 48},
-	"settings_pc_vocative_line":       {44, 56},
-	"settings_pc_pmbrief_line":        {36, 48},
-	"settings_pc_locked_note":         {140, 180},
-	"settings_pc_hint":                {180, 240},
-	"settings_btn_pc_ambient":         {28, 36},
-	"settings_btn_pc_vocative":        {28, 36},
-	"settings_btn_pc_pmbrief":         {26, 36},
-	"settings_pc_need_owner_conv_log": {110, 150},
-	"settings_pc_need_owner_log":      {90, 130},
+	"settings_pr_room_line":             {32, 42},
+	"settings_btn_pr_room":              {20, 24},
+	"settings_btn_pr_personality":       {18, 20},
+	"settings_pf_title":                 {16, 18},
+	"settings_pf_intro":                 {116, 148},
+	"settings_pf_text_line":             {28, 34},
+	"settings_pf_sticker_line":          {22, 22},
+	"settings_pf_photo_line":            {18, 20},
+	"settings_pf_topics_line":           {30, 40},
+	"settings_pf_names_line":            {26, 36},
+	"settings_pf_none":                  {12, 16},
+	"settings_pf_freq_off":              {10, 12},
+	"settings_pf_freq_rare":             {8, 10},
+	"settings_pf_freq_normal":           {10, 10},
+	"settings_pf_freq_often":            {10, 10},
+	"settings_pf_hint":                  {216, 280},
+	"settings_btn_pf_text":              {18, 22},
+	"settings_btn_pf_sticker":           {24, 24},
+	"settings_btn_pf_photo":             {22, 22},
+	"settings_btn_pf_topics":            {16, 20},
+	"settings_btn_pf_names":             {16, 22},
+	"settings_btn_pf_clear":             {12, 16},
+	"settings_pf_wait_topics":           {198, 218},
+	"settings_pf_wait_names":            {220, 246},
+	"settings_pf_saved_topics":          {18, 24},
+	"settings_pf_saved_names":           {16, 22},
+	"settings_pf_cleared_topics":        {20, 22},
+	"settings_pf_cleared_names":         {18, 22},
+	"settings_pf_refuse_topics_many":    {38, 52},
+	"settings_pf_refuse_topics_long":    {58, 66},
+	"settings_pf_refuse_topics_invalid": {90, 130},
+	"settings_pf_refuse_names_many":     {38, 50},
+	"settings_pf_refuse_names_long":     {58, 66},
+	"settings_pf_refuse_names_invalid":  {144, 160},
+	"settings_pf_refuse_blank":          {68, 82},
+	"settings_pf_wait_ended":            {80, 94},
+	"settings_pc_title":                 {24, 36},
+	"settings_pc_intro":                 {180, 240},
+	"settings_pc_ambient_line":          {36, 48},
+	"settings_pc_vocative_line":         {44, 56},
+	"settings_pc_pmbrief_line":          {36, 48},
+	"settings_pc_locked_note":           {140, 180},
+	"settings_pc_hint":                  {180, 240},
+	"settings_btn_pc_ambient":           {28, 36},
+	"settings_btn_pc_vocative":          {28, 36},
+	"settings_btn_pc_pmbrief":           {26, 36},
+	"settings_pc_need_owner_conv_log":   {110, 150},
+	"settings_pc_need_owner_log":        {90, 130},
 
 	// Interactive Group Toys (Phase 35, TOYS-01..03).
 	"settings_pc_referendum_line": {36, 48},
@@ -1337,7 +1371,7 @@ func TestSettingsLabelLengths(t *testing.T) {
 	// opens the private copy), at most 40 code points.
 	fullWidthLabels := []string{
 		"settings_btn_msg_pm_open", "settings_btn_moddef_dur_off", "settings_btn_chat_presence",
-		"settings_btn_pr_archive", "settings_btn_ph_unlink", "settings_btn_pr_room",
+		"settings_btn_pr_archive", "settings_btn_ph_unlink",
 	}
 	// The editor's two-column buttons (UI-SPEC rows 28 to 38): at most 20 code points as
 	// written, icon included.
@@ -1367,6 +1401,10 @@ func TestSettingsLabelLengths(t *testing.T) {
 		"settings_btn_bkp_import_yes", "settings_btn_bkp_reset_yes",
 		// The Reactions page's Options button (Phase 33, COMM-01).
 		"settings_btn_rct_opts",
+		// The Presence page's shared row (Phase 36): Room & catch-up and Personality, and the Personality
+		// sub-page's two-column list buttons.
+		"settings_btn_pr_room", "settings_btn_pr_personality",
+		"settings_btn_pf_topics", "settings_btn_pf_names", "settings_btn_pf_clear",
 	}
 	// The Backup page's 21 exportable module cells (Phase 30, updated Phase 33 with presence): each is drawn with
 	// ✅ or ⬜ plus a space and its human-readable backup_module_<name> label (<= 20 code points).
@@ -1547,6 +1585,26 @@ func TestSettingsLabelLengths(t *testing.T) {
 					rendered := strings.ReplaceAll(template, "{state}", state.icon+settingsLocaleString(t, lang, data, state.key))
 					if runes := utf8.RuneCountInString(rendered); runes > accessToggle {
 						t.Errorf("%s: toggle %q (%s) has %d characters, ceiling %d", lang, rendered, key, runes, accessToggle)
+					}
+				}
+			}
+
+			// The Personality sub-page's frequency buttons (Phase 36): each is drawn with every frequency word
+			// in place of {freq}, at most the full-width ceiling, and the four words are distinct plain words.
+			freqWords := make([]string, 0, 4)
+			for _, key := range []string{"settings_pf_freq_off", "settings_pf_freq_rare", "settings_pf_freq_normal", "settings_pf_freq_often"} {
+				word := settingsLocaleString(t, lang, data, key)
+				if strings.TrimSpace(word) == "" || slices.Contains(freqWords, word) {
+					t.Errorf("%s: frequency word %s is empty or repeats another: %q", lang, key, word)
+				}
+				freqWords = append(freqWords, word)
+			}
+			for _, key := range []string{"settings_btn_pf_text", "settings_btn_pf_sticker", "settings_btn_pf_photo"} {
+				template := settingsLocaleString(t, lang, data, key)
+				for _, word := range freqWords {
+					rendered := strings.ReplaceAll(template, "{freq}", word)
+					if runes := utf8.RuneCountInString(rendered); runes > accessToggle {
+						t.Errorf("%s: frequency button %q (%s) has %d characters, ceiling %d", lang, rendered, key, runes, accessToggle)
 					}
 				}
 			}
