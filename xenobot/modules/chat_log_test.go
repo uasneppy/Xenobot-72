@@ -451,6 +451,51 @@ func TestChatLogRecentThread(t *testing.T) {
 		}
 	})
 
+	t.Run("the scan grows with the number of entries asked for", func(t *testing.T) {
+		_, client := withChatRedis(t)
+		chatID := uniqueModuleChatID()
+
+		// 20 topic entries buried under 100 entries of another thread: a 16-entry ask scans 128.
+		for i := int64(1); i <= 20; i++ {
+			if err := chatLogRecord(client, chatID, chatLogEntry{MessageID: i, UserID: 5, Name: "Ann", Text: "topic", Thread: 77}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for i := int64(21); i < 121; i++ {
+			if err := chatLogRecord(client, chatID, chatLogEntry{MessageID: i, UserID: 5, Name: "Ann", Text: "noise", Thread: 0}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := chatLogRecentThread(ctx, client, chatID, 77, 1000, chatAmbientContextLimit)
+		if err != nil || len(got) != chatAmbientContextLimit {
+			t.Fatalf("16-entry ask buried under 100 others: got %d entries (err %v), want %d", len(got), err, chatAmbientContextLimit)
+		}
+		if got, err := chatLogRecentThread(ctx, client, chatID, 77, 1000, 5); err != nil || got != nil {
+			t.Fatalf("a 5-entry ask keeps its 50-entry scan: got (%v, %v), want (nil, nil)", got, err)
+		}
+	})
+
+	t.Run("entries older than the recency window are not recent chatter", func(t *testing.T) {
+		_, client := withChatRedis(t)
+		chatID := uniqueModuleChatID()
+		now := time.Now().Unix()
+		old := now - int64((chatLogRecentMaxAge+time.Hour)/time.Second)
+		for _, e := range []chatLogEntry{
+			{MessageID: 1, UserID: 5, Name: "Ann", Text: "last week", At: old},
+			{MessageID: 2, UserID: 5, Name: "Ann", Text: "undated legacy entry"},
+			{MessageID: 3, UserID: 5, Name: "Ann", Text: "a minute ago", At: now - 60},
+		} {
+			if err := chatLogRecord(client, chatID, e); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := chatLogRecentThread(ctx, client, chatID, 0, 1000, 5)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chatLogWantIDs(t, chatLogTestIDs(got), 2, 3)
+	})
+
 	t.Run("redis error propagates", func(t *testing.T) {
 		mr, client := withChatRedis(t)
 		chatID := uniqueModuleChatID()
@@ -594,6 +639,8 @@ func TestChatLogThreadAndTimeQueries(t *testing.T) {
 	})
 
 	t.Run("strict thread isolation, beforeMsgID, and oldest-first ordering", func(t *testing.T) {
+		// These entries carry fixed 2023 dates for the time queries; the recency cutoff is tested apart.
+		chatSwap(t, &chatLogRecentMaxAge, 0)
 		_, client := withChatRedis(t)
 		chatID := uniqueModuleChatID()
 		const u1, u2, u3 = int64(100), int64(200), int64(300)

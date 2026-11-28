@@ -577,8 +577,9 @@ func TestChatAmbientContext(t *testing.T) {
 			t.Fatalf("expected quoted message in reply context: %q", userPrompt)
 		}
 
-		// Exceed chatAmbientContextLimit (8) with 5 more Topic A lines (10+ unaddressed Topic A entries total).
-		for i := 6; i <= 10; i++ {
+		// Exceed chatAmbientContextLimit with more Topic A lines than the window holds.
+		lastLine := chatAmbientContextLimit + 4
+		for i := 6; i <= lastLine; i++ {
 			env.deliver(chatTopicMsg(env, bob, 10, fmt.Sprintf("topic-a line %d", i)))
 		}
 		env.mr.FastForward(time.Second)
@@ -588,8 +589,8 @@ func TestChatAmbientContext(t *testing.T) {
 		if len(lines) > chatAmbientContextLimit {
 			t.Fatalf("ambient lines = %d, want <= %d: %q", len(lines), chatAmbientContextLimit, ambCapped)
 		}
-		// Oldest lines 1..2 should be outside the newest-8 window; lines 3..10 (or subset after trigger/prior) remain.
-		if strings.Contains(ambCapped, "topic-a line 1\n") || !strings.Contains(ambCapped, "topic-a line 10") {
+		// The oldest lines are outside the newest-limit window; the newest remains.
+		if strings.Contains(ambCapped, "topic-a line 1\n") || !strings.Contains(ambCapped, fmt.Sprintf("topic-a line %d", lastLine)) {
 			t.Fatalf("ambient window unexpected: %q", ambCapped)
 		}
 	})

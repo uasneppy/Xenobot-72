@@ -32,8 +32,9 @@ const (
 	// chatJobTimeout bounds one job: the provider call (40 s with its retry) and the reply.
 	chatJobTimeout = 60 * time.Second
 	// chatAmbientContextLimit is how many recent same-thread room log entries are offered as
-	// ambient context when double-gated Owner + Admin switches are on.
-	chatAmbientContextLimit = 8
+	// ambient context when double-gated Owner + Admin switches are on. It was 8 and is doubled;
+	// /referendum reads the same constant for the stretch it quotes.
+	chatAmbientContextLimit = 16
 )
 
 var (

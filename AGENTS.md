@@ -521,7 +521,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   (`chatReserve`: the member's unit, then the group's, then the fleet's, 12, 80 and 800 per UTC hour, through `raidAIBudgetTake`;
   a counter error makes no call), one paced typing action, the transcript (`chatReadHistoryWithIDs` preserving `MessageID`s) and
   optional ambient room context (`chatAmbientContextTurns`, Phase 34, CHAT-02: Owner×Admin+Log double-gated via
-  `!presenceIsStaffGroup && conv.Enabled && conv.LogEnabled && pres.AmbientContext`, reading up to `chatAmbientContextLimit` = 8
+  `!presenceIsStaffGroup && conv.Enabled && conv.LogEnabled && pres.AmbientContext`, reading up to `chatAmbientContextLimit` = 16
   same-thread entries from `chatLogRecentThread` and deduplicating against `historyIDs`, `job.quotedMessageID`, and `job.messageID`),
   the request (`chatBuildRequest`, through the leaf `chatprompt` via `chatprompt.UserWithAmbient` in
   `xenobot/utils/chatprompt/ambient.go`: the static persona and archive, the group's title, language name, today's date in the
@@ -1591,7 +1591,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `chatPresenceQueue` (2 workers, cap 32, launched in `chatEnsureWorkers()`) runs under `StopChat` (`chatJobs`, `chatDraining`,
   `chatContext()`), checks lazy fail-closed `presenceIsLockedDown`, inspects `chatBreaker(provider).isPaused` read-only with strictly
   non-tripping silent error shedding (never calling `chatRecordFailure`), filters against `presenceAllowedPalette` (skipping custom-only
-  chats before downloads or LLM calls), assembles bounded 50-entry same-thread `chatLogRecentThread` + `ReplyTarget`/`Quote` + photo/sticker
+  chats before downloads or LLM calls), assembles bounded same-thread `chatLogRecentThread` (5 entries, a 50-entry scan) + `ReplyTarget`/`Quote` + photo/sticker
   vision via `chat_media.go`, and calls `xenobot/utils/chatprompt/reaction.go` (stdlib-only leaf, `ReactionMaxTokens = 1500`, compact prompt
   without comic archive, explicit lookalike warnings against `😂`/`🐱`/`😹`/`😻`/`😼`, strict `U+FE0F`-normalized JSON parser). Page `pr`
   renders `[Off | Low | Medium]` (`t=ai`, `v=o/l/m`) with Owner×Admin `chatconv.GetFresh` double-gating: enabling `low`/`medium` refuses
@@ -1635,8 +1635,9 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `SetAmbientContext`/`SetVocativeEnabled`/`SetPMBriefReact`, `applyPresence*` helpers, and full `BackupModulePresence` parity in
   `PresencePortableBackup`), while keeping `xenobot/modules/copy_settings.go` completely untouched.
   Ambient Room Context (`CHAT-02`, `chatAmbientContextTurns` in `chat_run.go`, `chatprompt.UserWithAmbient`) double-gates on
-  `!presenceIsStaffGroup && conv.Enabled && conv.LogEnabled && pres.AmbientContext`, reads up to `chatAmbientContextLimit` (`8`,
-  within `6..10`) same-thread entries via `chatLogRecentThread`, and deduplicates against `chatReadHistoryWithIDs`,
+  `!presenceIsStaffGroup && conv.Enabled && conv.LogEnabled && pres.AmbientContext`, reads up to `chatAmbientContextLimit` (`16`, doubled from 8; `/referendum` reads the same constant) same-thread entries via `chatLogRecentThread`
+  (which scans the newest `max(50, 8 × limit)` ring entries, so a forum topic's own lines are reached, and drops entries older than
+  `chatLogRecentMaxAge`, 3 h, so a quiet chat's old messages are not labelled recent; an undated legacy entry is kept), and deduplicates against `chatReadHistoryWithIDs`,
   `job.quotedMessageID`, and `job.messageID`. Opt-In Vocative Addressing (`CHAT-03`, `chatprompt.ParseVocativePrefix`, group `13`
   `chatWatch`) uses pure Unicode rune prefix matching across UK/RU/EN (plus optional `b.FirstName`), skips `msg.ForwardOrigin != nil`
   and Staff Groups, requires `pres.VocativeEnabled`, and returns early before `chatReactWatch` for strict mutual exclusion.
