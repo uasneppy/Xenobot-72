@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	maxClassifyOutputTokens = 256
+	maxClassifyOutputTokens = 512
 	imageUserPrompt         = `Classify this image. Respond with a single JSON object {"spam_probability": <number between 0 and 1>}.`
 
 	maxNameFirstRunes    = 64

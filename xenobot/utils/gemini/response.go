@@ -6,6 +6,25 @@ import (
 	"strings"
 )
 
+// EmptyAnswerError describes an answer that finished normally but had no
+// visible text. It wraps ErrEmptyAnswer (and so ErrNoReply) and keeps the
+// finish reason and token counts so a caller can log why, for example a
+// MAX_TOKENS finish whose whole budget went to thinking.
+type EmptyAnswerError struct {
+	// FinishReason is STOP or MAX_TOKENS.
+	FinishReason   string
+	InputTokens    int
+	OutputTokens   int
+	ThoughtsTokens int
+}
+
+func (e *EmptyAnswerError) Error() string {
+	return ErrEmptyAnswer.Error() + ": finish " + e.FinishReason
+}
+
+// Unwrap lets errors.Is match ErrEmptyAnswer and ErrNoReply.
+func (e *EmptyAnswerError) Unwrap() error { return ErrEmptyAnswer }
+
 const maxTokenRunes = 40
 
 // Outcome is how an answer ended.
@@ -68,7 +87,8 @@ var refusedFinish = map[string]bool{
 // values and of both blocked-prompt shapes (no candidates, or an empty list).
 // A blocked prompt or a refused finish is the refused outcome; STOP joins the
 // non-thought text parts; MAX_TOKENS keeps text that is not blank; anything
-// else, or a blank answer, is no reply.
+// else is no reply, and a blank answer after STOP or MAX_TOKENS is an
+// *EmptyAnswerError.
 func parseReply(data []byte) (*Reply, error) {
 	var raw responseBody
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -116,7 +136,12 @@ func parseReply(data []byte) (*Reply, error) {
 	}
 	reply.Text = strings.TrimSpace(text.String())
 	if reply.Text == "" {
-		return nil, fmt.Errorf("%w: blank answer", ErrNoReply)
+		return nil, &EmptyAnswerError{
+			FinishReason:   finish,
+			InputTokens:    reply.InputTokens,
+			OutputTokens:   reply.OutputTokens,
+			ThoughtsTokens: reply.ThoughtsTokens,
+		}
 	}
 	return reply, nil
 }

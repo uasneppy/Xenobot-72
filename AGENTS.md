@@ -6146,7 +6146,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   A change to the canonical form bumps `mrn1` and `mrv1`, and a change to `claude.NamesInstruction` bumps `mrv1`, in the
   same commit, so no old baseline or cached verdict is read under a new meaning; `TestCanonHash` and
   `TestCanonVerdictKey` pin one vector each for that reason.
-- The conversation feature's provider clients (Phase 20). `claude.Client.Converse` (`xenobot/utils/claude/converse.go`) sends
+- The conversation feature's provider clients (Phase 20). `claude.Client.Converse` (`xenobot/utils/claude/converse.go`; a blank `end_turn` or `max_tokens` answer wraps `claude.ErrEmptyAnswer` as well as `ErrNoReply`) sends
   `system` as two text blocks, the static persona and archive first with `cache_control` ephemeral and the dynamic block
   after it unmarked, one user message, `output_config.effort` `low`, and no `thinking`, sampling, `tools` or prefill; it
   uses its own transport (`ConverseTimeout` 40 s, no redirect) and the package's one retry (a retryable error whose wait
@@ -6161,7 +6161,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   `thinkingConfig.thinkingLevel` `low` and nothing else, and the four classic `safetySettings` at `BLOCK_ONLY_HIGH`. Its
   parser accepts enum values in any case and both blocked-prompt shapes (no candidates or an empty list with
   `promptFeedback.blockReason`, refused); `STOP` joins non-thought parts, `MAX_TOKENS` keeps non-blank text, `SAFETY`,
-  `PROHIBITED_CONTENT`, `BLOCKLIST`, `SPII` and `RECITATION` are refused, anything else wraps `gemini.ErrNoReply`. Its
+  `PROHIBITED_CONTENT`, `BLOCKLIST`, `SPII` and `RECITATION` are refused, a blank `STOP` or `MAX_TOKENS` answer (thinking used the whole
+  budget) is a `*gemini.EmptyAnswerError` (wraps `ErrEmptyAnswer`, so also `ErrNoReply`, and keeps the finish reason and thought tokens),
+  anything else wraps `gemini.ErrNoReply`. A transport failure (reset, TLS, dropped body; never a context error) is retried once after
+  500 ms, in the Gemini and Featherless clients. Its
   `HTTPError` is retryable for 408, 5xx and a 429 that names no per-day quota, reads `RetryInfo.retryDelay` (or a
   `retry-after` header) when present and never relies on it, and reports a rejected key for 401, 402, 403 and an
   `API_KEY_INVALID` 400. Both `claude.ConverseRequest` and `gemini.Request` accept optional `Attachments` (`image/jpeg`, `image/png`,
@@ -6171,9 +6174,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   retryable 408/429/5xx within 2 s (never when `KeyRejected()`, e.g., `429 insufficient_quota`), `ValidModel` enforcing Hugging Face `owner/model` `<= 128` bytes with no built-in default):
   `Converse` sends a single `system` message `Static + "\n\n" + Dynamic` (preserving KV prefix caching and Jinja templates),
   `max_completion_tokens`, plain string `user` content or text-before-`image_url` data URLs (`image/jpeg`, `image/png`,
-  `image/webp`, `<= 5 MiB`), ignores `reasoning_content`, strips leading `<think>...</think>` blocks (unclosed `<think>` returns
-  `ErrNoReply`), maps `content_filter`/`refusal` to `OutcomeRefused`, and parses `prompt_tokens_details.cached_tokens`/`cached_tokens`;
-  `Classify` and `ClassifyNames` use `response_format: {"type": "json_object"}` and strictly validate a single
+  `image/webp`, `<= 5 MiB`), ignores `reasoning_content`, strips leading `<think>...</think>` blocks (any letter case) and, when only a
+  closing tag is present (templates that put `<think>` into the prompt), everything up to the last `</think>`; an unclosed `<think>`,
+  a blank stop or length answer and a `no choices` answer are a `*featherless.EmptyAnswerError` (`ErrEmptyAnswer`, which wraps
+  `ErrNoReply`); plain prose reasoning with no tag cannot be stripped by the client. Maps `content_filter`/`refusal` to `OutcomeRefused`, and parses `prompt_tokens_details.cached_tokens`/`cached_tokens`;
+  `Classify` and `ClassifyNames` (512 output tokens: reasoning models truncate at 256) use `response_format: {"type": "json_object"}` and strictly validate a single
   `{"spam_probability": <0..1>}` JSON object. None of the three packages logs; no error carries the key or the URL. All are tested only against
   `httptest` servers. The runtime's `chatRequest` carries an optional `MaxTokens` (0 means `chatMaxOutputTokens`, 2000) that all three
   adapters pass as `max_tokens`, `maxOutputTokens`, and `max_completion_tokens`: a conversation turn keeps the default, a brief sets its own cap

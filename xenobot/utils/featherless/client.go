@@ -13,7 +13,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -147,6 +146,13 @@ func (c *Client) exec(ctx context.Context, hc *http.Client, target string, paylo
 	if err == nil {
 		return body, nil
 	}
+	var tf *transportFailure
+	if errors.As(err, &tf) && transportRetryable(ctx, err) {
+		if !sleepContext(ctx, retryWait) {
+			return nil, err
+		}
+		return c.send(ctx, hc, target, payload)
+	}
 	var httpErr *HTTPError
 	if !errors.As(err, &httpErr) || !httpErr.Retryable() {
 		return nil, err
@@ -209,7 +215,28 @@ func (c *Client) transportError(err error) error {
 		err = ue.Err
 	}
 	if c.APIKey != "" && strings.Contains(err.Error(), c.APIKey) {
-		return errors.New("featherless: request failed")
+		return &transportFailure{text: "featherless: request failed"}
 	}
-	return fmt.Errorf("featherless: request failed: %w", err)
+	return &transportFailure{text: "featherless: request failed: " + err.Error(), err: err}
+}
+
+// transportFailure is a request that failed before an HTTP answer was read:
+// a reset or stale connection, a TLS error, a dropped body. Its text is what
+// the client has always returned; the type lets exec retry it once.
+type transportFailure struct {
+	text string
+	err  error
+}
+
+func (e *transportFailure) Error() string { return e.text }
+func (e *transportFailure) Unwrap() error { return e.err }
+
+// transportRetryable reports whether a transport failure is worth one more
+// attempt: the caller's context is still live and the failure is not itself a
+// cancellation or a deadline (a timed-out call is never repeated).
+func transportRetryable(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	return !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 }

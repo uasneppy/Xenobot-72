@@ -350,3 +350,81 @@ func TestGenerateErrors(t *testing.T) {
 		}
 	})
 }
+
+// TestEmptyAnswerIsNotAFailure pins the empty-answer type (a deliberate change
+// from the earlier plain ErrNoReply): a blank STOP or MAX_TOKENS answer keeps
+// its finish reason and thought tokens and is ErrEmptyAnswer, while the other
+// no-reply shapes stay plain ErrNoReply.
+func TestEmptyAnswerIsNotAFailure(t *testing.T) {
+	starved := `{"candidates":[{"content":{"parts":[{"text":"plan","thought":true}]},"finishReason":"MAX_TOKENS"}],"usageMetadata":{"promptTokenCount":900,"candidatesTokenCount":0,"thoughtsTokenCount":512}}`
+	cases := []struct {
+		name  string
+		body  string
+		empty bool
+	}{
+		{"thinking used the whole budget", starved, true},
+		{"blank stop", answer("STOP", `{"text":"  "}`), true},
+		{"candidate without content", `{"candidates":[{"finishReason":"STOP"}]}`, true},
+		{"no candidates", `{"usageMetadata":{}}`, false},
+		{"unknown finish", answer("SOMETHING_NEW", `{"text":"x"}`), false},
+		{"unreadable", `nope`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server, _ := newServer(t, func(w http.ResponseWriter, _ *http.Request) { respond(w, http.StatusOK, tc.body) })
+			_, err := client(server).Generate(context.Background(), request())
+			if !errors.Is(err, ErrNoReply) {
+				t.Fatalf("err = %v, want ErrNoReply", err)
+			}
+			if got := errors.Is(err, ErrEmptyAnswer); got != tc.empty {
+				t.Fatalf("errors.Is(ErrEmptyAnswer) = %v, want %v (err %v)", got, tc.empty, err)
+			}
+		})
+	}
+
+	t.Run("keeps finish reason and thought tokens", func(t *testing.T) {
+		server, _ := newServer(t, func(w http.ResponseWriter, _ *http.Request) { respond(w, http.StatusOK, starved) })
+		_, err := client(server).Generate(context.Background(), request())
+		var empty *EmptyAnswerError
+		if !errors.As(err, &empty) {
+			t.Fatalf("err %v is not an *EmptyAnswerError", err)
+		}
+		if empty.FinishReason != "MAX_TOKENS" || empty.ThoughtsTokens != 512 || empty.InputTokens != 900 {
+			t.Fatalf("details = %+v", empty)
+		}
+	})
+}
+
+func TestTransportErrorIsRetriedOnce(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	server, _ := newServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		if n == 1 {
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Fatal("no hijacker")
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = conn.Close()
+			return
+		}
+		respond(w, http.StatusOK, answer("STOP", `{"text":"Back."}`))
+	})
+	reply, err := client(server).Generate(context.Background(), request())
+	if err != nil || reply.Text != "Back." {
+		t.Fatalf("reply %+v err %v", reply, err)
+	}
+	mu.Lock()
+	got := calls
+	mu.Unlock()
+	if got != 2 {
+		t.Fatalf("calls = %d, want 2", got)
+	}
+}

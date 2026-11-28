@@ -35,7 +35,7 @@ const (
 	DefaultThinkingLevel = "low"
 
 	maxResponseBytes = 1 << 20
-	authHeaderName     = "x-goog-api-key"
+	authHeaderName   = "x-goog-api-key"
 
 	// retryWait is the wait before the one retry when the server names none.
 	retryWait = 500 * time.Millisecond
@@ -50,6 +50,11 @@ var (
 	ErrInvalidModel = errors.New("gemini: invalid model name")
 	// ErrNoReply is wrapped by every answer that carries no usable text.
 	ErrNoReply = errors.New("gemini: no reply")
+	// ErrEmptyAnswer is wrapped (together with ErrNoReply) by an answer that
+	// finished normally (STOP or MAX_TOKENS) but carried no visible text, for
+	// example when thinking used up the whole output budget. It is a capacity
+	// signal, not a provider fault, so callers must not count it as a failure.
+	ErrEmptyAnswer = fmt.Errorf("%w: empty answer", ErrNoReply)
 	// ErrUnsupportedAttachment means an attachment type or size cannot be sent.
 	ErrUnsupportedAttachment = errors.New("gemini: unsupported attachment")
 )
@@ -151,6 +156,13 @@ func (c *Client) exec(ctx context.Context, target string, payload []byte) ([]byt
 	if err == nil {
 		return body, nil
 	}
+	var tf *transportFailure
+	if errors.As(err, &tf) && transportRetryable(ctx, err) {
+		if !sleepContext(ctx, retryWait) {
+			return nil, err
+		}
+		return c.send(ctx, target, payload)
+	}
 	var httpErr *HTTPError
 	if !errors.As(err, &httpErr) || !httpErr.Retryable() {
 		return nil, err
@@ -213,7 +225,28 @@ func (c *Client) transportError(err error) error {
 		err = ue.Err
 	}
 	if c.APIKey != "" && strings.Contains(err.Error(), c.APIKey) {
-		return errors.New("gemini: request failed")
+		return &transportFailure{text: "gemini: request failed"}
 	}
-	return fmt.Errorf("gemini: request failed: %w", err)
+	return &transportFailure{text: "gemini: request failed: " + err.Error(), err: err}
+}
+
+// transportFailure is a request that failed before an HTTP answer was read:
+// a reset or stale connection, a TLS error, a dropped body. Its text is what
+// the client has always returned; the type lets exec retry it once.
+type transportFailure struct {
+	text string
+	err  error
+}
+
+func (e *transportFailure) Error() string { return e.text }
+func (e *transportFailure) Unwrap() error { return e.err }
+
+// transportRetryable reports whether a transport failure is worth one more
+// attempt: the caller's context is still live and the failure is not itself a
+// cancellation or a deadline (a timed-out call is never repeated).
+func transportRetryable(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	return !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 }

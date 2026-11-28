@@ -30,6 +30,12 @@ const (
 // answer, or an unreadable body.
 var ErrNoReply = errors.New("claude: no reply")
 
+// ErrEmptyAnswer is wrapped (together with ErrNoReply) by an answer that ended
+// normally (end_turn or max_tokens) but carried no visible text. It is a
+// capacity signal, not a provider fault, so callers must not count it as a
+// failure.
+var ErrEmptyAnswer = fmt.Errorf("%w: empty answer", ErrNoReply)
+
 // Outcome is how a conversation answer ended.
 type Outcome int
 
@@ -265,7 +271,7 @@ func parseConverseReply(data []byte) (*Reply, error) {
 	}
 	reply.Text = strings.TrimSpace(text.String())
 	if reply.Text == "" {
-		return nil, fmt.Errorf("%w: blank answer", ErrNoReply)
+		return nil, fmt.Errorf("%w: stop %s", ErrEmptyAnswer, safeToken(raw.StopReason))
 	}
 	return reply, nil
 }

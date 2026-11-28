@@ -14,6 +14,32 @@ import (
 // answer, an unclosed reasoning block, or an unreadable body.
 var ErrNoReply = errors.New("featherless: no reply")
 
+// ErrEmptyAnswer is wrapped (together with ErrNoReply) by an answer that
+// finished normally (stop or length) or came back with no choices, but had no
+// visible text: reasoning that ran out of tokens before the answer, or a blank
+// completion. It is a capacity signal, not a provider fault, so callers must
+// not count it as a failure.
+var ErrEmptyAnswer = fmt.Errorf("%w: empty answer", ErrNoReply)
+
+// EmptyAnswerError describes an ErrEmptyAnswer and keeps the finish reason and
+// token counts so a caller can log why.
+type EmptyAnswerError struct {
+	// FinishReason is stop, length, or empty when the answer had no choices.
+	FinishReason string
+	InputTokens  int
+	OutputTokens int
+}
+
+func (e *EmptyAnswerError) Error() string {
+	if e.FinishReason == "" {
+		return ErrEmptyAnswer.Error() + ": no choices"
+	}
+	return ErrEmptyAnswer.Error() + ": finish " + e.FinishReason
+}
+
+// Unwrap lets errors.Is match ErrEmptyAnswer and ErrNoReply.
+func (e *EmptyAnswerError) Unwrap() error { return ErrEmptyAnswer }
+
 // Outcome is how a conversation answer ended.
 type Outcome int
 
@@ -189,7 +215,7 @@ func parseConverseReply(data []byte) (*Reply, error) {
 	}
 
 	if len(raw.Choices) == 0 {
-		return nil, fmt.Errorf("%w: no choices", ErrNoReply)
+		return nil, &EmptyAnswerError{InputTokens: reply.InputTokens, OutputTokens: reply.OutputTokens}
 	}
 	choice := raw.Choices[0]
 	if choice.Message != nil && strings.TrimSpace(choice.Message.Refusal) != "" {
@@ -215,23 +241,58 @@ func parseConverseReply(data []byte) (*Reply, error) {
 	}
 	reply.Text = stripLeadingThink(choice.Message.Content)
 	if reply.Text == "" {
-		return nil, fmt.Errorf("%w: blank answer", ErrNoReply)
+		return nil, &EmptyAnswerError{
+			FinishReason: finish,
+			InputTokens:  reply.InputTokens,
+			OutputTokens: reply.OutputTokens,
+		}
 	}
 	return reply, nil
 }
 
-// stripLeadingThink removes leading <think>...</think> reasoning blocks some
-// open-weight models emit inside content when no server-side reasoning parser
-// is active. An unclosed leading <think> block returns "" so raw reasoning
-// never leaks to a group chat.
+// stripLeadingThink removes the reasoning some open-weight models emit inside
+// content when no server-side reasoning parser is active. It handles two
+// shapes, matched case-insensitively: leading <think>...</think> blocks, and
+// "reasoning...</think>answer" with no opening tag (chat templates that put
+// <think> into the prompt produce this), where everything up to the last
+// closing tag is dropped. An unclosed leading <think> block returns "" so raw
+// reasoning never leaks to a group chat. Reasoning written as plain prose with
+// no tag at all cannot be told apart from an answer here.
 func stripLeadingThink(s string) string {
 	s = strings.TrimSpace(s)
-	for strings.HasPrefix(s, "<think>") {
-		end := strings.Index(s, "</think>")
+	for hasPrefixFold(s, "<think>") {
+		end := indexFold(s, "</think>")
 		if end < 0 {
 			return ""
 		}
 		s = strings.TrimSpace(s[end+len("</think>"):])
 	}
+	if end := lastIndexFold(s, "</think>"); end >= 0 {
+		s = strings.TrimSpace(s[end+len("</think>"):])
+	}
 	return s
+}
+
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
+}
+
+// indexFold is strings.Index with ASCII case folding; sub must be ASCII.
+func indexFold(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if strings.EqualFold(s[i:i+len(sub)], sub) {
+			return i
+		}
+	}
+	return -1
+}
+
+// lastIndexFold is strings.LastIndex with ASCII case folding; sub must be ASCII.
+func lastIndexFold(s, sub string) int {
+	for i := len(s) - len(sub); i >= 0; i-- {
+		if strings.EqualFold(s[i:i+len(sub)], sub) {
+			return i
+		}
+	}
+	return -1
 }
