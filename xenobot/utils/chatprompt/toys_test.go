@@ -9,15 +9,17 @@ import (
 	"unicode/utf8"
 )
 
+// TestToyTokenFloors pins the rule the conversation cap already follows: thinking tokens count
+// against the output cap, so a toy's cap must sit far above its visible answer. At 512 and 768 a
+// Gemini or Featherless reasoning model used the whole budget and returned no text.
 func TestToyTokenFloors(t *testing.T) {
-	if ReferendumMaxTokens != 768 {
-		t.Fatalf("ReferendumMaxTokens = %d, want 768", ReferendumMaxTokens)
-	}
-	if InspectMaxTokens != 512 || InspectMaxTokens < 512 {
-		t.Fatalf("InspectMaxTokens = %d, want 512 (>= 512)", InspectMaxTokens)
-	}
-	if TieBreakerMaxTokens < 512 {
-		t.Fatalf("TieBreakerMaxTokens = %d, want >= 512", TieBreakerMaxTokens)
+	for name, got := range map[string]int{
+		"ReferendumMaxTokens": ReferendumMaxTokens, "InspectMaxTokens": InspectMaxTokens,
+		"TieBreakerMaxTokens": TieBreakerMaxTokens, "ReactionMaxTokens": ReactionMaxTokens,
+	} {
+		if got < 1500 {
+			t.Fatalf("%s = %d, want >= 1500 so thinking cannot use the whole budget", name, got)
+		}
 	}
 }
 

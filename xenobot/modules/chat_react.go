@@ -15,7 +15,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/uasneppy/Xenobot-72/xenobot/config"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/chatconv"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/chatprompt"
@@ -40,10 +39,6 @@ const (
 	chatReactGapTTL = 24 * time.Hour
 	// chatReactRecentLogLimit is how many preceding same-thread log messages are passed as context.
 	chatReactRecentLogLimit = 5
-	// chatReactFeatherlessTextOnlyTTL caches per-model text-only degradation after a vision 400/422.
-	chatReactFeatherlessTextOnlyTTL = 24 * time.Hour
-	// chatReactFeatherlessTextOnlyPrefix lives inside xenobot:cache: so CLEAR_CACHE_ON_STARTUP clears it.
-	chatReactFeatherlessTextOnlyPrefix = "xenobot:cache:featherless_text_only:"
 )
 
 // chatReactProfile defines the per-mode pre-AI throttle thresholds.
@@ -116,6 +111,9 @@ type chatReactJob struct {
 	quoted     *chatprompt.Turn
 	quoteText  string
 	media      *chatMediaRef
+	// userCooldownSecs is the per-user cooldown the gate started, so a job that never reacts can
+	// give it back (chatReactReleaseCooldowns).
+	userCooldownSecs int
 }
 
 // chatReactGateScript atomically checks and updates three same-slot {<chatID>} keys:
@@ -156,6 +154,39 @@ if userCD and userCD > 0 then
 end
 return 1
 `)
+
+// chatReactReleaseScript gives back the cooldowns the gate started for a job that never reacted:
+//   - KEYS[1]: presenceAIReactChatCooldownKey(chatID)
+//   - KEYS[2]: presenceUserCooldownKey(chatID, userID)
+//
+// ARGV[1] is the user cooldown the gate set. KEYS[2] is shared with the 24 h thumbs-down retraction
+// cooldown, so it is deleted only while its TTL is no longer than the gate's own (a longer TTL
+// belongs to a retraction that landed meanwhile).
+var chatReactReleaseScript = redis.NewScript(`
+redis.call('DEL', KEYS[1])
+local ttl = redis.call('TTL', KEYS[2])
+if ttl >= 0 and ttl <= tonumber(ARGV[1]) then
+	redis.call('DEL', KEYS[2])
+end
+return 1
+`)
+
+// chatReactReleaseCooldowns gives the chat and user cooldowns back after a job that was shed,
+// capped, failed or answered nothing usable. The gate starts them when it enqueues, so without this
+// a dropped job would still cost the chat 8 to 15 quiet minutes. Best effort, on its own context.
+func chatReactReleaseCooldowns(client *redis.Client, job chatReactJob) {
+	if client == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), chatRedisTimeout)
+	defer cancel()
+	if err := chatReactReleaseScript.Run(ctx, client, []string{
+		presenceAIReactChatCooldownKey(job.chatID),
+		presenceUserCooldownKey(job.chatID, job.userID),
+	}, job.userCooldownSecs).Err(); err != nil {
+		log.WithField("chat_id", job.chatID).Debugf("[Presence] AI reaction cooldown release failed: %s", chatRedisErrClass(err))
+	}
+}
 
 func chatPresenceEnsureWorkers() {
 	chatPresenceQueue = make(chan chatReactJob, chatPresenceQueueCapacity)
@@ -351,40 +382,10 @@ func chatReactWatch(b *gotgbot.Bot, ctx *ext.Context) {
 		return
 	}
 
-	chatPresenceEnqueue(chatReactBuildJob(b, msg, chat, userID, conv, text, mediaRef, hasMedia))
-}
-
-func chatFeatherlessModelName() string {
-	if config.AppConfig == nil {
-		return ""
-	}
-	return strings.TrimSpace(config.AppConfig.ChatFeatherlessModel)
-}
-
-func chatFeatherlessTextOnlyKey(model string) string {
-	return chatReactFeatherlessTextOnlyPrefix + strings.TrimSpace(model)
-}
-
-func chatIsFeatherlessTextOnly(ctx context.Context, client *redis.Client, model string) bool {
-	model = strings.TrimSpace(model)
-	if client == nil || model == "" {
-		return false
-	}
-	rCtx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
-	defer cancel()
-	n, err := client.Exists(rCtx, chatFeatherlessTextOnlyKey(model)).Result()
-	return err == nil && n > 0
-}
-
-func chatMarkFeatherlessTextOnly(ctx context.Context, client *redis.Client, model string) {
-	model = strings.TrimSpace(model)
-	if client == nil || model == "" {
-		return
-	}
-	wCtx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
-	defer cancel()
-	if err := client.Set(wCtx, chatFeatherlessTextOnlyKey(model), "1", chatReactFeatherlessTextOnlyTTL).Err(); err != nil {
-		log.Debugf("[Presence] caching featherless text_only failed: %s", chatRedisErrClass(err))
+	job := chatReactBuildJob(b, msg, chat, userID, conv, text, mediaRef, hasMedia)
+	job.userCooldownSecs = chatReactCooldownSecs(profile.userCooldown)
+	if !chatPresenceEnqueue(job) {
+		chatReactReleaseCooldowns(client, job)
 	}
 }
 
@@ -426,44 +427,37 @@ func chatReactRecentTurns(ctx context.Context, client *redis.Client, job chatRea
 	return turns
 }
 
-func chatReactDownloadVision(ctx context.Context, client *redis.Client, job chatReactJob) chatDownloadedMedia {
+func chatReactDownloadVision(ctx context.Context, job chatReactJob) chatDownloadedMedia {
 	if job.media == nil {
-		return chatDownloadedMedia{}
-	}
-	if job.provider == chatconv.ProviderFeatherless && chatIsFeatherlessTextOnly(ctx, client, chatFeatherlessModelName()) {
 		return chatDownloadedMedia{}
 	}
 	return chatDownloadMedia(ctx, job.bot, job.chatID, job.userID, job.provider, []chatMediaRef{*job.media})
 }
 
-func chatReactCallProvider(ctx, root context.Context, client *redis.Client, provider string, req chatRequest) (chatAnswer, error) {
-	answer, err := chatProviderOf(provider).converse(ctx, req)
-	if err != nil && root.Err() == nil && provider == chatconv.ProviderFeatherless && len(req.Attachments) > 0 && chatIsFeatherlessVisionReject(err) {
-		chatMarkFeatherlessTextOnly(ctx, client, chatFeatherlessModelName())
-		req.Attachments = nil
-		return chatProviderOf(provider).converse(ctx, req)
-	}
-	return answer, err
-}
-
-func chatReactApplyAnswer(ctx context.Context, job chatReactJob, palette []string, answer chatAnswer) {
+// chatReactApplyAnswer acts on the model's answer and reports whether the job used its turn: a
+// reaction was set, or the model deliberately chose none. A refusal, a parse error and a failed
+// set are not a turn, so the caller gives the cooldowns back.
+func chatReactApplyAnswer(ctx context.Context, job chatReactJob, palette []string, answer chatAnswer) bool {
 	if answer.Outcome == chatRefused {
 		chatReactNoneCount.Add(1)
-		return
+		return false
 	}
 	emoji, status := chatprompt.ParseReactionJSON(answer.Text, palette)
 	switch status {
 	case chatprompt.ReactionParseNone:
 		chatReactNoneCount.Add(1)
+		return true
 	case chatprompt.ReactionParseEmoji:
 		if presenceSetReaction(ctx, job.bot, job.chatID, job.messageID, job.userID, emoji, "ai") {
 			chatReactSentCount.Add(1)
-		} else {
-			chatReactShedCount.Add(1)
+			return true
 		}
+		chatReactShedCount.Add(1)
+		return false
 	default:
 		log.WithFields(log.Fields{"chat_id": job.chatID, "user_id": job.userID}).Debug("[Presence] AI reaction parse error")
 		chatReactShedCount.Add(1)
+		return false
 	}
 }
 
@@ -477,6 +471,15 @@ func chatReactProcessJob(job chatReactJob) {
 	defer cancel()
 
 	client := presenceRedisClient()
+	// The gate started the chat and user cooldowns when it enqueued this job. A job that ends
+	// without reacting (shed, capped, a provider error, a refusal, a failed set) gives them back, so
+	// only a real turn costs the chat its quiet period.
+	used := false
+	defer func() {
+		if !used {
+			chatReactReleaseCooldowns(client, job)
+		}
+	}()
 	if client == nil || !chatProviderConfigured(job.provider) {
 		chatReactShedCount.Add(1)
 		return
@@ -506,7 +509,7 @@ func chatReactProcessJob(job chatReactJob) {
 	}
 
 	recentTurns := chatReactRecentTurns(ctx, client, job)
-	media := chatReactDownloadVision(ctx, client, job)
+	media := chatReactDownloadVision(ctx, job)
 	if root.Err() != nil {
 		chatReactShedCount.Add(1)
 		return
@@ -521,11 +524,11 @@ func chatReactProcessJob(job chatReactJob) {
 		Attachments: media.Attachments,
 	}
 
-	answer, err := chatReactCallProvider(ctx, root, client, job.provider, req)
+	answer, err := chatConverse(ctx, root, chatCall{Lane: "reaction", ChatID: job.chatID}, job.provider, req)
 	if err != nil {
 		log.WithFields(log.Fields{"chat_id": job.chatID, "user_id": job.userID}).Debugf("[Presence] AI reaction provider error: %s", chatErrorClass(err))
 		chatReactShedCount.Add(1)
 		return
 	}
-	chatReactApplyAnswer(ctx, job, palette, answer)
+	used = chatReactApplyAnswer(ctx, job, palette, answer)
 }

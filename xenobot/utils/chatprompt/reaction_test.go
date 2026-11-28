@@ -8,9 +8,6 @@ import (
 )
 
 func TestReactionPrompts(t *testing.T) {
-	if ReactionMaxTokens != 512 {
-		t.Fatalf("ReactionMaxTokens = %d, want 512", ReactionMaxTokens)
-	}
 
 	static := ReactionStatic()
 	if static == "" || static != ReactionStatic() {

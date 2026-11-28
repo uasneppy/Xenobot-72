@@ -304,7 +304,7 @@ func chatProcessJob(job chatJob) {
 		}
 	}
 	request := chatBuildRequest(ctx, job, job.bot.Username, ambient, history, media)
-	answer, err := chatProviderOf(job.provider).converse(ctx, request)
+	answer, err := chatConverse(ctx, root, chatCall{Lane: "conversation", ChatID: job.chatID}, job.provider, request)
 	if err != nil {
 		if root.Err() != nil || errors.Is(err, context.Canceled) {
 			// Shutdown: neither a failure nor a success, and nothing is said.
@@ -408,10 +408,19 @@ func chatAmbientContextTurns(ctx context.Context, client *redis.Client, job chat
 	return turns
 }
 
-// chatRecordFailure counts one provider failure toward the group on the provider's breaker and
+// chatRecordFailure counts one provider failure toward the group on the provider's breaker (an
+// empty answer is not one) and
 // pauses the provider for every group when the error calls for it. Each pause logs one warning
 // naming the status and the error type; nothing names text, a name or a key.
 func chatRecordFailure(job chatJob, err error) {
+	if chatEmptyAnswer(err) {
+		// The provider answered, but with no visible text (thinking used the whole output budget, a
+		// blank completion). That is a capacity signal, not a provider fault: the caller still shows
+		// its malfunction line, but the answer is neither a failure nor a success for the breaker.
+		log.WithFields(log.Fields{"chat_id": job.chatID, "user_id": job.userID}).
+			Infof("[Chat] the %s provider returned an empty answer", job.provider)
+		return
+	}
 	now := raidNow()
 	breaker := chatBreaker(job.provider)
 	class := chatErrorClass(err)

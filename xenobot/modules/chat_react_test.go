@@ -28,6 +28,7 @@ import (
 	"github.com/uasneppy/Xenobot-72/xenobot/db/models"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/presence"
 	utilsCache "github.com/uasneppy/Xenobot-72/xenobot/utils/cache"
+	"github.com/uasneppy/Xenobot-72/xenobot/utils/chatprompt"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/claude"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/featherless"
 )
@@ -579,8 +580,8 @@ func TestChatReactContextVisionAndFeatherlessFallback(t *testing.T) {
 			t.Fatalf("sticker user prompt missing [sticker 😺]: %s", calls[1].User)
 		}
 
-		// 2. Featherless 400 (!KeyRejected) caches 24h text_only, retries text-only, and skips
-		// image downloads on subsequent photos for that model.
+		// 2. Featherless 400 (!KeyRejected) on an image request retries once without the image and
+		// remembers nothing, so the next photo is attempted with its image again.
 		const model = "test/text-only-model"
 		chatSwap(t, &config.AppConfig.ChatFeatherlessModel, model)
 		env.mu.Lock()
@@ -608,23 +609,23 @@ func TestChatReactContextVisionAndFeatherlessFallback(t *testing.T) {
 		if env.downloads() != downloadsBefore+1 {
 			t.Fatalf("first featherless photo downloads = %d, want %d", env.downloads(), downloadsBefore+1)
 		}
-		cacheKey := chatFeatherlessTextOnlyKey(model)
-		if !env.mr.Exists(cacheKey) || env.mr.TTL(cacheKey) < 23*time.Hour {
-			t.Fatalf("featherless text_only cache key %q missing or short TTL (%v)", cacheKey, env.mr.TTL(cacheKey))
+		if env.mr.Exists("xenobot:cache:featherless_text_only:" + model) {
+			t.Fatal("a vision rejection must not leave a text-only marker behind")
 		}
 		assertChatBreakersClean(t)
 
-		// Subsequent photo skips download completely because model is cached text_only.
+		// The next photo is attempted with its image again: nothing was remembered, so one
+		// rejected request can never switch vision off for later requests or other chats.
 		downloadsBefore2 := env.downloads()
 		fPhoto2 := env.message(alice, "")
 		fPhoto2.Caption = "another photo"
 		fPhoto2.Photo = photoSizes()
 		env.deliver(fPhoto2)
-		if env.downloads() != downloadsBefore2 {
-			t.Fatalf("cached text_only unexpectedly downloaded photo: before=%d after=%d", downloadsBefore2, env.downloads())
+		if env.downloads() != downloadsBefore2+1 {
+			t.Fatalf("second photo downloads = %d, want %d (vision is attempted every time)", env.downloads(), downloadsBefore2+1)
 		}
-		if len(env.provider.calls()[4].Attachments) != 0 {
-			t.Fatal("cached text_only unexpectedly sent attachments")
+		if len(env.provider.calls()[4].Attachments) != 1 {
+			t.Fatal("second photo was sent without its image")
 		}
 
 		// 3. Custom-only AvailableReactions skips download and LLM call completely.
@@ -651,7 +652,7 @@ func TestChatReactContextVisionAndFeatherlessFallback(t *testing.T) {
 }
 
 func TestChatReactProvidersAndNonTrippingShedding(t *testing.T) {
-	t.Run("real Claude, Gemini, and Featherless adapters send MaxTokens=512, zero PII, is_big=false, bot_react ai", func(t *testing.T) {
+	t.Run("real Claude, Gemini, and Featherless adapters send MaxTokens=chatprompt.ReactionMaxTokens, zero PII, is_big=false, bot_react ai", func(t *testing.T) {
 		var (
 			mu     sync.Mutex
 			bodies []string
@@ -719,7 +720,7 @@ func TestChatReactProvidersAndNonTrippingShedding(t *testing.T) {
 			t.Fatalf("wire provider calls = %d, want 3", len(gotBodies))
 		}
 
-		// Verify zero PII (user ID, chat ID, username) and MaxTokens == 512 on all 3 wire formats.
+		// Verify zero PII (user ID, chat ID, username) and MaxTokens == ReactionMaxTokens on all 3 wire formats.
 		forbidden := []string{strconv.FormatInt(alice.Id, 10), strconv.FormatInt(env.chatID, 10), "alice_secret_handle"}
 		for i, b := range gotBodies {
 			for _, bad := range forbidden {
@@ -739,14 +740,14 @@ func TestChatReactProvidersAndNonTrippingShedding(t *testing.T) {
 		var featherlessReq struct {
 			MaxCompletionTokens int `json:"max_completion_tokens"`
 		}
-		if err := json.Unmarshal([]byte(gotBodies[0]), &claudeReq); err != nil || claudeReq.MaxTokens != 512 {
-			t.Errorf("claude max_tokens = %d (err=%v), want 512", claudeReq.MaxTokens, err)
+		if err := json.Unmarshal([]byte(gotBodies[0]), &claudeReq); err != nil || claudeReq.MaxTokens != chatprompt.ReactionMaxTokens {
+			t.Errorf("claude max_tokens = %d (err=%v), want %d", claudeReq.MaxTokens, err, chatprompt.ReactionMaxTokens)
 		}
-		if err := json.Unmarshal([]byte(gotBodies[1]), &geminiReq); err != nil || geminiReq.GenerationConfig.MaxOutputTokens != 512 {
-			t.Errorf("gemini maxOutputTokens = %d (err=%v), want 512", geminiReq.GenerationConfig.MaxOutputTokens, err)
+		if err := json.Unmarshal([]byte(gotBodies[1]), &geminiReq); err != nil || geminiReq.GenerationConfig.MaxOutputTokens != chatprompt.ReactionMaxTokens {
+			t.Errorf("gemini maxOutputTokens = %d (err=%v), want %d", geminiReq.GenerationConfig.MaxOutputTokens, err, chatprompt.ReactionMaxTokens)
 		}
-		if err := json.Unmarshal([]byte(gotBodies[2]), &featherlessReq); err != nil || featherlessReq.MaxCompletionTokens != 512 {
-			t.Errorf("featherless max_completion_tokens = %d (err=%v), want 512", featherlessReq.MaxCompletionTokens, err)
+		if err := json.Unmarshal([]byte(gotBodies[2]), &featherlessReq); err != nil || featherlessReq.MaxCompletionTokens != chatprompt.ReactionMaxTokens {
+			t.Errorf("featherless max_completion_tokens = %d (err=%v), want %d", featherlessReq.MaxCompletionTokens, err, chatprompt.ReactionMaxTokens)
 		}
 
 		reactCalls := env.callsFor("setMessageReaction")

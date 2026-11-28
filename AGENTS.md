@@ -533,7 +533,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   ID, `TestChatProvidersRequest`, `TestChatMediaRecognitionAllProviders`), the provider call behind `chatProvider` (three
   adapters, `chatAnthropicProvider` over `claude.Client.Converse`, `chatGeminiProvider` over `gemini.Client.Generate`, and
   `chatFeatherlessProvider` over `featherless.Client.Converse`, so the
-  runtime never branches on the provider), the output filter (`chatFilterReply`: link-like tokens become `[link removed]`, a
+  runtime never branches on the provider), the output filter (`chatFilterReply`: leaked reasoning is removed first by `chatStripReasoning`, which acts only when the text shows at least two planning cues, the first within `chatDraftCueWindow` (240 bytes) of the start, and never on a brief, verdict or poll text (`chatSanitizeText` is links and handles only); link-like tokens become `[link removed]`, a
   zero-width space follows every `@` that starts a username, a hard cap of 1,200 runes at the last sentence end; blank is never
   sent), the reply and the record of the exchange. The reply is plain text, link previews off, a reply to the addressed message
   sent through the feature's own pacer (`chatPacer`, `xenobot:chat:pace:*`), and never sent without its reply target
@@ -606,7 +606,8 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the typing action (skipped when `job.silentPM`); `chatLogSince` then `chatBriefStretch` in reply mode or thread-isolated
   `chatLogRecent`/`chatLogSinceUser`/`chatLogSinceTime` in reply-free mode (nothing answers `brief_too_old` in reply mode or
   `brief_empty` in reply-free mode, or stays silent when `job.silentPM`); `chatBriefRequest`; the provider call through `chatProviderOf` (a cancelled root is shed with no line; any other
-  error is `chatRecordFailure` plus `brief_malfunction`; a refusal answers `brief_refused`; `job.silentPM` suppresses every group
+  error is `chatRecordFailure` plus `brief_malfunction`; an empty answer (`chatEmptyAnswer`: a finished answer with no visible text) shows
+  `brief_malfunction` but is never recorded as a failure, here and in every other lane (`chatRecordFailure` returns first); a refusal answers `brief_refused`; `job.silentPM` suppresses every group
   send); the text through `chatSanitizeText`
   (links replaced, a zero-width space after an at-handle; blank is `brief_malfunction`, a truncated answer gets an ellipsis);
   `chatBriefParts`; delivery. The prompt is the brief's own and never uses the conversation persona and archive: the static text is
@@ -1570,13 +1571,19 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   respecting `ctx.Data[presenceStaticReactedKey]`, performing zero operational Redis I/O when `EnableChat` is false or
   `chat_presence.ai_react_mode == "off"`). Operational Redis keys (`xenobot:presence:{<chat>}:ai:gap`, `:ai:cd:chat`, shared `:cd:u:<user>`
   preserving the 24 h `👎` retraction TTL in the same-slot `{<chat>}` Lua gate, and dedicated hourly budget `xenobot:chat:react:b:*` via
-  `chatReserveWith`) stay outside `xenobot:cache:`, while Featherless model `text_only` vision fallback
-  (`xenobot:cache:featherless_text_only:<model>`, 24 h TTL, set on non-auth `400`/`422` vision errors before one text-only retry) sits inside
-  `xenobot:cache:`. `chatPresenceQueue` (2 workers, cap 32, launched in `chatEnsureWorkers()`) runs under `StopChat` (`chatJobs`, `chatDraining`,
+  `chatReserveWith`) stay outside `xenobot:cache:`. There is no Featherless text-only marker any more: every provider call of every lane goes
+  through `chatConverse` (`chat_converse.go`), which on a Featherless `400`/`422` for a request with images retries once without them and
+  returns only the retry's result (`chatAnswer.TextOnly`), remembering nothing, so an unrelated `400` (context length, an unsupported
+  parameter) can never switch vision off for other chats or later requests; a shutdown skips the retry. `chatConverse` also writes the one
+  `[Chat] provider call` Debug line (lane, provider, model, `duration_ms`, input, output, `cache_read` and `thoughts` tokens, outcome, the
+  finish reason of an empty answer; IDs, numbers and an error class only). A job that ends without reacting (shed, capped, provider error,
+  empty answer, refusal, parse error, failed set) gives the chat and user cooldowns back (`chatReactReleaseCooldowns`, deleting the user key
+  only while its TTL is no longer than the gate's own, so a 24 h retraction cooldown survives); a reaction or a deliberate `NONE` keeps them.
+  `chatPresenceQueue` (2 workers, cap 32, launched in `chatEnsureWorkers()`) runs under `StopChat` (`chatJobs`, `chatDraining`,
   `chatContext()`), checks lazy fail-closed `presenceIsLockedDown`, inspects `chatBreaker(provider).isPaused` read-only with strictly
   non-tripping silent error shedding (never calling `chatRecordFailure`), filters against `presenceAllowedPalette` (skipping custom-only
   chats before downloads or LLM calls), assembles bounded 50-entry same-thread `chatLogRecentThread` + `ReplyTarget`/`Quote` + photo/sticker
-  vision via `chat_media.go`, and calls `xenobot/utils/chatprompt/reaction.go` (stdlib-only leaf, `ReactionMaxTokens = 512`, compact prompt
+  vision via `chat_media.go`, and calls `xenobot/utils/chatprompt/reaction.go` (stdlib-only leaf, `ReactionMaxTokens = 1500`, compact prompt
   without comic archive, explicit lookalike warnings against `😂`/`🐱`/`😹`/`😻`/`😼`, strict `U+FE0F`-normalized JSON parser). Page `pr`
   renders `[Off | Low | Medium]` (`t=ai`, `v=o/l/m`) with Owner×Admin `chatconv.GetFresh` double-gating: enabling `low`/`medium` refuses
   writes with plain-text alert `settings_pr_ai_need_owner` when Owner Conversations is off (failing closed with `cannotOpen` on DB read
@@ -1640,16 +1647,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   hourly budget `"toy:b"` via `chatReserveWith` (`6` user / `30` chat / `300` global), `chatToyChatCooldown` (`30 s`) /
   `chatToyUserCooldown` (`20 s`), `chatToysStatsSection` in `/stats`, and `chatToyGateOf` (real non-bot user, `!presenceIsStaffGroup`,
   `!presenceIsLockedDown`, Owner×Admin double-gating, and `chatAudienceAllows`). `xenobot/utils/chatprompt/toys.go` preserves the
-  stdlib-only leaf invariant (`TestChatpromptPackageIsLeaf`) with `ReferendumMaxTokens = 768`, `InspectMaxTokens = 512`,
-  `TieBreakerMaxTokens = 512`, `ParseReferendumJSON`, `ParseInspectJSON` (`U+FE0F` strip + non-Telegram lookalike rejection), and
+  stdlib-only leaf invariant (`TestChatpromptPackageIsLeaf`) with `ReferendumMaxTokens = 2000`, `InspectMaxTokens = 1500`,
+  `TieBreakerMaxTokens = 1500` (thinking counts against the cap, so a toy's cap sits far above its visible answer; `TestToyTokenFloors`), `ParseReferendumJSON`, `ParseInspectJSON` (`U+FE0F` strip + non-Telegram lookalike rejection), and
   `ParseTieBreakerText`. `/referendum` (`TOYS-01`) extracts optional reply target + same-thread `chatLogRecentThread` (when
   `LogEnabled`) + command argument, sends sanitized polls via `SendPollWithContext` (`OpenPeriod = 900`, `DisableNotification: true`,
   `AllowAddingOptions: false`), and persists `xenobot:presence:poll:<poll_id>` (outside `xenobot:cache:`, 25 h TTL). Group-`0`
   `handlers.NewPoll(poll.All, chatModule.handlePollUpdate)` (`TOYS-02`, joining `StopChat`) triggers only when `IsClosed &&
   TotalVoterCount > 0 && tiedCount >= 2`, claims once-only cross-replica via `SETNX` `xenobot:presence:poll:tie:<poll_id>` (24 h TTL),
   and posts a deadpan Facility Tie-Breaker (with localized fallback if AI fails/disabled) via `AllowSendingWithoutReply: false`.
-  `/inspect` (`TOYS-03`) requires `extraction.ReplyTarget` (`inspect_usage`), reuses `chatReactDownloadVision` + `chatReactCallProvider`
-  (`chat_media.go` photo/sticker/image-doc vision + Featherless `400`/`422` `text_only` fallback), replies with
+  `/inspect` (`TOYS-03`) requires `extraction.ReplyTarget` (`inspect_usage`), reuses `chatReactDownloadVision` + `chatConverse`
+  (`chat_media.go` photo/sticker/image-doc vision + the Featherless image retry; a verdict is never posted from a retry that dropped the
+  image: the answer is `inspect_malfunction`, not a breaker failure), replies with
   `AllowSendingWithoutReply: false`, and calls `presenceSetReaction(..., targetAuthorID, "inspect")` for 24 h `bot_react` / `👎`
   retraction parity. Sub-page `pc` adds `rf` (`referendum_enabled`) and `in` (`inspect_enabled`) under `settingsPresenceNeedConv` (now
   `6` rows `<= 8`, `pr` stays `8` rows, `len(settingsPages) == 31`, `settingsMainOwnerRows == 17`).

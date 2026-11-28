@@ -8,10 +8,11 @@ import (
 	"strings"
 )
 
-// ReactionMaxTokens is the proven cross-provider output token floor for
-// contextual AI emoji reaction calls (Claude Haiku, Gemini thinking tokens,
-// and Featherless reasoning models).
-const ReactionMaxTokens = 512
+// ReactionMaxTokens is the output token cap of a contextual AI emoji reaction
+// call. The answer is a few tokens, but thinking tokens (Gemini) and reasoning
+// text (Featherless <think>) count against the cap: at 512 they used all of it
+// and the call came back with no visible text. 1500 leaves room for both.
+const ReactionMaxTokens = 1500
 
 // ReactionParseStatus classifies the outcome of ParseReactionJSON.
 // The zero value (ReactionParseError) fails closed.
