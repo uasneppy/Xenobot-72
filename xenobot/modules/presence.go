@@ -55,6 +55,12 @@ func presenceConsensusUsersKey(chatID, msgID int64, emoji string) string {
 	return presenceChatTag(chatID) + "cons:u:" + strconv.FormatInt(msgID, 10) + ":" + hex.EncodeToString([]byte(emoji))
 }
 
+// presenceReactionStampKey holds the update_id of the newest reaction update applied for one user on
+// one message (consensus and archive share it), so a late update is recognised and dropped.
+func presenceReactionStampKey(chatID, msgID, userID int64) string {
+	return presenceChatTag(chatID) + "react:stamp:" + strconv.FormatInt(msgID, 10) + ":" + strconv.FormatInt(userID, 10)
+}
+
 // presenceConsensusCooldownKey gates per-chat Emoji Consensus firing across replicas.
 func presenceConsensusCooldownKey(chatID int64) string {
 	return presenceChatTag(chatID) + "cons:cd"

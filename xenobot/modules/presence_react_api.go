@@ -231,6 +231,13 @@ func presenceSetReaction(ctx context.Context, b *gotgbot.Bot, chatID, msgID, aut
 		return false
 	}
 	if client := presenceRedisClient(); client != nil {
+		if authorID == 0 {
+			// A mirror made with the message log off cannot resolve the author; keep the one an
+			// earlier reaction of the bot recorded so the author can still retract it.
+			if prev, ok := presenceReadBotReact(ctx, client, chatID, msgID); ok {
+				authorID = prev.AuthorID
+			}
+		}
 		presenceWriteBotReact(ctx, client, chatID, msgID, presenceBotReact{
 			Emoji:    emoji,
 			AuthorID: authorID,

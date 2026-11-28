@@ -113,7 +113,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   proves it: a job inside a hung provider call is ended inside the wait, sends nothing, writes no memory, and a later message starts
   no job; `TestShutdownEndsChatBriefs` proves the same for a brief (and that a later `/unrollshort` starts no job and spends no
   budget); a test that runs the stop restores the pool with `restoreChatPool`. Phase 31's reaction handler (`LoadPresence`,
-  `handleReaction`) joins `StopChat` the same way — tracked in `chatJobs`, refused while `chatDraining`, and bounded by a 3 s context
+  `handleReaction`) joins `StopChat` the same way — tracked in `chatJobs`, refused while `chatDraining`, and bounded by a 3 s context per sub-feature
   derived from `chatContext()` — adding zero shutdown drains and keeping the 70 s webhook worst case and `stop_grace_period: 75s`
   unchanged (`TestShutdownEndsPresenceReaction`). Phase 32's contextual AI emoji reaction worker lane (`chatPresenceQueue`, 2 workers,
   cap 32, launched inside `chatEnsureWorkers()` in `chat_run.go`) shares `chatJobs`, `chatDraining`, and `chatContext()` under `StopChat`
@@ -1556,8 +1556,17 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   retraction MUST send explicit non-nil `[]gotgbot.ReactionType{}` (`"reaction":[]` on the wire). `👎` retraction checks `bot_react` in
   Redis before any Telegram call, authorizes the message author, a live group admin, or an anonymous group admin (`mru.User == nil &&
   mru.ActorChat.Id == mru.Chat.Id`), clears silently, and extends the user cooldown; Emoji Consensus counts real non-anonymous members
-  only (`mru.User != nil`), excludes hostile emojis, checks `lockdown.GetActiveFresh` lazily fail-closed at threshold crossing before
-  claiming `cons:cd` + `cons:done:<msgID>` atomically, and never runs in Staff Groups, private chats, or channels. `LoadPresence`
+  only (`mru.User != nil`), excludes hostile emojis, and never runs in Staff Groups, private chats, or channels. At a threshold crossing
+  `presenceConsensusTry` checks `lockdown.GetActiveFresh` (fail-closed) and the chat's palette *before* claiming (the first crossed emoji the
+  chat allows is the one mirrored), then claims `cons:cd` + `cons:done:<msgID>` atomically (the script answers won, already mirrored, or
+  cooldown running with its PTTL) and **gives both back when the reaction could not be set**, so one failure (a disallowed emoji, a shed
+  pacer call, a Telegram 400) never locks the chat or the message out. A message that crossed while the cooldown ran is retried by a timer
+  (`presenceConsensusScheduleRetry`, remaining cooldown plus `presenceConsensusRetryJitter`, one per chat and message, at most
+  `presenceConsensusRetryMax` 256 per replica, 3 attempts; no goroutine while it waits, lost on restart, joins `StopChat` when it fires) that
+  re-reads the settings and the reactor counts first. Reaction updates are handled concurrently, so the reactor-SET script also keeps a
+  per-(message, user) stamp `react:stamp:<msg>:<user>` of the newest `update_id` applied (shared with the Highlights Archive) and drops an
+  older update (`-1`); the same `update_id` may touch several emojis. A mirror made with the log off keeps the author an earlier bot
+  reaction stored. Retraction, consensus, archive and the ✍ PM brief each run under their own 3 s budget from `presenceStepContext`. `LoadPresence`
   registers without `SetModuleEnabled` so `/help` stays unchanged. Private Settings page `pr` (`Order` 91, icon `✨`,
   `settings_page_presence`, `OwnerOnly: false`, `PrivateOnly: true`, `PrivateNoteKey: settings_pr_group_note`, `Hidden` + fail-closed
   Staff Group gate without naming Staff Group, controls `c`/`ct`/`r`/`ai` under `settingsRightChangeInfo`, 5 rows total) pairs `y|pr` on Main keeping

@@ -43,6 +43,10 @@ type presenceReactionTestEnv struct {
 	mu       sync.Mutex
 	calls    []presenceWireCall
 	parseErr error
+	// availJSON, when set, is the available_reactions array getChat answers with.
+	availJSON string
+	// reactFail, when set, is the description setMessageReaction fails with (a 400).
+	reactFail string
 }
 
 func newPresenceReactionEnv(t *testing.T, chatID int64) *presenceReactionTestEnv {
@@ -71,10 +75,24 @@ func newPresenceReactionEnv(t *testing.T, chatID int64) *presenceReactionTestEnv
 		case "/bottest/getChat":
 			params, err := decodeTelegramWireParams(r)
 			env.recordCall(r.URL.Path, params, err)
-			_, _ = w.Write([]byte(`{"ok":true,"result":{"id":` + params["chat_id"] + `,"type":"supergroup"}}`))
+			env.mu.Lock()
+			avail := env.availJSON
+			env.mu.Unlock()
+			extra := ""
+			if avail != "" {
+				extra = `,"available_reactions":` + avail
+			}
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"id":` + params["chat_id"] + `,"type":"supergroup"` + extra + `}}`))
 		case "/bottest/setMessageReaction":
 			params, err := decodeTelegramWireParams(r)
 			env.recordCall(r.URL.Path, params, err)
+			env.mu.Lock()
+			fail := env.reactFail
+			env.mu.Unlock()
+			if fail != "" {
+				_, _ = w.Write([]byte(`{"ok":false,"error_code":400,"description":"Bad Request: ` + fail + `"}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
 		default:
 			params, err := decodeTelegramWireParams(r)
@@ -123,8 +141,15 @@ func (e *presenceReactionTestEnv) allCalls() []presenceWireCall {
 
 func (e *presenceReactionTestEnv) dispatchReaction(mru *gotgbot.MessageReactionUpdated) {
 	e.t.Helper()
+	e.dispatchReactionAs(e.nextUpdate.Add(1), mru)
+}
+
+// dispatchReactionAs delivers a reaction update with an explicit update_id, to replay updates out of
+// order.
+func (e *presenceReactionTestEnv) dispatchReactionAs(updateID int64, mru *gotgbot.MessageReactionUpdated) {
+	e.t.Helper()
 	upd := &gotgbot.Update{
-		UpdateId:        e.nextUpdate.Add(1),
+		UpdateId:        updateID,
 		MessageReaction: mru,
 	}
 	if err := e.dispatcher.ProcessUpdate(e.bot, upd, nil); err != nil {

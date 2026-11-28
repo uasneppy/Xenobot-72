@@ -333,17 +333,18 @@ func presenceArchiveAlreadyDone(ctx context.Context, client *redis.Client, doneK
 	return err == nil && exists > 0
 }
 
-func presenceArchiveTrackAndCheck(ctx context.Context, client *redis.Client, mru *gotgbot.MessageReactionUpdated, settings presence.Settings, op string) bool {
+func presenceArchiveTrackAndCheck(ctx context.Context, client *redis.Client, mru *gotgbot.MessageReactionUpdated, settings presence.Settings, op string, updateID int64) bool {
 	chatID, msgID := mru.Chat.Id, mru.MessageId
 	setTTLSecs := max(int(presenceArchiveSetTTL.Seconds()), 1)
 	rCtx, cancel := context.WithTimeout(ctx, chatRedisTimeout)
 	count, err := presenceConsensusUpdateScript.Run(
 		rCtx,
 		client,
-		[]string{presenceArchiveUsersKey(chatID, msgID)},
+		[]string{presenceArchiveUsersKey(chatID, msgID), presenceReactionStampKey(chatID, msgID, mru.User.Id)},
 		op,
 		strconv.FormatInt(mru.User.Id, 10),
 		setTTLSecs,
+		updateID,
 	).Int64()
 	cancel()
 	if err != nil {
@@ -354,7 +355,7 @@ func presenceArchiveTrackAndCheck(ctx context.Context, client *redis.Client, mru
 	if !presence.ValidArchiveThreshold(threshold) {
 		threshold = presence.DefaultArchiveThreshold
 	}
-	if op != "add" || count < int64(threshold) {
+	if count < 0 || op != "add" || count < int64(threshold) { // count < 0: a newer update of this user was applied
 		return false
 	}
 	doneKey := presenceArchiveDoneKey(chatID, msgID)
@@ -376,7 +377,7 @@ func presenceArchiveTrackAndCheck(ctx context.Context, client *redis.Client, mru
 // Highlights Archive (COMM-04). When the distinct count reaches settings.ArchiveThreshold, it checks
 // the fast Redis latch, lazily verifies active lockdown status (fail-closed), claims (chat_id,
 // message_id) once in PostgreSQL, and delivers the highlight via CopyMessage or ForwardMessage.
-func presenceHandleArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.MessageReactionUpdated, settings presence.Settings) {
+func presenceHandleArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.MessageReactionUpdated, settings presence.Settings, updateID int64) {
 	if b == nil || mru == nil || mru.User == nil || mru.User.IsBot || !presenceChatTypeAllowed(&mru.Chat) {
 		return
 	}
@@ -398,7 +399,7 @@ func presenceHandleArchive(ctx context.Context, b *gotgbot.Bot, mru *gotgbot.Mes
 	if op == "" || ctx.Err() != nil {
 		return
 	}
-	if !presenceArchiveTrackAndCheck(ctx, client, mru, settings, op) {
+	if !presenceArchiveTrackAndCheck(ctx, client, mru, settings, op, updateID) {
 		return
 	}
 	presenceDeliverArchive(ctx, b, mru, settings)
