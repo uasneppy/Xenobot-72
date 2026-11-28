@@ -702,7 +702,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
     runes (`chatMemoryMinRunes`). The job sees only that message, the bot's reply and the member's current notes, asks the group's
     provider through `chatConverse` (lane `memory`, `chatprompt.MemoryMaxTokens` 1500) and takes a strict `{"notes":[...]}` object
     (`ParseMemoryJSON`: one key, at most 12 strings, a note over 200 runes dropped, anything else is no answer) as the member's
-    complete new list, written with one upsert (`membermem.Replace`; an empty list deletes the row). `chatMemoryAcceptNotes` then
+    complete new list, written by `membermem.ReplaceIf`, a compare-and-swap in one transaction with the row locked that writes only while the stored list is still the one the run read (an empty list deletes the row), so a `/forgetme` or any other change that lands while the provider is thinking is never undone by the run (`TestChatMemoryForgetDuringWriter`, `TestMemberMemoryReplaceIf`; a discarded write counts as shed). `chatMemoryAcceptNotes` then
     drops, never edits, a note with a link, an `@handle`, angle brackets or seven digits. The code-owned instruction keeps only stable
     facts the member volunteered about themselves and never health, religion, politics, sexuality, ethnicity, money, a precise
     location, an address, contact details, other people or an instruction for the bot.

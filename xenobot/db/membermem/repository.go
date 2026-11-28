@@ -10,6 +10,7 @@ package membermem
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -109,6 +110,65 @@ func Replace(ctx context.Context, chatID, userID int64, notes []string) ([]strin
 		return nil, xenoerrors.Wrapf(err, "write the memories of member %d in chat %d", userID, chatID)
 	}
 	return kept, nil
+}
+
+// ReplaceIf stores notes only while the member's stored list is still exactly the one the caller read
+// (expected, nil for no row), and reports whether it wrote. The check and the write are one transaction
+// with the row locked, so a list the member deleted meanwhile (their /forgetme, the owner turning the
+// feature off) is never brought back by a writer that read it before the delete: a row that is gone
+// while expected holds notes, or whose notes changed, writes nothing. An empty list deletes the row (only
+// while it still matches).
+func ReplaceIf(ctx context.Context, chatID, userID int64, expected, notes []string) (bool, error) {
+	if db.DB == nil {
+		return false, xenoerrors.Wrap(errNoDatabase, "write member memories")
+	}
+	kept := Normalize(notes)
+	want := Normalize(expected)
+	applied := false
+	err := db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row models.ChatMemberMemory
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("chat_id = ? AND user_id = ?", chatID, userID).Take(&row).Error
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			if len(want) > 0 {
+				return nil // the notes the caller saw were deleted: write nothing
+			}
+			if len(kept) == 0 {
+				applied = true
+				return nil
+			}
+			res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.ChatMemberMemory{
+				ChatID: chatID, UserID: userID, Notes: strings.Join(kept, "\n"), UpdatedAt: time.Now(),
+			})
+			if res.Error != nil {
+				return res.Error
+			}
+			applied = res.RowsAffected == 1
+			return nil
+		case err != nil:
+			return err
+		}
+		if !slices.Equal(split(row.Notes), want) {
+			return nil // someone else changed them since the caller read them
+		}
+		var res *gorm.DB
+		if len(kept) == 0 {
+			res = tx.Where("chat_id = ? AND user_id = ?", chatID, userID).Delete(&models.ChatMemberMemory{})
+		} else {
+			res = tx.Model(&models.ChatMemberMemory{}).Where("chat_id = ? AND user_id = ?", chatID, userID).
+				Updates(map[string]any{"notes": strings.Join(kept, "\n"), "updated_at": time.Now()})
+		}
+		if res.Error != nil {
+			return res.Error
+		}
+		applied = true
+		return nil
+	})
+	if err != nil {
+		return false, xenoerrors.Wrapf(err, "write the memories of member %d in chat %d", userID, chatID)
+	}
+	return applied, nil
 }
 
 // Delete removes the member's notes in this group and reports whether there were any.

@@ -97,3 +97,49 @@ func TestMemberMemoryStorage(t *testing.T) {
 	}
 	_ = DeleteChat(ctx, chatA)
 }
+
+// TestMemberMemoryReplaceIf: a compare-and-swap write lands only while the stored list is still the one
+// the caller read, so a list deleted meanwhile (the member's /forgetme) is never brought back.
+func TestMemberMemoryReplaceIf(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	chat, user := time.Now().UnixNano()%1_000_000_000*-1-3, int64(7101)
+	read := func() string {
+		t.Helper()
+		got, err := Get(ctx, chat, user)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(got, "|")
+	}
+	do := func(name string, expected, notes []string, wantApplied bool, wantStored string) {
+		t.Helper()
+		applied, err := ReplaceIf(ctx, chat, user, expected, notes)
+		if err != nil || applied != wantApplied {
+			t.Fatalf("%s: applied=%v err=%v, want applied=%v", name, applied, err, wantApplied)
+		}
+		if got := read(); got != wantStored {
+			t.Fatalf("%s: stored %q, want %q", name, got, wantStored)
+		}
+	}
+
+	do("first write with no row", nil, []string{"Likes cats"}, true, "Likes cats")
+	do("a repeat that expected no row", nil, []string{"Other"}, false, "Likes cats")
+	do("matching list is replaced", []string{"Likes cats"}, []string{"Likes cats", "Plays chess"}, true, "Likes cats|Plays chess")
+	do("stale expectation writes nothing", []string{"Likes cats"}, []string{"Stale"}, false, "Likes cats|Plays chess")
+
+	// The /forgetme race: the writer read the list, the member deleted it, the writer then writes.
+	read1, _ := Get(ctx, chat, user)
+	if _, err := Delete(ctx, chat, user); err != nil {
+		t.Fatal(err)
+	}
+	do("deleted meanwhile", read1, []string{"Resurrected"}, false, "")
+	do("deleted meanwhile, empty list", read1, nil, false, "")
+
+	do("empty list with no row", nil, nil, true, "")
+	if _, err := Replace(ctx, chat, user, []string{"One"}); err != nil {
+		t.Fatal(err)
+	}
+	do("empty list deletes a matching row", []string{"One"}, nil, true, "")
+	t.Cleanup(func() { _ = DeleteChat(context.Background(), chat) })
+}

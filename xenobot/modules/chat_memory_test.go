@@ -132,6 +132,49 @@ func TestChatMemoryWriterAndPrompt(t *testing.T) {
 	}
 }
 
+// TestChatMemoryForgetDuringWriter: a /forgetme (or any other change to the member's notes) that lands
+// while the writer is waiting for the provider is not undone by the writer's own write.
+func TestChatMemoryForgetDuringWriter(t *testing.T) {
+	env := newChatMemoryEnv(t)
+	alice := env.member("Alice")
+	chatMemorySeed(t, env.chatID, alice.Id, "Has two cats")
+
+	env.provider.script(
+		chatAnswerText("Noted. Acknowledged."),
+		func(ctx context.Context, _ chatRequest) (chatAnswer, error) {
+			if _, err := membermem.Delete(ctx, env.chatID, alice.Id); err != nil {
+				t.Errorf("simulated /forgetme: %v", err)
+			}
+			return chatAnswer{Text: `{"notes":["Has two cats","Enjoys hiking"]}`}, nil
+		},
+	)
+	shed := chatMemoryShedCount.Load()
+	env.deliver(env.mention(alice, chatMemoryTalk))
+	if got := chatMemoryNotes(t, env.chatID, alice.Id); len(got) != 0 {
+		t.Fatalf("the writer brought back notes the member had forgotten: %q", got)
+	}
+	if chatMemoryShedCount.Load() == shed {
+		t.Error("the discarded write was not counted as shed")
+	}
+
+	// The same guard covers a change made by someone else while the provider thought.
+	env.mr.FastForward(chatMemoryCooldown + time.Minute)
+	chatMemorySeed(t, env.chatID, alice.Id, "Has two cats")
+	env.provider.script(
+		chatAnswerText("Second answer."),
+		func(ctx context.Context, _ chatRequest) (chatAnswer, error) {
+			if _, err := membermem.Replace(ctx, env.chatID, alice.Id, []string{"Moved to Lviv"}); err != nil {
+				t.Errorf("concurrent write: %v", err)
+			}
+			return chatAnswer{Text: `{"notes":["Has two cats","Enjoys hiking"]}`}, nil
+		},
+	)
+	env.deliver(env.mention(alice, "I have two cats and I enjoy hiking every weekend"))
+	if got := chatMemoryNotes(t, env.chatID, alice.Id); strings.Join(got, "|") != "Moved to Lviv" {
+		t.Errorf("the writer overwrote a list that changed under it: %q", got)
+	}
+}
+
 // TestChatMemoryNotOffered: no writer call and no notes in the prompt when the owner's switch is off,
 // the message is too short to hold a fact, the group is a Staff Group, the provider's breaker is paused,
 // the budgets are spent or the member's writer cooldown is running.

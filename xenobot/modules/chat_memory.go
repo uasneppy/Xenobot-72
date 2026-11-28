@@ -276,9 +276,18 @@ func chatMemoryProcessTask(task chatMemoryTask) {
 		chatMemoryShedCount.Add(1)
 		return
 	}
-	if _, err := membermem.Replace(ctx, task.chatID, task.userID, notes); err != nil {
+	// The write is compare-and-swap against the list this run read: a /forgetme (or any other change) that
+	// landed while the provider was thinking leaves the notes as they now are, so a forgotten note is never
+	// brought back by a run that read it before the delete.
+	applied, err := membermem.ReplaceIf(ctx, task.chatID, task.userID, existing, notes)
+	if err != nil {
 		chatMemoryFailedCount.Add(1)
 		log.WithFields(fields).Warn("[Chat] the member notes could not be written")
+		return
+	}
+	if !applied {
+		chatMemoryShedCount.Add(1)
+		log.WithFields(fields).Debug("[Chat] the member notes changed during the update; nothing was written")
 		return
 	}
 	chatMemoryWrittenCount.Add(1)
