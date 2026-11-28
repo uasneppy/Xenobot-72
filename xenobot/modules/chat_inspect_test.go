@@ -786,3 +786,107 @@ func TestInspectChatCooldown(t *testing.T) {
 		t.Fatalf("provider calls after the cooldown = %d, want 2", got)
 	}
 }
+
+// TestInspectMovingPictures holds the rule that /inspect only gives a verdict on a picture the model
+// was actually shown: a GIF, a video and a round video message go in as their preview frame, and the
+// prompt says so; a picture that cannot be attached is never judged from its label.
+func TestInspectMovingPictures(t *testing.T) {
+	env := newChatInspectEnv(t)
+	chatSwap(t, &chatToyUserCooldown, 0)
+	chatSwap(t, &chatToyChatCooldown, 0)
+	alice := env.member("Alice")
+	bob := env.member("Bob")
+	thumb := &gotgbot.PhotoSize{FileId: "thumb1", Width: 90, Height: 90}
+	env.mu.Lock()
+	env.files["files/thumb1"] = raidAITestJPEG("inspect-frame")
+	env.mu.Unlock()
+
+	for _, tc := range []struct {
+		name     string
+		set      func(*gotgbot.Message)
+		wantNoun string
+	}{
+		{"GIF", func(m *gotgbot.Message) { m.Animation = &gotgbot.Animation{FileId: "gif1", Thumbnail: thumb} }, "a GIF"},
+		{"video", func(m *gotgbot.Message) { m.Video = &gotgbot.Video{FileId: "vid1", Thumbnail: thumb} }, "a video"},
+		{"round video message", func(m *gotgbot.Message) { m.VideoNote = &gotgbot.VideoNote{FileId: "note1", Thumbnail: thumb} }, "a round video message"},
+		{"video file", func(m *gotgbot.Message) {
+			m.Document = &gotgbot.Document{FileId: "mp4doc", FileName: "clip.mp4", MimeType: "video/mp4", Thumbnail: thumb}
+		}, "a video"},
+	} {
+		t.Run(tc.name+" is shown as one preview frame", func(t *testing.T) {
+			before := len(env.provider.calls())
+			target := env.message(bob, 0, "")
+			tc.set(target)
+			env.provider.script(chatAnswerText(`{"verdict":"Frame filed.","emoji":"👀"}`))
+			env.deliverMessage(env.inspectCmd(alice, 0, target))
+
+			calls := env.provider.calls()
+			if len(calls) != before+1 {
+				t.Fatalf("provider calls = %d, want %d", len(calls), before+1)
+			}
+			got := calls[before]
+			if len(got.Attachments) != 1 || got.Attachments[0].MIMEType != "image/jpeg" {
+				t.Fatalf("attachments = %+v, want the one JPEG preview frame", got.Attachments)
+			}
+			if !strings.Contains(got.User, "only one still preview frame of "+tc.wantNoun) {
+				t.Errorf("prompt does not say the image is a preview frame of %s: %s", tc.wantNoun, got.User)
+			}
+		})
+	}
+
+	t.Run("a video with no preview frame and no words is not judged", func(t *testing.T) {
+		before := len(env.provider.calls())
+		target := env.message(bob, 0, "")
+		target.Video = &gotgbot.Video{FileId: "vid2"}
+		env.deliverMessage(env.inspectCmd(alice, 0, target))
+		if len(env.provider.calls()) != before {
+			t.Fatal("a picture nobody could attach reached the provider")
+		}
+		msgs := env.callsFor("sendMessage")
+		if got := unquoteWireParam(msgs[len(msgs)-1].Params["text"]); got != chatCanned(t, "inspect_usage") {
+			t.Fatalf("reply = %q, want inspect_usage", got)
+		}
+	})
+
+	t.Run("a video with no preview frame but a caption is judged on the words and the prompt says so", func(t *testing.T) {
+		before := len(env.provider.calls())
+		target := env.message(bob, 0, "")
+		target.Caption = "behold my wiring"
+		target.Video = &gotgbot.Video{FileId: "vid3"}
+		env.provider.script(chatAnswerText(`{"verdict":"Words filed.","emoji":"👀"}`))
+		env.deliverMessage(env.inspectCmd(alice, 0, target))
+
+		calls := env.provider.calls()
+		if len(calls) != before+1 {
+			t.Fatalf("provider calls = %d, want %d", len(calls), before+1)
+		}
+		if len(calls[before].Attachments) != 0 {
+			t.Fatalf("attachments = %+v, want none", calls[before].Attachments)
+		}
+		if !strings.Contains(calls[before].User, "behold my wiring") || !strings.Contains(calls[before].User, "The picture itself is not available to you") {
+			t.Errorf("prompt lacks the caption or the unavailable-picture note: %s", calls[before].User)
+		}
+	})
+
+	t.Run("a preview frame that cannot be downloaded is a malfunction, never an invented verdict", func(t *testing.T) {
+		before := len(env.provider.calls())
+		sendsBefore := len(env.callsFor("sendMessage"))
+		reactsBefore := len(env.callsFor("setMessageReaction"))
+		target := env.message(bob, 0, "")
+		target.Animation = &gotgbot.Animation{FileId: "gif2", Thumbnail: &gotgbot.PhotoSize{FileId: "missing-frame", Width: 90, Height: 90}}
+		env.deliverMessage(env.inspectCmd(alice, 0, target))
+		if len(env.provider.calls()) != before {
+			t.Fatal("the provider was asked about a picture that was never attached")
+		}
+		msgs := env.callsFor("sendMessage")
+		if len(msgs) != sendsBefore+1 {
+			t.Fatalf("sendMessage calls = %d, want %d", len(msgs), sendsBefore+1)
+		}
+		if got := unquoteWireParam(msgs[len(msgs)-1].Params["text"]); got != chatCanned(t, "inspect_malfunction") {
+			t.Fatalf("reply = %q, want inspect_malfunction", got)
+		}
+		if got := len(env.callsFor("setMessageReaction")); got != reactsBefore {
+			t.Fatalf("setMessageReaction calls = %d, want %d: a reaction was set for an unseen picture", got, reactsBefore)
+		}
+	})
+}

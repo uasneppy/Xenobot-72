@@ -44,8 +44,12 @@ type chatRequest struct {
 	User    string
 	// MaxTokens is the output cap; 0 means chatMaxOutputTokens.
 	MaxTokens int
-	// Attachments holds validated inline images and PDFs for the user turn.
+	// Attachments holds validated inline images, PDFs and (Google only) audio clips for the user turn.
 	Attachments []chatAttachment
+	// UserNoMedia, when set, is the User text to send if the provider rejects the attachments and the
+	// request is sent again without them: the same turn, with notes that say the pictures and the audio
+	// are not available instead of describing attachments that are no longer there. Empty keeps User.
+	UserNoMedia string
 }
 
 // maxTokens is the request's output cap.
@@ -109,6 +113,11 @@ type chatAnthropicProvider struct{ client *claude.Client }
 func (p chatAnthropicProvider) converse(ctx context.Context, req chatRequest) (chatAnswer, error) {
 	var attachments []claude.ConverseAttachment
 	for _, a := range req.Attachments {
+		if a.isAudio() {
+			// The Messages API has no audio input and one audio block fails the whole call, so a clip
+			// never reaches this adapter (it is not downloaded for this provider either).
+			continue
+		}
 		attachments = append(attachments, claude.ConverseAttachment{MIMEType: a.MIMEType, Data: a.Data})
 	}
 	reply, err := p.client.Converse(ctx, claude.ConverseRequest{
@@ -263,12 +272,19 @@ func chatLanguageName(ctx context.Context, chatID int64) (code, name string) {
 func chatBuildRequest(ctx context.Context, job chatJob, botUsername string, ambient, history []chatprompt.Turn, media chatDownloadedMedia) chatRequest {
 	_, language := chatLanguageName(ctx, job.chatID)
 	date := time.Now().In(chatClock(ctx, job.chatID)).Format("2006-01-02")
-	return chatRequest{
+	user := func(notes []string) string {
+		return chatprompt.UserWithMemory(job.memoryNotes, chatprompt.UserWithMedia(ambient, history, job.quoted, job.turn, media.Files, notes))
+	}
+	req := chatRequest{
 		Static: chatprompt.Static(),
 		Dynamic: chatprompt.Dynamic(chatprompt.Chat{
 			Title: job.chatTitle, Language: language, Date: date, BotUsername: botUsername,
 		}),
-		User:        chatprompt.UserWithMemory(job.memoryNotes, chatprompt.UserWithAmbient(ambient, history, job.quoted, job.turn, media.Files)),
+		User:        user(media.mediaNotes(job.audioSeen)),
 		Attachments: media.Attachments,
 	}
+	if len(media.Attachments) > 0 {
+		req.UserNoMedia = user(media.noMediaNotes(job.audioSeen))
+	}
+	return req
 }

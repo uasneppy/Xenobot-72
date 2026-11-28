@@ -68,6 +68,9 @@ type chatJob struct {
 	quoted          *chatprompt.Turn
 	media           []chatMediaRef
 	hasText         bool
+	// audioSeen is how many voice messages or audio files the turn carries (the message and the one
+	// it replies to), whether or not they can be sent: the request says so when the provider got fewer.
+	audioSeen int
 	// allowMissingReply sends the reply even when the message it answers is gone. The zero value
 	// keeps a conversation reply silent for a deleted message; a brief sets it because the
 	// command it answers is deleted right after the handler returns.

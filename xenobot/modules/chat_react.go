@@ -111,6 +111,11 @@ type chatReactJob struct {
 	quoted     *chatprompt.Turn
 	quoteText  string
 	media      *chatMediaRef
+	// hasText is true when the message has its own text or caption, so the turn is more than a label.
+	hasText bool
+	// audioSeen is 1 when the message is a voice message or an audio file, whether or not the
+	// provider can hear it, so the request says so when the clip is not attached.
+	audioSeen int
 	// userCooldownSecs is the per-user cooldown the gate started, so a job that never reacts can
 	// give it back (chatReactReleaseCooldowns).
 	userCooldownSecs int
@@ -266,8 +271,10 @@ func chatPresenceEnqueue(job chatReactJob) bool {
 	}
 }
 
-// chatExtractReactionMediaRef extracts only downloadable photos or stickers for reaction vision
-// (never PDFs, audio, voice, videos, or generic documents), with zero I/O.
+// chatExtractReactionMediaRef extracts the picture or clip for reaction vision with zero I/O: a
+// photo, a sticker, the preview frame of a GIF, video, round video message or a GIF or video file,
+// or a voice message or audio file (never PDFs or other documents). Whether the group's provider
+// can hear a clip is decided later, when the provider is known.
 func chatExtractReactionMediaRef(msg *gotgbot.Message) (chatMediaRef, bool) {
 	if msg == nil {
 		return chatMediaRef{}, false
@@ -279,6 +286,11 @@ func chatExtractReactionMediaRef(msg *gotgbot.Message) (chatMediaRef, bool) {
 		}
 	case msg.Sticker != nil:
 		return chatExtractStickerRef(msg.Sticker)
+	default:
+		if ref, ok := chatExtractFrameRef(msg); ok {
+			return ref, true
+		}
+		return chatExtractAudioRef(msg)
 	}
 	return chatMediaRef{}, false
 }
@@ -338,6 +350,10 @@ func chatReactBuildJob(
 		provider:   conv.Provider,
 		logEnabled: conv.LogEnabled,
 		turn:       chatprompt.Turn{Text: turnText},
+		hasText:    text != "",
+	}
+	if chatMessageHasAudio(msg) {
+		job.audioSeen = 1
 	}
 	if msg.From != nil {
 		job.turn.Name = msg.From.FirstName
@@ -400,6 +416,14 @@ func chatReactWatch(b *gotgbot.Bot, ctx *ext.Context) {
 	conv, err := chatSettingsLookup(lookupCtx, chat.Id)
 	if err != nil || !conv.Enabled || !chatProviderConfigured(conv.Provider) {
 		return
+	}
+	if hasMedia && !chatRefSendable(mediaRef, conv.Provider) {
+		// A clip this provider cannot hear: a captionless voice message is not worth a job, and one
+		// with words is judged on the words alone (the request says the clip is not available).
+		hasMedia = false
+		if text == "" {
+			return
+		}
 	}
 	// The group's frequency for this kind of message is decided before any Redis I/O: Off never
 	// reacts to it, Rare and Often scale the throttle.
@@ -558,19 +582,34 @@ func chatReactProcessJob(job chatReactJob) {
 		chatReactShedCount.Add(1)
 		return
 	}
+	if job.media != nil && !job.hasText && len(media.Attachments) == 0 {
+		// A picture with no words, and the picture could not be fetched: the model would pick an
+		// emoji from the label alone, so shed the job instead (the cooldowns are given back).
+		chatReactShedCount.Add(1)
+		return
+	}
 
 	_, language := chatLanguageName(ctx, job.chatID)
 	req := chatRequest{
 		Static:      chatprompt.ReactionStatic(),
 		Dynamic:     chatprompt.ReactionDynamic(job.chatTitle, language, palette, job.topics),
-		User:        chatprompt.ReactionUser(recentTurns, job.quoted, job.quoteText, job.turn),
+		User:        chatprompt.ReactionUserWithMedia(recentTurns, job.quoted, job.quoteText, job.turn, media.mediaNotes(job.audioSeen)),
 		MaxTokens:   chatprompt.ReactionMaxTokens,
 		Attachments: media.Attachments,
+	}
+	if len(media.Attachments) > 0 {
+		req.UserNoMedia = chatprompt.ReactionUserWithMedia(recentTurns, job.quoted, job.quoteText, job.turn, media.noMediaNotes(job.audioSeen))
 	}
 
 	answer, err := chatConverse(ctx, root, chatCall{Lane: "reaction", ChatID: job.chatID}, job.provider, req)
 	if err != nil {
 		log.WithFields(log.Fields{"chat_id": job.chatID, "user_id": job.userID}).Debugf("[Presence] AI reaction provider error: %s", chatErrorClass(err))
+		chatReactShedCount.Add(1)
+		return
+	}
+	if answer.TextOnly && job.media != nil && !job.hasText {
+		// The provider rejected the picture or clip and only a retry without it answered: with no words
+		// to go on, the emoji would be picked from the label alone, so shed the job (cooldowns given back).
 		chatReactShedCount.Add(1)
 		return
 	}

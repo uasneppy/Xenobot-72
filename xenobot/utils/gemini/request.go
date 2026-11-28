@@ -5,20 +5,42 @@ import "encoding/base64"
 // MaxAttachmentBytes is the largest image or PDF sent inline.
 const MaxAttachmentBytes = 5 << 20
 
-// Attachment is one image or PDF sent inline in the user message.
+// MaxAudioBytes is the largest audio clip sent inline. The whole request may not pass 20 MB (the
+// base64 form counts), and a clip's cost is its length, so the caller also caps its duration.
+const MaxAudioBytes = 5 << 20
+
+// Attachment is one image, PDF or audio clip sent inline in the user message.
 type Attachment struct {
-	// MIMEType is image/jpeg, image/png, image/webp or application/pdf.
+	// MIMEType is image/jpeg, image/png, image/webp, application/pdf or one of the audio types
+	// AudioMIMETypes lists.
 	MIMEType string
 	Data     []byte
 }
 
-func attachmentSupported(a Attachment) bool {
-	switch a.MIMEType {
-	case "image/jpeg", "image/png", "image/webp", "application/pdf":
-	default:
-		return false
+// AudioMIMETypes are the audio types the client sends, spelled as Gemini's audio guide lists
+// them. A Telegram voice message is OGG with Opus (audio/ogg).
+var AudioMIMETypes = []string{
+	"audio/ogg", "audio/mp3", "audio/wav", "audio/aac", "audio/flac", "audio/aiff", "audio/m4a",
+}
+
+// IsAudio reports whether the attachment is one of the audio types.
+func (a Attachment) IsAudio() bool {
+	for _, t := range AudioMIMETypes {
+		if a.MIMEType == t {
+			return true
+		}
 	}
-	return len(a.Data) > 0 && len(a.Data) <= MaxAttachmentBytes
+	return false
+}
+
+func attachmentSupported(a Attachment) bool {
+	switch {
+	case a.IsAudio():
+		return len(a.Data) > 0 && len(a.Data) <= MaxAudioBytes
+	case a.MIMEType == "image/jpeg", a.MIMEType == "image/png", a.MIMEType == "image/webp", a.MIMEType == "application/pdf":
+		return len(a.Data) > 0 && len(a.Data) <= MaxAttachmentBytes
+	}
+	return false
 }
 
 // safetyThreshold is the threshold of the four classic categories. The source
@@ -37,7 +59,7 @@ var safetyCategories = []string{
 // Request is one conversation turn. Static is the persona and archive and must
 // be the same bytes for every chat, so the implicit cache can hit; Dynamic is
 // the short per-chat block after it; User is the one user message; Attachments
-// holds optional inline images or PDFs for the user turn.
+// holds optional inline images, PDFs or audio clips for the user turn.
 type Request struct {
 	Static      string
 	Dynamic     string

@@ -851,3 +851,75 @@ func TestShutdownEndsChatReact(t *testing.T) {
 		t.Fatalf("provider calls = %d, want 1", got)
 	}
 }
+
+// TestChatReactMovingPictures proves a GIF, a video and a round video message reach the reaction
+// lane as their preview frame, with the prompt saying so, and that a picture that cannot be fetched
+// is shed instead of being reacted to from its label.
+func TestChatReactMovingPictures(t *testing.T) {
+	env := newChatReactEnv(t)
+	alice := env.member("Alice")
+	thumb := &gotgbot.PhotoSize{FileId: "thumb1", Width: 90, Height: 90}
+	env.mu.Lock()
+	env.files["files/thumb1"] = raidAITestJPEG("react-frame")
+	env.mu.Unlock()
+
+	for _, tc := range []struct {
+		name     string
+		set      func(*gotgbot.Message)
+		wantNoun string
+	}{
+		{"GIF", func(m *gotgbot.Message) { m.Animation = &gotgbot.Animation{FileId: "gif1", Thumbnail: thumb} }, "a GIF"},
+		{"video", func(m *gotgbot.Message) { m.Video = &gotgbot.Video{FileId: "vid1", Thumbnail: thumb} }, "a video"},
+		{"round video message", func(m *gotgbot.Message) { m.VideoNote = &gotgbot.VideoNote{FileId: "note1", Thumbnail: thumb} }, "a round video message"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := len(env.provider.calls())
+			env.provider.script(chatAnswerText(`{"emoji":"🔥"}`))
+			msg := env.message(alice, "")
+			tc.set(msg)
+			env.deliver(msg)
+
+			calls := env.provider.calls()
+			if len(calls) != before+1 {
+				t.Fatalf("provider calls = %d, want %d", len(calls), before+1)
+			}
+			got := calls[before]
+			if len(got.Attachments) != 1 || got.Attachments[0].MIMEType != "image/jpeg" {
+				t.Fatalf("attachments = %+v, want the one JPEG preview frame", got.Attachments)
+			}
+			if !strings.Contains(got.User, "only one still preview frame of "+tc.wantNoun) {
+				t.Errorf("prompt does not say the image is a preview frame of %s:\n%s", tc.wantNoun, got.User)
+			}
+		})
+	}
+
+	t.Run("an unfetchable frame with no words is shed, not reacted to from its label", func(t *testing.T) {
+		before := len(env.provider.calls())
+		shedBefore := chatReactShedCount.Load()
+		msg := env.message(alice, "")
+		msg.Animation = &gotgbot.Animation{FileId: "gif2", Thumbnail: &gotgbot.PhotoSize{FileId: "missing-frame", Width: 90, Height: 90}}
+		env.deliver(msg)
+		if len(env.provider.calls()) != before {
+			t.Fatal("the provider was asked to react to a picture that was never attached")
+		}
+		if chatReactShedCount.Load() != shedBefore+1 {
+			t.Fatalf("shed count = %d, want %d", chatReactShedCount.Load(), shedBefore+1)
+		}
+	})
+
+	t.Run("an unfetchable frame with a caption still reacts to the words", func(t *testing.T) {
+		before := len(env.provider.calls())
+		env.provider.script(chatAnswerText(`{"emoji":"👀"}`))
+		msg := env.message(alice, "")
+		msg.Caption = "my cat doing a flip"
+		msg.Video = &gotgbot.Video{FileId: "vid2", Thumbnail: &gotgbot.PhotoSize{FileId: "missing-frame", Width: 90, Height: 90}}
+		env.deliver(msg)
+		calls := env.provider.calls()
+		if len(calls) != before+1 {
+			t.Fatalf("provider calls = %d, want %d", len(calls), before+1)
+		}
+		if len(calls[before].Attachments) != 0 {
+			t.Fatalf("attachments = %+v, want none", calls[before].Attachments)
+		}
+	})
+}
