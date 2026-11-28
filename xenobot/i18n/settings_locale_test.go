@@ -1024,6 +1024,7 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_pf_refuse_names_long":     {58, 66},
 	"settings_pf_refuse_names_invalid":  {144, 160},
 	"settings_pf_refuse_blank":          {68, 82},
+	"settings_pf_inactive_note":         {156, 172},
 	"settings_pf_wait_ended":            {80, 94},
 	"settings_pc_title":                 {24, 36},
 	"settings_pc_intro":                 {180, 240},

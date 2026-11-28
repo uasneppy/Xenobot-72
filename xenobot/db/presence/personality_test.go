@@ -23,7 +23,7 @@ func TestNormalizeTopics(t *testing.T) {
 		{"commas, semicolons and lines", "memes, cats;  dogs\nfood", []string{"memes", "cats", "dogs", "food"}, nil},
 		{"repeats by case collapse", "Cats, cats , CATS", []string{"Cats"}, nil},
 		{"words and spaces stay", "office  drama,  retro games", []string{"office drama", "retro games"}, nil},
-		{"control and format characters are dropped", "me​mes\x00, ca‮ts", []string{"memes", "cats"}, nil},
+		{"control and format characters are dropped", "me\u200bmes\x00, ca\u202ets", []string{"memes", "cats"}, nil},
 		{"unicode topics", "мемі, коти", []string{"мемі", "коти"}, nil},
 		{"eleven topics", "a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11", nil, ErrListTooMany},
 		{"a long topic", strings.Repeat("x", MaxTopicRunes+1), nil, ErrListTooLong},

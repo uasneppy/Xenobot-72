@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
@@ -137,6 +138,49 @@ func presenceIsStaffGroup(chatID int64) bool {
 	return presenceStaffLookup(chatID) != nil
 }
 
+// The update's own memo of the two per-message reads the group 13 watchers share, kept in ctx.Data:
+// chatWatch (name addressing) and chatReactWatch (reactions) both need the chat's presence settings and
+// the Staff Group answer, so each is asked once per update, whichever watcher asks first.
+const (
+	presenceStaffMemoKey    = "xenobot:presence:staffmemo"
+	presenceSettingsMemoKey = "xenobot:presence:settingsmemo"
+)
+
+type presenceSettingsMemo struct {
+	settings presence.Settings
+	err      error
+}
+
+// presenceIsStaffGroupMemo is presenceIsStaffGroup answered once per update.
+func presenceIsStaffGroupMemo(ctx *ext.Context, chatID int64) bool {
+	if ctx == nil || ctx.Data == nil {
+		return presenceIsStaffGroup(chatID)
+	}
+	if known, ok := ctx.Data[presenceStaffMemoKey].(bool); ok {
+		return known
+	}
+	staffGroup := presenceIsStaffGroup(chatID)
+	ctx.Data[presenceStaffMemoKey] = staffGroup
+	return staffGroup
+}
+
+// presenceSettingsOnce reads the chat's presence settings once per update (an error is memoised too, so a
+// failing read is not retried by the second watcher).
+func presenceSettingsOnce(ctx *ext.Context, chatID int64, timeout time.Duration) (presence.Settings, error) {
+	if ctx != nil && ctx.Data != nil {
+		if memo, ok := ctx.Data[presenceSettingsMemoKey].(presenceSettingsMemo); ok {
+			return memo.settings, memo.err
+		}
+	}
+	readCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	settings, err := presenceSettingsGet(readCtx, chatID)
+	if ctx != nil && ctx.Data != nil {
+		ctx.Data[presenceSettingsMemoKey] = presenceSettingsMemo{settings: settings, err: err}
+	}
+	return settings, err
+}
+
 // presenceIsLockedDown checks whether chatID has an active lockdown in PostgreSQL. It fails closed
 // (returns true) on any database error so Interactive Presence stays silent during outages.
 func presenceIsLockedDown(chatID int64) bool {
@@ -168,7 +212,7 @@ func presenceMessageAllowed(b *gotgbot.Bot, ctx *ext.Context) (int64, bool) {
 	if !ok || ctx.EffectiveSender.User.IsBot {
 		return 0, false
 	}
-	if presenceIsStaffGroup(chat.Id) {
+	if presenceIsStaffGroupMemo(ctx, chat.Id) {
 		return 0, false
 	}
 	return userID, true

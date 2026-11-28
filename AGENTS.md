@@ -1691,9 +1691,11 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   Rare needs the extra `catStickerCoin`, Often gets a second roll); the static keyword reactions, Emoji Consensus and the archive
   ignore these frequencies. The topics reach the reaction prompt (`chatprompt.ReactionDynamic(..., topics)`: cleaned, quoted, "react
   ONLY if clearly about ... else NONE") and a NONE answer to a topic-limited job gives its cooldowns back (`chatReactApplyAnswer`
-  returns false) so the next message is tried, still inside the hourly budgets; without topics a NONE stays a turn. The extra names
-  join the vocative path: `chatWatch` reads the cached `chat_presence` row once (only when a provider is configured, outside Staff
-  Groups and for a message that is not a forward), `chatprompt.ParseVocativePrefix(text, b.FirstName, pres.BotNameList()...)` matches
+  returns false) so the next message is tried: the gap counter and the probability roll still throttle it and the hourly budgets (6 per member, 20 per group) still cap it, so off-topic chatter in a busy group can spend a group's hour before an on-topic message arrives (accepted, no extra chat cooldown); without topics a NONE stays a turn. The extra names
+  join the vocative path: `chatWatch` reads the cached `chat_presence` row (only when a provider is configured, for a non-empty text that is
+  not a forward and outside Staff Groups; the settings read and the Staff Group answer are memoised per update in `ctx.Data` by
+  `presenceSettingsOnce` and `presenceIsStaffGroupMemo`, which `chatReactWatch` and `presenceMessageAllowed` use too, so an unaddressed
+  message costs one of each exactly as before extra names existed, `TestChatWatchSharesPresenceReads`), `chatprompt.ParseVocativePrefix(text, b.FirstName, pres.BotNameList()...)` matches
   the built-in names (now also the Ukrainian vocatives Ксеноботе, Кзеноботе, Ксеноботик) and the group's own longest first, and the
   whole path is still behind `vocative_enabled`. The private Personality sub-page `pf` (`settingsActPresencePersonality`, a page action
   of `pr`; it shares the Room & catch-up row, whose label lost its arrow to fit a two-column cell, so `pr` stays `8` rows,
@@ -1706,7 +1708,7 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   with several parts in `settingsTypedParts`, keyed by `settingsTypedPartKey`; both parts of `pr` register there, `WaitEndedKey`
   `settings_pf_wait_ended`). A refusal keeps the wait (`settings_pf_refuse_*`), an empty list is refused (`settings_pf_refuse_blank`:
   Clear is the way to empty one), a saved list sends the sub-page as a new message and closes the prompt, and Clear of an empty list
-  writes nothing. The sub-page's rows are `[1 1 1 2 2 2]`. `TestSettingsPresencePersonality*`, `TestSettingsPresenceReactFreq`,
+  writes nothing. The sub-page's rows are `[1 1 1 2 2 2]`; while neither AI reactions (mode not off with the owner's Conversations switch on) nor cat stickers can use the frequencies and topics it says so (`settings_pf_inactive_note`). `TestSettingsPresencePersonality*`, `TestSettingsPresenceReactFreq`,
   `TestChatReactScaleProfile`, `TestChatReactKindOf`, `TestChatReactFrequencyPerKind`, `TestChatReactTopics`, `TestChatBotNamesAddressing`,
   `TestCatStickerRollFor` and the extended `TestPhase33Codes` hold it; the Phase 36 migration is held by
   `TestChatPresencePersonalityMigrationStatements` (`xenobot/db/migrations`), the repository by `TestNormalizeTopics`,

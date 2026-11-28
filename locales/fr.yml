@@ -3904,3 +3904,4 @@ settings_pf_refuse_names_long: "Un nom est trop long : {runes} caractères au pl
 settings_pf_refuse_names_invalid: "Un nom doit être un seul mot de lettres ou de chiffres, d'au moins 2 caractères (trait d'union, tiret bas et apostrophe permis à l'intérieur)."
 settings_pf_refuse_blank: "Rien à enregistrer. Envoyez au moins une entrée ou appuyez sur Effacer."
 settings_pf_wait_ended: "L'attente est terminée et rien n'a changé. Ouvrez Personnalité et réessayez."
+settings_pf_inactive_note: "Rien ici n'a encore d'effet : activez les réactions IA (le propriétaire doit aussi activer Conversations) ou les stickers de chats sur la page précédente."

@@ -79,27 +79,28 @@ func chatWatch(b *gotgbot.Bot, ctx *ext.Context) {
 		chatEnqueue(chatJobOf(b, msg, userID, provider))
 		return
 	}
-	if msg.ForwardOrigin == nil && chatAnyProviderConfigured() && !presenceIsStaffGroup(chat.Id) {
-		// Name addressing: the built-in names are tried first with no I/O; the group's own names live
-		// in its cached presence settings, read once here (the reaction watcher below reads them too).
-		text := chatMessageText(msg)
-		lookupCtx, cancel := context.WithTimeout(context.Background(), chatWatchTimeout)
-		pres, err := presenceSettingsGet(lookupCtx, chat.Id)
-		cancel()
-		if err == nil && pres.VocativeEnabled {
-			if stripped, isVocative := chatprompt.ParseVocativePrefix(text, b.FirstName, pres.BotNameList()...); isVocative {
-				gate, provider := chatAccept(b, chat.Id, userID)
-				if gate == chatGateOpen {
-					job := chatJobOf(b, msg, userID, provider)
-					stripped = strings.TrimSpace(stripped)
-					job.hasText = stripped != ""
-					if !job.hasText {
-						stripped = chatMediaLabel(msg)
+	if msg.ForwardOrigin == nil && chatAnyProviderConfigured() {
+		// Name addressing. The group's own names live in its cached presence settings, so the read is
+		// needed before the prefix can be judged; it and the Staff Group answer are memoised for the
+		// update, so the reaction watcher below asks neither again (the per-message cost of an
+		// unaddressed text is what it was before extra names existed).
+		if text := chatMessageText(msg); text != "" && !presenceIsStaffGroupMemo(ctx, chat.Id) {
+			pres, err := presenceSettingsOnce(ctx, chat.Id, chatWatchTimeout)
+			if err == nil && pres.VocativeEnabled {
+				if stripped, isVocative := chatprompt.ParseVocativePrefix(text, b.FirstName, pres.BotNameList()...); isVocative {
+					gate, provider := chatAccept(b, chat.Id, userID)
+					if gate == chatGateOpen {
+						job := chatJobOf(b, msg, userID, provider)
+						stripped = strings.TrimSpace(stripped)
+						job.hasText = stripped != ""
+						if !job.hasText {
+							stripped = chatMediaLabel(msg)
+						}
+						job.turn.Text = stripped
+						chatEnqueue(job)
 					}
-					job.turn.Text = stripped
-					chatEnqueue(job)
+					return
 				}
-				return
 			}
 		}
 	}

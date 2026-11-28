@@ -152,7 +152,7 @@ func TestParseVocativePrefixGroupNames(t *testing.T) {
 		{"no custom name, no match", "Хуліо, привіт", nil, "", false},
 		{"a one-character custom name is ignored", "Х, привіт", []string{"Х"}, "", false},
 		{"blank custom names are ignored", "привіт всім", []string{"", "  "}, "", false},
-		{"a custom name is sanitised", "Ксюша: ok", []string{"  Ксюша‮\n"}, "ok", true},
+		{"a custom name is sanitised", "Ксюша: ok", []string{"  Ксюша\u202e\n"}, "ok", true},
 	}
 	for _, tc := range cases {
 		stripped, matched := ParseVocativePrefix(tc.text, "", tc.extra...)

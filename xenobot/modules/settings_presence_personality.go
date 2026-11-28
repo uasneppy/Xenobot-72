@@ -150,7 +150,7 @@ func settingsPresenceListLine(tr *i18n.Translator, key, paramName string, list [
 }
 
 // renderSettingsPresencePersonality draws the sub-page purely from the stored settings.
-func renderSettingsPresencePersonality(v settingsView, stored presence.Settings, notice string) settingsScreen {
+func renderSettingsPresencePersonality(v settingsView, stored presence.Settings, convUnlocked bool, notice string) settingsScreen {
 	textFreq := stored.ReactFreqOf(presence.KindText)
 	stickerFreq := stored.ReactFreqOf(presence.KindSticker)
 	photoFreq := stored.ReactFreqOf(presence.KindPhoto)
@@ -162,9 +162,14 @@ func renderSettingsPresencePersonality(v settingsView, stored presence.Settings,
 		settingsText(v.Tr, "settings_pf_photo_line", i18n.TranslationParams{"freq": settingsPresenceFreqWord(v.Tr, photoFreq)}),
 		settingsPresenceListLine(v.Tr, "settings_pf_topics_line", "topics", stored.TopicList()),
 		settingsPresenceListLine(v.Tr, "settings_pf_names_line", "names", stored.BotNameList()),
-		"",
-		settingsText(v.Tr, "settings_pf_hint"),
 	}
+	// The frequencies and the topics act through AI reactions (which need the owner's Conversations switch)
+	// and the cat stickers: with neither on, say so, so "Often" is never set and silently ignored.
+	aiActive := stored.AIReactMode != presence.AIReactModeOff && stored.AIReactMode != "" && convUnlocked
+	if !aiActive && !stored.CatStickerEnabled {
+		body = append(body, "", settingsText(v.Tr, "settings_pf_inactive_note"))
+	}
+	body = append(body, "", settingsText(v.Tr, "settings_pf_hint"))
 
 	k := newSettingsKeyboard(v)
 	cycle := func(control, labelKey string, current int) {
@@ -240,7 +245,7 @@ func settingsPresencePersonalityRedraw(p *settingsPress, notice string) *setting
 		p.cannotOpen()
 		return nil
 	}
-	screen := renderSettingsPresencePersonality(p.view(), stored, notice)
+	screen := renderSettingsPresencePersonality(p.view(), stored, settingsPresenceConvUnlockedForView(p.group.Id), notice)
 	return &screen
 }
 
@@ -251,7 +256,7 @@ func settingsPresencePersonalityFromResult(p *settingsPress, result presenceAppl
 	if result.Settings == nil {
 		return settingsPresencePersonalityRedraw(p, okNotice)
 	}
-	screen := renderSettingsPresencePersonality(p.view(), *result.Settings, okNotice)
+	screen := renderSettingsPresencePersonality(p.view(), *result.Settings, settingsPresenceConvUnlockedForView(p.group.Id), okNotice)
 	return &screen
 }
 
@@ -282,7 +287,7 @@ func settingsPresenceSetReactFreq(kind string) func(*settingsPress, string) *set
 			return nil
 		}
 		if stored.ReactFreqOf(kind) == freq {
-			screen := renderSettingsPresencePersonality(p.view(), stored, "")
+			screen := renderSettingsPresencePersonality(p.view(), stored, settingsPresenceConvUnlockedForView(p.group.Id), "")
 			return &screen
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
@@ -367,7 +372,7 @@ func settingsPresenceRunPersonalityClear(p *settingsPress) *settingsScreen {
 		empty = len(stored.BotNameList()) == 0
 	}
 	if empty {
-		screen := renderSettingsPresencePersonality(p.view(), stored, "")
+		screen := renderSettingsPresencePersonality(p.view(), stored, settingsPresenceConvUnlockedForView(p.group.Id), "")
 		return &screen
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
@@ -465,7 +470,7 @@ func settingsPresenceTypedList(r *settingsInputReply, part string) {
 	} else if read, readErr := settingsPresenceReadSettings(r.wait.GroupID); readErr == nil {
 		stored = read
 	}
-	screen := renderSettingsPresencePersonality(r.view(), stored, settingsNoticeOK(settingsText(r.tr, savedKey)))
+	screen := renderSettingsPresencePersonality(r.view(), stored, settingsPresenceConvUnlockedForView(r.wait.GroupID), settingsNoticeOK(settingsText(r.tr, savedKey)))
 	r.send(screen.Text, &screen.Keyboard, false)
 	r.closePrompt()
 }

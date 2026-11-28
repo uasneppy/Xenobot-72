@@ -60,8 +60,36 @@ func TestSettingsPresencePersonalityOpens(t *testing.T) {
 	if !slices.Equal(widths, []int{1, 1, 1, 2, 2, 2}) {
 		t.Errorf("row widths = %v, want [1 1 1 2 2 2]", widths)
 	}
+	// Nothing acts yet (AI reactions off, no cat stickers): the page says so.
+	if !containsMarker(text, "settings_pf_inactive_note") {
+		t.Errorf("the sub-page of a chat with no reaction feature on lacks the inactive note:\n%s", text)
+	}
 	if got := settingsPresenceRows(t, env.chat.Id); got != 0 {
 		t.Errorf("opening the sub-page created %d presence rows", got)
+	}
+}
+
+// TestSettingsPresencePersonalityInactiveNote: the note shows exactly while neither AI reactions (with the
+// owner's Conversations switch) nor cat stickers can use the settings.
+func TestSettingsPresencePersonalityInactiveNote(t *testing.T) {
+	withRealLocales(t)
+	v := settingsView{Tr: i18n.MustNewTranslator("en"), Private: true, OwnerKey: "c", OwnerValue: "-1009999999999999", GroupID: -1009999999999999, GroupTitle: "G"}
+	note := settingsText(v.Tr, "settings_pf_inactive_note")
+	for _, tc := range []struct {
+		name         string
+		stored       presence.Settings
+		convUnlocked bool
+		wantNote     bool
+	}{
+		{"nothing on", presence.Settings{}, true, true},
+		{"AI on but the owner switch is off", presence.Settings{AIReactMode: presence.AIReactModeLow}, false, true},
+		{"AI on and unlocked", presence.Settings{AIReactMode: presence.AIReactModeMedium}, true, false},
+		{"cat stickers on", presence.Settings{CatStickerEnabled: true}, false, false},
+	} {
+		got := strings.Contains(renderSettingsPresencePersonality(v, tc.stored, tc.convUnlocked, "").Text, note)
+		if got != tc.wantNote {
+			t.Errorf("%s: note shown = %v, want %v", tc.name, got, tc.wantNote)
+		}
 	}
 }
 
@@ -134,7 +162,7 @@ func TestSettingsPresenceReactFreq(t *testing.T) {
 	}
 }
 
-func settingsPersonalityTyped(env *settingsListEnv, m *settingsBlacklistMenu, part, text string) []string {
+func settingsPersonalityTyped(env *settingsListEnv, m *settingsBlacklistMenu, text string) []string {
 	env.t.Helper()
 	sent := len(env.fake.sentTo(m.user.Id))
 	settingsListDoorSay(env, m.user, text)
@@ -165,7 +193,7 @@ func TestSettingsPresencePersonalityTyped(t *testing.T) {
 		{"fine, <b>bold</b>", "settings_pf_refuse_topics_invalid"},
 		{" , ;", "settings_pf_refuse_blank"},
 	} {
-		replies := settingsPersonalityTyped(env, m, settingsPresencePartTopics, tc.text)
+		replies := settingsPersonalityTyped(env, m, tc.text)
 		if len(replies) != 1 || !strings.Contains(replies[0], staffMarker(tc.want)) {
 			t.Errorf("%q answered %v, want %s", tc.text, replies, tc.want)
 		}
@@ -177,7 +205,7 @@ func TestSettingsPresencePersonalityTyped(t *testing.T) {
 		t.Fatalf("refusals wrote %d presence rows", got)
 	}
 
-	replies := settingsPersonalityTyped(env, m, settingsPresencePartTopics, "Memes, cats\nmemes;  deploy   days")
+	replies := settingsPersonalityTyped(env, m, "Memes, cats\nmemes;  deploy   days")
 	if len(replies) == 0 || !strings.Contains(strings.Join(replies, "\n"), staffMarker("settings_pf_saved_topics")) {
 		t.Fatalf("a good list answered %v", replies)
 	}
@@ -199,12 +227,12 @@ func TestSettingsPresencePersonalityTyped(t *testing.T) {
 		{strings.Repeat("n", presence.MaxBotNameRunes+1), "settings_pf_refuse_names_long"},
 		{"a1, b2, c3, d4, e5, f6, g7, h8, i9", "settings_pf_refuse_names_many"},
 	} {
-		replies := settingsPersonalityTyped(env, m2, settingsPresencePartNames, tc.text)
+		replies := settingsPersonalityTyped(env, m2, tc.text)
 		if len(replies) != 1 || !strings.Contains(replies[0], staffMarker(tc.want)) {
 			t.Errorf("name %q answered %v, want %s", tc.text, replies, tc.want)
 		}
 	}
-	replies = settingsPersonalityTyped(env, m2, settingsPresencePartNames, "Spike, buddy-2")
+	replies = settingsPersonalityTyped(env, m2, "Spike, buddy-2")
 	if !strings.Contains(strings.Join(replies, "\n"), staffMarker("settings_pf_saved_names")) {
 		t.Fatalf("good names answered %v", replies)
 	}
@@ -266,7 +294,7 @@ func TestSettingsPresencePersonalityStaffGroup(t *testing.T) {
 	mreqSwap(t, &settingsPresenceStaffLookup, func(int64) (*models.StaffGroup, error) {
 		return &models.StaffGroup{ChatID: env.chat.Id}, nil
 	})
-	replies := settingsPersonalityTyped(env, m, settingsPresencePartTopics, "memes")
+	replies := settingsPersonalityTyped(env, m, "memes")
 	if len(replies) != 1 || !strings.Contains(replies[0], staffMarker("common_callback_invalid_request")) {
 		t.Errorf("a Staff Group answered %v", replies)
 	}
@@ -298,13 +326,13 @@ func TestSettingsPresencePersonalityFits(t *testing.T) {
 			var screens = map[string]settingsScreen{
 				"prompt topics":         renderSettingsPresencePersonalityPrompt(v, settingsPresencePartTopics, time.Now(), true),
 				"prompt names":          renderSettingsPresencePersonalityPrompt(v, settingsPresencePartNames, time.Now(), true),
-				"empty":                 renderSettingsPresencePersonality(v, presence.Settings{}, ""),
-				"full with warn notice": renderSettingsPresencePersonality(v, presence.Settings{ReactTopics: strings.Join(topics, "\n"), BotNames: strings.Join(names, "\n")}, settingsNoticeWarn(settingsText(tr, "common_settings_save_failed"))),
+				"empty":                 renderSettingsPresencePersonality(v, presence.Settings{}, false, ""),
+				"full with warn notice": renderSettingsPresencePersonality(v, presence.Settings{ReactTopics: strings.Join(topics, "\n"), BotNames: strings.Join(names, "\n")}, true, settingsNoticeWarn(settingsText(tr, "common_settings_save_failed"))),
 			}
 			for freq := range 4 {
 				screens[fmt.Sprintf("freq %d", freq)] = renderSettingsPresencePersonality(v, presence.Settings{
 					ReactTextFreq: freq, ReactStickerFreq: (freq + 1) % 4, ReactPhotoFreq: (freq + 2) % 4,
-				}, "")
+				}, freq%2 == 0, "")
 			}
 			for name, screen := range screens {
 				if units := panelUTF16Len(screen.Text); units == 0 || units > 3800 {

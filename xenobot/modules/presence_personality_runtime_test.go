@@ -233,3 +233,58 @@ func TestCatStickerRollFor(t *testing.T) {
 		}
 	}
 }
+
+// TestChatWatchSharesPresenceReads: name addressing and the reaction watcher need the same two reads (the
+// presence settings and the Staff Group answer); each is made once per delivered message, in every branch.
+func TestChatWatchSharesPresenceReads(t *testing.T) {
+	env := newChatReactEnv(t)
+	alice := env.member("Alice")
+	var settingsReads, staffReads atomic.Int64
+	origGet := presenceSettingsGet
+	chatSwap(t, &presenceSettingsGet, func(ctx context.Context, id int64) (presence.Settings, error) {
+		settingsReads.Add(1)
+		return origGet(ctx, id)
+	})
+	var staffRow *models.StaffGroup
+	chatSwap(t, &presenceStaffLookup, func(int64) *models.StaffGroup {
+		staffReads.Add(1)
+		return staffRow
+	})
+	chatSwap(t, &chatReactRoll, func(int) bool { return false })
+
+	measure := func(name string, msg *gotgbot.Message, wantSettings, wantStaff int64) {
+		t.Helper()
+		settingsReads.Store(0)
+		staffReads.Store(0)
+		env.deliver(msg)
+		if got := settingsReads.Load(); got != wantSettings {
+			t.Errorf("%s: presence settings reads = %d, want %d", name, got, wantSettings)
+		}
+		if got := staffReads.Load(); got != wantStaff {
+			t.Errorf("%s: Staff Group lookups = %d, want %d", name, got, wantStaff)
+		}
+	}
+
+	// An unaddressed text: one of each, shared by both watchers.
+	measure("plain text", env.message(alice, "just chatting"), 1, 1)
+	// A vocative group: the same, whether or not the text starts with a name.
+	env.mu.Lock()
+	env.presSettings.VocativeEnabled = true
+	env.presSettings.BotNames = "Spike"
+	env.mu.Unlock()
+	measure("vocative group, plain text", env.message(alice, "just chatting"), 1, 1)
+	env.provider.script(chatAnswerText("Notice. Acknowledged."))
+	// (An answered message costs one more Staff Group lookup, the reply job's own ambient-context check.)
+	measure("custom name", env.message(alice, "Spike, status?"), 1, 2)
+	// A sticker has no text: the reaction watcher alone asks, once.
+	sticker := env.message(alice, "")
+	sticker.Sticker = &gotgbot.Sticker{FileId: "s", FileUniqueId: "us", Emoji: "😀"}
+	measure("sticker", sticker, 1, 1)
+	// A forward is never name addressing: still one read for the reaction watcher.
+	fwd := env.message(alice, "Spike, hi")
+	fwd.ForwardOrigin = gotgbot.MessageOriginUser{Date: 1, SenderUser: *alice}
+	measure("forward", fwd, 1, 1)
+	// A Staff Group: the lookup answers once and nothing else is read.
+	staffRow = &models.StaffGroup{ChatID: env.chatID}
+	measure("staff group", env.message(alice, "Spike, hi"), 0, 1)
+}

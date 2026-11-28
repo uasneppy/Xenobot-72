@@ -564,7 +564,10 @@ func catStickerRollFor(freq int) bool {
 	case presence.ReactFreqRare:
 		return catStickerRoll() && catStickerCoin()
 	case presence.ReactFreqOften:
-		return catStickerRoll() || catStickerRoll()
+		if catStickerRoll() {
+			return true
+		}
+		return catStickerRoll()
 	}
 	return catStickerRoll()
 }

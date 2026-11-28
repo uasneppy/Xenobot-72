@@ -3952,3 +3952,4 @@ settings_pf_refuse_names_long: "Um nome é longo demais: no máximo {runes} cara
 settings_pf_refuse_names_invalid: "Um nome deve ser uma palavra de letras ou dígitos, com pelo menos 2 caracteres (hífen, sublinhado e apóstrofo são permitidos dentro)."
 settings_pf_refuse_blank: "Nada para salvar. Envie pelo menos uma entrada ou toque em Limpar."
 settings_pf_wait_ended: "A espera terminou e nada mudou. Abra Personalidade e tente de novo."
+settings_pf_inactive_note: "Nada aqui tem efeito ainda: ative as reações de IA (o dono também precisa ativar Conversas) ou os stickers de gatos na página anterior."

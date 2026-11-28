@@ -391,12 +391,12 @@ func chatReactWatch(b *gotgbot.Bot, ctx *ext.Context) {
 		return
 	}
 
-	lookupCtx, cancel := context.WithTimeout(context.Background(), chatWatchTimeout)
-	defer cancel()
-	pres, err := presenceSettingsGet(lookupCtx, chat.Id)
+	pres, err := presenceSettingsOnce(ctx, chat.Id, chatWatchTimeout)
 	if err != nil || !presence.ValidAIReactMode(pres.AIReactMode) || pres.AIReactMode == presence.AIReactModeOff {
 		return
 	}
+	lookupCtx, cancel := context.WithTimeout(context.Background(), chatWatchTimeout)
+	defer cancel()
 	conv, err := chatSettingsLookup(lookupCtx, chat.Id)
 	if err != nil || !conv.Enabled || !chatProviderConfigured(conv.Provider) {
 		return

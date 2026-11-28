@@ -3961,3 +3961,4 @@ settings_pf_refuse_names_long: "Ada nama yang terlalu panjang: maksimal {runes} 
 settings_pf_refuse_names_invalid: "Nama harus satu kata berisi huruf atau angka, minimal 2 karakter (tanda hubung, garis bawah, dan apostrof boleh di dalamnya)."
 settings_pf_refuse_blank: "Tidak ada yang disimpan. Kirim minimal satu entri atau tekan Hapus."
 settings_pf_wait_ended: "Penantian berakhir dan tidak ada yang berubah. Buka Kepribadian dan coba lagi."
+settings_pf_inactive_note: "Belum ada yang berlaku di sini: aktifkan reaksi AI (pemilik juga harus mengaktifkan Percakapan) atau stiker kucing di halaman sebelumnya."
