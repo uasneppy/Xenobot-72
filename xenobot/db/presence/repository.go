@@ -398,6 +398,25 @@ func TryClaimArchived(ctx context.Context, chatID, msgID int64) (bool, error) {
 	return res.RowsAffected == 1, nil
 }
 
+// ReleaseArchived removes the claim TryClaimArchived made for (chatID, msgID), so a highlight whose
+// delivery failed for a reason that may pass (a timeout, a 5xx, a rate limit) can be claimed and
+// delivered again by a later reaction. It reports whether a row was removed.
+func ReleaseArchived(ctx context.Context, chatID, msgID int64) (bool, error) {
+	if chatID == 0 || msgID <= 0 {
+		return false, ErrInvalidValue
+	}
+	if db.DB == nil {
+		return false, xenoerrors.Wrap(errNoDatabase, "release archived presence message")
+	}
+	res := db.DB.WithContext(ctx).
+		Where("chat_id = ? AND message_id = ?", chatID, msgID).
+		Delete(&models.ChatPresenceArchived{})
+	if res.Error != nil {
+		return false, xenoerrors.Wrapf(res.Error, "release archived message %d in chat %d", msgID, chatID)
+	}
+	return res.RowsAffected == 1, nil
+}
+
 // ReplacePortableTx writes all portable presence settings into tx for chatID while preserving
 // the target chat's own archive_chat_id and archive_thread_id. When s.ArchiveEnabled is true
 // and the target chat has no linked archive target, archive_enabled is forced false and

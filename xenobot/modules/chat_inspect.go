@@ -272,6 +272,12 @@ func chatInspectProcess(job chatInspectJob) {
 }
 
 func chatInspectReserve(ctx context.Context, client *redis.Client, job chatInspectJob) bool {
+	// The per-chat cooldown is shared with /referendum (AGENTS.md: both toys use chatToyChatCooldown),
+	// so several members cannot each run /inspect back to back and flood the chat with verdicts.
+	if chatToyChatCooldown > 0 && !chatClaimCooldown(ctx, client, presenceToyChatCooldownKey(job.chatID), chatToyChatCooldown) {
+		chatToyShedCount.Add(1)
+		return false
+	}
 	if chatToyUserCooldown > 0 && !chatClaimCooldown(ctx, client, presenceToyUserCooldownKey(job.chatID, job.userID), chatToyUserCooldown) {
 		chatToyShedCount.Add(1)
 		return false

@@ -71,7 +71,9 @@ func newChatInspectEnv(t *testing.T) *chatInspectEnv {
 	withChatProviders(t, true, true, true)
 	withChatFeatherless(t, "test-featherless-secret-key", "Qwen/Qwen3-32B")
 
-	chatSwap(t, &chatToyChatCooldown, chatToyChatCooldown)
+	// The shared per-chat cooldown is off by default so a test can run /inspect several times;
+	// TestInspectChatCooldown turns it back on.
+	chatSwap(t, &chatToyChatCooldown, 0)
 	chatSwap(t, &chatToyUserCooldown, chatToyUserCooldown)
 	chatSwap(t, &chatToyUserHourlyBudget, chatToyUserHourlyBudget)
 	chatSwap(t, &chatToyChatHourlyBudget, chatToyChatHourlyBudget)
@@ -755,5 +757,32 @@ func TestShutdownEndsInspect(t *testing.T) {
 	}
 	if len(env.callsFor("sendMessage")) != 0 || len(env.callsFor("setMessageReaction")) != 0 {
 		t.Fatal("expected zero messages or reactions during shutdown")
+	}
+}
+
+// TestInspectChatCooldown: /inspect shares the per-chat toy cooldown with /referendum (AGENTS.md), so
+// several members cannot run it back to back and flood the chat with verdicts.
+func TestInspectChatCooldown(t *testing.T) {
+	env := newChatInspectEnv(t)
+	chatSwap(t, &chatToyUserCooldown, 0)
+	chatSwap(t, &chatToyChatCooldown, 30*time.Second)
+	alice := env.member("Alice")
+	bob := env.member("Bob")
+	carol := env.member("Carol")
+	target := env.message(carol, 0, "the break room fridge")
+
+	env.provider.script(
+		chatAnswerText(`{"verdict":"First verdict.","emoji":"👀"}`),
+		chatAnswerText(`{"verdict":"Second verdict.","emoji":"🔥"}`),
+	)
+	env.deliverMessage(env.inspectCmd(alice, 0, target))
+	env.deliverMessage(env.inspectCmd(bob, 0, target))
+	if got := len(env.provider.calls()); got != 1 {
+		t.Fatalf("provider calls = %d, want 1: the second member is inside the chat cooldown", got)
+	}
+	env.mr.FastForward(31 * time.Second)
+	env.deliverMessage(env.inspectCmd(bob, 0, target))
+	if got := len(env.provider.calls()); got != 2 {
+		t.Fatalf("provider calls after the cooldown = %d, want 2", got)
 	}
 }

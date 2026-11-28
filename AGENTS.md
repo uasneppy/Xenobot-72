@@ -1616,7 +1616,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   honoring `positive`/`all`), tracks `xenobot:presence:{<chat>}:arch:u:<msgID>` (72 h) and fast latch `:arch:done:<msgID>` (7 d) outside
   `xenobot:cache:`, checks lazy `presenceIsLockedDown`, claims once-only in PostgreSQL via `presence.TryClaimArchived` (`ON CONFLICT DO NOTHING`),
   and delivers via `CopyMessage` (default, attaching a `t.me/c/` / `t.me/<user>/` jump button only for supergroups or public usernames)
-  or `ForwardMessage` while failing silently on `400`/`403`. On Settings page `pr` (now 7 rows), Cat Stickers toggle `cs` and Highlights
+  or `ForwardMessage`, on its own 10 s context from `chatContext()` (`presenceArchiveDeliverAndSettle`), not on what is left of the handler's
+  budget. The claim and the Redis latch are written before the send, so a delivery that fails for a reason that may pass (a timeout, a rate
+  limit, a `5xx`, a transport error) gives both back (`presence.ReleaseArchived`, `DEL` of the latch) and the next reaction retries, while a
+  definitive refusal (a Telegram 4xx other than 429: the message is gone, the bot may not post in the archive) keeps them and is only logged. On Settings page `pr` (now 7 rows), Cat Stickers toggle `cs` and Highlights
   Archive sub-page `ph` + unlink `pu` register as `PrivateOnly` `settingsPageAction` entries on `pr` (keeping `len(settingsPages) == 31`
   and `settingsMainOwnerRows == 17`), with archive controls `ae`/`ah`/`ap`/`ad` (`settingsRightChangeInfo`, refusing unlinked enable with
   `settings_ph_need_target`, fail-closed Staff Group guard; `TestPhase33Codes`). `BackupModulePresence = "presence"` (21st backup module)

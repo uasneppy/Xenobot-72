@@ -593,7 +593,10 @@ func tryCatStickerReaction(ctx context.Context, b *gotgbot.Bot, extCtx *ext.Cont
 	return false
 }
 
-func (m moduleStruct) checkReactions(b *gotgbot.Bot, ctx *ext.Context) error {
+func (m moduleStruct) checkReactions(b *gotgbot.Bot, ctx *ext.Context) (result error) {
+	// A recovered panic must not return nil: that would leave handler group 8 and skip the @admin
+	// report watcher beside it. The result is preset, so every path continues the group.
+	result = ext.ContinueGroups
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("[Reactions][checkReactions] Recovered from panic: %v", r)
