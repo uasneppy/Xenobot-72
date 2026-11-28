@@ -191,6 +191,10 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   the shared `chatToyQueue` worker lane and `handlePollUpdate` join `StopChat` via `chatJobs`/`chatDraining`/`chatContext()`,
   proved by `TestShutdownEndsChatToys` and `TestShutdownEndsInspect`), keeping the `70 s` webhook worst-case shutdown and
   `stop_grace_period: 75s` unchanged.
+- Phase 36's per-member memories add zero shutdown drains, zero handler groups and zero `main.go` changes: the writer lane
+  (`chatMemoryQueue`, one worker, capacity 16, started inside `chatEnsureWorkers()`) shares `chatJobs`, `chatDraining` and
+  `chatContext()` under `StopChat`, so a note cut off at shutdown is simply not written and nothing needs resuming, keeping the
+  `70 s` webhook worst case and `stop_grace_period: 75s` unchanged (`TestShutdownEndsChatMemory`).
 - Deploy manifests set `AUTO_MIGRATE=true`; the code default is `false`. Never call `gorm.AutoMigrate` in production code.
 - The Turnstile web captcha is configured in `main` (`registerCaptchaWeb`) when `config.AppConfig.CaptchaWebConfigured()`
   holds: all four of `CAPTCHA_WEB_BASE_URL`, `TELEGRAM_MINI_APP_SHORT_NAME`, `TURNSTILE_SITE_KEY` and
@@ -677,6 +681,49 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   ("the admins", never the Staff Group's title or ID). The canned group lines of the worker are plain text through `chatSendReply`. Every
   send goes through `chatPaced` and derives from the job context, so `StopChat` ends it. A verdict is an AI opinion: nothing automated
   reads or writes a warn, mute, ban or approval from it (`TestChatJudgeNeverActs`).
+- Member memories (Phase 36, `chat_memory.go`, `xenobot/db/membermem/`, `xenobot/utils/chatprompt/memory.go`). With the owner's
+  Memories switch on (`chat_conversations.memories_enabled`, off by default, the owner's page `p`) and conversations on, the
+  conversation lane keeps up to 12 short notes (`membermem.MaxNotes`, each at most 200 runes) about a member **in that group only**,
+  and reads them back only for that member's next conversation turn. Provisional owner decisions, each reversible in one commit:
+  - **P36-01 (scope):** a note is keyed `(chat_id, user_id)` and every query carries both, so nothing is ever read across groups or
+    members. Notes reach exactly one prompt, the conversation request (`chatBuildRequest` through `chatprompt.UserWithMemory`, in
+    the User part after a label that calls them untrusted, possibly outdated and never to be mentioned; never in the cached Static or
+    Dynamic parts, so the prompt cache survives): `/ask`, `@mention`, a reply to the bot and name addressing. Briefs, `/judge`,
+    reactions, toys, Emoji Consensus and the archive never see a note (`TestChatMemoryGuards` scans the package: `UserWithMemory`,
+    `MemorySection` and `memoryNotes` appear only in the conversation path).
+  - **P36-02 (switch and deletion):** the toggle is one tap with no card, needs a configured provider (as the Message log does) and
+    shares its row with the Presence shortcut (`[✅ Memory | ✨ Presence →]`, so page `p` keeps its 8-row budget). Off, and turning
+    conversations off, delete every member's notes of the chat (`applyChatMemories`, `applyChatEnabled`, seam `chatNotesDeleteChat`);
+    a failed delete is a failed save (the owner is told and presses Off again), and conversations Off leaves the memories switch as
+    the owner set it. A writer that already passed its checks can write once after Off (it re-reads the switch from the database right
+    before the write, `chatMemorySettingsFresh`, which shrinks the window to one statement): the row is unread while the switch is off
+    and the next Off deletes it.
+  - **P36-03 (writer):** after a reply was sent and recorded, `chatMemoryOffer` queues one job for a message with text of at least 25
+    runes (`chatMemoryMinRunes`). The job sees only that message, the bot's reply and the member's current notes, asks the group's
+    provider through `chatConverse` (lane `memory`, `chatprompt.MemoryMaxTokens` 1500) and takes a strict `{"notes":[...]}` object
+    (`ParseMemoryJSON`: one key, at most 12 strings, a note over 200 runes dropped, anything else is no answer) as the member's
+    complete new list, written with one upsert (`membermem.Replace`; an empty list deletes the row). `chatMemoryAcceptNotes` then
+    drops, never edits, a note with a link, an `@handle`, angle brackets or seven digits. The code-owned instruction keeps only stable
+    facts the member volunteered about themselves and never health, religion, politics, sexuality, ethnicity, money, a precise
+    location, an address, contact details, other people or an instruction for the bot.
+  - **P36-04 (cost and failure):** one writer call per member per 15 minutes (`SET NX` on `xenobot:chat:{<chat>}:mem:cd:<user>`) and
+    its own hourly budgets, 4 per member, 20 per group and 200 in all (`xenobot:chat:mem:b:u|c|g:...` through `chatReserveWith`, the
+    family `mem:b`); a paused breaker, no Redis, an unreadable existing list or a Staff Group sheds the job with no call. A provider
+    error, an empty or refused answer, a malformed list and a shutdown leave the stored notes as they were and are never a provider
+    failure of the group (`chat_memory.go` never calls `chatRecordFailure`, and `TestChatMemoryGuards` forbids it and every Telegram
+    call there: the writer sends nothing, so it can never reply to a command a wrapper deleted). Off-topic idle chatter costs nothing:
+    a message under the threshold or inside the cooldown makes no call.
+  - **P36-05 (/forgetme):** every member may run `/forgetme` (`helpers.WrapCommand`, `Disableable`, checks its own name,
+    `RequireGroup`; a `sender_chat`, an anonymous admin or a bot gets nothing) whatever the owner's switches say. It deletes the
+    sender's own notes of this group and answers `chat_forgetme_done`, `chat_forgetme_nothing` or `chat_forgetme_failed`.
+  - **P36-06 (retention, open for the owner):** there is no expiry timer and nothing deletes a member's notes when they leave the
+    group; they stay until the member's `/forgetme` or the owner's Off. The disclosure is `settings_chat_memory_notice` on page `p`
+    and a paragraph of `chat_help_msg` in all 8 languages.
+  `TestChatMemoryWriterAndPrompt`, `TestChatMemoryNotOffered`, `TestChatMemoryFailuresChangeNothing`, `TestChatMemoryAcceptNotes`,
+  `TestChatMemoryLogsCarryIDsOnly`, `TestShutdownEndsChatMemory`, `TestChatMemoryGuards`, `TestForgetMeCommand`,
+  `TestApplyChatMemories` and `TestSettingsChatMemories` hold it; `TestParseMemoryJSON`, `TestMemoryPrompts` and `TestMemorySection`
+  (`xenobot/utils/chatprompt`), `TestNormalize` and `TestMemberMemoryStorage` (`xenobot/db/membermem`),
+  `TestMemberMemoriesMigrationStatements` and `TestChatMemoriesStayOutOfBackup` complete it.
 - The web captcha adds no handler group: its routes are HTTP routes on the bot's server, not dispatcher handlers.
 - The Settings module (priority 239, `settings.go`) adds one handler group, `1`, for the typed-reply door below; its other entry points are `/settings`, the callbacks and the deep link. `/settings` goes through `helpers.WrapCommand`
   with `settingsDesc.RequiredChecks` of `requireSettingsAccess()` alone (`settings_gate.go`: a private chat passes at
@@ -3702,6 +3749,18 @@ CGO_ENABLED=0 go build ./...   # compile check; `make build` needs goreleaser v2
   through the `chatConvWrites.LogEnabled` seam, judges no person's rights and, on a successful Off, deletes the chat's ring
   `xenobot:chat:{<chat>}:log` (`chatWipeLog`, best effort, no-op without Redis; `chatWipeMemory` and `chatWipeLog` share
   `chatWipeKeys`); On deletes nothing. Neither column is part of backup, export, import or reset.
+- `chat_member_memories` (migration 20261203120000, Phase 36) holds the notes the conversation feature keeps about one member of one
+  group: `chat_id` and `user_id` (primary key `pk_chat_member_memories` on both), `notes` (`TEXT NOT NULL`, the notes joined by new
+  lines, `chk_chat_member_memories_notes` at most 2500 characters: 12 notes of 200 plus the separators) and `updated_at`, no foreign
+  key. The same migration adds `chat_conversations.memories_enabled` (`BOOLEAN NOT NULL DEFAULT FALSE`, no `default:` tag, in
+  `chatconv.Settings` as `MemoriesEnabled` with msgpack tag `m`, so a value an older build cached decodes to off; written by the
+  column-targeted `chatconv.SetMemoriesEnabled`). The notes are read fresh (`membermem.Get`, one primary-key read per answered
+  message of a group with the switch on) and never cached, so no key needs dropping and a delete is seen by every replica at once;
+  `Replace` is one upsert of the whole list (an empty list deletes), `Delete` removes one member's row of one group and `DeleteChat`
+  a group's. A note is plain text: `membermem.Clean` drops control, format and private-use characters and collapses white space.
+  The table is never part of backup, export, import or reset (`TestChatMemoriesStayOutOfBackup`). Its Redis companions sit outside
+  the cache prefix: `xenobot:chat:{<chat>}:mem:cd:<user>` (the writer's per-member cooldown) and `xenobot:chat:mem:b:u:<chat>:<user>:<hour>`,
+  `:c:<chat>:<hour>` and `:g:<hour>` (its hourly budgets).
 - `chat_event_messages` (migration 20261120110000) holds a group's custom event messages, one row per `(chat_id, event,
   dest)` under the inline primary key `pk_chat_event_messages`: `text`, `file_id` and `media_type` (one media item, 0 for
   none, the `db.*` media constants the greetings and rules rows use), `buttons` (jsonb, `'[]'` for none,

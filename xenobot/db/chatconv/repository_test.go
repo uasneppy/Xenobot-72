@@ -173,6 +173,47 @@ func TestChatConversationSettings(t *testing.T) {
 		}
 	})
 
+	t.Run("the memories switch is its own column", func(t *testing.T) {
+		chatID := newChat(t)
+		if got, _ := Get(ctx, chatID); got.MemoriesEnabled {
+			t.Fatal("a chat with no row reads the memories on")
+		}
+		if err := SetProvider(ctx, chatID, ProviderGoogle, 7); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetLogEnabled(ctx, chatID, true, 7); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetMemoriesEnabled(ctx, chatID, true, 8); err != nil {
+			t.Fatal(err)
+		}
+		want := Settings{Provider: ProviderGoogle, Audience: AudienceEveryone, LogEnabled: true, MemoriesEnabled: true}
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetMemoriesEnabled(true): %+v, %v", got, err)
+		}
+		// A Go false is written, and the other switches stay.
+		if err := SetMemoriesEnabled(ctx, chatID, false, 9); err != nil {
+			t.Fatal(err)
+		}
+		want.MemoriesEnabled = false
+		if got, err := Get(ctx, chatID); err != nil || got != want {
+			t.Fatalf("after SetMemoriesEnabled(false): %+v, %v", got, err)
+		}
+		// Writing the other controls leaves it alone.
+		if err := SetMemoriesEnabled(ctx, chatID, true, 9); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetLogEnabled(ctx, chatID, false, 9); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetEnabled(ctx, chatID, true, 9); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := GetFresh(ctx, chatID); !got.MemoriesEnabled || !got.Enabled || got.LogEnabled {
+			t.Fatalf("another control clobbered the memories switch: %+v", got)
+		}
+	})
+
 	t.Run("an invalid value writes nothing", func(t *testing.T) {
 		chatID := newChat(t)
 		if err := SetJudgeTo(ctx, chatID, 3, 1); !errors.Is(err, ErrInvalidValue) {

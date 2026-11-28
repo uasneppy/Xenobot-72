@@ -72,6 +72,9 @@ type chatJob struct {
 	// keeps a conversation reply silent for a deleted message; a brief sets it because the
 	// command it answers is deleted right after the handler returns.
 	allowMissingReply bool
+	// memoryNotes are the speaker's own notes of this group, read by chatProcessJob when the owner has
+	// memories on; the request builder puts them in the user text.
+	memoryNotes []string
 }
 
 var (
@@ -145,7 +148,7 @@ func chatStatsSection() string {
 	return fmt.Sprintf(
 		"\n    <b>Conversations:</b> answered %d, refused %d, failed %d, shed %d, capped %d",
 		chatAnsweredCount.Load(), chatRefusedCount.Load(), chatFailedCount.Load(), chatShedCount.Load(), chatCappedCount.Load(),
-	) + chatBriefStatsSection() + chatReactStatsSection() + chatToysStatsSection()
+	) + chatBriefStatsSection() + chatReactStatsSection() + chatToysStatsSection() + chatMemoryStatsSection()
 }
 
 func chatEnsureWorkers() {
@@ -158,6 +161,7 @@ func chatEnsureWorkers() {
 		chatBriefEnsureWorkers()
 		chatPresenceEnsureWorkers()
 		chatToysEnsureWorkers()
+		chatMemoryEnsureWorkers()
 	})
 }
 
@@ -288,6 +292,10 @@ func chatProcessJob(job chatJob) {
 		return
 	}
 
+	memories := chatMemoriesOn(ctx, job.chatID)
+	if memories {
+		job.memoryNotes = chatMemoryNotesFor(ctx, job.chatID, job.userID)
+	}
 	chatSendTyping(ctx, job.bot, job)
 	history, historyIDs := chatReadHistoryWithIDs(ctx, client, job.chatID)
 	ambient := chatAmbientContextTurns(ctx, client, job, historyIDs)
@@ -361,6 +369,9 @@ func chatProcessJob(job chatJob) {
 		log.WithFields(fields).Debug("[Chat] the exchange could not be recorded")
 	}
 	log.WithFields(fields).Debugf("[Chat] answered (%d input, %d output tokens)", answer.InputTokens, answer.OutputTokens)
+	if memories {
+		chatMemoryOfferHook(job, text)
+	}
 }
 
 // chatAmbientContextTurns returns recent same-thread room chatter when both Owner

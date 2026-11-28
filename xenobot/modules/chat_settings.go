@@ -11,6 +11,7 @@ import (
 
 	"github.com/uasneppy/Xenobot-72/xenobot/config"
 	"github.com/uasneppy/Xenobot-72/xenobot/db/chatconv"
+	"github.com/uasneppy/Xenobot-72/xenobot/db/membermem"
 	"github.com/uasneppy/Xenobot-72/xenobot/utils/cache"
 )
 
@@ -123,14 +124,21 @@ var chatConvWrites = struct {
 	LogEnabled func(ctx context.Context, chatID int64, on bool, by int64) error
 	// JudgeTo writes the default destination of a /judge verdict.
 	JudgeTo func(ctx context.Context, chatID int64, to int, by int64) error
+	// MemoriesEnabled writes the per-member memories switch.
+	MemoriesEnabled func(ctx context.Context, chatID int64, on bool, by int64) error
 }{
 	Enabled:  chatconv.SetEnabled,
 	Provider: chatconv.SetProvider,
 	Audience: chatconv.SetAudience,
 
-	LogEnabled: chatconv.SetLogEnabled,
-	JudgeTo:    chatconv.SetJudgeTo,
+	LogEnabled:      chatconv.SetLogEnabled,
+	JudgeTo:         chatconv.SetJudgeTo,
+	MemoriesEnabled: chatconv.SetMemoriesEnabled,
 }
+
+// chatNotesDeleteChat deletes every member's notes of a chat; a variable only so a test can make the
+// delete fail.
+var chatNotesDeleteChat = membermem.DeleteChat
 
 // chatConvRead reads the setting back after a write; a variable so a test can make it fail.
 var chatConvRead = chatconv.GetFresh
@@ -167,6 +175,11 @@ func applyChatEnabled(ctx context.Context, chatID int64, enabled bool, by int64)
 	}
 	if !enabled {
 		chatWipeMemory(chatID)
+		// Member notes exist only while conversations are on: they go with the switch.
+		if err := chatNotesDeleteChat(ctx, chatID); err != nil {
+			log.Warnf("[Chat] deleting the member notes of chat %d failed: %v", chatID, err)
+			return chatApplyResult{Outcome: chatSaveFailed, Err: err}
+		}
 	}
 	return chatReadBack(ctx, chatID)
 }
@@ -217,6 +230,23 @@ func applyChatLog(ctx context.Context, chatID int64, on bool, by int64) chatAppl
 	}
 	if !on {
 		chatWipeLog(chatID)
+	}
+	return chatReadBack(ctx, chatID)
+}
+
+// applyChatMemories switches a chat's per-member memories on or off. It judges no person's rights.
+// Turning it off deletes every member's notes of the chat at once (a failed delete is a failed save, so
+// the owner is told and presses Off again); turning it on deletes nothing.
+func applyChatMemories(ctx context.Context, chatID int64, on bool, by int64) chatApplyResult {
+	if err := chatConvWrites.MemoriesEnabled(ctx, chatID, on, by); err != nil {
+		log.Warnf("[Chat] saving the memories switch of chat %d failed: %v", chatID, err)
+		return chatApplyResult{Outcome: chatSaveFailed, Err: err}
+	}
+	if !on {
+		if err := chatNotesDeleteChat(ctx, chatID); err != nil {
+			log.Warnf("[Chat] deleting the member notes of chat %d failed: %v", chatID, err)
+			return chatApplyResult{Outcome: chatSaveFailed, Err: err}
+		}
 	}
 	return chatReadBack(ctx, chatID)
 }

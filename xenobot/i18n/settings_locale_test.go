@@ -637,6 +637,9 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_btn_chat_everyone":      {20, 20},
 	"settings_btn_chat_admins":        {20, 20},
 	"settings_chat_log_status":        {30, 40},
+	"settings_chat_memory_status":     {30, 36},
+	"settings_btn_chat_memory":        {20, 20},
+	"settings_chat_memory_notice":     {548, 564},
 	"settings_btn_chat_log":           {30, 40},
 	"settings_chat_log_notice":        {640, 800},
 	"settings_chat_judge_line":        {50, 70},
@@ -1422,6 +1425,8 @@ func TestSettingsLabelLengths(t *testing.T) {
 	editorCells := []string{
 		"settings_btn_edit_switch_welcome", "settings_btn_edit_switch_goodbye", "settings_btn_edit_switch_clean",
 		"settings_btn_edit_switch_below", "settings_btn_edit_switch_once",
+		// The Conversations page's memories cell, which shares a row with the Presence shortcut (Phase 36).
+		"settings_btn_chat_memory",
 	}
 	// The Member requirements rule cells carry the rule's punishment icon in place of {state}
 	// (Phase 13, UI-SPEC check 2); the two switch cells carry the check mark or the cross.

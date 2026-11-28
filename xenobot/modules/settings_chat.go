@@ -34,6 +34,8 @@ const (
 	settingsChatControlLog = "l"
 	// settingsChatControlJudge is the /judge verdict destination choice (st only, v g, p or s).
 	settingsChatControlJudge = "j"
+	// settingsChatControlMemory is the per-member memories toggle (tg only, v 0 or 1).
+	settingsChatControlMemory = "r"
 	// settingsActChatYes is the On card's Yes (fields: e).
 	settingsActChatYes = "py"
 )
@@ -96,6 +98,10 @@ func init() {
 			},
 			settingsChatControlLog: {
 				Right: settingsRightOwner, Set: settingsChatSetLog,
+				Actions: []string{settingsActToggle}, Validate: settingsEditSwitchValue,
+			},
+			settingsChatControlMemory: {
+				Right: settingsRightOwner, Set: settingsChatSetMemories,
 				Actions: []string{settingsActToggle}, Validate: settingsEditSwitchValue,
 			},
 			settingsChatControlJudge: {
@@ -166,6 +172,7 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 	}
 	logState := settingsStateWord(v.Tr, stored.LogEnabled)
 	body = append(body, settingsText(v.Tr, "settings_chat_log_status", i18n.TranslationParams{"state": logState}),
+		settingsText(v.Tr, "settings_chat_memory_status", i18n.TranslationParams{"state": settingsStateWord(v.Tr, stored.MemoriesEnabled)}),
 		settingsText(v.Tr, "settings_chat_judge_line", i18n.TranslationParams{"target": settingsText(v.Tr, settingsChatJudgeKey(stored.JudgeTo))}))
 	anyConfigured := chatAnyProviderConfigured()
 	switch {
@@ -175,7 +182,8 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 		body = append(body, "🚫 "+settingsText(v.Tr, "settings_chat_provider_missing"))
 	}
 	body = append(body, "", settingsText(v.Tr, "settings_chat_hint"), "", settingsChatDataNotice(v.Tr, stored.Provider),
-		"", settingsText(v.Tr, "settings_chat_log_notice", i18n.TranslationParams{"provider": chatProviderName(stored.Provider)}))
+		"", settingsText(v.Tr, "settings_chat_log_notice", i18n.TranslationParams{"provider": chatProviderName(stored.Provider)}),
+		"", settingsText(v.Tr, "settings_chat_memory_notice", i18n.TranslationParams{"provider": chatProviderName(stored.Provider)}))
 
 	k := newSettingsKeyboard(v)
 	if anyConfigured || stored.Enabled {
@@ -217,11 +225,19 @@ func renderSettingsChat(v settingsView, stored chatconv.Settings, notice string)
 		k.row(settingsToggleButton(k, settingsPageChat, settingsChatControlLog, label, stored.LogEnabled)...)
 	}
 	k.row(settingsChatJudgeRow(k, stored.JudgeTo)...)
+	// The Presence shortcut shares its row with the memories toggle (drawn like the log toggle, so Off is
+	// always reachable): the page stays inside its 8-row budget with all three providers configured.
+	var lastRow []gotgbot.InlineKeyboardButton
+	if anyConfigured || stored.MemoriesEnabled {
+		label := settingsText(v.Tr, "settings_btn_chat_memory", i18n.TranslationParams{"state": settingsStateIcon(stored.MemoriesEnabled)})
+		lastRow = append(lastRow, settingsToggleButton(k, settingsPageChat, settingsChatControlMemory, label, stored.MemoriesEnabled)...)
+	}
 	if btn, ok := k.button(settingsText(v.Tr, "settings_btn_chat_presence"), map[string]string{
 		"a": settingsActOpen, "p": settingsPagePresence,
 	}); ok {
-		k.row(btn)
+		lastRow = append(lastRow, btn)
 	}
+	k.row(lastRow...)
 	k.navRow(false)
 	return k.screen(settingsCompose(v, "settings_page_chat", body, notice, false))
 }
@@ -411,18 +427,19 @@ func settingsChatSetStored(p *settingsPress, same func(chatconv.Settings) bool, 
 	return settingsChatFromResult(p, apply(ctx))
 }
 
-// settingsChatSetLog serves the Message log toggle. 0 writes off at once and deletes the log; 1 is
-// one tap with no card (the page's notice discloses what is kept and sent): it is refused when the
-// stored provider cannot run here, redraws without a write when the log is already on, and
-// otherwise writes on.
-func settingsChatSetLog(p *settingsPress, value string) *settingsScreen {
+// settingsChatSetSwitch serves a provider-backed on/off toggle of the Conversations page (the Message log,
+// the memories): 0 writes off at once through apply, which also deletes what the switch kept; 1 is one tap
+// with no card (the page's notice discloses what is kept and sent), refused when the stored provider cannot
+// run here, redrawn without a write when the switch is already on, and otherwise written.
+func settingsChatSetSwitch(p *settingsPress, value string, isOn func(chatconv.Settings) bool,
+	apply func(ctx context.Context, chatID int64, on bool, by int64) chatApplyResult) *settingsScreen {
 	if settingsChatGroupRefused(p) {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), settingsReadTimeout)
 	defer cancel()
 	if value == "0" {
-		return settingsChatFromResult(p, applyChatLog(ctx, p.group.Id, false, p.query.From.Id))
+		return settingsChatFromResult(p, apply(ctx, p.group.Id, false, p.query.From.Id))
 	}
 	stored, err := settingsChatReadSettings(p.group.Id)
 	if err != nil {
@@ -432,11 +449,22 @@ func settingsChatSetLog(p *settingsPress, value string) *settingsScreen {
 	if !chatProviderConfigured(stored.Provider) {
 		return settingsChatUnavailable(p)
 	}
-	if stored.LogEnabled {
+	if isOn(stored) {
 		screen := renderSettingsChat(p.view(), stored, "")
 		return &screen
 	}
-	return settingsChatFromResult(p, applyChatLog(ctx, p.group.Id, true, p.query.From.Id))
+	return settingsChatFromResult(p, apply(ctx, p.group.Id, true, p.query.From.Id))
+}
+
+// settingsChatSetLog serves the Message log toggle; turning it off deletes the log.
+func settingsChatSetLog(p *settingsPress, value string) *settingsScreen {
+	return settingsChatSetSwitch(p, value, func(s chatconv.Settings) bool { return s.LogEnabled }, applyChatLog)
+}
+
+// settingsChatSetMemories serves the memories toggle; turning it off deletes every member's notes of the
+// chat.
+func settingsChatSetMemories(p *settingsPress, value string) *settingsScreen {
+	return settingsChatSetSwitch(p, value, func(s chatconv.Settings) bool { return s.MemoriesEnabled }, applyChatMemories)
 }
 
 // settingsChatSetJudge stores where a /judge verdict goes by default; the stored value writes
