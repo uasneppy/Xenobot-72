@@ -241,7 +241,10 @@ func chatJobOf(b *gotgbot.Bot, msg *gotgbot.Message, userID int64, provider stri
 	if msg.IsTopicMessage {
 		job.threadID = msg.MessageThreadId
 	}
-	if ref, ok := chatExtractMediaRef(msg); ok {
+	if chatMessageHasAudio(msg) {
+		job.audioSeen++
+	}
+	if ref, ok := chatExtractMediaRef(msg); ok && chatRefSendable(ref, provider) {
 		job.media = append(job.media, ref)
 	}
 	if reply := extraction.ReplyTarget(msg); reply != nil {
@@ -258,12 +261,22 @@ func chatJobOf(b *gotgbot.Bot, msg *gotgbot.Message, userID int64, provider stri
 			if strings.TrimSpace(quoted.Text) != "" {
 				job.quoted = &quoted
 			}
-			if ref, ok := chatExtractMediaRef(reply); ok {
+			if chatMessageHasAudio(reply) {
+				job.audioSeen++
+			}
+			if ref, ok := chatExtractMediaRef(reply); ok && chatRefSendable(ref, provider) {
 				job.media = append(job.media, ref)
 			}
 		}
 	}
 	return job
+}
+
+// chatRefSendable reports whether the provider receives the ref's file. Only audio depends on the
+// provider (chatProviderSupportsAudio): a deaf provider's job carries no audio ref at all, so the
+// worker downloads nothing for it and the request says the audio is not available.
+func chatRefSendable(ref chatMediaRef, provider string) bool {
+	return ref.Kind != chatMediaAudio || chatProviderSupportsAudio(provider)
 }
 
 // chatIsOwnMessage reports whether messageID is one the conversation feature sent in the chat. A

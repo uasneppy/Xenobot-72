@@ -14,8 +14,8 @@ func UserWithAmbient(ambient, history []Turn, quoted *Turn, message Turn, files 
 	return UserWithMedia(ambient, history, quoted, message, files, nil)
 }
 
-// UserWithMedia is UserWithAmbient plus the bot's own notes about the attached images (see
-// FrameNote), placed just before the closing sentence. With no notes it is byte-identical to
+// UserWithMedia is UserWithAmbient plus the bot's own notes about the attached images and audio (see
+// FrameNote and AudioNote), placed just before the closing sentence. With no notes it is byte-identical to
 // UserWithAmbient.
 func UserWithMedia(ambient, history []Turn, quoted *Turn, message Turn, files []File, notes []string) string {
 	var b strings.Builder

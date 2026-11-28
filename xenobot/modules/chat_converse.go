@@ -3,6 +3,7 @@ package modules
 import (
 	"context"
 	"errors"
+	"net/http"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -48,20 +49,46 @@ func chatModelName(provider string) string {
 	}
 }
 
-// chatConverse makes one provider call. When a Featherless model answers an image request with a
-// 400 or 422, it retries once with the images dropped and marks the answer TextOnly: the model may
-// simply not take images, but nothing is remembered, so a later request tries its image again and
-// an unrelated 400 (context length, an unsupported parameter) never switches vision off for other
-// chats. The first error is not returned, so it counts toward nothing; only the retry's result
-// does. root is the pool's context: a shutdown skips the retry.
+// chatMediaRejected reports whether err is the provider refusing the request's attachments rather
+// than failing: a Featherless model answering an image request with a 400 or 422 (it may simply not
+// take images), or Gemini answering a request that carries audio with a 400 (a clip it cannot decode,
+// or a request over its size limit). A rejected key is never that.
+func chatMediaRejected(provider string, req chatRequest, err error) bool {
+	switch provider {
+	case chatconv.ProviderFeatherless:
+		return chatIsFeatherlessVisionReject(err)
+	case chatconv.ProviderGoogle:
+		var gErr *gemini.HTTPError
+		if !errors.As(err, &gErr) || gErr.Status != http.StatusBadRequest || gErr.KeyRejected() {
+			return false
+		}
+		for _, a := range req.Attachments {
+			if a.isAudio() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// chatConverse makes one provider call. When the provider rejects the request's attachments
+// (chatMediaRejected), it retries once with every attachment dropped and marks the answer TextOnly:
+// the model may simply not take them, but nothing is remembered, so a later request tries its media
+// again and an unrelated 400 (context length, an unsupported parameter) never switches media off for
+// other chats. The retry's prompt is req.UserNoMedia when the caller built one, so its notes say the
+// pictures and audio are unavailable instead of describing attachments that are no longer there. The
+// first error is not returned, so it counts toward nothing; only the retry's result does. root is the
+// pool's context: a shutdown skips the retry.
 func chatConverse(ctx, root context.Context, call chatCall, provider string, req chatRequest) (chatAnswer, error) {
 	start := time.Now()
 	answer, err := chatProviderOf(provider).converse(ctx, req)
-	if err != nil && root.Err() == nil && provider == chatconv.ProviderFeatherless &&
-		len(req.Attachments) > 0 && chatIsFeatherlessVisionReject(err) {
-		log.WithFields(log.Fields{"chat_id": call.ChatID, "lane": call.Lane}).
-			Debugf("[Chat] featherless rejected the image request (%s), retrying without images", chatErrorClass(err))
+	if err != nil && root.Err() == nil && len(req.Attachments) > 0 && chatMediaRejected(provider, req, err) {
+		log.WithFields(log.Fields{"chat_id": call.ChatID, "lane": call.Lane, "provider": provider}).
+			Debugf("[Chat] the provider rejected the attachments (%s), retrying without them", chatErrorClass(err))
 		req.Attachments = nil
+		if req.UserNoMedia != "" {
+			req.User = req.UserNoMedia
+		}
 		answer, err = chatProviderOf(provider).converse(ctx, req)
 		answer.TextOnly = err == nil
 	}

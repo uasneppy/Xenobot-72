@@ -631,7 +631,7 @@ var settingsLocaleLimits = map[string]settingsLimit{
 	"settings_chat_not_set_up":        {100, 140},
 	"settings_chat_provider_missing":  {120, 170},
 	"settings_chat_hint":              {120, 170},
-	"settings_chat_data_notice":       {720, 800},
+	"settings_chat_data_notice":       {840, 960},
 	"settings_chat_confirm":           {50, 70},
 	"settings_btn_chat_toggle":        {30, 40},
 	"settings_btn_chat_everyone":      {20, 20},

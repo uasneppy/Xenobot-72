@@ -5,6 +5,7 @@ package gemini
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -347,6 +348,56 @@ func TestGenerateErrors(t *testing.T) {
 		bad.Attachments = []Attachment{{MIMEType: "text/html", Data: []byte("<b>no</b>")}}
 		if _, err := client(server).Generate(context.Background(), bad); !errors.Is(err, ErrUnsupportedAttachment) {
 			t.Errorf("unsupported attachment err = %v, want ErrUnsupportedAttachment", err)
+		}
+	})
+	t.Run("audio clips are sent inline up to the audio cap", func(t *testing.T) {
+		server, rec := newServer(t, func(w http.ResponseWriter, _ *http.Request) { respond(w, 200, answer("STOP", `{"text":"Heard."}`)) })
+		ogg := append([]byte("OggS\x00\x02"), bytes.Repeat([]byte("opus"), 16)...)
+		in := request()
+		in.Attachments = []Attachment{{MIMEType: "audio/ogg", Data: ogg}}
+		if reply, err := client(server).Generate(context.Background(), in); err != nil || reply.Text != "Heard." {
+			t.Fatalf("reply %+v err %v", reply, err)
+		}
+		var body struct {
+			Contents []struct {
+				Parts []struct {
+					InlineData *struct {
+						MIMEType string `json:"mimeType"`
+						Data     string `json:"data"`
+					} `json:"inlineData"`
+				} `json:"parts"`
+			} `json:"contents"`
+		}
+		if err := json.Unmarshal(rec.all()[0].Body, &body); err != nil {
+			t.Fatal(err)
+		}
+		parts := body.Contents[0].Parts
+		if len(parts) != 2 || parts[1].InlineData == nil || parts[1].InlineData.MIMEType != "audio/ogg" ||
+			parts[1].InlineData.Data != base64.StdEncoding.EncodeToString(ogg) {
+			t.Fatalf("parts = %+v, want one audio/ogg inlineData part carrying the clip", parts)
+		}
+
+		for _, mime := range AudioMIMETypes {
+			if !(Attachment{MIMEType: mime, Data: []byte{1}}).IsAudio() || !attachmentSupported(Attachment{MIMEType: mime, Data: []byte{1}}) {
+				t.Errorf("%s is not accepted as audio", mime)
+			}
+		}
+		for name, a := range map[string]Attachment{
+			"midi, which Gemini does not list": {MIMEType: "audio/midi", Data: []byte{1}},
+			"an empty clip":                    {MIMEType: "audio/ogg"},
+			"a clip over the audio cap":        {MIMEType: "audio/ogg", Data: make([]byte, MaxAudioBytes+1)},
+		} {
+			bad := request()
+			bad.Attachments = []Attachment{a}
+			if _, err := client(server).Generate(context.Background(), bad); !errors.Is(err, ErrUnsupportedAttachment) {
+				t.Errorf("%s: err = %v, want ErrUnsupportedAttachment", name, err)
+			}
+		}
+		// A clip of exactly the cap is accepted; the image cap is a separate, equal limit.
+		edge := request()
+		edge.Attachments = []Attachment{{MIMEType: "audio/mp3", Data: make([]byte, MaxAudioBytes)}}
+		if _, err := client(server).Generate(context.Background(), edge); err != nil {
+			t.Errorf("a clip of exactly the cap: %v", err)
 		}
 	})
 }

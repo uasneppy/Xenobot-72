@@ -3,6 +3,7 @@
 package modules
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -177,17 +178,17 @@ func TestChatMessageHasPicture(t *testing.T) {
 // TestChatFrameNotes holds what the model is told about attachments that are only a preview frame:
 // nothing for real images and PDFs, one note per frame that names its place among the attachments.
 func TestChatFrameNotes(t *testing.T) {
-	if notes := (chatDownloadedMedia{Attachments: []chatAttachment{{MIMEType: "image/jpeg"}, {MIMEType: "application/pdf"}}}).frameNotes(); len(notes) != 0 {
+	if notes := (chatDownloadedMedia{Attachments: []chatAttachment{{MIMEType: "image/jpeg"}, {MIMEType: "application/pdf"}}}).mediaNotes(0); len(notes) != 0 {
 		t.Fatalf("real images and PDFs got notes %q, want none", notes)
 	}
-	single := chatDownloadedMedia{Attachments: []chatAttachment{{MIMEType: "image/jpeg", Frame: chatFrameVideoNote}}}.frameNotes()
+	single := chatDownloadedMedia{Attachments: []chatAttachment{{MIMEType: "image/jpeg", Frame: chatFrameVideoNote}}}.mediaNotes(0)
 	if len(single) != 1 || !strings.HasPrefix(single[0], "The attached image is only one still preview frame of a round video message.") {
 		t.Fatalf("single frame note = %q", single)
 	}
 	both := chatDownloadedMedia{Attachments: []chatAttachment{
 		{MIMEType: "image/jpeg"},
 		{MIMEType: "image/jpeg", Frame: chatFrameGIF},
-	}}.frameNotes()
+	}}.mediaNotes(0)
 	if len(both) != 1 || !strings.HasPrefix(both[0], "Attachment 2 of 2 is only one still preview frame of a GIF.") {
 		t.Fatalf("second attachment note = %q, want it to name attachment 2 of 2", both)
 	}
@@ -200,6 +201,8 @@ func TestChatMediaRecognitionAllProviders(t *testing.T) {
 	webpBytes := raidAITestWebP("chat-sticker")
 	pdfBytes := []byte("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n")
 	codeBytes := []byte("func main() {\n\tprintln(\"tempe\")\n}\n")
+	oggBytes := chatTestOgg("e2e")
+	mp3Bytes := append([]byte("ID3\x04\x00\x00"), bytes.Repeat([]byte("mp3."), 24)...)
 
 	servedFiles := map[string][]byte{
 		"files/p800":     jpegBytes,
@@ -208,6 +211,9 @@ func TestChatMediaRecognitionAllProviders(t *testing.T) {
 		"files/code1":    codeBytes,
 		"files/docpdf":   pdfBytes,
 		"files/bin1":     {0x00, 0x01, 0x02, 0x03},
+		"files/voice1":   oggBytes,
+		"files/music1":   mp3Bytes,
+		"files/notaudio": jpegBytes,
 		"files/blanktxt": []byte("   \n\t\x01  \r\n"),
 	}
 	fileServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -396,6 +402,109 @@ func TestChatMediaRecognitionAllProviders(t *testing.T) {
 			}
 			if strings.Contains(strings.Join(historyRaw, "\n"), b64) {
 				t.Error("conversation history in Redis stored the preview frame's bytes")
+			}
+		})
+	}
+
+	// A voice message, an audio file, and what each provider is told when it cannot hear them.
+	for _, provider := range []string{chatconv.ProviderAnthropic, chatconv.ProviderGoogle, chatconv.ProviderFeatherless} {
+		t.Run(provider+" voice messages and audio files", func(t *testing.T) {
+			env := installMediaEnv(t, provider)
+			before := len(standIn.bodies)
+			b64Ogg := base64.StdEncoding.EncodeToString(oggBytes)
+			b64MP3 := base64.StdEncoding.EncodeToString(mp3Bytes)
+
+			// 1. A voice message with the bot mentioned in its caption.
+			handle := "@" + env.bot.Username
+			voiceMsg := env.message(env.member("Alice"), "")
+			voiceMsg.Caption = handle + " what did I just say?"
+			voiceMsg.CaptionEntities = []gotgbot.MessageEntity{{Type: "mention", Offset: 0, Length: int64(len(handle))}}
+			voiceMsg.Voice = &gotgbot.Voice{FileId: "voice1", Duration: 7, FileSize: int64(len(oggBytes))}
+			env.deliver(voiceMsg)
+
+			// 2. A bare voice message replying to the bot's own reply: nothing but the clip.
+			bareVoice := env.message(env.member("Bob"), "")
+			bareVoice.Voice = &gotgbot.Voice{FileId: "voice1", Duration: 7}
+			bareVoice.ReplyToMessage = &gotgbot.Message{MessageId: 9001, Date: 1, Chat: bareVoice.Chat, From: &env.bot.User, Text: "earlier reply"}
+			env.deliver(bareVoice)
+
+			// 3. /ask replying to someone else's audio file.
+			musicOrigin := env.message(env.member("Carol"), "")
+			musicOrigin.Audio = &gotgbot.Audio{FileId: "music1", Duration: 180, Title: "tempe song"}
+			askMusic := env.message(env.member("Dave"), "/ask what is this song?")
+			askMusic.Entities = []gotgbot.MessageEntity{{Type: "bot_command", Offset: 0, Length: 4}}
+			askMusic.ReplyToMessage = musicOrigin
+			env.deliver(askMusic)
+
+			// 4. A voice message that is too long to send, with the bot mentioned.
+			longVoice := env.message(env.member("Eve"), "")
+			longVoice.Caption = handle + " summarize this"
+			longVoice.CaptionEntities = []gotgbot.MessageEntity{{Type: "mention", Offset: 0, Length: int64(len(handle))}}
+			longVoice.Voice = &gotgbot.Voice{FileId: "voice1", Duration: chatMaxAudioSeconds + 1}
+			env.deliver(longVoice)
+
+			// 5. A "voice message" whose bytes are a picture: never sent as audio.
+			fakeVoice := env.message(env.member("Mal"), "")
+			fakeVoice.Caption = handle + " listen"
+			fakeVoice.CaptionEntities = []gotgbot.MessageEntity{{Type: "mention", Offset: 0, Length: int64(len(handle))}}
+			fakeVoice.Voice = &gotgbot.Voice{FileId: "notaudio", Duration: 3}
+			env.deliver(fakeVoice)
+
+			gotBodies := standIn.bodies[before:]
+			if len(gotBodies) != 5 {
+				t.Fatalf("%s bodies = %d, want 5", provider, len(gotBodies))
+			}
+			for i, body := range gotBodies {
+				if provider != chatconv.ProviderGoogle && (strings.Contains(body, b64Ogg) || strings.Contains(body, b64MP3) || strings.Contains(body, "audio/ogg") || strings.Contains(body, "audio/mp3")) {
+					t.Errorf("%s request %d carried audio to a provider that cannot hear it", provider, i+1)
+				}
+				if i >= 3 && (strings.Contains(body, b64Ogg) || strings.Contains(body, b64MP3)) {
+					t.Errorf("%s request %d carried a clip it must not (too long, or not audio)", provider, i+1)
+				}
+			}
+			if provider == chatconv.ProviderGoogle {
+				for i, want := range []string{"a voice message", "a voice message", "an audio file"} {
+					if !strings.Contains(gotBodies[i], `"mimeType":"audio/`) {
+						t.Errorf("google request %d has no audio inlineData part: %s", i+1, gotBodies[i])
+					}
+					if !strings.Contains(gotBodies[i], "is "+want+", and you can hear it") {
+						t.Errorf("google request %d does not say the clip is %s it can hear", i+1, want)
+					}
+				}
+				if !strings.Contains(gotBodies[0], b64Ogg) || !strings.Contains(gotBodies[1], b64Ogg) || !strings.Contains(gotBodies[2], b64MP3) {
+					t.Error("google requests 1 to 3 do not carry the clips' bytes")
+				}
+				if !strings.Contains(gotBodies[2], `"mimeType":"audio/mp3"`) {
+					t.Errorf("the ID3 file was not sent as audio/mp3: %s", gotBodies[2])
+				}
+			}
+			unheard := "not available to you, so you cannot hear it"
+			if provider != chatconv.ProviderGoogle {
+				for i := 0; i < 3; i++ {
+					if !strings.Contains(gotBodies[i], unheard) {
+						t.Errorf("%s request %d does not say the audio is not available", provider, i+1)
+					}
+				}
+				if !strings.Contains(gotBodies[1], "Bob: [voice]") {
+					t.Errorf("%s bare voice request lacks its [voice] label: %s", provider, gotBodies[1])
+				}
+			}
+			// The too long clip and the picture dressed as a clip: never sent, and the model is told.
+			for _, i := range []int{3, 4} {
+				if !strings.Contains(gotBodies[i], unheard) {
+					t.Errorf("%s request %d does not say the audio is not available", provider, i+1)
+				}
+			}
+			if sends := env.sends(); len(sends) != len(gotBodies) {
+				t.Errorf("%s sends = %d, want one reply per request (%d)", provider, len(sends), len(gotBodies))
+			}
+			historyRaw, err := env.mr.List(chatHistoryKey(env.chatID))
+			if err != nil {
+				t.Fatalf("read history: %v", err)
+			}
+			joined := strings.Join(historyRaw, "\n")
+			if strings.Contains(joined, b64Ogg) || strings.Contains(joined, b64MP3) {
+				t.Error("conversation history in Redis stored the audio's bytes")
 			}
 		})
 	}

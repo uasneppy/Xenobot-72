@@ -156,8 +156,8 @@ func ReactionUser(recent []Turn, quoted *Turn, quoteText string, message Turn) s
 	return ReactionUserWithMedia(recent, quoted, quoteText, message, nil)
 }
 
-// ReactionUserWithMedia is ReactionUser plus the bot's own notes about the attached images (see
-// FrameNote). With no notes it is byte-identical to ReactionUser.
+// ReactionUserWithMedia is ReactionUser plus the bot's own notes about the attached images and audio
+// (see FrameNote and AudioNote). With no notes it is byte-identical to ReactionUser.
 func ReactionUserWithMedia(recent []Turn, quoted *Turn, quoteText string, message Turn, notes []string) string {
 	var b strings.Builder
 	if len(recent) > 0 {
