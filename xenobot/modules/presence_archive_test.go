@@ -392,7 +392,7 @@ func newArchiveReactionEnv(t *testing.T) *archiveReactionEnv {
 			code, desc := env.copyCode, env.copyDesc
 			env.mu.Unlock()
 			if code != 0 {
-				_, _ = w.Write([]byte(fmt.Sprintf(`{"ok":false,"error_code":%d,"description":%q}`, code, desc)))
+				_, _ = fmt.Fprintf(w, `{"ok":false,"error_code":%d,"description":%q}`, code, desc)
 				return
 			}
 			_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":9991}}`))
