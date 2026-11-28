@@ -104,14 +104,30 @@ func (moduleStruct) inspectCommand(c *helpers.CommandContext) error {
 	return ext.EndGroups
 }
 
+// chatInspectReplyMedia is the picture /inspect shows the model: a photo, a sticker, the preview
+// frame of a GIF, video or round video message, or an image file. A PDF or text file is not one.
 func chatInspectReplyMedia(reply *gotgbot.Message) (chatMediaRef, bool) {
-	mediaRef, hasMedia := chatExtractReactionMediaRef(reply)
-	if !hasMedia && reply.Animation == nil && reply.Video == nil {
-		if docRef, ok := chatExtractMediaRef(reply); ok && docRef.Kind == chatMediaImage {
-			return docRef, true
-		}
+	if ref, ok := chatExtractReactionMediaRef(reply); ok {
+		return ref, true
 	}
-	return mediaRef, hasMedia
+	if docRef, ok := chatExtractMediaRef(reply); ok && docRef.Kind == chatMediaImage {
+		return docRef, true
+	}
+	return chatMediaRef{}, false
+}
+
+// chatInspectMediaDesc is the media section of the /inspect prompt. A preview frame says so, and a
+// picture that could not be attached says that too, so the verdict never describes what the model
+// was not shown.
+func chatInspectMediaDesc(label string, ref chatMediaRef, hasMedia, unseen bool) string {
+	switch {
+	case hasMedia && ref.Frame != chatFrameNone:
+		return strings.TrimSpace(label + " — " + chatprompt.FrameNote(1, 1, ref.Frame.noun()))
+	case unseen:
+		return strings.TrimSpace(label + " — " + chatprompt.UnseenPictureNote)
+	default:
+		return label
+	}
 }
 
 func chatInspectThreadID(msg, reply *gotgbot.Message) int64 {
@@ -150,6 +166,13 @@ func chatInspectJobFromReply(b *gotgbot.Bot, msg, reply *gotgbot.Message, userID
 	if targetText == "" && mediaLabel == "" && !hasMedia {
 		return chatInspectJob{}, false
 	}
+	// A picture the bot cannot get (a video with no preview frame, an image over the size cap)
+	// leaves only its label: with no words to go on there is nothing to judge, and a verdict about
+	// a picture the model never saw would be invented.
+	unseen := !hasMedia && chatMessageHasPicture(reply)
+	if unseen && targetText == "" {
+		return chatInspectJob{}, false
+	}
 
 	turnText := targetText
 	if turnText == "" {
@@ -178,7 +201,7 @@ func chatInspectJobFromReply(b *gotgbot.Bot, msg, reply *gotgbot.Message, userID
 			Name: targetName,
 			Text: turnText,
 		},
-		mediaDesc: mediaLabel,
+		mediaDesc: chatInspectMediaDesc(mediaLabel, mediaRef, hasMedia, unseen),
 		quoted:    chatInspectQuotedTurn(b, reply),
 	}
 	if reply.Quote != nil {
@@ -219,6 +242,13 @@ func chatInspectProcess(job chatInspectJob) {
 	media := chatReactDownloadVision(ctx, job.asReactJob())
 	if root.Err() != nil {
 		chatToyShedCount.Add(1)
+		return
+	}
+	if job.media != nil && len(media.Attachments) == 0 {
+		// The picture was expected and could not be fetched. A verdict from its label alone would be
+		// invented, so say so with the malfunction line (the provider is healthy: not a breaker failure).
+		chatToyFailedCount.Add(1)
+		chatSayGated(ctx, job.bot, client, job.asChat(), chatInspectSaidMalfunction, "inspect_malfunction", chatMalfunctionGate)
 		return
 	}
 

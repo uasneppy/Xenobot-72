@@ -268,7 +268,7 @@ func chatBuildRequest(ctx context.Context, job chatJob, botUsername string, ambi
 		Dynamic: chatprompt.Dynamic(chatprompt.Chat{
 			Title: job.chatTitle, Language: language, Date: date, BotUsername: botUsername,
 		}),
-		User:        chatprompt.UserWithMemory(job.memoryNotes, chatprompt.UserWithAmbient(ambient, history, job.quoted, job.turn, media.Files)),
+		User:        chatprompt.UserWithMemory(job.memoryNotes, chatprompt.UserWithMedia(ambient, history, job.quoted, job.turn, media.Files, media.frameNotes())),
 		Attachments: media.Attachments,
 	}
 }

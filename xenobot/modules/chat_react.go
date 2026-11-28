@@ -111,6 +111,8 @@ type chatReactJob struct {
 	quoted     *chatprompt.Turn
 	quoteText  string
 	media      *chatMediaRef
+	// hasText is true when the message has its own text or caption, so the turn is more than a label.
+	hasText bool
 	// userCooldownSecs is the per-user cooldown the gate started, so a job that never reacts can
 	// give it back (chatReactReleaseCooldowns).
 	userCooldownSecs int
@@ -266,8 +268,9 @@ func chatPresenceEnqueue(job chatReactJob) bool {
 	}
 }
 
-// chatExtractReactionMediaRef extracts only downloadable photos or stickers for reaction vision
-// (never PDFs, audio, voice, videos, or generic documents), with zero I/O.
+// chatExtractReactionMediaRef extracts the picture for reaction vision with zero I/O: a photo, a
+// sticker, or the preview frame of a GIF, video, round video message or a GIF or video file (never
+// PDFs, audio, voice or other documents).
 func chatExtractReactionMediaRef(msg *gotgbot.Message) (chatMediaRef, bool) {
 	if msg == nil {
 		return chatMediaRef{}, false
@@ -279,6 +282,8 @@ func chatExtractReactionMediaRef(msg *gotgbot.Message) (chatMediaRef, bool) {
 		}
 	case msg.Sticker != nil:
 		return chatExtractStickerRef(msg.Sticker)
+	default:
+		return chatExtractFrameRef(msg)
 	}
 	return chatMediaRef{}, false
 }
@@ -338,6 +343,7 @@ func chatReactBuildJob(
 		provider:   conv.Provider,
 		logEnabled: conv.LogEnabled,
 		turn:       chatprompt.Turn{Text: turnText},
+		hasText:    text != "",
 	}
 	if msg.From != nil {
 		job.turn.Name = msg.From.FirstName
@@ -558,12 +564,18 @@ func chatReactProcessJob(job chatReactJob) {
 		chatReactShedCount.Add(1)
 		return
 	}
+	if job.media != nil && !job.hasText && len(media.Attachments) == 0 {
+		// A picture with no words, and the picture could not be fetched: the model would pick an
+		// emoji from the label alone, so shed the job instead (the cooldowns are given back).
+		chatReactShedCount.Add(1)
+		return
+	}
 
 	_, language := chatLanguageName(ctx, job.chatID)
 	req := chatRequest{
 		Static:      chatprompt.ReactionStatic(),
 		Dynamic:     chatprompt.ReactionDynamic(job.chatTitle, language, palette, job.topics),
-		User:        chatprompt.ReactionUser(recentTurns, job.quoted, job.quoteText, job.turn),
+		User:        chatprompt.ReactionUserWithMedia(recentTurns, job.quoted, job.quoteText, job.turn, media.frameNotes()),
 		MaxTokens:   chatprompt.ReactionMaxTokens,
 		Attachments: media.Attachments,
 	}

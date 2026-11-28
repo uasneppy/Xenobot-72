@@ -84,6 +84,115 @@ func TestChatExtractMediaRef(t *testing.T) {
 	}
 }
 
+// TestChatExtractFrameRefs holds which messages give the AI a preview frame, and which kind: a GIF,
+// a video, a round video message, an animated sticker, or a GIF or video sent as a plain file. A
+// real image carries no frame kind. Extraction is pure, so this table makes no request.
+func TestChatExtractFrameRefs(t *testing.T) {
+	thumb := &gotgbot.PhotoSize{FileId: "thumb", Width: 90, Height: 90}
+	huge := &gotgbot.PhotoSize{FileId: "huge", Width: 90, Height: 90, FileSize: chatMaxImageBytes + 1}
+	cases := []struct {
+		name      string
+		msg       gotgbot.Message
+		wantID    string
+		wantFrame chatFrameKind
+	}{
+		{"photo is a real image", gotgbot.Message{Photo: photoSizes()}, "p800", chatFrameNone},
+		{"static sticker is a real image", gotgbot.Message{Sticker: &gotgbot.Sticker{FileId: "stk", Type: "regular"}}, "stk", chatFrameNone},
+		{"animated sticker", gotgbot.Message{Sticker: &gotgbot.Sticker{FileId: "tgs", IsAnimated: true, Thumbnail: thumb}}, "thumb", chatFrameSticker},
+		{"video sticker", gotgbot.Message{Sticker: &gotgbot.Sticker{FileId: "webm", IsVideo: true, Thumbnail: thumb}}, "thumb", chatFrameSticker},
+		{"animated sticker with no thumbnail gives nothing", gotgbot.Message{Sticker: &gotgbot.Sticker{FileId: "tgs", IsAnimated: true}}, "", chatFrameNone},
+		{"GIF", gotgbot.Message{Animation: &gotgbot.Animation{FileId: "gif", Thumbnail: thumb}}, "thumb", chatFrameGIF},
+		{"GIF is not mistaken for its document", gotgbot.Message{
+			Animation: &gotgbot.Animation{FileId: "gif", Thumbnail: thumb},
+			Document:  &gotgbot.Document{FileId: "gif-doc", MimeType: "video/mp4", Thumbnail: &gotgbot.PhotoSize{FileId: "doc-thumb"}},
+		}, "thumb", chatFrameGIF},
+		{"GIF with no thumbnail gives nothing", gotgbot.Message{Animation: &gotgbot.Animation{FileId: "gif"}}, "", chatFrameNone},
+		{"video", gotgbot.Message{Video: &gotgbot.Video{FileId: "vid", Thumbnail: thumb}}, "thumb", chatFrameVideo},
+		{"video prefers the cover its sender chose", gotgbot.Message{Video: &gotgbot.Video{
+			FileId: "vid", Thumbnail: thumb, Cover: []gotgbot.PhotoSize{{FileId: "cover", Width: 1000, Height: 1000}},
+		}}, "cover", chatFrameVideo},
+		{"video with no thumbnail gives nothing", gotgbot.Message{Video: &gotgbot.Video{FileId: "vid"}}, "", chatFrameNone},
+		{"video with an oversize thumbnail gives nothing", gotgbot.Message{Video: &gotgbot.Video{FileId: "vid", Thumbnail: huge}}, "", chatFrameNone},
+		{"round video message", gotgbot.Message{VideoNote: &gotgbot.VideoNote{FileId: "note", Thumbnail: thumb}}, "thumb", chatFrameVideoNote},
+		{"round video message with no thumbnail gives nothing", gotgbot.Message{VideoNote: &gotgbot.VideoNote{FileId: "note"}}, "", chatFrameNone},
+		{"mp4 file", gotgbot.Message{Document: &gotgbot.Document{FileId: "mp4", FileName: "clip.mp4", MimeType: "video/mp4", Thumbnail: thumb}}, "thumb", chatFrameVideo},
+		{"unnamed mime mov file", gotgbot.Message{Document: &gotgbot.Document{FileId: "mov", FileName: "clip.MOV", MimeType: "application/octet-stream", Thumbnail: thumb}}, "thumb", chatFrameVideo},
+		{"GIF file", gotgbot.Message{Document: &gotgbot.Document{FileId: "gifdoc", FileName: "funny.gif", MimeType: "image/gif", Thumbnail: thumb}}, "thumb", chatFrameGIF},
+		{"GIF file with no thumbnail is not sent as an image", gotgbot.Message{Document: &gotgbot.Document{FileId: "gifdoc", FileName: "funny.gif", MimeType: "image/gif"}}, "", chatFrameNone},
+		{"video file with no thumbnail gives nothing", gotgbot.Message{Document: &gotgbot.Document{FileId: "mp4", FileName: "clip.mp4", MimeType: "video/mp4"}}, "", chatFrameNone},
+		{"PDF is not a frame", gotgbot.Message{Document: &gotgbot.Document{FileId: "pdf", FileName: "a.pdf", MimeType: "application/pdf", Thumbnail: thumb}}, "pdf", chatFrameNone},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref, ok := chatExtractMediaRef(&tc.msg)
+			if tc.wantID == "" {
+				if ok {
+					t.Fatalf("chatExtractMediaRef = %+v, want none", ref)
+				}
+				return
+			}
+			if !ok || ref.FileID != tc.wantID || ref.Frame != tc.wantFrame {
+				t.Fatalf("chatExtractMediaRef = %+v (ok %v), want id=%q frame=%v", ref, ok, tc.wantID, tc.wantFrame)
+			}
+		})
+	}
+
+	t.Run("reactions and inspect see the same frames, never a PDF or a text file", func(t *testing.T) {
+		for _, tc := range cases {
+			ref, ok := chatExtractReactionMediaRef(&tc.msg)
+			wantOK := tc.wantID != "" && tc.wantID != "pdf"
+			if ok != wantOK || (ok && (ref.FileID != tc.wantID || ref.Frame != tc.wantFrame)) {
+				t.Errorf("%s: chatExtractReactionMediaRef = %+v (ok %v), want id=%q frame=%v ok=%v", tc.name, ref, ok, tc.wantID, tc.wantFrame, wantOK)
+			}
+		}
+	})
+}
+
+func TestChatMessageHasPicture(t *testing.T) {
+	thumb := &gotgbot.PhotoSize{FileId: "thumb"}
+	for _, tc := range []struct {
+		name string
+		msg  gotgbot.Message
+		want bool
+	}{
+		{"text", gotgbot.Message{Text: "hello"}, false},
+		{"photo", gotgbot.Message{Photo: photoSizes()}, true},
+		{"sticker", gotgbot.Message{Sticker: &gotgbot.Sticker{FileId: "s"}}, true},
+		{"GIF with no thumbnail still counts", gotgbot.Message{Animation: &gotgbot.Animation{FileId: "g"}}, true},
+		{"video", gotgbot.Message{Video: &gotgbot.Video{FileId: "v", Thumbnail: thumb}}, true},
+		{"round video message", gotgbot.Message{VideoNote: &gotgbot.VideoNote{FileId: "n"}}, true},
+		{"mp4 file", gotgbot.Message{Document: &gotgbot.Document{FileId: "d", FileName: "a.mp4", MimeType: "video/mp4"}}, true},
+		{"image file", gotgbot.Message{Document: &gotgbot.Document{FileId: "d", FileName: "a.png", MimeType: "image/png"}}, true},
+		{"PDF", gotgbot.Message{Document: &gotgbot.Document{FileId: "d", FileName: "a.pdf", MimeType: "application/pdf"}}, false},
+		{"voice", gotgbot.Message{Voice: &gotgbot.Voice{FileId: "v"}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := chatMessageHasPicture(&tc.msg); got != tc.want {
+				t.Errorf("chatMessageHasPicture = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestChatFrameNotes holds what the model is told about attachments that are only a preview frame:
+// nothing for real images and PDFs, one note per frame that names its place among the attachments.
+func TestChatFrameNotes(t *testing.T) {
+	if notes := (chatDownloadedMedia{Attachments: []chatAttachment{{MIMEType: "image/jpeg"}, {MIMEType: "application/pdf"}}}).frameNotes(); len(notes) != 0 {
+		t.Fatalf("real images and PDFs got notes %q, want none", notes)
+	}
+	single := chatDownloadedMedia{Attachments: []chatAttachment{{MIMEType: "image/jpeg", Frame: chatFrameVideoNote}}}.frameNotes()
+	if len(single) != 1 || !strings.HasPrefix(single[0], "The attached image is only one still preview frame of a round video message.") {
+		t.Fatalf("single frame note = %q", single)
+	}
+	both := chatDownloadedMedia{Attachments: []chatAttachment{
+		{MIMEType: "image/jpeg"},
+		{MIMEType: "image/jpeg", Frame: chatFrameGIF},
+	}}.frameNotes()
+	if len(both) != 1 || !strings.HasPrefix(both[0], "Attachment 2 of 2 is only one still preview frame of a GIF.") {
+		t.Fatalf("second attachment note = %q, want it to name attachment 2 of 2", both)
+	}
+}
+
 // TestChatMediaRecognitionAllProviders drives photos, stickers, text files and PDFs end-to-end
 // through the real Anthropic, Google and Featherless conversation adapters.
 func TestChatMediaRecognitionAllProviders(t *testing.T) {
@@ -94,6 +203,7 @@ func TestChatMediaRecognitionAllProviders(t *testing.T) {
 
 	servedFiles := map[string][]byte{
 		"files/p800":     jpegBytes,
+		"files/frame1":   jpegBytes,
 		"files/stk1":     webpBytes,
 		"files/code1":    codeBytes,
 		"files/docpdf":   pdfBytes,
@@ -226,6 +336,66 @@ func TestChatMediaRecognitionAllProviders(t *testing.T) {
 			}
 			if !strings.Contains(joinedHistory, "[sticker 🤖]") {
 				t.Errorf("history missing sticker label: %s", joinedHistory)
+			}
+		})
+	}
+
+	for _, provider := range []string{chatconv.ProviderAnthropic, chatconv.ProviderGoogle, chatconv.ProviderFeatherless} {
+		t.Run(provider+" GIF, video and round video message are seen as one preview frame", func(t *testing.T) {
+			env := installMediaEnv(t, provider)
+			before := len(standIn.bodies)
+			frame := &gotgbot.PhotoSize{FileId: "frame1", FileUniqueId: "uframe1", Width: 90, Height: 90}
+
+			// 1. A GIF with the bot mentioned in its caption.
+			handle := "@" + env.bot.Username
+			gifMsg := env.message(env.member("Alice"), "")
+			gifMsg.Caption = handle + " what is happening here?"
+			gifMsg.CaptionEntities = []gotgbot.MessageEntity{{Type: "mention", Offset: 0, Length: int64(len(handle))}}
+			gifMsg.Animation = &gotgbot.Animation{FileId: "gif1", Thumbnail: frame}
+			env.deliver(gifMsg)
+
+			// 2. A bare round video message replying to the bot's own earlier reply: nothing but the picture.
+			noteMsg := env.message(env.member("Bob"), "")
+			noteMsg.VideoNote = &gotgbot.VideoNote{FileId: "note1", Thumbnail: frame}
+			noteMsg.ReplyToMessage = &gotgbot.Message{MessageId: 9001, Date: 1, Chat: noteMsg.Chat, From: &env.bot.User, Text: "earlier reply"}
+			env.deliver(noteMsg)
+
+			// 3. /ask replying to someone else's video.
+			videoOrigin := env.message(env.member("Carol"), "")
+			videoOrigin.Video = &gotgbot.Video{FileId: "vid1", Thumbnail: frame}
+			askVideo := env.message(env.member("Dave"), "/ask what is this?")
+			askVideo.Entities = []gotgbot.MessageEntity{{Type: "bot_command", Offset: 0, Length: 4}}
+			askVideo.ReplyToMessage = videoOrigin
+			env.deliver(askVideo)
+
+			gotBodies := standIn.bodies[before:]
+			if len(gotBodies) != 3 {
+				t.Fatalf("%s bodies = %d, want 3", provider, len(gotBodies))
+			}
+			imageTag := map[string]string{
+				chatconv.ProviderAnthropic:   `"type":"image"`,
+				chatconv.ProviderGoogle:      `"inlineData"`,
+				chatconv.ProviderFeatherless: `"image_url"`,
+			}[provider]
+			b64 := base64.StdEncoding.EncodeToString(jpegBytes)
+			for i, want := range []string{"a GIF", "a round video message", "a video"} {
+				body := gotBodies[i]
+				if !strings.Contains(body, imageTag) || !strings.Contains(body, b64) {
+					t.Errorf("%s request %d has no image block carrying the preview frame", provider, i+1)
+				}
+				if !strings.Contains(body, "is only one still preview frame of "+want) {
+					t.Errorf("%s request %d does not say the image is a preview frame of %s", provider, i+1, want)
+				}
+			}
+			if !strings.Contains(gotBodies[1], "Bob: [video note]") {
+				t.Errorf("%s bare round video request lacks its [video note] label: %s", provider, gotBodies[1])
+			}
+			historyRaw, err := env.mr.List(chatHistoryKey(env.chatID))
+			if err != nil {
+				t.Fatalf("read history: %v", err)
+			}
+			if strings.Contains(strings.Join(historyRaw, "\n"), b64) {
+				t.Error("conversation history in Redis stored the preview frame's bytes")
 			}
 		})
 	}
